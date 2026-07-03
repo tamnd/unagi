@@ -6,6 +6,7 @@ package runtime
 import (
 	"io"
 	"math"
+	"math/big"
 	"os"
 	"strconv"
 	"strings"
@@ -20,14 +21,19 @@ var (
 	Stderr io.Writer = os.Stderr
 )
 
-// Print implements print(*args) with the default sep and end.
+// Print implements print(*args) with the default sep and end. The str
+// conversion can raise: print(2**20000) hits the 4300-digit limit.
 func Print(args ...objects.Object) error {
 	var b strings.Builder
 	for i, a := range args {
 		if i > 0 {
 			b.WriteByte(' ')
 		}
-		b.WriteString(objects.Str(a))
+		s, err := objects.StrE(a)
+		if err != nil {
+			return err
+		}
+		b.WriteString(s)
 	}
 	b.WriteByte('\n')
 	_, err := io.WriteString(Stdout, b.String())
@@ -51,7 +57,11 @@ func PrintKw(args []objects.Object, sep, end objects.Object) error {
 		if i > 0 {
 			b.WriteString(sepS)
 		}
-		b.WriteString(objects.Str(a))
+		s, serr := objects.StrE(a)
+		if serr != nil {
+			return serr
+		}
+		b.WriteString(s)
 	}
 	b.WriteString(endS)
 	_, werr := io.WriteString(Stdout, b.String())
@@ -92,6 +102,13 @@ func Range(args ...objects.Object) (objects.Object, error) {
 	for i, a := range args {
 		v, ok := objects.AsInt(a)
 		if !ok {
+			// CPython handles range(2**100); this runtime keeps range on
+			// int64 and reports the honest overflow instead of wrapping.
+			// Documented divergence in the numbers-tower log.
+			if objects.IsBigInt(a) {
+				return nil, objects.Raise(objects.OverflowError,
+					"Python int too large to convert to C ssize_t")
+			}
 			return nil, objects.Raise(objects.TypeError,
 				"'%s' object cannot be interpreted as an integer", a.TypeName())
 		}
@@ -112,40 +129,89 @@ func Range(args ...objects.Object) (objects.Object, error) {
 	return objects.NewRange(start, stop, step), nil
 }
 
-// StrOf implements str(o).
-func StrOf(o objects.Object) objects.Object { return objects.NewStr(objects.Str(o)) }
+// StrOf implements str(o). It can raise: str(2**20000) exceeds the
+// 4300-digit int conversion limit.
+func StrOf(o objects.Object) (objects.Object, error) {
+	s, err := objects.StrE(o)
+	if err != nil {
+		return nil, err
+	}
+	return objects.NewStr(s), nil
+}
 
-// ReprOf implements repr(o).
-func ReprOf(o objects.Object) objects.Object { return objects.NewStr(objects.Repr(o)) }
+// ReprOf implements repr(o), with the same digit-limit behavior as str.
+func ReprOf(o objects.Object) (objects.Object, error) {
+	s, err := objects.ReprE(o)
+	if err != nil {
+		return nil, err
+	}
+	return objects.NewStr(s), nil
+}
 
 // IntOf implements int(o) for str, float, bool and int arguments.
 func IntOf(o objects.Object) (objects.Object, error) {
 	if s, ok := objects.AsStr(o); ok {
-		trimmed := strings.TrimFunc(s, unicode.IsSpace)
-		v, err := strconv.ParseInt(trimmed, 10, 64)
-		if err != nil {
-			return nil, objects.Raise(objects.ValueError,
-				"invalid literal for int() with base 10: %s", objects.Repr(o))
-		}
-		return objects.NewInt(v), nil
+		return intFromStr(o, s, 10, 10)
+	}
+	if o.TypeName() == "int" {
+		// Ints pass through whole, spilled or not.
+		return o, nil
 	}
 	if i, ok := objects.AsInt(o); ok {
 		return objects.NewInt(i), nil
 	}
 	if f, ok := objects.AsFloat(o); ok {
+		if math.IsInf(f, 0) {
+			return nil, objects.Raise(objects.OverflowError, "cannot convert float infinity to integer")
+		}
 		if math.IsNaN(f) {
 			return nil, objects.Raise(objects.ValueError, "cannot convert float NaN to integer")
 		}
-		return objects.NewInt(int64(math.Trunc(f))), nil
+		t := math.Trunc(f)
+		if t >= -9.2e18 && t <= 9.2e18 {
+			return objects.NewInt(int64(t)), nil
+		}
+		// Probed: int(1e308) is the exact 309-digit value.
+		b, _ := new(big.Float).SetFloat64(t).Int(nil)
+		return objects.NewIntFromBig(b), nil
 	}
 	return nil, objects.Raise(objects.TypeError,
 		"int() argument must be a string, a bytes-like object or a real number, not '%s'", o.TypeName())
+}
+
+// IntOfBase implements int(x, base). Probed check order on 3.14: the
+// base type first, then its range, then x must be a string.
+func IntOfBase(x, base objects.Object) (objects.Object, error) {
+	b, ok := objects.AsInt(base)
+	if !ok {
+		if objects.IsBigInt(base) {
+			// A spilled base clamps through AsSsize_t and lands in the
+			// range error, probed with int("12", 2**100)-alikes.
+			return nil, objects.Raise(objects.ValueError, "int() base must be >= 2 and <= 36, or 0")
+		}
+		return nil, objects.Raise(objects.TypeError,
+			"'%s' object cannot be interpreted as an integer", base.TypeName())
+	}
+	if (b != 0 && b < 2) || b > 36 {
+		return nil, objects.Raise(objects.ValueError, "int() base must be >= 2 and <= 36, or 0")
+	}
+	s, ok := objects.AsStr(x)
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "int() can't convert non-string with explicit base")
+	}
+	digitBase := b
+	if digitBase == 0 {
+		digitBase = 10
+	}
+	return intFromStr(x, s, b, digitBase)
 }
 
 // FloatOf implements float(o) for str, int, bool and float arguments.
 func FloatOf(o objects.Object) (objects.Object, error) {
 	if s, ok := objects.AsStr(o); ok {
 		trimmed := strings.TrimFunc(s, unicode.IsSpace)
+		// Python accepts any Unicode decimal digit: float("１２") is 12.0.
+		trimmed = asciiDigits(trimmed)
 		bad := trimmed == ""
 		// strconv accepts hex float syntax that Python rejects.
 		lower := strings.ToLower(strings.TrimLeft(trimmed, "+-"))
@@ -167,6 +233,14 @@ func FloatOf(o objects.Object) (objects.Object, error) {
 		}
 		return objects.NewFloat(v), nil
 	}
+	if b, ok := objects.AsBigInt(o); ok && objects.IsBigInt(o) {
+		f, _ := new(big.Float).SetInt(b).Float64()
+		if math.IsInf(f, 0) {
+			// Probed: float(10**400) overflows instead of returning inf.
+			return nil, objects.Raise(objects.OverflowError, "int too large to convert to float")
+		}
+		return objects.NewFloat(f), nil
+	}
 	if f, ok := objects.AsFloat(o); ok {
 		return objects.NewFloat(f), nil
 	}
@@ -179,7 +253,18 @@ func BoolOf(o objects.Object) objects.Object { return objects.NewBool(objects.Tr
 
 // Abs implements abs(o) for int, bool and float arguments.
 func Abs(o objects.Object) (objects.Object, error) {
+	if objects.IsBigInt(o) {
+		b, _ := objects.AsBigInt(o)
+		if b.Sign() < 0 {
+			return objects.NewIntFromBig(new(big.Int).Neg(b)), nil
+		}
+		return o, nil
+	}
 	if i, ok := objects.AsInt(o); ok {
+		if i == math.MinInt64 {
+			// abs(-2**63) spills, like every negation of the minimum.
+			return objects.NewIntFromBig(new(big.Int).Neg(big.NewInt(i))), nil
+		}
 		if i < 0 {
 			i = -i
 		}
@@ -223,12 +308,12 @@ func init() {
 			case 0:
 				return objects.NewStr(""), nil
 			case 1:
-				return StrOf(args[0]), nil
+				return StrOf(args[0])
 			}
 			return nil, objects.Raise(objects.TypeError, "str() takes at most 1 argument (%d given)", len(args))
 		}),
 		"repr": objects.NewFunc("repr", 1, func(args []objects.Object) (objects.Object, error) {
-			return ReprOf(args[0]), nil
+			return ReprOf(args[0])
 		}),
 		"int": objects.NewFunc("int", -1, func(args []objects.Object) (objects.Object, error) {
 			switch len(args) {
@@ -236,6 +321,8 @@ func init() {
 				return objects.NewInt(0), nil
 			case 1:
 				return IntOf(args[0])
+			case 2:
+				return IntOfBase(args[0], args[1])
 			}
 			return nil, objects.Raise(objects.TypeError, "int() takes at most 2 arguments (%d given)", len(args))
 		}),

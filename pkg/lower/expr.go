@@ -40,11 +40,12 @@ var cmpOps = map[frontend.CmpKind]string{
 func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 	switch e := e.(type) {
 	case *frontend.IntLit:
-		n, err := strconv.ParseInt(e.Text, 10, 64)
-		if err != nil {
-			return nil, f.e.errf(e.Span(), "integer literal exceeds the M0 int64 range")
+		if n, err := strconv.ParseInt(e.Text, 10, 64); err == nil {
+			return callExpr(f.e.obj("NewInt"), intLit(strconv.FormatInt(n, 10))), nil
 		}
-		return callExpr(f.e.obj("NewInt"), intLit(strconv.FormatInt(n, 10))), nil
+		// The lexer normalizes every literal to decimal text, so anything
+		// past int64 becomes a big int parsed at startup.
+		return callExpr(f.e.obj("NewIntText"), strLit(e.Text)), nil
 	case *frontend.FloatLit:
 		return callExpr(f.e.obj("NewFloat"), floatLit(e.Val)), nil
 	case *frontend.StrLit:

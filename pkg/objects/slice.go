@@ -14,6 +14,16 @@ func slicePart(part Object) (int64, bool, error) {
 	if i, ok := AsInt(part); ok {
 		return i, true, nil
 	}
+	if b, ok := part.(*intObject); ok && b.big != nil {
+		// Probed on 3.14: slice bounds past the index range clamp instead
+		// of raising, so xs[-2**100:2**100] is a full copy. The sentinels
+		// stay clear of int64 edges so the negative-adjust below cannot
+		// overflow.
+		if b.big.Sign() > 0 {
+			return 1 << 62, true, nil
+		}
+		return -(1 << 62), true, nil
+	}
 	// Probed on 3.14: [1][None:'a'] -> TypeError: slice indices must be
 	// integers or None or have an __index__ method. Same text for str and
 	// tuple receivers and for slice assignment and deletion.
@@ -188,6 +198,11 @@ func DelItem(o, key Object) error {
 	case *listObject:
 		i, ok := AsInt(key)
 		if !ok {
+			// Probed: del xs[2**100] raises the same index-fit error as
+			// reading, not the type error.
+			if IsBigInt(key) {
+				return errIndexFit()
+			}
 			// Probed on 3.14: del [1][None] -> TypeError: list indices
 			// must be integers or slices, not NoneType. No quotes around
 			// the type name, unlike the string-index message.

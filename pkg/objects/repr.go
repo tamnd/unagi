@@ -89,41 +89,71 @@ func strRepr(s string) string {
 }
 
 func reprSeq(elts []Object, open, close string) string {
+	s, _ := reprSeqCore(elts, open, close, false)
+	return s
+}
+
+func reprSeqCore(elts []Object, open, close string, strict bool) (string, error) {
 	var b strings.Builder
 	b.WriteString(open)
 	for i, e := range elts {
 		if i > 0 {
 			b.WriteString(", ")
 		}
-		b.WriteString(Repr(e))
+		s, err := reprCore(e, strict)
+		if err != nil {
+			return "", err
+		}
+		b.WriteString(s)
 	}
 	b.WriteString(close)
-	return b.String()
+	return b.String(), nil
 }
 
-// Repr returns the Python repr of an object.
+// Repr returns the Python repr of an object. This infallible form serves
+// error messages and internal rendering; it ignores the 4300-digit int
+// conversion limit, which only the user-visible boundaries enforce.
 func Repr(o Object) string {
+	s, _ := reprCore(o, false)
+	return s
+}
+
+// ReprE is repr() as user code reaches it: identical to Repr except that
+// an int (anywhere in a container tree) past the 4300-digit conversion
+// limit raises the probed ValueError.
+func ReprE(o Object) (string, error) {
+	return reprCore(o, true)
+}
+
+func reprCore(o Object, strict bool) (string, error) {
 	switch x := o.(type) {
 	case *noneObject:
-		return "None"
+		return "None", nil
 	case *boolObject:
 		if x.v {
-			return "True"
+			return "True", nil
 		}
-		return "False"
+		return "False", nil
 	case *intObject:
-		return strconv.FormatInt(x.v, 10)
+		if strict {
+			return intDecimal(x)
+		}
+		return intDecimalLoose(x), nil
 	case *floatObject:
-		return floatRepr(x.v)
+		return floatRepr(x.v), nil
 	case *strObject:
-		return strRepr(x.v)
+		return strRepr(x.v), nil
 	case *listObject:
-		return reprSeq(x.elts, "[", "]")
+		return reprSeqCore(x.elts, "[", "]", strict)
 	case *tupleObject:
 		if len(x.elts) == 1 {
-			return "(" + Repr(x.elts[0]) + ",)"
+			s, err := reprCore(x.elts[0], strict)
+			if err != nil {
+				return "", err
+			}
+			return "(" + s + ",)", nil
 		}
-		return reprSeq(x.elts, "(", ")")
+		return reprSeqCore(x.elts, "(", ")", strict)
 	case *dictObject:
 		var b strings.Builder
 		b.WriteString("{")
@@ -131,52 +161,80 @@ func Repr(o Object) string {
 			if i > 0 {
 				b.WriteString(", ")
 			}
-			b.WriteString(Repr(e.key))
+			k, err := reprCore(e.key, strict)
+			if err != nil {
+				return "", err
+			}
+			v, err := reprCore(e.val, strict)
+			if err != nil {
+				return "", err
+			}
+			b.WriteString(k)
 			b.WriteString(": ")
-			b.WriteString(Repr(e.val))
+			b.WriteString(v)
 		}
 		b.WriteString("}")
-		return b.String()
+		return b.String(), nil
 	case *setObject:
 		// Probed: repr(set()) is "set()", repr({1,2}) is "{1, 2}".
 		if len(x.elts) == 0 {
-			return "set()"
+			return "set()", nil
 		}
-		return reprSeq(x.elts, "{", "}")
+		return reprSeqCore(x.elts, "{", "}", strict)
 	case *frozensetObject:
 		// Probed: "frozenset()" empty, "frozenset({1, 2})" otherwise.
 		if len(x.elts) == 0 {
-			return "frozenset()"
+			return "frozenset()", nil
 		}
-		return "frozenset(" + reprSeq(x.elts, "{", "}") + ")"
+		s, err := reprSeqCore(x.elts, "{", "}", strict)
+		if err != nil {
+			return "", err
+		}
+		return "frozenset(" + s + ")", nil
 	case *rangeObject:
 		if x.step == 1 {
-			return fmt.Sprintf("range(%d, %d)", x.start, x.stop)
+			return fmt.Sprintf("range(%d, %d)", x.start, x.stop), nil
 		}
-		return fmt.Sprintf("range(%d, %d, %d)", x.start, x.stop, x.step)
+		return fmt.Sprintf("range(%d, %d, %d)", x.start, x.stop, x.step), nil
 	case *funcObject:
-		return fmt.Sprintf("<function %s at %p>", x.name, x)
+		return fmt.Sprintf("<function %s at %p>", x.name, x), nil
 	case *dictKeysObject:
-		return "dict_keys(" + reprSeq(x.d.keySlice(), "[", "]") + ")"
+		return reprSeqCore(x.d.keySlice(), "dict_keys([", "])", strict)
 	case *dictValuesObject:
-		return "dict_values(" + reprSeq(x.d.valSlice(), "[", "]") + ")"
+		return reprSeqCore(x.d.valSlice(), "dict_values([", "])", strict)
 	case *dictItemsObject:
-		return "dict_items(" + reprSeq(x.d.itemSlice(), "[", "]") + ")"
+		return reprSeqCore(x.d.itemSlice(), "dict_items([", "])", strict)
 	case *Exception:
 		// ClassName(args...) with repr-joined args, ValueError('boom').
-		return x.Kind + reprSeq(x.Args, "(", ")")
+		s, err := reprSeqCore(x.Args, "(", ")", strict)
+		if err != nil {
+			return "", err
+		}
+		return x.Kind + s, nil
 	}
-	return fmt.Sprintf("<%s object>", o.TypeName())
+	return fmt.Sprintf("<%s object>", o.TypeName()), nil
 }
 
 // Str returns the Python str of an object. Strings come back raw,
 // exceptions render their message, everything else falls through to Repr.
+// Like Repr, this form skips the 4300-digit int conversion limit.
 func Str(o Object) string {
+	s, _ := strCore(o, false)
+	return s
+}
+
+// StrE is str() as user code reaches it, enforcing the 4300-digit int
+// conversion limit that print, str() and f-strings all hit.
+func StrE(o Object) (string, error) {
+	return strCore(o, true)
+}
+
+func strCore(o Object, strict bool) (string, error) {
 	switch x := o.(type) {
 	case *strObject:
-		return x.v
+		return x.v, nil
 	case *Exception:
-		return x.Text()
+		return x.Text(), nil
 	}
-	return Repr(o)
+	return reprCore(o, strict)
 }

@@ -48,13 +48,16 @@ func TestLenAndConversions(t *testing.T) {
 	_, err = Len(objects.NewInt(1))
 	checkErr(t, "len int", err, "TypeError: object of type 'int' has no len()")
 
-	if got := objects.Str(StrOf(objects.NewFloat(3))); got != "3.0" {
+	sv, _ := StrOf(objects.NewFloat(3))
+	if got := objects.Str(sv); got != "3.0" {
 		t.Errorf("StrOf = %q", got)
 	}
-	if got := objects.Str(StrOf(objects.NewStr("a'b"))); got != "a'b" {
+	sv, _ = StrOf(objects.NewStr("a'b"))
+	if got := objects.Str(sv); got != "a'b" {
 		t.Errorf("StrOf str = %q", got)
 	}
-	if got := objects.Str(ReprOf(objects.NewStr("a'b"))); got != `"a'b"` {
+	rv, _ := ReprOf(objects.NewStr("a'b"))
+	if got := objects.Str(rv); got != `"a'b"` {
 		t.Errorf("ReprOf = %q", got)
 	}
 

@@ -101,7 +101,7 @@ func TestArithmetic(t *testing.T) {
 		{"pow-zeroexp", Pow, NewInt(5), NewInt(0), "1", ""},
 		{"pow-negexp", Pow, NewInt(2), NewInt(-1), "0.5", ""},
 		{"pow-float", Pow, NewFloat(2), NewInt(3), "8.0", ""},
-		{"pow-zeroneg", Pow, NewInt(0), NewInt(-1), "", "ZeroDivisionError: 0.0 cannot be raised to a negative power"},
+		{"pow-zeroneg", Pow, NewInt(0), NewInt(-1), "", "ZeroDivisionError: zero to a negative power"},
 		{"pow-str", Pow, NewStr("a"), NewInt(2), "", "TypeError: unsupported operand type(s) for ** or pow(): 'str' and 'int'"},
 	}
 	for _, tt := range tests {

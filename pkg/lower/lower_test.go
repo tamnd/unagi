@@ -98,6 +98,22 @@ func TestWrongArityLowersToRaise(t *testing.T) {
 	}
 }
 
+// A literal past int64 lowers to a NewIntText call so the emitted program
+// parses it into a big int at startup.
+func TestHugeIntLiteralLowersToText(t *testing.T) {
+	mod := &frontend.Module{Body: []frontend.Stmt{
+		&frontend.ExprStmt{X: call("print", &frontend.IntLit{Text: "99999999999999999999"})},
+	}}
+	src, err := Module(mod, "big.py", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `objects.NewIntText("99999999999999999999")`
+	if !strings.Contains(string(src), want) {
+		t.Errorf("emitted source missing %q:\n%s", want, src)
+	}
+}
+
 func TestCompileErrors(t *testing.T) {
 	cases := []struct {
 		name string
@@ -123,11 +139,6 @@ func TestCompileErrors(t *testing.T) {
 			"attribute read",
 			&frontend.Module{Body: []frontend.Stmt{&frontend.ExprStmt{X: &frontend.Attribute{X: str("s"), Name: "upper"}}}},
 			"attribute access outside a method call",
-		},
-		{
-			"huge int literal",
-			&frontend.Module{Body: []frontend.Stmt{&frontend.ExprStmt{X: call("print", &frontend.IntLit{Text: "99999999999999999999"})}}},
-			"int64 range",
 		},
 		{
 			"nested def",

@@ -17,10 +17,6 @@ import (
 func (f *fnCtx) builtinKwCall(name string, e *frontend.Call) (ast.Expr, error) {
 	// Rejections that need no argument evaluation come first.
 	switch name {
-	case "int":
-		// int(s, base=...) needs the two-argument int, which lands with the
-		// numbers slice.
-		return nil, f.e.errf(e.Span(), "int() with a base is not supported yet")
 	case "print":
 		for _, a := range e.Args {
 			if a.Name != "file" {
@@ -42,6 +38,8 @@ func (f *fnCtx) builtinKwCall(name string, e *frontend.Call) (ast.Expr, error) {
 		return f.printKw(pos, kws, temps)
 	case "str":
 		return f.strKw(pos, kws, temps, e)
+	case "int":
+		return f.intKw(pos, kws, temps)
 	case "sum":
 		return f.sumKw(pos, kws, temps)
 	case "round":
@@ -129,7 +127,40 @@ func (f *fnCtx) strKw(pos []ast.Expr, kws []kwVal, temps []ast.Expr, e *frontend
 	if src == nil {
 		src = pos[0]
 	}
-	return callExpr(sel("runtime", "StrOf"), src), nil
+	tmp := f.tmpVar()
+	f.fallible(tmp, sel("runtime", "StrOf"), src)
+	return ident(tmp), nil
+}
+
+// intKw lowers int(x, base=...). Probed: base is the only keyword, x is
+// positional-only so int(x="12") gets the unexpected-keyword answer, and
+// int(base=10) with no string says "int() missing string argument".
+func (f *fnCtx) intKw(pos []ast.Expr, kws []kwVal, temps []ast.Expr) (ast.Expr, error) {
+	if total := len(pos) + len(kws); total > 2 {
+		return f.raiseBindError(temps, fmt.Sprintf("int() takes at most 2 arguments (%d given)", total)), nil
+	}
+	var baseV ast.Expr
+	for _, kw := range kws {
+		if kw.name != "base" {
+			return f.raiseBindError(temps, f.unexpectedKw("int", kw.name, []string{"base"})), nil
+		}
+		baseV = kw.val
+	}
+	if len(pos) == 2 {
+		// Two positionals plus base already tripped the count check, so a
+		// second positional here means base came by position.
+		baseV = pos[1]
+	}
+	if len(pos) == 0 {
+		return f.raiseBindError(temps, "int() missing string argument"), nil
+	}
+	tmp := f.tmpVar()
+	if baseV != nil {
+		f.fallible(tmp, sel("runtime", "IntOfBase"), pos[0], baseV)
+	} else {
+		f.fallible(tmp, sel("runtime", "IntOf"), pos[0])
+	}
+	return ident(tmp), nil
 }
 
 // sumKw lowers sum(iterable, start=...). Probed: the count checks fire

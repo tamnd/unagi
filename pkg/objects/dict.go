@@ -2,6 +2,7 @@ package objects
 
 import (
 	"math"
+	"math/big"
 	"strconv"
 	"strings"
 )
@@ -45,11 +46,17 @@ func hashKey(o Object) (string, error) {
 		}
 		return "i0", nil
 	case *intObject:
-		return "i" + strconv.FormatInt(x.v, 10), nil
+		return "i" + intDecimalLoose(x), nil
 	case *floatObject:
 		v := x.v
 		if v == math.Trunc(v) && v >= math.MinInt64 && v < 9223372036854775808.0 {
 			return "i" + strconv.FormatInt(int64(v), 10), nil
+		}
+		if v == math.Trunc(v) && !math.IsInf(v, 0) {
+			// An integral float past int64 must collide with the equal
+			// spilled int; the conversion through big.Float is exact.
+			b, _ := new(big.Float).SetFloat64(v).Int(nil)
+			return "i" + b.String(), nil
 		}
 		return "f" + strconv.FormatUint(math.Float64bits(v), 16), nil
 	case *strObject:

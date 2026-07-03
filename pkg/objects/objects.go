@@ -3,7 +3,10 @@
 // CPython 3.14 is the oracle for results, reprs and error messages.
 package objects
 
-import "fmt"
+import (
+	"fmt"
+	"math/big"
+)
 
 // Object is the universal boxed value.
 type Object interface {
@@ -110,7 +113,12 @@ type boolObject struct{ v bool }
 
 func (*boolObject) TypeName() string { return "bool" }
 
-type intObject struct{ v int64 }
+// intObject holds small values in v; big is non-nil exactly when the
+// value does not fit int64, and then v is zero. See int.go.
+type intObject struct {
+	v   int64
+	big *big.Int
+}
 
 func (*intObject) TypeName() string { return "int" }
 
@@ -223,10 +231,15 @@ func Call(f Object, args []Object) (Object, error) {
 	return fn.fn(args)
 }
 
-// AsInt extracts an integer value from an int or bool object.
+// AsInt extracts an int64-sized integer value from an int or bool
+// object. Spilled big ints return false; callers that must handle any
+// magnitude go through AsBigInt.
 func AsInt(o Object) (int64, bool) {
 	switch x := o.(type) {
 	case *intObject:
+		if x.big != nil {
+			return 0, false
+		}
 		return x.v, true
 	case *boolObject:
 		if x.v {
@@ -238,11 +251,18 @@ func AsInt(o Object) (int64, bool) {
 }
 
 // AsFloat extracts a numeric value from a float, int or bool object.
+// A spilled int converts through big.Float and comes back as an
+// infinity when it is out of range; arithmetic paths that must raise
+// instead use asFloatChecked.
 func AsFloat(o Object) (float64, bool) {
 	switch x := o.(type) {
 	case *floatObject:
 		return x.v, true
 	case *intObject:
+		if x.big != nil {
+			f, _ := new(big.Float).SetInt(x.big).Float64()
+			return f, true
+		}
 		return float64(x.v), true
 	case *boolObject:
 		if x.v {

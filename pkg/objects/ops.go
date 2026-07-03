@@ -2,6 +2,8 @@ package objects
 
 import (
 	"math"
+	"math/big"
+	"math/bits"
 	"strings"
 )
 
@@ -13,7 +15,8 @@ func Truth(o Object) bool {
 	case *boolObject:
 		return x.v
 	case *intObject:
-		return x.v != 0
+		// A spilled big int is never zero by the normalization invariant.
+		return x.big != nil || x.v != 0
 	case *floatObject:
 		return x.v != 0
 	case *strObject:
@@ -49,7 +52,13 @@ func Not(o Object) Object { return NewBool(!Truth(o)) }
 // Neg implements unary minus.
 func Neg(o Object) (Object, error) {
 	if i, ok := AsInt(o); ok {
+		if i == math.MinInt64 {
+			return NewIntFromBig(new(big.Int).Neg(big.NewInt(i))), nil
+		}
 		return NewInt(-i), nil
+	}
+	if b, ok := AsBigInt(o); ok {
+		return NewIntFromBig(new(big.Int).Neg(b)), nil
 	}
 	if f, ok := o.(*floatObject); ok {
 		return NewFloat(-f.v), nil
@@ -61,6 +70,9 @@ func Neg(o Object) (Object, error) {
 func Pos(o Object) (Object, error) {
 	if i, ok := AsInt(o); ok {
 		return NewInt(i), nil
+	}
+	if x, ok := o.(*intObject); ok {
+		return x, nil
 	}
 	if f, ok := o.(*floatObject); ok {
 		return NewFloat(f.v), nil
@@ -79,10 +91,22 @@ func bothInt(a, b Object) (int64, int64, bool) {
 	return ai, bi, aok && bok
 }
 
-func bothFloat(a, b Object) (float64, float64, bool) {
-	af, aok := AsFloat(a)
-	bf, bok := AsFloat(b)
-	return af, bf, aok && bok
+// bothFloat resolves a mixed float operation's operands. It reports
+// ok=false for a non-numeric pair and a non-nil error when a spilled
+// int is too large for float64, which CPython raises as OverflowError.
+func bothFloat(a, b Object) (float64, float64, bool, error) {
+	af, aok, err := asFloatChecked(a)
+	if !aok {
+		return 0, 0, false, nil
+	}
+	bf, bok, berr := asFloatChecked(b)
+	if !bok {
+		return 0, 0, false, nil
+	}
+	if err == nil {
+		err = berr
+	}
+	return af, bf, true, err
 }
 
 // Add implements the + operator.
@@ -111,9 +135,17 @@ func Add(a, b Object) (Object, error) {
 		return nil, Raise(TypeError, "can only concatenate tuple (not %q) to tuple", b.TypeName())
 	}
 	if ai, bi, ok := bothInt(a, b); ok {
-		return NewInt(ai + bi), nil
+		if r, fits := addChk(ai, bi); fits {
+			return NewInt(r), nil
+		}
 	}
-	if af, bf, ok := bothFloat(a, b); ok {
+	if x, y, ok := bothBig(a, b); ok {
+		return NewIntFromBig(new(big.Int).Add(x, y)), nil
+	}
+	if af, bf, ok, err := bothFloat(a, b); ok {
+		if err != nil {
+			return nil, err
+		}
 		return NewFloat(af + bf), nil
 	}
 	return nil, unsupported("+", a, b)
@@ -132,9 +164,17 @@ func Sub(a, b Object) (Object, error) {
 		return out, nil
 	}
 	if ai, bi, ok := bothInt(a, b); ok {
-		return NewInt(ai - bi), nil
+		if r, fits := subChk(ai, bi); fits {
+			return NewInt(r), nil
+		}
 	}
-	if af, bf, ok := bothFloat(a, b); ok {
+	if x, y, ok := bothBig(a, b); ok {
+		return NewIntFromBig(new(big.Int).Sub(x, y)), nil
+	}
+	if af, bf, ok, err := bothFloat(a, b); ok {
+		if err != nil {
+			return nil, err
+		}
 		return NewFloat(af - bf), nil
 	}
 	return nil, unsupported("-", a, b)
@@ -177,33 +217,67 @@ func Mul(a, b Object) (Object, error) {
 		if n, ok := AsInt(b); ok {
 			return repeatSeq(a, n), nil
 		}
+		if IsBigInt(b) {
+			return nil, Raise(OverflowError, "cannot fit 'int' into an index-sized integer")
+		}
 		return nil, Raise(TypeError, "can't multiply sequence by non-int of type '%s'", b.TypeName())
 	}
 	if isSequence(b) {
 		if n, ok := AsInt(a); ok {
 			return repeatSeq(b, n), nil
 		}
+		if IsBigInt(a) {
+			return nil, Raise(OverflowError, "cannot fit 'int' into an index-sized integer")
+		}
 		return nil, Raise(TypeError, "can't multiply sequence by non-int of type '%s'", a.TypeName())
 	}
 	if ai, bi, ok := bothInt(a, b); ok {
-		return NewInt(ai * bi), nil
+		if r, fits := mulChk(ai, bi); fits {
+			return NewInt(r), nil
+		}
 	}
-	if af, bf, ok := bothFloat(a, b); ok {
+	if x, y, ok := bothBig(a, b); ok {
+		return NewIntFromBig(new(big.Int).Mul(x, y)), nil
+	}
+	if af, bf, ok, err := bothFloat(a, b); ok {
+		if err != nil {
+			return nil, err
+		}
 		return NewFloat(af * bf), nil
 	}
 	return nil, unsupported("*", a, b)
 }
 
 // TrueDiv implements the / operator. The result is always a float.
+// Two big ints divide exactly through big.Rat, matching CPython's
+// correctly rounded int/int quotient past the float64 range.
 func TrueDiv(a, b Object) (Object, error) {
-	af, bf, ok := bothFloat(a, b)
+	if ai, bi, ok := bothInt(a, b); ok && ai <= 1<<53 && ai >= -(1<<53) && bi <= 1<<53 && bi >= -(1<<53) {
+		if bi == 0 {
+			return nil, Raise(ZeroDivisionError, "division by zero")
+		}
+		// Both operands convert exactly, so IEEE division is already
+		// the correctly rounded quotient.
+		return NewFloat(float64(ai) / float64(bi)), nil
+	}
+	if x, y, ok := bothBig(a, b); ok {
+		if y.Sign() == 0 {
+			return nil, Raise(ZeroDivisionError, "division by zero")
+		}
+		f, _ := new(big.Rat).SetFrac(x, y).Float64()
+		if math.IsInf(f, 0) {
+			return nil, Raise(OverflowError, "integer division result too large for a float")
+		}
+		return NewFloat(f), nil
+	}
+	af, bf, ok, err := bothFloat(a, b)
 	if !ok {
 		return nil, unsupported("/", a, b)
 	}
+	if err != nil {
+		return nil, err
+	}
 	if bf == 0 {
-		if _, _, ints := bothInt(a, b); ints {
-			return nil, Raise(ZeroDivisionError, "division by zero")
-		}
 		return nil, Raise(ZeroDivisionError, "division by zero")
 	}
 	return NewFloat(af / bf), nil
@@ -231,9 +305,22 @@ func FloorDiv(a, b Object) (Object, error) {
 		if bi == 0 {
 			return nil, Raise(ZeroDivisionError, "division by zero")
 		}
-		return NewInt(floorDivInt(ai, bi)), nil
+		// The only overflowing quotient is MinInt64 // -1.
+		if ai != math.MinInt64 || bi != -1 {
+			return NewInt(floorDivInt(ai, bi)), nil
+		}
 	}
-	if af, bf, ok := bothFloat(a, b); ok {
+	if x, y, ok := bothBig(a, b); ok {
+		if y.Sign() == 0 {
+			return nil, Raise(ZeroDivisionError, "division by zero")
+		}
+		q, _ := bigFloorDivMod(x, y)
+		return NewIntFromBig(q), nil
+	}
+	if af, bf, ok, err := bothFloat(a, b); ok {
+		if err != nil {
+			return nil, err
+		}
 		if bf == 0 {
 			return nil, Raise(ZeroDivisionError, "division by zero")
 		}
@@ -254,7 +341,17 @@ func Mod(a, b Object) (Object, error) {
 		}
 		return NewInt(floorModInt(ai, bi)), nil
 	}
-	if af, bf, ok := bothFloat(a, b); ok {
+	if x, y, ok := bothBig(a, b); ok {
+		if y.Sign() == 0 {
+			return nil, Raise(ZeroDivisionError, "division by zero")
+		}
+		_, r := bigFloorDivMod(x, y)
+		return NewIntFromBig(r), nil
+	}
+	if af, bf, ok, err := bothFloat(a, b); ok {
+		if err != nil {
+			return nil, err
+		}
 		if bf == 0 {
 			return nil, Raise(ZeroDivisionError, "division by zero")
 		}
@@ -281,22 +378,36 @@ func ipow(base, exp int64) int64 {
 	return r
 }
 
-// Pow implements the ** operator. A negative exponent gives a float.
+// Pow implements the ** operator. A negative exponent gives a float,
+// and an int result past int64 spills to big. Probed 3.14 wordings:
+// 0 ** -1 and 0.0 ** -1 both say "zero to a negative power", and a
+// float result past the double range is errno-flavored OverflowError.
 func Pow(a, b Object) (Object, error) {
-	if ai, bi, ok := bothInt(a, b); ok {
-		if bi >= 0 {
-			return NewInt(ipow(ai, bi)), nil
+	if isIntish(a) && isIntish(b) {
+		x, _ := AsBigInt(a)
+		y, _ := AsBigInt(b)
+		if y.Sign() >= 0 {
+			if ai, bi, ok := bothInt(a, b); ok && smallPowFits(ai, bi) {
+				return NewInt(ipow(ai, bi)), nil
+			}
+			return NewIntFromBig(new(big.Int).Exp(x, y, nil)), nil
 		}
-		if ai == 0 {
-			return nil, Raise(ZeroDivisionError, "0.0 cannot be raised to a negative power")
+		if x.Sign() == 0 {
+			return nil, Raise(ZeroDivisionError, "zero to a negative power")
 		}
-		return NewFloat(math.Pow(float64(ai), float64(bi))), nil
 	}
-	if af, bf, ok := bothFloat(a, b); ok {
-		if af == 0 && bf < 0 {
-			return nil, Raise(ZeroDivisionError, "0.0 cannot be raised to a negative power")
+	if af, bf, ok, err := bothFloat(a, b); ok {
+		if err != nil {
+			return nil, err
 		}
-		return NewFloat(math.Pow(af, bf)), nil
+		if af == 0 && bf < 0 {
+			return nil, Raise(ZeroDivisionError, "zero to a negative power")
+		}
+		r := math.Pow(af, bf)
+		if math.IsInf(r, 0) && !math.IsInf(af, 0) && !math.IsInf(bf, 0) {
+			return nil, Raise(OverflowError, "(34, 'Result too large')")
+		}
+		return NewFloat(r), nil
 	}
 	return nil, Raise(TypeError, "unsupported operand type(s) for ** or pow(): '%s' and '%s'",
 		a.TypeName(), b.TypeName())
@@ -322,6 +433,9 @@ func BitOr(a, b Object) (Object, error) {
 	if ai, bi, ok := bothInt(a, b); ok {
 		return NewInt(ai | bi), nil
 	}
+	if x, y, ok := bothBig(a, b); ok {
+		return NewIntFromBig(new(big.Int).Or(x, y)), nil
+	}
 	return nil, unsupported("|", a, b)
 }
 
@@ -344,6 +458,9 @@ func BitXor(a, b Object) (Object, error) {
 	}
 	if ai, bi, ok := bothInt(a, b); ok {
 		return NewInt(ai ^ bi), nil
+	}
+	if x, y, ok := bothBig(a, b); ok {
+		return NewIntFromBig(new(big.Int).Xor(x, y)), nil
 	}
 	return nil, unsupported("^", a, b)
 }
@@ -368,40 +485,81 @@ func BitAnd(a, b Object) (Object, error) {
 	if ai, bi, ok := bothInt(a, b); ok {
 		return NewInt(ai & bi), nil
 	}
+	if x, y, ok := bothBig(a, b); ok {
+		return NewIntFromBig(new(big.Int).And(x, y)), nil
+	}
 	return nil, unsupported("&", a, b)
 }
 
 // LShift implements the << operator. Probed: True << True is int 2, so
-// shifts never keep bool. Bits shifted past 63 fall off, the same
-// wrap-at-int64 stance the arithmetic takes.
+// shifts never keep bool. Overflowing bits promote to big; a shift
+// count past int64 raises unless the value is zero, in CPython's
+// "too many digits in integer" wording.
 func LShift(a, b Object) (Object, error) {
-	ai, bi, ok := bothInt(a, b)
-	if !ok {
+	if !isIntish(a) || !isIntish(b) {
 		return nil, unsupported("<<", a, b)
 	}
+	x, _ := AsBigInt(a)
+	if IsBigInt(b) {
+		y, _ := AsBigInt(b)
+		if y.Sign() < 0 {
+			return nil, Raise(ValueError, "negative shift count")
+		}
+		if x.Sign() == 0 {
+			return NewInt(0), nil
+		}
+		return nil, Raise(OverflowError, "too many digits in integer")
+	}
+	bi, _ := AsInt(b)
 	if bi < 0 {
 		return nil, Raise(ValueError, "negative shift count")
 	}
-	if bi >= 64 {
-		return NewInt(0), nil
+	if ai, ok := AsInt(a); ok && bi < 63 && int64(bits.Len64(magnitude(ai)))+bi <= 62 {
+		return NewInt(ai << uint(bi)), nil
 	}
-	return NewInt(ai << uint(bi)), nil
+	return NewIntFromBig(new(big.Int).Lsh(x, uint(bi))), nil
+}
+
+func magnitude(v int64) uint64 {
+	if v < 0 {
+		return uint64(-(v + 1)) + 1
+	}
+	return uint64(v)
 }
 
 // RShift implements the >> operator with arithmetic (sign-filling) shift,
-// which matches Python's floor semantics for negative ints.
+// which matches Python's floor semantics for negative ints. A shift
+// count past int64 leaves only the sign: 0 or -1.
 func RShift(a, b Object) (Object, error) {
-	ai, bi, ok := bothInt(a, b)
-	if !ok {
+	if !isIntish(a) || !isIntish(b) {
 		return nil, unsupported(">>", a, b)
 	}
+	if IsBigInt(b) {
+		y, _ := AsBigInt(b)
+		if y.Sign() < 0 {
+			return nil, Raise(ValueError, "negative shift count")
+		}
+		x, _ := AsBigInt(a)
+		if x.Sign() < 0 {
+			return NewInt(-1), nil
+		}
+		return NewInt(0), nil
+	}
+	bi, _ := AsInt(b)
 	if bi < 0 {
 		return nil, Raise(ValueError, "negative shift count")
 	}
-	if bi >= 64 {
-		bi = 63
+	if ai, ok := AsInt(a); ok {
+		if bi >= 64 {
+			bi = 63
+		}
+		return NewInt(ai >> uint(bi)), nil
 	}
-	return NewInt(ai >> uint(bi)), nil
+	x, _ := AsBigInt(a)
+	if bi > int64(x.BitLen())+1 {
+		bi = int64(x.BitLen()) + 1
+	}
+	return NewIntFromBig(new(big.Int).Rsh(x, uint(bi))), nil
 }
 
 // Invert implements unary ~. Probed: ~True is int -2, ~ on bool never
@@ -409,6 +567,9 @@ func RShift(a, b Object) (Object, error) {
 func Invert(o Object) (Object, error) {
 	if i, ok := AsInt(o); ok {
 		return NewInt(-i - 1), nil
+	}
+	if b, ok := AsBigInt(o); ok {
+		return NewIntFromBig(new(big.Int).Not(b)), nil
 	}
 	return nil, Raise(TypeError, "bad operand type for unary ~: '%s'", o.TypeName())
 }
@@ -431,17 +592,12 @@ var cmpSym = map[CmpOp]string{
 
 // equals implements Python == without ever raising.
 func equals(a, b Object) bool {
-	if af, aok := AsFloat(a); aok {
-		bf, bok := AsFloat(b)
-		if !bok {
-			return false
-		}
-		if ai, ok := AsInt(a); ok {
-			if bi, ok2 := AsInt(b); ok2 {
-				return ai == bi
-			}
-		}
-		return af == bf
+	if c, unordered, ok := numCmp(a, b); ok {
+		return !unordered && c == 0
+	}
+	// One side numeric, the other not: unequal, never an error.
+	if isNumeric(a) != isNumeric(b) {
+		return false
 	}
 	switch x := a.(type) {
 	case *noneObject:
@@ -533,16 +689,11 @@ func cmpF(a, b float64) int {
 // order evaluates an ordering comparison, raising TypeError for
 // incompatible operand types with the real operator symbol.
 func order(op CmpOp, a, b Object) (bool, error) {
-	if af, aok := AsFloat(a); aok {
-		if bf, bok := AsFloat(b); bok {
-			if ai, ok := AsInt(a); ok {
-				if bi, ok2 := AsInt(b); ok2 {
-					return applyOrder(op, cmpI(ai, bi)), nil
-				}
-			}
-			return applyOrder(op, cmpF(af, bf)), nil
-		}
-	} else if x, ok := a.(*strObject); ok {
+	if c, unordered, ok := numCmp(a, b); ok {
+		// A NaN operand loses every ordering, like CPython.
+		return !unordered && applyOrder(op, c), nil
+	}
+	if x, ok := a.(*strObject); ok {
 		if y, ok2 := b.(*strObject); ok2 {
 			return applyOrder(op, strings.Compare(x.v, y.v)), nil
 		}
@@ -618,6 +769,10 @@ func Contains(container, item Object) (Object, error) {
 	case *frozensetObject:
 		return setContains(&x.setCore, item)
 	case *rangeObject:
+		if IsBigInt(item) {
+			// A spilled int can never land in an int64-backed range.
+			return False, nil
+		}
 		f, ok := AsFloat(item)
 		if !ok || f != math.Trunc(f) {
 			return False, nil
@@ -649,6 +804,12 @@ func seqContains(elts []Object, item Object) Object {
 // Is implements the `is` operator by object identity.
 func Is(a, b Object) Object { return NewBool(a == b) }
 
+// errIndexFit is the probed 3.14 wording for an index past ssize_t:
+// subscripts raise it as IndexError, repeat counts as OverflowError.
+func errIndexFit() error {
+	return Raise(IndexError, "cannot fit 'int' into an index-sized integer")
+}
+
 // seqIndex normalizes a possibly negative index against length n.
 func seqIndex(i int64, n int, msg string) (int, error) {
 	if i < 0 {
@@ -666,6 +827,9 @@ func GetItem(o, key Object) (Object, error) {
 	case *strObject:
 		i, ok := AsInt(key)
 		if !ok {
+			if IsBigInt(key) {
+				return nil, errIndexFit()
+			}
 			return nil, Raise(TypeError, "string indices must be integers, not '%s'", key.TypeName())
 		}
 		runes := []rune(x.v)
@@ -677,6 +841,9 @@ func GetItem(o, key Object) (Object, error) {
 	case *listObject:
 		i, ok := AsInt(key)
 		if !ok {
+			if IsBigInt(key) {
+				return nil, errIndexFit()
+			}
 			// Probed on 3.14: [1][None] -> TypeError: list indices must be
 			// integers or slices, not NoneType. List, tuple and range spell
 			// the type bare; only the string message quotes it.
@@ -690,6 +857,9 @@ func GetItem(o, key Object) (Object, error) {
 	case *tupleObject:
 		i, ok := AsInt(key)
 		if !ok {
+			if IsBigInt(key) {
+				return nil, errIndexFit()
+			}
 			return nil, Raise(TypeError, "tuple indices must be integers or slices, not %s", key.TypeName())
 		}
 		j, err := seqIndex(i, len(x.elts), "tuple index out of range")
@@ -702,6 +872,9 @@ func GetItem(o, key Object) (Object, error) {
 	case *rangeObject:
 		i, ok := AsInt(key)
 		if !ok {
+			if IsBigInt(key) {
+				return nil, errIndexFit()
+			}
 			return nil, Raise(TypeError, "range indices must be integers or slices, not %s", key.TypeName())
 		}
 		n := x.length()
@@ -722,6 +895,9 @@ func SetItem(o, key, val Object) error {
 	case *listObject:
 		i, ok := AsInt(key)
 		if !ok {
+			if IsBigInt(key) {
+				return errIndexFit()
+			}
 			// Probed on 3.14: xs[None] = 1 spells the type bare too.
 			return Raise(TypeError, "list indices must be integers or slices, not %s", key.TypeName())
 		}

@@ -9,6 +9,7 @@ package objects
 import (
 	"fmt"
 	"math"
+	"math/big"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -126,7 +127,7 @@ func percentFormat(format string, right Object) (Object, error) {
 		width := 0
 		if i < len(rs) && rs[i] == '*' {
 			i++
-			n, err := starArg(st)
+			n, err := starArg(st, "Python int too large to convert to C ssize_t")
 			if err != nil {
 				return nil, err
 			}
@@ -150,7 +151,8 @@ func percentFormat(format string, right Object) (Object, error) {
 			prec = 0
 			if i < len(rs) && rs[i] == '*' {
 				i++
-				n, err := starArg(st)
+				// Probed: a big * precision says C int, not ssize_t.
+				n, err := starArg(st, "Python int too large to convert to C int")
 				if err != nil {
 					return nil, err
 				}
@@ -196,13 +198,19 @@ func percentFormat(format string, right Object) (Object, error) {
 		switch c {
 		case 's', 'r', 'a':
 			var text string
+			var terr error
 			switch c {
 			case 's':
-				text = Str(v)
+				text, terr = StrE(v)
 			case 'r':
-				text = Repr(v)
+				text, terr = ReprE(v)
 			default:
-				text = asciiEscape(Repr(v))
+				text, terr = ReprE(v)
+				text = asciiEscape(text)
+			}
+			if terr != nil {
+				// Probed: "%s" % 2**20000 hits the 4300-digit limit.
+				return nil, terr
 			}
 			// Precision truncates; sign, # and 0 flags are silently
 			// ignored for the string conversions. Probed on 3.14:
@@ -223,19 +231,19 @@ func percentFormat(format string, right Object) (Object, error) {
 			// Probed on 3.14: "%.3c" % 65 is 'A', "%05c" % 65 is '    A'.
 			out.WriteString(padPercent("", "", text, width, left, false))
 		case 'd', 'i', 'u':
-			n, derr := percentDecimal(v, c)
+			neg, digits, derr := percentDecimal(v, c)
 			if derr != nil {
 				return nil, derr
 			}
-			out.WriteString(renderPercentInt(n, c, alt, prec, sign, width, left, zero))
+			out.WriteString(renderPercentInt(neg, digits, c, alt, prec, sign, width, left, zero))
 		case 'o', 'x', 'X':
-			n, ok := AsInt(v)
+			neg, digits, ok := percentBaseDigits(v, c)
 			if !ok {
 				// Probed on 3.14: "%x" % 3.7, floats are not truncated
 				// here the way %d does.
 				return nil, Raise(TypeError, "%%%c format: an integer is required, not %s", c, v.TypeName())
 			}
-			out.WriteString(renderPercentInt(n, c, alt, prec, sign, width, left, zero))
+			out.WriteString(renderPercentInt(neg, digits, c, alt, prec, sign, width, left, zero))
 		case 'e', 'E', 'f', 'F', 'g', 'G':
 			f, ok := AsFloat(v)
 			if !ok {
@@ -281,56 +289,96 @@ func percentFormat(format string, right Object) (Object, error) {
 
 // starArg fetches a * width or precision argument, which must be an int
 // or bool. Probed on 3.14: "%*d" % (5.0, 42) is "* wants int" while
-// True works as 1.
-func starArg(st *percentState) (int, error) {
+// True works as 1. overflowMsg is the wording for a spilled int, which
+// differs between the width (ssize_t) and precision (int) positions.
+func starArg(st *percentState, overflowMsg string) (int, error) {
 	v, err := st.next()
 	if err != nil {
 		return 0, err
 	}
 	n, ok := AsInt(v)
 	if !ok {
+		if IsBigInt(v) {
+			return 0, Raise(OverflowError, "%s", overflowMsg)
+		}
 		return 0, Raise(TypeError, "* wants int")
 	}
 	return int(n), nil
 }
 
-// percentDecimal pulls the integer for %d %i %u. Floats truncate toward
-// zero; probed on 3.14, "%d" % 3.7 is '3' and "%d" % -3.7 is '-3'.
-func percentDecimal(v Object, c rune) (int64, error) {
+// percentDecimal pulls the digits for %d %i %u as sign and magnitude.
+// Floats truncate toward zero; probed on 3.14, "%d" % 3.7 is '3' and
+// "%d" % -3.7 is '-3'. A spilled int hits the 4300-digit limit here,
+// "%d" % 2**20000 raises, and a huge float renders exactly, "%d" % 1e308
+// is the full 309-digit value.
+func percentDecimal(v Object, c rune) (bool, string, error) {
+	if x, ok := v.(*intObject); ok && x.big != nil {
+		s, err := intDecimal(x)
+		if err != nil {
+			return false, "", err
+		}
+		return x.big.Sign() < 0, strings.TrimPrefix(s, "-"), nil
+	}
 	if n, ok := AsInt(v); ok {
-		return n, nil
+		neg := n < 0
+		u := uint64(n)
+		if neg {
+			u = -u
+		}
+		return neg, strconv.FormatUint(u, 10), nil
 	}
 	if f, ok := v.(*floatObject); ok {
 		if math.IsInf(f.v, 0) {
-			return 0, Raise(OverflowError, "cannot convert float infinity to integer")
+			return false, "", Raise(OverflowError, "cannot convert float infinity to integer")
 		}
 		if math.IsNaN(f.v) {
-			return 0, Raise(ValueError, "cannot convert float NaN to integer")
+			return false, "", Raise(ValueError, "cannot convert float NaN to integer")
 		}
-		return int64(math.Trunc(f.v)), nil
+		t := math.Trunc(f.v)
+		if t >= -9.2e18 && t <= 9.2e18 {
+			n := int64(t)
+			neg := n < 0
+			u := uint64(n)
+			if neg {
+				u = -u
+			}
+			return neg, strconv.FormatUint(u, 10), nil
+		}
+		b, _ := new(big.Float).SetFloat64(t).Int(nil)
+		return b.Sign() < 0, new(big.Int).Abs(b).String(), nil
 	}
 	// The message names the conversion actually used: "%i format: ...".
-	return 0, Raise(TypeError, "%%%c format: a real number is required, not %s", c, v.TypeName())
+	return false, "", Raise(TypeError, "%%%c format: a real number is required, not %s", c, v.TypeName())
+}
+
+// percentBaseDigits pulls sign and magnitude for %o %x %X, which take
+// ints of any size; probed, "%x" % 2**20000 is exempt from the digit
+// limit. ok is false for every non-int, floats included.
+func percentBaseDigits(v Object, c rune) (bool, string, bool) {
+	base := 8
+	if c == 'x' || c == 'X' {
+		base = 16
+	}
+	if x, ok := v.(*intObject); ok && x.big != nil {
+		return x.big.Sign() < 0, new(big.Int).Abs(x.big).Text(base), true
+	}
+	n, ok := AsInt(v)
+	if !ok {
+		return false, "", false
+	}
+	neg := n < 0
+	u := uint64(n)
+	if neg {
+		u = -u
+	}
+	return neg, strconv.FormatUint(u, base), true
 }
 
 // renderPercentInt renders d i u o x X with sign-magnitude negatives,
 // precision zero-extension and the alternate prefixes. Unlike C printf
 // the 0 flag still applies with a precision: probed on 3.14,
 // "%08.5d" % 42 is '00000042'.
-func renderPercentInt(n int64, c rune, alt bool, prec int, sign rune, width int, left, zero bool) string {
-	neg := n < 0
-	u := uint64(n)
-	if neg {
-		u = -u
-	}
-	base := 10
-	switch c {
-	case 'o':
-		base = 8
-	case 'x', 'X':
-		base = 16
-	}
-	digits := strconv.FormatUint(u, base)
+func renderPercentInt(neg bool, digits string, c rune, alt bool, prec int, sign rune, width int, left, zero bool) string {
 	if c == 'X' {
 		digits = strings.ToUpper(digits)
 	}
@@ -354,6 +402,10 @@ func renderPercentInt(n int64, c rune, alt bool, prec int, sign rune, width int,
 
 // percentChar renders %c: a code point or a one-character string.
 func percentChar(v Object) (string, error) {
+	// Probed: "%c" % 2**100 gives the range error, not a type error.
+	if IsBigInt(v) {
+		return "", Raise(OverflowError, "%%c arg not in range(0x110000)")
+	}
 	if n, ok := AsInt(v); ok {
 		if n < 0 || n > 0x10FFFF {
 			// Probed on 3.14: "%c" % -1 and "%c" % 0x110000.
