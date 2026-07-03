@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+name 'f' is not defined
+11
+12 5 6
+<function f at 0xADDR>
+True True True
+15
+16
+700
+two 1
+'int' object is not callable
+11 4
+1
+== exception:
+== stderr:

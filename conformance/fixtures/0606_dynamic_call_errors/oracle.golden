@@ -1,0 +1,24 @@
+== exit: 0
+== stdout:
+f() missing 1 required positional argument: 'a'
+f() takes from 1 to 2 positional arguments but 3 were given
+f() takes from 1 to 2 positional arguments but 3 positional arguments (and 1 keyword-only argument) were given
+f() got some positional-only arguments passed as keyword arguments: 'a'
+f() got an unexpected keyword argument 'cout'. Did you mean 'count'?
+f() got multiple values for argument 'count'
+need() missing 1 required positional argument: 'b'
+need() missing 2 required keyword-only arguments: 'k' and 'kk'
+<lambda>() takes 1 positional argument but 2 were given
+<lambda>() missing 1 required keyword-only argument: 'k'
+outer.<locals>.<lambda>() takes 1 positional argument but 2 were given
+'int' object is not callable
+'str' object is not callable
+'NoneType' object is not callable
+'float' object is not callable
+'list' object is not callable
+'tuple' object is not callable
+'dict' object is not callable
+'<' not supported between instances of 'function' and 'function'
+'<=' not supported between instances of 'function' and 'function'
+== exception:
+== stderr:

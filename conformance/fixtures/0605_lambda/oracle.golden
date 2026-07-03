@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+1 <function <lambda> at 0xADDR>
+42
+(1, 2, 3, (), 4, 5, {})
+(1, 2, 3, (9, 8), 4, 6, {'z': 7})
+14
+10 99
+('a', 1) ('b', 2)
+<function make.<locals>.<lambda> at 0xADDR>
+42
+6
+12
+(100, 100) 100
+1 2
+yes no
+== exception:
+== stderr:
