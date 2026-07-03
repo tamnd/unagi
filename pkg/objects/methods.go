@@ -16,6 +16,10 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 		return listMethod(x, name, args)
 	case *dictObject:
 		return dictMethod(x, name, args)
+	case *setObject:
+		return setMethod(x, name, args)
+	case *frozensetObject:
+		return frozensetMethod(x, name, args)
 	}
 	return nil, noAttr(o, name)
 }

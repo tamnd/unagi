@@ -24,6 +24,10 @@ func Truth(o Object) bool {
 		return len(x.elts) > 0
 	case *dictObject:
 		return len(x.entries) > 0
+	case *setObject:
+		return len(x.elts) > 0
+	case *frozensetObject:
+		return len(x.elts) > 0
 	case *rangeObject:
 		return x.length() > 0
 	case *dictKeysObject:
@@ -115,8 +119,18 @@ func Add(a, b Object) (Object, error) {
 	return nil, unsupported("+", a, b)
 }
 
-// Sub implements the - operator.
+// Sub implements the - operator. On set operands it is set difference,
+// with the result type following the left operand.
 func Sub(a, b Object) (Object, error) {
+	if ac, ok := asSetCore(a); ok {
+		bc, ok2 := asSetCore(b)
+		if !ok2 {
+			return nil, unsupported("-", a, b)
+		}
+		out, oc := newLike(a)
+		diffInto(oc, ac, bc)
+		return out, nil
+	}
 	if ai, bi, ok := bothInt(a, b); ok {
 		return NewInt(ai - bi), nil
 	}
@@ -284,6 +298,117 @@ func Pow(a, b Object) (Object, error) {
 		a.TypeName(), b.TypeName())
 }
 
+// BitOr implements the | operator: int bitwise or, set union. Probed on
+// 3.14: True | False is bool True, but mixing bool with int gives int.
+func BitOr(a, b Object) (Object, error) {
+	if ac, ok := asSetCore(a); ok {
+		bc, ok2 := asSetCore(b)
+		if !ok2 {
+			return nil, unsupported("|", a, b)
+		}
+		out, oc := newLike(a)
+		unionInto(oc, ac, bc)
+		return out, nil
+	}
+	if x, ok := a.(*boolObject); ok {
+		if y, ok2 := b.(*boolObject); ok2 {
+			return NewBool(x.v || y.v), nil
+		}
+	}
+	if ai, bi, ok := bothInt(a, b); ok {
+		return NewInt(ai | bi), nil
+	}
+	return nil, unsupported("|", a, b)
+}
+
+// BitXor implements the ^ operator: int bitwise xor, set symmetric
+// difference. bool ^ bool stays bool like |.
+func BitXor(a, b Object) (Object, error) {
+	if ac, ok := asSetCore(a); ok {
+		bc, ok2 := asSetCore(b)
+		if !ok2 {
+			return nil, unsupported("^", a, b)
+		}
+		out, oc := newLike(a)
+		symDiffInto(oc, ac, bc)
+		return out, nil
+	}
+	if x, ok := a.(*boolObject); ok {
+		if y, ok2 := b.(*boolObject); ok2 {
+			return NewBool(x.v != y.v), nil
+		}
+	}
+	if ai, bi, ok := bothInt(a, b); ok {
+		return NewInt(ai ^ bi), nil
+	}
+	return nil, unsupported("^", a, b)
+}
+
+// BitAnd implements the & operator: int bitwise and, set intersection.
+// bool & bool stays bool like |.
+func BitAnd(a, b Object) (Object, error) {
+	if ac, ok := asSetCore(a); ok {
+		bc, ok2 := asSetCore(b)
+		if !ok2 {
+			return nil, unsupported("&", a, b)
+		}
+		out, oc := newLike(a)
+		intersectInto(oc, ac, bc)
+		return out, nil
+	}
+	if x, ok := a.(*boolObject); ok {
+		if y, ok2 := b.(*boolObject); ok2 {
+			return NewBool(x.v && y.v), nil
+		}
+	}
+	if ai, bi, ok := bothInt(a, b); ok {
+		return NewInt(ai & bi), nil
+	}
+	return nil, unsupported("&", a, b)
+}
+
+// LShift implements the << operator. Probed: True << True is int 2, so
+// shifts never keep bool. Bits shifted past 63 fall off, the same
+// wrap-at-int64 stance the arithmetic takes.
+func LShift(a, b Object) (Object, error) {
+	ai, bi, ok := bothInt(a, b)
+	if !ok {
+		return nil, unsupported("<<", a, b)
+	}
+	if bi < 0 {
+		return nil, Raise(ValueError, "negative shift count")
+	}
+	if bi >= 64 {
+		return NewInt(0), nil
+	}
+	return NewInt(ai << uint(bi)), nil
+}
+
+// RShift implements the >> operator with arithmetic (sign-filling) shift,
+// which matches Python's floor semantics for negative ints.
+func RShift(a, b Object) (Object, error) {
+	ai, bi, ok := bothInt(a, b)
+	if !ok {
+		return nil, unsupported(">>", a, b)
+	}
+	if bi < 0 {
+		return nil, Raise(ValueError, "negative shift count")
+	}
+	if bi >= 64 {
+		bi = 63
+	}
+	return NewInt(ai >> uint(bi)), nil
+}
+
+// Invert implements unary ~. Probed: ~True is int -2, ~ on bool never
+// stays bool.
+func Invert(o Object) (Object, error) {
+	if i, ok := AsInt(o); ok {
+		return NewInt(-i - 1), nil
+	}
+	return nil, Raise(TypeError, "bad operand type for unary ~: '%s'", o.TypeName())
+}
+
 // CmpOp identifies a comparison operator.
 type CmpOp int
 
@@ -330,6 +455,11 @@ func equals(a, b Object) bool {
 	case *dictObject:
 		y, ok := b.(*dictObject)
 		return ok && dictEquals(x, y)
+	case *setObject:
+		// A set equals a frozenset with the same elements; probed.
+		return coreEquals(&x.setCore, b)
+	case *frozensetObject:
+		return coreEquals(&x.setCore, b)
 	case *rangeObject:
 		y, ok := b.(*rangeObject)
 		return ok && rangeEquals(x, y)
@@ -420,6 +550,11 @@ func order(op CmpOp, a, b Object) (bool, error) {
 		if y, ok2 := b.(*tupleObject); ok2 {
 			return seqOrder(op, x.elts, y.elts)
 		}
+	} else if x, ok := asSetCore(a); ok {
+		// Sets order by subset relation, mixing set and frozenset freely.
+		if y, ok2 := asSetCore(b); ok2 {
+			return setOrder(op, x, y), nil
+		}
 	}
 	return false, Raise(TypeError, "'%s' not supported between instances of '%s' and '%s'",
 		cmpSym[op], a.TypeName(), b.TypeName())
@@ -474,6 +609,10 @@ func Contains(container, item Object) (Object, error) {
 		}
 		_, ok := x.index[k]
 		return NewBool(ok), nil
+	case *setObject:
+		return setContains(&x.setCore, item)
+	case *frozensetObject:
+		return setContains(&x.setCore, item)
 	case *rangeObject:
 		f, ok := AsFloat(item)
 		if !ok || f != math.Trunc(f) {
@@ -605,6 +744,10 @@ func Len(o Object) (int, error) {
 		return len(x.elts), nil
 	case *dictObject:
 		return len(x.entries), nil
+	case *setObject:
+		return len(x.elts), nil
+	case *frozensetObject:
+		return len(x.elts), nil
 	case *rangeObject:
 		return int(x.length()), nil
 	case *dictKeysObject:
@@ -674,6 +817,10 @@ func Iter(o Object) (Iterator, error) {
 		return &sliceIter{elts: x.elts}, nil
 	case *dictObject:
 		return &sliceIter{elts: x.keySlice()}, nil
+	case *setObject:
+		return &sliceIter{elts: x.elts}, nil
+	case *frozensetObject:
+		return &sliceIter{elts: x.elts}, nil
 	case *rangeObject:
 		return &rangeIter{r: x, n: x.length()}, nil
 	case *dictKeysObject:
@@ -682,8 +829,17 @@ func Iter(o Object) (Iterator, error) {
 		return &sliceIter{elts: x.d.valSlice()}, nil
 	case *dictItemsObject:
 		return &sliceIter{elts: x.d.itemSlice()}, nil
+	case Iterable:
+		return x.Iterate()
 	}
 	return nil, Raise(TypeError, "'%s' object is not iterable", o.TypeName())
+}
+
+// Iterable lets object types defined outside this package, like the runtime's
+// enumerate and zip objects, plug into Iter.
+type Iterable interface {
+	Object
+	Iterate() (Iterator, error)
 }
 
 // Unpack destructures an iterable into exactly n values.
