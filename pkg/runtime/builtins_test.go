@@ -661,3 +661,30 @@ func TestM1Builtins(t *testing.T) {
 		t.Errorf("min via Call = %v, %v", v, err)
 	}
 }
+
+func TestFormatBuiltin(t *testing.T) {
+	got, err := Format([]objects.Object{objects.NewFloat(3.14159), objects.NewStr(".2f")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := objects.AsStr(got); s != "3.14" {
+		t.Fatalf("format(3.14159, .2f) = %q", s)
+	}
+	got, err = Format([]objects.Object{objects.NewInt(42)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := objects.AsStr(got); s != "42" {
+		t.Fatalf("format(42) = %q", s)
+	}
+	if _, err := Format(nil); err == nil || err.Error() != "TypeError: format expected at least 1 argument, got 0" {
+		t.Fatalf("format() error = %v", err)
+	}
+	if _, err := Format([]objects.Object{objects.NewInt(1), objects.NewInt(2)}); err == nil ||
+		err.Error() != "TypeError: format() argument 2 must be str, not int" {
+		t.Fatalf("format(1, 2) error = %v", err)
+	}
+	if _, ok := Builtin("format"); !ok {
+		t.Fatal("format not registered")
+	}
+}

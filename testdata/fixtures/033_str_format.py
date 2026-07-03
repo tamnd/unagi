@@ -16,6 +16,12 @@ print("%s" % [1, 2], "%s" % (3,))
 print("%*d|%-*d|%.*f" % (6, 42, 6, 42, 2, 2.675))
 print("%(name)s is %(age)d" % {"name": "ana", "age": 3})
 print("100%% -> %d%%" % 99)
+print(format(3.14159, ".2f"), format(42), format("hi", ">4") + "|", format(255, "#x"))
+print(format(True), format(None, ""))
+try:
+    format(1, 2)
+except TypeError as e:
+    print("caught", e)
 try:
     "{} {}".format(1)
 except IndexError as e:

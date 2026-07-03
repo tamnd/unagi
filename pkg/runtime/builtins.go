@@ -522,8 +522,29 @@ func DictOf(args []objects.Object) (objects.Object, error) {
 	return objects.NewDict(keys, vals)
 }
 
+// Format implements the format builtin over the objects format engine.
+func Format(args []objects.Object) (objects.Object, error) {
+	if len(args) == 0 {
+		return nil, objects.Raise(objects.TypeError, "format expected at least 1 argument, got 0")
+	}
+	if len(args) > 2 {
+		return nil, objects.Raise(objects.TypeError, "format expected at most 2 arguments, got %d", len(args))
+	}
+	spec := ""
+	if len(args) == 2 {
+		s, ok := objects.AsStr(args[1])
+		if !ok {
+			return nil, objects.Raise(objects.TypeError,
+				"format() argument 2 must be str, not %s", args[1].TypeName())
+		}
+		spec = s
+	}
+	return objects.Format(args[0], spec)
+}
+
 func init() {
 	register(map[string]objects.Object{
+		"format":    objects.NewFunc("format", -1, Format),
 		"min":       objects.NewFunc("min", -1, Min),
 		"max":       objects.NewFunc("max", -1, Max),
 		"sum":       objects.NewFunc("sum", -1, Sum),

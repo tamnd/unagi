@@ -16,6 +16,9 @@ A z
     42|42    |2.67
 ana is 3
 100% -> 99%
+3.14 42   hi| 0xff
+True None
+caught format() argument 2 must be str, not int
 caught Replacement index 1 out of range for positional args tuple
 caught cannot switch from automatic field numbering to manual field specification
 caught not enough arguments for format string
