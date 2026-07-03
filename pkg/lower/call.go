@@ -25,6 +25,9 @@ var builtinNames = map[string]bool{
 // runtime helper and a method call goes through CallMethod. Everything else,
 // a variable, a lambda, any expression, is a dynamic call bound at runtime.
 func (f *fnCtx) call(e *frontend.Call) (ast.Expr, error) {
+	if hasUnpack(e.Args) {
+		return f.callEx(e)
+	}
 	if attr, ok := e.Fn.(*frontend.Attribute); ok {
 		recv, err := f.expr(attr.X)
 		if err != nil {
