@@ -79,7 +79,7 @@ var keywords = map[string]bool{
 // the matcher never splits **= into ** and =.
 var opTable = []string{
 	"**=", "//=",
-	"**", "//", "==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "%=",
+	"**", "//", "==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "%=", ":=",
 	"+", "-", "*", "/", "%", "=", "<", ">",
 	"(", ")", "[", "]", "{", "}", ",", ":", ".", ";",
 }
@@ -606,8 +606,6 @@ func hexVal(c byte) int {
 
 func (lx *lexer) lexOp(pos Pos) {
 	switch {
-	case lx.lookahead(":="):
-		lx.err(pos, "the walrus operator ':=' is not supported yet")
 	case lx.lookahead("->"):
 		lx.err(pos, "return type annotations ('->') are not supported yet")
 	case lx.lookahead("<<"), lx.lookahead(">>"):

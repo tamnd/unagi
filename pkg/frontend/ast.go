@@ -155,6 +155,14 @@ type Continue struct {
 	Pos_ Pos
 }
 
+// Del is `del a, b[k]`. Targets are Name or Subscript (with or without a
+// slice); the parser rejects anything else with CPython's message.
+type Del struct {
+	Pos_    Pos
+	Targets []Expr
+}
+
+func (s *Del) Span() Pos       { return s.Pos_ }
 func (s *Try) Span() Pos       { return s.Pos_ }
 func (s *Raise) Span() Pos     { return s.Pos_ }
 func (s *Assert) Span() Pos    { return s.Pos_ }
@@ -170,6 +178,7 @@ func (s *Pass) Span() Pos      { return s.Pos_ }
 func (s *Break) Span() Pos     { return s.Pos_ }
 func (s *Continue) Span() Pos  { return s.Pos_ }
 
+func (*Del) stmt()       {}
 func (*Try) stmt()       {}
 func (*Raise) stmt()     {}
 func (*Assert) stmt()    {}
@@ -337,11 +346,45 @@ type Attribute struct {
 	Name string
 }
 
-// Subscript is `x[index]`.
+// Subscript is `x[index]`. Index is a SliceExpr when the brackets hold a
+// colon form.
 type Subscript struct {
 	Pos_  Pos
 	X     Expr
 	Index Expr
+}
+
+// SliceExpr is the `lo:hi:step` form inside subscript brackets. Any of the
+// three parts may be nil. It appears only as a Subscript index.
+type SliceExpr struct {
+	Pos_ Pos
+	Lo   Expr
+	Hi   Expr
+	Step Expr
+}
+
+// IfExp is the conditional expression `then if cond else else_`. Exactly one
+// arm is evaluated, after the condition.
+type IfExp struct {
+	Pos_ Pos
+	Cond Expr
+	Then Expr
+	Else Expr
+}
+
+// NamedExpr is the walrus `name := value`. CPython only allows a plain name
+// as the target, so the target is a string, not an Expr.
+type NamedExpr struct {
+	Pos_   Pos
+	Target string
+	Value  Expr
+}
+
+// Starred is `*name` inside an assignment or for-loop target tuple. The
+// parser enforces at most one per target list, per CPython.
+type Starred struct {
+	Pos_ Pos
+	X    Expr
 }
 
 func (e *Name) Span() Pos      { return e.Pos_ }
@@ -360,6 +403,10 @@ func (e *Compare) Span() Pos   { return e.Pos_ }
 func (e *Call) Span() Pos      { return e.Pos_ }
 func (e *Attribute) Span() Pos { return e.Pos_ }
 func (e *Subscript) Span() Pos { return e.Pos_ }
+func (e *SliceExpr) Span() Pos { return e.Pos_ }
+func (e *IfExp) Span() Pos     { return e.Pos_ }
+func (e *NamedExpr) Span() Pos { return e.Pos_ }
+func (e *Starred) Span() Pos   { return e.Pos_ }
 
 func (*Name) expr()      {}
 func (*IntLit) expr()    {}
@@ -377,3 +424,7 @@ func (*Compare) expr()   {}
 func (*Call) expr()      {}
 func (*Attribute) expr() {}
 func (*Subscript) expr() {}
+func (*SliceExpr) expr() {}
+func (*IfExp) expr()     {}
+func (*NamedExpr) expr() {}
+func (*Starred) expr()   {}
