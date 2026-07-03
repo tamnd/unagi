@@ -84,13 +84,33 @@ type For struct {
 	Else   []Stmt
 }
 
-// FuncDef is `def name(params):`. M0 parameters are plain positional names,
-// no defaults, no *args, no keywords; the parser rejects the rest with a
-// clear message rather than mis-parsing it.
+// ParamKind classifies a formal parameter.
+type ParamKind int
+
+const (
+	ParamPlain    ParamKind = iota // positional-or-keyword
+	ParamPosOnly                   // declared before the / marker
+	ParamStar                      // *args
+	ParamKwOnly                    // declared after * or a bare *
+	ParamStarStar                  // **kwargs
+)
+
+// Param is one formal parameter. Default is nil when the parameter has
+// none. The parser enforces CPython's ordering rules (posonly, plain,
+// star, kwonly, starstar; no non-default after default within a group)
+// so lowering can trust the layout.
+type Param struct {
+	Pos_    Pos
+	Name    string
+	Kind    ParamKind
+	Default Expr
+}
+
+// FuncDef is `def name(params):`.
 type FuncDef struct {
 	Pos_   Pos
 	Name   string
-	Params []string
+	Params []Param
 	Body   []Stmt
 }
 
@@ -346,10 +366,20 @@ type Compare struct {
 
 // Call is `fn(args)`. M0 arguments are positional only; the parser rejects
 // keyword arguments and star-unpacking with a clear message.
+// Arg is one call-site argument. Name is the keyword name, empty for a
+// positional argument. Star is 0 for a plain argument, 1 for *sequence
+// unpacking, and 2 for **mapping unpacking.
+type Arg struct {
+	Pos_  Pos
+	Name  string
+	Star  int
+	Value Expr
+}
+
 type Call struct {
 	Pos_ Pos
 	Fn   Expr
-	Args []Expr
+	Args []Arg
 }
 
 // Attribute is `x.name`.

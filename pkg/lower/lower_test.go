@@ -8,7 +8,19 @@ import (
 )
 
 func call(name string, args ...frontend.Expr) *frontend.Call {
-	return &frontend.Call{Fn: &frontend.Name{Id: name}, Args: args}
+	wrapped := make([]frontend.Arg, len(args))
+	for i, a := range args {
+		wrapped[i] = frontend.Arg{Value: a}
+	}
+	return &frontend.Call{Fn: &frontend.Name{Id: name}, Args: wrapped}
+}
+
+func params(names ...string) []frontend.Param {
+	ps := make([]frontend.Param, len(names))
+	for i, n := range names {
+		ps[i] = frontend.Param{Name: n, Kind: frontend.ParamPlain}
+	}
+	return ps
 }
 
 func str(s string) *frontend.StrLit { return &frontend.StrLit{Val: s} }
@@ -46,7 +58,7 @@ func TestEmptyModuleSkipsObjectsImport(t *testing.T) {
 
 func TestFunctionLowering(t *testing.T) {
 	mod := &frontend.Module{Body: []frontend.Stmt{
-		&frontend.FuncDef{Name: "add", Params: []string{"a", "b"}, Body: []frontend.Stmt{
+		&frontend.FuncDef{Name: "add", Params: params("a", "b"), Body: []frontend.Stmt{
 			&frontend.Return{Value: &frontend.BinOp{
 				Left: &frontend.Name{Id: "a"}, Op: frontend.BinAdd, Right: &frontend.Name{Id: "b"},
 			}},
@@ -112,7 +124,7 @@ func TestCompileErrors(t *testing.T) {
 		{
 			"wrong arity",
 			&frontend.Module{Body: []frontend.Stmt{
-				&frontend.FuncDef{Name: "one", Params: []string{"a"}, Body: []frontend.Stmt{&frontend.Pass{}}},
+				&frontend.FuncDef{Name: "one", Params: params("a"), Body: []frontend.Stmt{&frontend.Pass{}}},
 				&frontend.ExprStmt{X: call("one")},
 			}},
 			"one() takes 1 positional arguments but 0 were given",

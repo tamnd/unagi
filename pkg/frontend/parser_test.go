@@ -57,7 +57,11 @@ func ds(s Stmt) string {
 	case *For:
 		return "(for " + de(s.Target) + " " + de(s.Iter) + " " + dbody(s.Body) + " " + dbody(s.Else) + ")"
 	case *FuncDef:
-		return "(def " + s.Name + " (" + strings.Join(s.Params, " ") + ") " + dbody(s.Body) + ")"
+		names := make([]string, len(s.Params))
+		for i, p := range s.Params {
+			names[i] = p.Name
+		}
+		return "(def " + s.Name + " (" + strings.Join(names, " ") + ") " + dbody(s.Body) + ")"
 	case *Try:
 		parts := []string{"try", dbody(s.Body)}
 		for _, h := range s.Handlers {
@@ -154,7 +158,11 @@ func de(e Expr) string {
 		}
 		return "(" + strings.Join(parts, " ") + ")"
 	case *Call:
-		return dexprs("call", append([]Expr{e.Fn}, e.Args...))
+		exprs := []Expr{e.Fn}
+		for _, a := range e.Args {
+			exprs = append(exprs, a.Value)
+		}
+		return dexprs("call", exprs)
 	case *Attribute:
 		return "(. " + de(e.X) + " " + e.Name + ")"
 	case *Subscript:
@@ -689,7 +697,7 @@ func TestParsePositions(t *testing.T) {
 		t.Errorf("stmt 1 span %+v", got)
 	}
 	call := m.Body[1].(*Assign).Value.(*Call)
-	if got := call.Args[0].Span(); got != (Pos{Line: 2, Col: 7}) {
+	if got := call.Args[0].Value.Span(); got != (Pos{Line: 2, Col: 7}) {
 		t.Errorf("call arg span %+v", got)
 	}
 }

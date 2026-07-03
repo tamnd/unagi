@@ -157,9 +157,9 @@ func (e *emitter) emitFunc(d *frontend.FuncDef) (*ast.FuncDecl, error) {
 	f := newFnCtx(e, true, d.Name)
 	params := &ast.FieldList{}
 	for _, p := range d.Params {
-		f.locals[p] = true
+		f.locals[p.Name] = true
 		// One field per parameter so each name carries its own type.
-		params.List = append(params.List, field(e.obj("Object"), mangle(p)))
+		params.List = append(params.List, field(e.obj("Object"), mangle(p.Name)))
 	}
 	assigned := map[string]bool{}
 	collectAssigned(d.Body, assigned)
@@ -238,7 +238,9 @@ func collectAssigned(body []frontend.Stmt, out map[string]bool) {
 			walkExprs(e.Rights)
 		case *frontend.Call:
 			walkExpr(e.Fn)
-			walkExprs(e.Args)
+			for _, a := range e.Args {
+				walkExpr(a.Value)
+			}
 		case *frontend.Attribute:
 			walkExpr(e.X)
 		case *frontend.Subscript:

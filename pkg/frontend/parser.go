@@ -503,7 +503,7 @@ func (p *parser) parseDef() Stmt {
 	}
 	p.advance()
 	p.wantOp("(")
-	var params []string
+	var params []Param
 	seen := map[string]bool{}
 	for !p.isOp(")") {
 		pt := p.cur()
@@ -528,7 +528,7 @@ func (p *parser) parseDef() Stmt {
 			p.errf(pt.pos, "duplicate argument '%s' in function definition", pt.text)
 		}
 		seen[pt.text] = true
-		params = append(params, pt.text)
+		params = append(params, Param{Pos_: pt.pos, Name: pt.text, Kind: ParamPlain})
 		if !p.eatOp(",") {
 			break
 		}
@@ -1074,7 +1074,7 @@ func (p *parser) parseCall(fn Expr) Expr {
 		if p.isKw("for") {
 			p.errf(p.cur().pos, "generator expressions are not supported yet")
 		}
-		call.Args = append(call.Args, arg)
+		call.Args = append(call.Args, Arg{Pos_: arg.Span(), Value: arg})
 		if p.eatOp(",") {
 			if p.isOp(")") {
 				break

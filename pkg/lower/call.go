@@ -28,7 +28,7 @@ func (f *fnCtx) call(e *frontend.Call) (ast.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		args, err := f.exprList(e.Args)
+		args, err := f.plainArgExprs(e.Args)
 		if err != nil {
 			return nil, err
 		}
@@ -48,7 +48,7 @@ func (f *fnCtx) call(e *frontend.Call) (ast.Expr, error) {
 			return nil, f.e.errf(e.Span(), "%s() takes %d positional arguments but %d were given",
 				name.Id, len(d.Params), len(e.Args))
 		}
-		args, err := f.exprList(e.Args)
+		args, err := f.plainArgExprs(e.Args)
 		if err != nil {
 			return nil, err
 		}
@@ -72,7 +72,7 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 	}
 	switch name {
 	case "print":
-		args, err := f.exprList(e.Args)
+		args, err := f.plainArgExprs(e.Args)
 		if err != nil {
 			return nil, err
 		}
@@ -82,7 +82,7 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		if err := need1(); err != nil {
 			return nil, err
 		}
-		args, err := f.exprList(e.Args)
+		args, err := f.plainArgExprs(e.Args)
 		if err != nil {
 			return nil, err
 		}
@@ -93,7 +93,7 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		if argc < 1 || argc > 3 {
 			return nil, f.e.errf(e.Span(), "range expected 1 to 3 arguments, got %d", argc)
 		}
-		args, err := f.exprList(e.Args)
+		args, err := f.plainArgExprs(e.Args)
 		if err != nil {
 			return nil, err
 		}
@@ -107,7 +107,7 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		if err := need1(); err != nil {
 			return nil, err
 		}
-		args, err := f.exprList(e.Args)
+		args, err := f.plainArgExprs(e.Args)
 		if err != nil {
 			return nil, err
 		}
@@ -116,7 +116,7 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		if err := need1(); err != nil {
 			return nil, err
 		}
-		args, err := f.exprList(e.Args)
+		args, err := f.plainArgExprs(e.Args)
 		if err != nil {
 			return nil, err
 		}
@@ -128,7 +128,7 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		if err := need1(); err != nil {
 			return nil, err
 		}
-		args, err := f.exprList(e.Args)
+		args, err := f.plainArgExprs(e.Args)
 		if err != nil {
 			return nil, err
 		}
@@ -142,7 +142,7 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		if err := need1(); err != nil {
 			return nil, err
 		}
-		args, err := f.exprList(e.Args)
+		args, err := f.plainArgExprs(e.Args)
 		if err != nil {
 			return nil, err
 		}
@@ -156,7 +156,7 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		if err := need1(); err != nil {
 			return nil, err
 		}
-		args, err := f.exprList(e.Args)
+		args, err := f.plainArgExprs(e.Args)
 		if err != nil {
 			return nil, err
 		}
@@ -165,7 +165,7 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		if err := need1(); err != nil {
 			return nil, err
 		}
-		args, err := f.exprList(e.Args)
+		args, err := f.plainArgExprs(e.Args)
 		if err != nil {
 			return nil, err
 		}
@@ -201,7 +201,7 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		if argc != 2 {
 			return nil, f.e.errf(e.Span(), "divmod expected 2 arguments, got %d", argc)
 		}
-		args, err := f.exprList(e.Args)
+		args, err := f.plainArgExprs(e.Args)
 		if err != nil {
 			return nil, err
 		}
@@ -226,7 +226,7 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		if argc > 3 {
 			return nil, f.e.errf(e.Span(), "pow() takes at most 3 arguments (%d given)", argc)
 		}
-		args, err := f.exprList(e.Args)
+		args, err := f.plainArgExprs(e.Args)
 		if err != nil {
 			return nil, err
 		}
@@ -241,7 +241,7 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		if err := need1(); err != nil {
 			return nil, err
 		}
-		args, err := f.exprList(e.Args)
+		args, err := f.plainArgExprs(e.Args)
 		if err != nil {
 			return nil, err
 		}
@@ -253,7 +253,7 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		if argc != 1 {
 			return nil, f.e.errf(e.Span(), "%s expected 1 argument, got %d", name, argc)
 		}
-		args, err := f.exprList(e.Args)
+		args, err := f.plainArgExprs(e.Args)
 		if err != nil {
 			return nil, err
 		}
@@ -290,7 +290,7 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 // runtimeSliceCall lowers a builtin whose runtime helper takes the lowered
 // arguments as one []objects.Object, the shape the variadic builtins share.
 func (f *fnCtx) runtimeSliceCall(fn string, e *frontend.Call) (ast.Expr, error) {
-	args, err := f.exprList(e.Args)
+	args, err := f.plainArgExprs(e.Args)
 	if err != nil {
 		return nil, err
 	}
