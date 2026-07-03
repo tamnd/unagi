@@ -39,6 +39,17 @@ func LoadName(v objects.Object, name string) (objects.Object, error) {
 	return nil, nameNotDefined(name)
 }
 
+// LoadFree returns a variable captured from an enclosing function, or the
+// NameError CPython raises when the closure slot is still empty. Probed on
+// 3.14: a lambda reading an outer local before its assignment.
+func LoadFree(v objects.Object, name string) (objects.Object, error) {
+	if v != nil {
+		return v, nil
+	}
+	return nil, objects.Raise(objects.NameError,
+		"cannot access free variable '%s' where it is not associated with a value in enclosing scope", name)
+}
+
 // DelLocal checks `del x` on a function local that may be unbound.
 func DelLocal(v objects.Object, name string) error {
 	if v == nil {
