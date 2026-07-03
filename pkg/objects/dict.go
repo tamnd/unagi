@@ -69,6 +69,11 @@ func hashKey(o Object) (string, error) {
 			b.WriteString(k)
 		}
 		return b.String(), nil
+	case *frozensetObject:
+		// Order-independent by construction, so frozenset({1,2}) and
+		// frozenset({2,1}) hash the same. A plain set falls through to
+		// the unhashable error below.
+		return frozenKey(&x.setCore), nil
 	}
 	return "", Raise(TypeError, "unhashable type: '%s'", o.TypeName())
 }

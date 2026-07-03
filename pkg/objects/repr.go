@@ -137,6 +137,18 @@ func Repr(o Object) string {
 		}
 		b.WriteString("}")
 		return b.String()
+	case *setObject:
+		// Probed: repr(set()) is "set()", repr({1,2}) is "{1, 2}".
+		if len(x.elts) == 0 {
+			return "set()"
+		}
+		return reprSeq(x.elts, "{", "}")
+	case *frozensetObject:
+		// Probed: "frozenset()" empty, "frozenset({1, 2})" otherwise.
+		if len(x.elts) == 0 {
+			return "frozenset()"
+		}
+		return "frozenset(" + reprSeq(x.elts, "{", "}") + ")"
 	case *rangeObject:
 		if x.step == 1 {
 			return fmt.Sprintf("range(%d, %d)", x.start, x.stop)

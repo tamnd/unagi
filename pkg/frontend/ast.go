@@ -254,7 +254,14 @@ type DictLit struct {
 	Vals []Expr
 }
 
-// BinKind is an arithmetic binary operator.
+// SetLit is `{a, b, ...}` with at least one element; empty braces are always
+// a dict.
+type SetLit struct {
+	Pos_ Pos
+	Elts []Expr
+}
+
+// BinKind is an arithmetic or bitwise binary operator.
 type BinKind int
 
 const (
@@ -265,9 +272,14 @@ const (
 	BinFloorDiv // //
 	BinMod
 	BinPow
+	BinBitOr  // |
+	BinBitXor // ^
+	BinBitAnd // &
+	BinLShift // <<
+	BinRShift // >>
 )
 
-// BinOp is `left op right` for the arithmetic operators.
+// BinOp is `left op right` for the arithmetic and bitwise operators.
 type BinOp struct {
 	Pos_  Pos
 	Left  Expr
@@ -282,9 +294,10 @@ const (
 	UnaryNeg UnaryKind = iota
 	UnaryPos
 	UnaryNot
+	UnaryInvert // ~
 )
 
-// UnaryOp is `-x`, `+x`, or `not x`.
+// UnaryOp is `-x`, `+x`, `~x`, or `not x`.
 type UnaryOp struct {
 	Pos_ Pos
 	Op   UnaryKind
@@ -432,6 +445,7 @@ func (e *NoneLit) Span() Pos   { return e.Pos_ }
 func (e *ListLit) Span() Pos   { return e.Pos_ }
 func (e *TupleLit) Span() Pos  { return e.Pos_ }
 func (e *DictLit) Span() Pos   { return e.Pos_ }
+func (e *SetLit) Span() Pos    { return e.Pos_ }
 func (e *BinOp) Span() Pos     { return e.Pos_ }
 func (e *UnaryOp) Span() Pos   { return e.Pos_ }
 func (e *BoolOp) Span() Pos    { return e.Pos_ }
@@ -454,6 +468,7 @@ func (*NoneLit) expr()   {}
 func (*ListLit) expr()   {}
 func (*TupleLit) expr()  {}
 func (*DictLit) expr()   {}
+func (*SetLit) expr()    {}
 func (*BinOp) expr()     {}
 func (*UnaryOp) expr()   {}
 func (*BoolOp) expr()    {}
