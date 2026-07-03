@@ -1,0 +1,12 @@
+/bin/
+/dist/
+*.out
+.DS_Store
+
+# Scratch build dirs the pipeline tests create under the module tree so the
+# generated programs link the runtime offline. Removed on success, ignored so
+# an interrupted run never leaves a tracked file behind.
+/genrun-*/
+
+# compiled go test binaries
+*.test
