@@ -170,13 +170,33 @@ func TB(err error, file string, line int, fn string) error {
 	return e
 }
 
+// srcLines is the compiled program's Python source split into lines,
+// registered by the generated main so frame lines can quote their
+// source. M1 compiles a single file, so one slice is enough. Nil means
+// no source was embedded and frames render bare, which matches what
+// CPython prints when the source file is gone.
+var srcLines []string
+
+// SetSource registers the embedded Python source for excerpt rendering.
+func SetSource(src string) {
+	srcLines = strings.Split(src, "\n")
+}
+
+// srcLine returns the stripped text of a 1-based source line, or ""
+// when the line is out of range or blank. Blank excerpts print nothing,
+// CPython's `if line:` guard in traceback.py.
+func srcLine(n int) string {
+	if n < 1 || n > len(srcLines) {
+		return ""
+	}
+	return strings.TrimSpace(srcLines[n-1])
+}
+
 // PrintUncaught writes the CPython-3.14-shaped report for an uncaught
 // exception to Stderr. Causes and contexts render first, depth first,
-// with CPython's connective lines. No source excerpt or caret lines
-// appear: compiled binaries do not embed source, and that matches what
-// CPython itself prints when the source file is gone (probed by running
-// a module whose .py was deleted after compilation: each frame is just
-// the File line).
+// with CPython's connective lines. Frame lines carry a source excerpt
+// when the binary embeds its source; caret and anchor lines never
+// appear because compiled code does not track columns.
 func PrintUncaught(err error) {
 	var b strings.Builder
 	if e, ok := err.(*objects.Exception); ok {
@@ -214,6 +234,9 @@ func renderOne(b *strings.Builder, e *objects.Exception) {
 		for i := len(e.Frames) - 1; i >= 0; i-- {
 			f := e.Frames[i]
 			fmt.Fprintf(b, "  File %q, line %d, in %s\n", f.File, f.Line, f.Func)
+			if l := srcLine(f.Line); l != "" {
+				b.WriteString("    " + l + "\n")
+			}
 		}
 	}
 	b.WriteString(e.Error())

@@ -1,5 +1,8 @@
 Traceback (most recent call last):
   File "../../testdata/fixtures/016_uncaught.py", line 6, in <module>
+    outer()
   File "../../testdata/fixtures/016_uncaught.py", line 4, in outer
+    inner()
   File "../../testdata/fixtures/016_uncaught.py", line 2, in inner
+    raise ValueError("deep failure")
 ValueError: deep failure

@@ -39,7 +39,7 @@ func Build(ctx context.Context, pyPath string, opts Options) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	goSrc, err := lower.Module(mod, pyPath)
+	goSrc, err := lower.Module(mod, pyPath, src)
 	if err != nil {
 		return "", err
 	}

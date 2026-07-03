@@ -40,8 +40,11 @@ func (e *Error) Error() string {
 
 // Module lowers a parsed module to a complete Go main package. file is the
 // source path as given on the command line; it lands in the generated
-// header, in compile errors, and in traceback frames.
-func Module(mod *frontend.Module, file string) ([]byte, error) {
+// header, in compile errors, and in traceback frames. source is the raw
+// Python text, embedded in the binary so tracebacks can print excerpt
+// lines; nil skips the embedding and frames render bare, which is what
+// CPython prints when the source file is gone.
+func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
 	e := &emitter{file: file, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}}
 
 	var body []frontend.Stmt
@@ -95,6 +98,9 @@ func Module(mod *frontend.Module, file string) ([]byte, error) {
 	out.WriteString("\t\"github.com/tamnd/unagi/pkg/runtime\"\n)\n\n")
 	if e.usedTB {
 		fmt.Fprintf(&out, "// pyFile is the source path traceback frames cite.\nconst pyFile = %s\n\n", strconv.Quote(file))
+		if len(source) > 0 {
+			fmt.Fprintf(&out, "// pySource is the embedded source, so tracebacks can quote the line\n// under each frame the way CPython does.\nconst pySource = %s\n\nfunc init() { runtime.SetSource(pySource) }\n\n", strconv.Quote(string(source)))
+		}
 	}
 	if len(e.slots) > 0 {
 		out.WriteString("// Parameter default slots, assigned when each def statement runs.\nvar (\n")

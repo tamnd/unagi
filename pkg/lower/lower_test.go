@@ -29,7 +29,7 @@ func TestHelloLowering(t *testing.T) {
 	mod := &frontend.Module{Body: []frontend.Stmt{
 		&frontend.ExprStmt{X: call("print", str("hi"))},
 	}}
-	src, err := Module(mod, "hello.py")
+	src, err := Module(mod, "hello.py", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestHelloLowering(t *testing.T) {
 }
 
 func TestEmptyModuleSkipsObjectsImport(t *testing.T) {
-	src, err := Module(&frontend.Module{}, "empty.py")
+	src, err := Module(&frontend.Module{}, "empty.py", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestFunctionLowering(t *testing.T) {
 		}},
 		&frontend.ExprStmt{X: call("print", call("add", &frontend.IntLit{Text: "1"}, &frontend.IntLit{Text: "2"}))},
 	}}
-	src, err := Module(mod, "add.py")
+	src, err := Module(mod, "add.py", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestWrongArityLowersToRaise(t *testing.T) {
 		&frontend.FuncDef{Name: "one", Params: params("a"), Body: []frontend.Stmt{&frontend.Pass{}}},
 		&frontend.ExprStmt{X: call("one")},
 	}}
-	src, err := Module(mod, "arity.py")
+	src, err := Module(mod, "arity.py", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestCompileErrors(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := Module(tc.mod, "err.py")
+			_, err := Module(tc.mod, "err.py", nil)
 			if err == nil {
 				t.Fatal("expected a compile error")
 			}
