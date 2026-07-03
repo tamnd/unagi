@@ -121,6 +121,8 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		return f.compare(e)
 	case *frontend.IfExp:
 		return f.ifExp(e)
+	case *frontend.FStr:
+		return f.fstr(e)
 	case *frontend.NamedExpr:
 		v, err := f.expr(e.Value)
 		if err != nil {

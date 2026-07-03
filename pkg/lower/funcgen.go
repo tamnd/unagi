@@ -252,6 +252,12 @@ func collectAssigned(body []frontend.Stmt, out map[string]bool) {
 			walkExpr(e.Else)
 		case *frontend.Starred:
 			walkExpr(e.X)
+		case *frontend.FStr:
+			for _, p := range e.Parts {
+				if in, ok := p.(*frontend.FInterp); ok {
+					walkExpr(in.X)
+				}
+			}
 		}
 	}
 	var walk func(list []frontend.Stmt)
