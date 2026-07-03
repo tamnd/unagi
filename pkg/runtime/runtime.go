@@ -297,9 +297,7 @@ func init() {
 			}
 			return objects.None, nil
 		}),
-		"len": objects.NewFunc("len", 1, func(args []objects.Object) (objects.Object, error) {
-			return Len(args[0])
-		}),
+		"len": exactlyOne("len", Len),
 		"range": objects.NewFunc("range", -1, func(args []objects.Object) (objects.Object, error) {
 			return Range(args...)
 		}),
@@ -312,9 +310,7 @@ func init() {
 			}
 			return nil, objects.Raise(objects.TypeError, "str() takes at most 1 argument (%d given)", len(args))
 		}),
-		"repr": objects.NewFunc("repr", 1, func(args []objects.Object) (objects.Object, error) {
-			return ReprOf(args[0])
-		}),
+		"repr": exactlyOne("repr", ReprOf),
 		"int": objects.NewFunc("int", -1, func(args []objects.Object) (objects.Object, error) {
 			switch len(args) {
 			case 0:
@@ -344,9 +340,7 @@ func init() {
 			}
 			return nil, objects.Raise(objects.TypeError, "bool expected at most 1 argument, got %d", len(args))
 		}),
-		"abs": objects.NewFunc("abs", 1, func(args []objects.Object) (objects.Object, error) {
-			return Abs(args[0])
-		}),
+		"abs": exactlyOne("abs", Abs),
 	})
 }
 
@@ -354,4 +348,14 @@ func init() {
 func Builtin(name string) (objects.Object, bool) {
 	f, ok := builtins[name]
 	return f, ok
+}
+
+// BuiltinFn returns a builtin's function object. The lowering only emits
+// names from its own table, so a miss is a compiler bug, not user error.
+func BuiltinFn(name string) objects.Object {
+	f, ok := builtins[name]
+	if !ok {
+		panic("unagi: unknown builtin " + name)
+	}
+	return f
 }
