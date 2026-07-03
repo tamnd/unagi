@@ -195,7 +195,7 @@ func (r *Runner) stageRunDir(f Fixture) (runDir, home string, cleanup func(), er
 	}
 	cleanup = func() {
 		if !r.KeepTmp {
-			os.RemoveAll(base)
+			_ = os.RemoveAll(base)
 		}
 	}
 	runDir = filepath.Join(base, "run")
@@ -239,7 +239,7 @@ func (r *Runner) execute(ctx context.Context, f Fixture, runDir, home, bin strin
 		if err != nil {
 			return Outcome{}, err
 		}
-		defer in.Close()
+		defer func() { _ = in.Close() }()
 		cmd.Stdin = in
 	}
 	var stdout, stderr bytes.Buffer
@@ -299,13 +299,13 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
+		_ = out.Close()
 		return err
 	}
 	return out.Close()

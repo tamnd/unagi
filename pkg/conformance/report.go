@@ -14,26 +14,26 @@ import (
 func PrintResult(w io.Writer, f Fixture, res Result, live bool) {
 	switch {
 	case res.Skipped:
-		fmt.Fprintf(w, "SKIP %s: %s\n", f.Name, res.SkipWhy)
+		fpf(w, "SKIP %s: %s\n", f.Name, res.SkipWhy)
 	case res.Verdict == Pass:
-		fmt.Fprintf(w, "PASS %s\n", f.Name)
+		fpf(w, "PASS %s\n", f.Name)
 	case res.Verdict == DivergentOK:
-		fmt.Fprintf(w, "DIVERGENT-OK %s (ledger: %s)\n", f.Name, strings.Join(res.Ledgered, ", "))
+		fpf(w, "DIVERGENT-OK %s (ledger: %s)\n", f.Name, strings.Join(res.Ledgered, ", "))
 	case res.Verdict == BuildError:
-		fmt.Fprintf(w, "BUILD-ERROR %s\n  %s\n", f.Name, strings.ReplaceAll(res.BuildErr, "\n", "\n  "))
+		fpf(w, "BUILD-ERROR %s\n  %s\n", f.Name, strings.ReplaceAll(res.BuildErr, "\n", "\n  "))
 	default:
-		fmt.Fprintf(w, "FAIL %s (band: %s)\n", f.Name, BandOf(f.ID))
+		fpf(w, "FAIL %s (band: %s)\n", f.Name, BandOf(f.ID))
 		for _, d := range res.Diffs {
-			fmt.Fprintf(w, "  channel: %s, first divergence at %s\n", d.Channel, d.Where)
-			fmt.Fprintf(w, "    oracle : %s\n", d.Oracle)
-			fmt.Fprintf(w, "    subject: %s\n", d.Got)
+			fpf(w, "  channel: %s, first divergence at %s\n", d.Channel, d.Where)
+			fpf(w, "    oracle : %s\n", d.Oracle)
+			fpf(w, "    subject: %s\n", d.Got)
 		}
 		mode := "--golden"
 		if live {
 			mode = "--live"
 		}
 		id := f.Name[:4]
-		fmt.Fprintf(w, "  reproduce:\n    unagi-conformance fixtures --only %s %s --keep-tmp\n", id, mode)
+		fpf(w, "  reproduce:\n    unagi-conformance fixtures --only %s %s --keep-tmp\n", id, mode)
 	}
 }
 
@@ -55,11 +55,17 @@ func PrintCoverage(w io.Writer, results map[int]Result) {
 		names = append(names, n)
 	}
 	sort.Slice(names, func(i, j int) bool { return bandLo(names[i]) < bandLo(names[j]) })
-	fmt.Fprintf(w, "%-16s %8s %8s\n", "band", "passing", "total")
+	fpf(w, "%-16s %8s %8s\n", "band", "passing", "total")
 	for _, n := range names {
 		c := perBand[n]
-		fmt.Fprintf(w, "%-16s %8s %8s\n", n, strconv.Itoa(c[0]), strconv.Itoa(c[1]))
+		fpf(w, "%-16s %8s %8s\n", n, strconv.Itoa(c[0]), strconv.Itoa(c[1]))
 	}
+}
+
+// fpf prints to the report writer; a report write that fails has nowhere
+// better to report to, so the error is dropped on purpose.
+func fpf(w io.Writer, format string, a ...any) {
+	_, _ = fmt.Fprintf(w, format, a...)
 }
 
 func bandLo(name string) int {

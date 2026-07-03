@@ -9,6 +9,7 @@ package conformance
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -121,13 +122,11 @@ func parseBlock(lines []string) (*ExceptionSurface, error) {
 			seenHeader = true
 		case frameRe.MatchString(t) && !seenExc:
 			m := frameRe.FindStringSubmatch(t)
-			var n int
-			fmt.Sscanf(m[2], "%d", &n)
+			n, _ := strconv.Atoi(m[2])
 			s.Frames = append(s.Frames, Frame{File: m[1], Line: n, Name: m[3]})
 		case repeatRe.MatchString(t) && !seenExc:
 			m := repeatRe.FindStringSubmatch(t)
-			var n int
-			fmt.Sscanf(m[1], "%d", &n)
+			n, _ := strconv.Atoi(m[1])
 			s.Frames = append(s.Frames, Frame{File: "...", Line: n, Name: "[repeated]"})
 		case strings.HasPrefix(t, "    "):
 			// Source excerpt under the frame; derivable, not compared.
