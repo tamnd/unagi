@@ -503,17 +503,19 @@ func (p *parser) parseDef() Stmt {
 	}
 	p.advance()
 	p.wantOp("(")
-	params := p.parseParams()
+	params := p.parseParams(")")
 	p.wantOp(")")
 	return &FuncDef{Pos_: t.pos, Name: nt.text, Params: params, Body: p.parseSuite()}
 }
 
-// parseParams parses the def parameter list up to the closing paren: posonly
-// and plain params first, then *args or a bare *, then keyword-only params,
-// then **kwargs. Ordering violations carry CPython 3.14's exact messages.
+// parseParams parses a parameter list up to the end token, ")" for def and
+// ":" for lambda: posonly and plain params first, then *args or a bare *,
+// then keyword-only params, then **kwargs. Ordering violations carry CPython
+// 3.14's exact messages, which say "function definition" for lambdas too.
 // Annotations stay rejected with an unagi not-supported error since we defer
-// them rather than mimic a SyntaxError CPython does not raise.
-func (p *parser) parseParams() []Param {
+// them rather than mimic a SyntaxError CPython does not raise; in a lambda
+// the colon is the list terminator, never an annotation.
+func (p *parser) parseParams(end string) []Param {
 	var params []Param
 	seen := map[string]bool{}
 	var (
@@ -535,11 +537,11 @@ func (p *parser) parseParams() []Param {
 	// rejectAnnotation keeps annotations out ahead of the default probe so
 	// def f(a: int = 1) trips on the colon, not the equals.
 	rejectAnnotation := func() {
-		if p.isOp(":") {
+		if end != ":" && p.isOp(":") {
 			p.errf(p.cur().pos, "parameter annotations are not supported yet")
 		}
 	}
-	for !p.isOp(")") {
+	for !p.isOp(end) {
 		pt := p.cur()
 		switch {
 		case starstarSeen:
@@ -555,7 +557,7 @@ func (p *parser) parseParams() []Param {
 			if len(params) == 0 {
 				// CPython reports the lone def f(/) as plain invalid syntax
 				// and def f(/, a) with the dedicated message.
-				if p.isOp(")") {
+				if p.isOp(end) {
 					p.errf(pt.pos, "invalid syntax")
 				}
 				p.errf(pt.pos, "at least one argument must precede /")
@@ -801,10 +803,13 @@ func (p *parser) rejectStarred(e Expr) {
 	}
 }
 
-// parseTest parses a conditional expression or anything tighter. The
-// condition sits at or level, and the else arm re-enters test, so nested
+// parseTest parses a conditional expression, a lambda, or anything tighter.
+// The condition sits at or level, and the else arm re-enters test, so nested
 // conditionals hang off the else like CPython's right-associative grammar.
 func (p *parser) parseTest() Expr {
+	if p.isKw("lambda") {
+		return p.parseLambda()
+	}
 	e := p.parseOr()
 	if !p.isKw("if") {
 		return e
@@ -815,6 +820,16 @@ func (p *parser) parseTest() Expr {
 		p.errf(p.cur().pos, "expected 'else' after 'if' expression")
 	}
 	return &IfExp{Pos_: e.Span(), Cond: cond, Then: e, Else: p.parseTest()}
+}
+
+// parseLambda parses `lambda params: body`. The body is a single test, so
+// `lambda: x, y` is a tuple whose first element is the lambda, matching
+// CPython's precedence.
+func (p *parser) parseLambda() Expr {
+	t := p.advance()
+	params := p.parseParams(":")
+	p.wantOp(":")
+	return &Lambda{Pos_: t.pos, Params: params, Body: p.parseTest()}
 }
 
 // parseNamedTest parses test with an optional walrus, for the positions
@@ -1228,7 +1243,10 @@ func (p *parser) parseAtom() Expr {
 			p.advance()
 			return &NoneLit{Pos_: t.pos}
 		case "lambda":
-			p.errf(t.pos, "lambda expressions are not supported yet")
+			// parseTest owns lambda; reaching the atom parser means it sits
+			// in operand position, like `1 + lambda: 2`, which CPython
+			// reports as plain invalid syntax.
+			p.errf(t.pos, "invalid syntax")
 		case "yield":
 			p.errf(t.pos, "yield expressions are not supported yet")
 		case "await":

@@ -211,6 +211,8 @@ func de(e Expr) string {
 		return "(ifexp " + de(e.Cond) + " " + de(e.Then) + " " + de(e.Else) + ")"
 	case *NamedExpr:
 		return "(:= " + e.Target + " " + de(e.Value) + ")"
+	case *Lambda:
+		return "(lambda (" + strings.Join(dparams(e.Params), " ") + ") " + de(e.Body) + ")"
 	case *Starred:
 		return "(* " + de(e.X) + ")"
 	case *FStr:
@@ -314,6 +316,15 @@ func TestParse(t *testing.T) {
 		{"attribute chain", "x.y.z", "(expr (. (. x y) z))"},
 		{"call no args", "f()", "(expr (call f))"},
 		{"call trailing comma", "f(a,)", "(expr (call f a))"},
+		{"lambda", "x = lambda a: a", "(= x (lambda (a) a))"},
+		{"lambda no params", "f = lambda: 1", "(= f (lambda () 1))"},
+		{"lambda full params", "f = lambda a, b=1, /, *c, d=2, **e: a", "(= f (lambda (a b=1 / *c d=2 **e) a))"},
+		{"lambda bare star", "f = lambda *, k: k", "(= f (lambda (* k) k))"},
+		{"lambda body is one test", "x = lambda: 1, 2", "(= x (tuple (lambda () 1) 2))"},
+		{"lambda conditional body", "f = lambda x: x if x else 0", "(= f (lambda (x) (ifexp x x 0)))"},
+		{"lambda as call arg", "f(lambda x: x)", "(expr (call f (lambda (x) x)))"},
+		{"lambda nested", "f = lambda x: lambda y: x", "(= f (lambda (x) (lambda (y) x)))"},
+		{"fstring lambda inside", `f"{(lambda: x)}"`, `(expr (fstr (interp (lambda () x))))`},
 		{"tuple subscript", "a[1, 2]", "(expr ([] a (tuple 1 2)))"},
 		{"bare tuple", "1, 2, 3", "(expr (tuple 1 2 3))"},
 		{"bare one tuple", "1,", "(expr (tuple 1))"},
@@ -542,7 +553,11 @@ func TestParseErrors(t *testing.T) {
 		{"global", "global x", "global statements are not supported yet"},
 		{"nonlocal", "nonlocal x", "nonlocal statements are not supported yet"},
 		{"async def", "async def f(): pass", "async is not supported yet"},
-		{"lambda", "x = lambda a: a", "lambda expressions are not supported yet"},
+		{"lambda duplicate param", "f = lambda x, x: x", "duplicate argument 'x' in function definition"},
+		{"lambda default order", "f = lambda x=1, y: x", "parameter without a default follows parameter with a default"},
+		{"lambda double star param", "f = lambda *a, *b: 1", "* argument may appear only once"},
+		{"lambda param after kwargs", "f = lambda **k, x: 1", "arguments cannot follow var-keyword argument"},
+		{"lambda operand position", "x = 1 + lambda: 2", "invalid syntax"},
 		{"yield", "yield 1", "yield expressions are not supported yet"},
 		{"await", "x = await f()", "await is not supported yet"},
 		{"list comprehension", "[x for x in y]", "list comprehensions are not supported yet"},
@@ -713,7 +728,6 @@ func TestParseErrors(t *testing.T) {
 		{"fstring bare star", `f"{*x}"`, "can't use starred expression here"},
 		{"fstring star in tuple", `f"{*a, b}"`, "iterable unpacking is not supported yet"},
 		{"fstring repeated keyword inside", `f"{g(a=1, a=2)}"`, "keyword argument repeated: a"},
-		{"fstring lambda inside", `f"{(lambda: x)}"`, "lambda expressions are not supported yet"},
 		{"fstring yield inside", `f"{yield}"`, "yield expressions are not supported yet"},
 		{"assign to fstring", `f"{x}" = 1`, "cannot assign to f-string expression"},
 		{"assign to folded fstring", `f"a" = 1`, "cannot assign to literal"},
