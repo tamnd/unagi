@@ -180,6 +180,12 @@ func (f *fnCtx) assign(s *frontend.Assign) error {
 func (f *fnCtx) assignTo(target frontend.Expr, v ast.Expr) error {
 	switch t := target.(type) {
 	case *frontend.Name:
+		// A comprehension iteration variable assigns its temporary, not the
+		// enclosing local of the same name.
+		if tmp, ok := f.compVars[t.Id]; ok {
+			f.add(set(ident(tmp), v))
+			return nil
+		}
 		f.add(set(ident(mangle(t.Id)), v))
 		return nil
 	case *frontend.Subscript:

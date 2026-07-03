@@ -46,6 +46,10 @@ type fnCtx struct {
 	finallyBase []int
 	pendAct     bool
 	pendRet     bool
+	// compVars maps a comprehension iteration variable to the fresh Go
+	// temporary that carries it while its comprehension lowers, the PEP 709
+	// inlining rename. Name reads and walrus writes check it before locals.
+	compVars map[string]string
 }
 
 func newFnCtx(e *emitter, inFunc bool, fname string) *fnCtx {
@@ -269,6 +273,17 @@ func collectAssigned(body []frontend.Stmt, out map[string]bool) {
 			// Its defaults evaluate here, so only they can bind this scope.
 			for _, p := range e.Params {
 				walkExpr(p.Default)
+			}
+		case *frontend.Comp:
+			// Iteration variables are isolated by PEP 709 inlining and never
+			// bind the enclosing scope; a walrus anywhere else in the
+			// comprehension does. The parser already rejected walrus in the
+			// iterables, but walking them costs nothing.
+			walkExpr(e.Elt)
+			walkExpr(e.Val)
+			for _, cl := range e.Clauses {
+				walkExpr(cl.Iter)
+				walkExprs(cl.Ifs)
 			}
 		case *frontend.FStr:
 			for _, p := range e.Parts {
