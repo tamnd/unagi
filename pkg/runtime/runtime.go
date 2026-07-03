@@ -4,7 +4,6 @@
 package runtime
 
 import (
-	"fmt"
 	"io"
 	"math"
 	"os"
@@ -224,11 +223,4 @@ func init() {
 func Builtin(name string) (objects.Object, bool) {
 	f, ok := builtins[name]
 	return f, ok
-}
-
-// PrintUncaught writes the CPython-style two-line traceback for an
-// uncaught exception to Stderr.
-func PrintUncaught(err error) {
-	// Nothing sensible to do if stderr itself is gone.
-	_, _ = fmt.Fprintf(Stderr, "Traceback (most recent call last):\n%s\n", err.Error())
 }

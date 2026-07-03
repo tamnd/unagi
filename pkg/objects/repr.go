@@ -150,15 +150,21 @@ func Repr(o Object) string {
 		return "dict_values(" + reprSeq(x.d.valSlice(), "[", "]") + ")"
 	case *dictItemsObject:
 		return "dict_items(" + reprSeq(x.d.itemSlice(), "[", "]") + ")"
+	case *Exception:
+		// ClassName(args...) with repr-joined args, ValueError('boom').
+		return x.Kind + reprSeq(x.Args, "(", ")")
 	}
 	return fmt.Sprintf("<%s object>", o.TypeName())
 }
 
 // Str returns the Python str of an object. Strings come back raw,
-// everything else falls through to Repr.
+// exceptions render their message, everything else falls through to Repr.
 func Str(o Object) string {
-	if x, ok := o.(*strObject); ok {
+	switch x := o.(type) {
+	case *strObject:
 		return x.v
+	case *Exception:
+		return x.Text()
 	}
 	return Repr(o)
 }

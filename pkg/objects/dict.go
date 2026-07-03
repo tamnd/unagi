@@ -80,7 +80,7 @@ func dictKey(key Object) (string, error) {
 	k, err := hashKey(key)
 	if err != nil {
 		if ex, ok := err.(*Exception); ok && ex.Kind == TypeError {
-			return "", Raise(TypeError, "cannot use '%s' as a dict key (%s)", key.TypeName(), ex.Msg)
+			return "", Raise(TypeError, "cannot use '%s' as a dict key (%s)", key.TypeName(), ex.Text())
 		}
 		return "", err
 	}
@@ -122,7 +122,9 @@ func (d *dictObject) get(key Object) (Object, error) {
 	if idx, ok := d.index[k]; ok {
 		return d.entries[idx].val, nil
 	}
-	return nil, Raise(KeyError, "%s", Repr(key))
+	// The key object itself is the single argument, so str(e) is the
+	// repr of the key exactly like CPython.
+	return nil, NewException(KeyError, []Object{key})
 }
 
 // lookup is get without the KeyError, for dict.get and friends.

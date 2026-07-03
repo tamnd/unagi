@@ -32,6 +32,9 @@ func Truth(o Object) bool {
 		return len(x.d.entries) > 0
 	case *dictItemsObject:
 		return len(x.d.entries) > 0
+	case *Exception:
+		// Exception instances are always truthy, whatever their args.
+		return true
 	}
 	return true
 }

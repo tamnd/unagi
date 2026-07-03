@@ -774,11 +774,14 @@ func TestCall(t *testing.T) {
 
 func TestExceptionAndTypeNames(t *testing.T) {
 	e := Raise(ValueError, "bad %s %d", "thing", 7)
-	if e.Kind != "ValueError" || e.Msg != "bad thing 7" {
-		t.Errorf("Raise fields = %q, %q", e.Kind, e.Msg)
+	if e.Kind != "ValueError" || e.Text() != "bad thing 7" {
+		t.Errorf("Raise fields = %q, %q", e.Kind, e.Text())
 	}
 	if e.Error() != "ValueError: bad thing 7" {
 		t.Errorf("Error() = %q", e.Error())
+	}
+	if got := e.TypeName(); got != "ValueError" {
+		t.Errorf("TypeName() = %q", got)
 	}
 
 	names := map[Object]string{
