@@ -329,7 +329,7 @@ func (f *fnCtx) ifStmt(s *frontend.If) error {
 
 func (f *fnCtx) whileStmt(s *frontend.While) error {
 	loop := &loopInfo{depth: f.closure}
-	if len(s.Else) > 0 {
+	if len(s.Else) > 0 && hasBreak(s.Body) {
 		loop.flag = f.tmpVar()
 		f.add(define(ident(loop.flag), ident("false")))
 	}
@@ -361,7 +361,7 @@ func (f *fnCtx) forStmt(s *frontend.For) error {
 	it := f.tmpVar()
 	f.fallible(it, f.e.obj("Iter"), iter)
 	loop := &loopInfo{depth: f.closure}
-	if len(s.Else) > 0 {
+	if len(s.Else) > 0 && hasBreak(s.Body) {
 		loop.flag = f.tmpVar()
 		f.add(define(ident(loop.flag), ident("false")))
 	}
@@ -388,10 +388,15 @@ func (f *fnCtx) forStmt(s *frontend.For) error {
 }
 
 // loopElse emits the else block guarded by the broke-out flag. Python runs a
-// loop's else exactly when the loop finished without a break.
+// loop's else exactly when the loop finished without a break. A loop whose
+// body cannot break never sets the flag, so the else runs unconditionally and
+// the flag is dropped entirely.
 func (f *fnCtx) loopElse(loop *loopInfo, body []frontend.Stmt) error {
 	if len(body) == 0 {
 		return nil
+	}
+	if loop.flag == "" {
+		return f.stmts(body)
 	}
 	f.push()
 	if err := f.stmts(body); err != nil {
@@ -399,4 +404,30 @@ func (f *fnCtx) loopElse(loop *loopInfo, body []frontend.Stmt) error {
 	}
 	f.add(&ast.IfStmt{Cond: notExpr(ident(loop.flag)), Body: f.pop()})
 	return nil
+}
+
+// hasBreak reports whether a loop body contains a break bound to this loop.
+// Nested loops own their breaks, so the walk stops at for and while; if and
+// try arms stay on this loop's level.
+func hasBreak(body []frontend.Stmt) bool {
+	for _, s := range body {
+		switch s := s.(type) {
+		case *frontend.Break:
+			return true
+		case *frontend.If:
+			if hasBreak(s.Body) || hasBreak(s.Else) {
+				return true
+			}
+		case *frontend.Try:
+			if hasBreak(s.Body) || hasBreak(s.OrElse) || hasBreak(s.Final) {
+				return true
+			}
+			for _, h := range s.Handlers {
+				if hasBreak(h.Body) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
