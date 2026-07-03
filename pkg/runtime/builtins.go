@@ -564,6 +564,15 @@ func DictOf(args []objects.Object) (objects.Object, error) {
 	return objects.NewDict(keys, vals)
 }
 
+// HashOf implements hash(o) with CPython's PYTHONHASHSEED=0 values.
+func HashOf(o objects.Object) (objects.Object, error) {
+	h, err := objects.PyHash(o)
+	if err != nil {
+		return nil, err
+	}
+	return objects.NewInt(h), nil
+}
+
 // Format implements the format builtin over the objects format engine.
 func Format(args []objects.Object) (objects.Object, error) {
 	if len(args) == 0 {
@@ -615,6 +624,9 @@ func init() {
 		}),
 		"chr": objects.NewFunc("chr", 1, func(args []objects.Object) (objects.Object, error) {
 			return Chr(args[0])
+		}),
+		"hash": objects.NewFunc("hash", 1, func(args []objects.Object) (objects.Object, error) {
+			return HashOf(args[0])
 		}),
 		"sorted": objects.NewFunc("sorted", 1, func(args []objects.Object) (objects.Object, error) {
 			return Sorted(args[0])

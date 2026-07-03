@@ -14,7 +14,7 @@ var builtinNames = map[string]bool{
 	"int": true, "float": true, "bool": true, "abs": true,
 	"min": true, "max": true, "sum": true, "round": true, "divmod": true,
 	"pow": true, "bin": true, "oct": true, "hex": true, "ord": true,
-	"chr": true, "sorted": true, "reversed": true, "enumerate": true,
+	"chr": true, "hash": true, "sorted": true, "reversed": true, "enumerate": true,
 	"zip": true, "list": true, "tuple": true, "dict": true, "set": true,
 	"frozenset": true, "format": true,
 }
@@ -245,7 +245,7 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 			f.fallible(tmp, sel("runtime", "Pow3"), args[0], args[1], args[2])
 		}
 		return ident(tmp), nil
-	case "bin", "oct", "hex", "ord", "chr":
+	case "bin", "oct", "hex", "ord", "chr", "hash":
 		if err := need1(); err != nil {
 			return nil, err
 		}
@@ -253,7 +253,7 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		fn := map[string]string{"bin": "Bin", "oct": "Oct", "hex": "Hex", "ord": "Ord", "chr": "Chr"}[name]
+		fn := map[string]string{"bin": "Bin", "oct": "Oct", "hex": "Hex", "ord": "Ord", "chr": "Chr", "hash": "HashOf"}[name]
 		tmp := f.tmpVar()
 		f.fallible(tmp, sel("runtime", fn), args[0])
 		return ident(tmp), nil
