@@ -88,11 +88,6 @@ func strRepr(s string) string {
 	return b.String()
 }
 
-func reprSeq(elts []Object, open, close string) string {
-	s, _ := reprSeqCore(elts, open, close, false)
-	return s
-}
-
 func reprSeqCore(elts []Object, open, close string, strict bool) (string, error) {
 	var b strings.Builder
 	b.WriteString(open)
