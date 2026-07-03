@@ -6,7 +6,9 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 
 	"github.com/charmbracelet/fang"
 	"github.com/spf13/cobra"
@@ -14,13 +16,29 @@ import (
 
 // Execute builds the root command and runs it through fang. main passes the
 // signal-aware context so Ctrl-C cancels a running compile. It returns the
-// process exit code.
+// process exit code; a compiled program's own exit code passes through.
 func Execute(ctx context.Context) int {
 	root := newRoot()
-	if err := fang.Execute(ctx, root, fang.WithVersion(Version)); err != nil {
+	err := fang.Execute(ctx, root,
+		fang.WithVersion(Version),
+		fang.WithErrorHandler(printError),
+	)
+	if err != nil {
+		if ee, ok := errors.AsType[*exitError](err); ok {
+			return ee.code
+		}
 		return 1
 	}
 	return 0
+}
+
+// printError renders CLI errors, except the pass-through exit code from
+// `unagi run`, where the program already produced its own output.
+func printError(w io.Writer, styles fang.Styles, err error) {
+	if _, ok := errors.AsType[*exitError](err); ok {
+		return
+	}
+	fang.DefaultErrorHandler(w, styles, err)
 }
 
 // newRoot assembles the command tree.
@@ -36,7 +54,7 @@ func newRoot() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(newVersionCmd())
+	root.AddCommand(newBuildCmd(), newRunCmd(), newVersionCmd())
 	return root
 }
 
