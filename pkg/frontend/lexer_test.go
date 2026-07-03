@@ -32,6 +32,20 @@ func lexRender(toks []token) string {
 			parts = append(parts, "float:"+tk.text)
 		case tString:
 			parts = append(parts, "str:"+strconv.Quote(tk.text))
+		case tFStrStart:
+			parts = append(parts, "fstart:"+tk.text)
+		case tFStrMid:
+			parts = append(parts, "fmid:"+strconv.Quote(tk.text))
+		case tFStrEnd:
+			parts = append(parts, "fend:"+tk.text)
+		case tFStrOpen:
+			parts = append(parts, "f{")
+		case tFStrClose:
+			parts = append(parts, "f}")
+		case tFStrEq:
+			parts = append(parts, "feq:"+strconv.Quote(tk.text))
+		case tFStrConv:
+			parts = append(parts, "conv:"+tk.text)
 		}
 	}
 	return strings.Join(parts, " ")
@@ -83,6 +97,19 @@ func TestLexTokens(t *testing.T) {
 		{"empty source", "", "EOF"},
 		{"only comments", "# a\n# b\n", "EOF"},
 		{"prefix name not string", "f = 1", "f = int:1 NL EOF"},
+		{"fstring basic", `f"a{x}b"`, `fstart:f" fmid:"a" f{ x f} fmid:"b" fend:" NL EOF`},
+		{"fstring empty", `f""`, `fstart:f" fend:" NL EOF`},
+		{"fstring upper prefix", `F'hi'`, `fstart:F' fmid:"hi" fend:' NL EOF`},
+		{"fstring conv and spec", `f"{x!r:>5}"`, `fstart:f" f{ x conv:r fmid:">5" f} fend:" NL EOF`},
+		{"fstring eq keeps whitespace", `f"{x = }"`, `fstart:f" f{ x feq:"x = " f} fend:" NL EOF`},
+		{"fstring eq conv spec order", `f"{x=!r:>5}"`, `fstart:f" f{ x feq:"x=" conv:r fmid:">5" f} fend:" NL EOF`},
+		{"fstring doubled braces", `f"{{x}}"`, `fstart:f" fmid:"{x}" fend:" NL EOF`},
+		{"fstring triple", "f'''a\n{x}'''", `fstart:f''' fmid:"a\n" f{ x f} fend:''' NL EOF`},
+		{"fstring inner string same quote", `f"{"q"}"`, `fstart:f" f{ str:"q" f} fend:" NL EOF`},
+		{"fstring colon starts spec even before equals", `f"{x:=5}"`, `fstart:f" f{ x fmid:"=5" f} fend:" NL EOF`},
+		{"fstring empty spec still a token", `f"{x:}"`, `fstart:f" f{ x fmid:"" f} fend:" NL EOF`},
+		{"fstring nested brackets", `f"{a[0]}"`, `fstart:f" f{ a [ int:0 ] f} fend:" NL EOF`},
+		{"fstring multiline expression", "f\"{1 +\n2}\"", `fstart:f" f{ int:1 + int:2 f} fend:" NL EOF`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -117,11 +144,48 @@ func TestLexErrors(t *testing.T) {
 		{"newline in string", "x = 'abc\n'", "unterminated string literal (detected at line 1)"},
 		{"unterminated triple", "x = '''abc\ndef", "unterminated triple-quoted string literal (detected at line 2)"},
 		{"bad hex escape", `x = '\x4'`, `invalid \x escape`},
-		{"fstring", `f"hi"`, "f-strings are not supported yet"},
-		{"fstring upper", `F'hi'`, "f-strings are not supported yet"},
 		{"bytes", `b'hi'`, "bytes literals are not supported yet"},
 		{"raw bytes", `rb'hi'`, "bytes literals are not supported yet"},
 		{"raw prefix", `r'hi'`, `string prefix "r" is not supported yet`},
+		{"raw fstring", `rf"a"`, `string prefix "rf" is not supported yet`},
+		{"fstring raw", `fr"a"`, `string prefix "fr" is not supported yet`},
+		{"tstring", `t"x"`, "t-strings are not supported yet"},
+		{"raw tstring", `rt'y'`, "t-strings are not supported yet"},
+		{"nested fstring", `f"{f"{x}"}"`, "nested f-strings are not supported yet"},
+		{"fstring lone closing brace", `f"}"`, "f-string: single '}' is not allowed"},
+		{"fstring lone brace after doubled", `f"{{}"`, "f-string: single '}' is not allowed"},
+		{"fstring empty expression", `f"{}"`, "f-string: valid expression required before '}'"},
+		{"fstring blank expression", `f"{ }"`, "f-string: valid expression required before '}'"},
+		{"fstring empty before colon", `f"{:x}"`, "f-string: valid expression required before ':'"},
+		{"fstring empty before bang", `f"{!r}"`, "f-string: valid expression required before '!'"},
+		{"fstring empty before eq", `f"{=}"`, "f-string: valid expression required before '='"},
+		{"fstring bang eq alone", `f"{!=}"`, "f-string: expecting a valid expression after '{'"},
+		{"fstring missing conversion", `f"{x!}"`, "f-string: missing conversion character"},
+		{"fstring missing conversion before colon", `f"{x!:}"`, "f-string: missing conversion character"},
+		{"fstring conversion after space", `f"{x! r}"`, "f-string: conversion type must come right after the exclamation mark"},
+		{"fstring bad conversion", `f"{x!z}"`, "f-string: invalid conversion character 'z': expected 's', 'r', or 'a'"},
+		{"fstring conversion case sensitive", `f"{x!S}"`, "f-string: invalid conversion character 'S': expected 's', 'r', or 'a'"},
+		{"fstring long conversion", `f"{x!ss}"`, "f-string: invalid conversion character 'ss': expected 's', 'r', or 'a'"},
+		{"fstring non-name conversion", `f"{x!'s'}"`, "f-string: invalid conversion character"},
+		{"fstring junk after conversion", `f"{x!s= }"`, "f-string: expecting ':' or '}'"},
+		{"fstring double conversion", `f"{x!r!s}"`, "f-string: expecting ':' or '}'"},
+		{"fstring junk after eq", `f"{x=1}"`, "f-string: expecting '!', or ':', or '}'"},
+		{"fstring newline in spec", "f\"{x:\n}\"", "f-string: newlines are not allowed in format specifiers for single quoted f-strings"},
+		{"fstring eof in spec", `f"{x:>5`, "f-string: newlines are not allowed in format specifiers for single quoted f-strings"},
+		{"fstring quote ends spec", `f"{x:>5"`, "f-string: expecting '}', or format specs"},
+		{"fstring nested spec expression", `f"{x:{w}}"`, "f-string: expressions in format specifiers are not supported yet"},
+		{"unterminated fstring", `f"abc`, "unterminated f-string literal (detected at line 1)"},
+		{"newline in fstring", "f\"abc\nd\"", "unterminated f-string literal (detected at line 1)"},
+		{"unterminated triple fstring", "f\"\"\"ab\ncd", "unterminated triple-quoted f-string literal (detected at line 2)"},
+		{"fstring brace never closed", `f"{1`, "'{' was never closed"},
+		{"fstring comment eats brace", `f"{1 # c}"`, "'{' was never closed"},
+		{"fstring paren then eof", `f"{(1)`, "'{' was never closed"},
+		{"fstring unmatched bracket", `f"{]}"`, "f-string: unmatched ']'"},
+		{"fstring unmatched paren", `f"{)}"`, "f-string: unmatched ')'"},
+		{"fstring outer bracket unreachable", `[f"{]}"]`, "f-string: unmatched ']'"},
+		{"fstring mismatched close", `f"{a[1}"`, "closing parenthesis '}' does not match opening parenthesis '['"},
+		{"fstring quote in expression", `f"{abc"`, "f-string: expecting '}'"},
+		{"fstring bang inside brackets", `f"{a[b!r]}"`, "f-string: expecting '=', or '!', or ':', or '}'"},
 		{"unclosed paren", "x = (1", "'(' was never closed"},
 		{"unclosed bracket", "x = [1, 2", "'[' was never closed"},
 		{"unmatched close", "x = 1)", "unmatched ')'"},

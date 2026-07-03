@@ -163,8 +163,35 @@ func de(e Expr) string {
 		return "(:= " + e.Target + " " + de(e.Value) + ")"
 	case *Starred:
 		return "(* " + de(e.X) + ")"
+	case *FStr:
+		parts := []string{"fstr"}
+		for _, part := range e.Parts {
+			switch part := part.(type) {
+			case *FText:
+				parts = append(parts, strconv.Quote(part.Text))
+			case *FInterp:
+				parts = append(parts, dinterp(part))
+			}
+		}
+		return "(" + strings.Join(parts, " ") + ")"
 	}
 	return "?expr"
+}
+
+// dinterp renders one f-string interpolation: the expression, then the
+// =text, !conv, and :spec pieces in source order, each only when present.
+func dinterp(in *FInterp) string {
+	out := "(interp " + de(in.X)
+	if in.Eq != "" {
+		out += " =" + strconv.Quote(in.Eq)
+	}
+	if in.Conv != 0 {
+		out += " !" + string(in.Conv)
+	}
+	if in.HasSpec {
+		out += " :" + strconv.Quote(in.Spec)
+	}
+	return out + ")"
 }
 
 // dopt renders an optional slice part, with _ standing in for an omitted one.
@@ -343,6 +370,44 @@ func TestParse(t *testing.T) {
 		{"star for target", "for a, *b in x: pass", "(for (tuple a (* b)) x [(pass)] [])"},
 		{"star for target first", "for *a, b in x: pass", "(for (tuple (* a) b) x [(pass)] [])"},
 		{"chained mixed targets", "a, b = c = [1, 2]", "(= (tuple a b) c (list 1 2))"},
+		{"fstring plain folds to string", `f"plain"`, `(expr "plain")`},
+		{"fstring empty folds", `f""`, `(expr "")`},
+		{"fstring doubled braces fold", `f"a{{b}}c"`, `(expr "a{b}c")`},
+		{"fstring text and interps", `f"a{x}b{y}"`, `(expr (fstr "a" (interp x) "b" (interp y)))`},
+		{"fstring adjacent interps", `f"{x}{y}"`, `(expr (fstr (interp x) (interp y)))`},
+		{"fstring conversions", `f"{x!s}{x!r}{x!a}"`, "(expr (fstr (interp x !s) (interp x !r) (interp x !a)))"},
+		{"fstring bang eq is comparison", `f"{1!=2}"`, "(expr (fstr (interp (cmp 1 != 2))))"},
+		{"fstring spec", `f"{x:>5}"`, `(expr (fstr (interp x :">5")))`},
+		{"fstring empty spec", `f"{x:}"`, `(expr (fstr (interp x :"")))`},
+		{"fstring spec escape processed", `f"{x:\x3e5}"`, `(expr (fstr (interp x :">5")))`},
+		{"fstring colon eq is spec", `f"{x:=5}"`, `(expr (fstr (interp x :"=5")))`},
+		{"fstring conv then spec", `f"{x!r:>5}"`, `(expr (fstr (interp x !r :">5")))`},
+		{"fstring eq bare", `f"{x=}"`, `(expr (fstr (interp x ="x=")))`},
+		{"fstring eq spaces both sides", `f"{x = }"`, `(expr (fstr (interp x ="x = ")))`},
+		{"fstring eq space before", `f"{x =}"`, `(expr (fstr (interp x ="x =")))`},
+		{"fstring eq space after", `f"{x= }"`, `(expr (fstr (interp x ="x= ")))`},
+		{"fstring eq leading space kept", `f"{ x = }"`, `(expr (fstr (interp x =" x = ")))`},
+		{"fstring eq then conv and spec", `f"{x=!r:>5}"`, `(expr (fstr (interp x ="x=" !r :">5")))`},
+		{"fstring eq expression text", `f"{x+1=}"`, `(expr (fstr (interp (+ x 1) ="x+1=")))`},
+		{"fstring eq tuple", `f"{x,1=}"`, `(expr (fstr (interp (tuple x 1) ="x,1=")))`},
+		{"fstring eq newline in triple", "f\"\"\"{x =\n}\"\"\"", `(expr (fstr (interp x ="x =\n")))`},
+		{"fstring tuple expression", `f"{1, 2}"`, "(expr (fstr (interp (tuple 1 2))))"},
+		{"fstring trailing comma tuple", `f"{1,}"`, "(expr (fstr (interp (tuple 1))))"},
+		{"fstring walrus in parens", `f"{(y := 5)}"`, "(expr (fstr (interp (:= y 5))))"},
+		{"fstring inner string same quote", `f"{"a" + b}"`, `(expr (fstr (interp (+ "a" b))))`},
+		{"fstring dict subscript in braces", `f"{ {1: 2}[1] }"`, "(expr (fstr (interp ([] (dict (1 2)) 1))))"},
+		{"fstring multiline expression", "f\"{1 +\n2}\"", "(expr (fstr (interp (+ 1 2))))"},
+		{"fstring comment in braces", "f\"{1 # c\n}\"", "(expr (fstr (interp 1)))"},
+		{"fstring escape in inner string", `f"{'\n'}"`, `(expr (fstr (interp "\n")))`},
+		{"fstring backslash before brace", `f"\{x}"`, `(expr (fstr "\\" (interp x)))`},
+		{"fstring triple text", "f'''a\nb{x}'''", `(expr (fstr "a\nb" (interp x)))`},
+		{"fstring concat plain then f", `"a" f"b{x}"`, `(expr (fstr "ab" (interp x)))`},
+		{"fstring concat f then plain", `f"a{x}" "b"`, `(expr (fstr "a" (interp x) "b"))`},
+		{"fstring concat two f", `f"a{x}" f"{y}b"`, `(expr (fstr "a" (interp x) (interp y) "b"))`},
+		{"fstring concat folds when plain", `f"a" f"b"`, `(expr "ab")`},
+		{"fstring concat mixed folds", `"a" f"b" "c"`, `(expr "abc")`},
+		{"fstring as assign value", `s = f"n={n}"`, `(= s (fstr "n=" (interp n)))`},
+		{"fstring in call", `log(f"{x}", 1)`, "(expr (call log (fstr (interp x)) 1))"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -491,6 +556,20 @@ func TestParseErrors(t *testing.T) {
 		{"walrus chained", "(x := y := 1)", "invalid syntax"},
 		{"ifexp missing else", "x = 1 if y", "expected 'else' after 'if' expression"},
 		{"ifexp missing else in call", "f(a if b)", "expected 'else' after 'if' expression"},
+		{"fstring junk after expression", `f"{x;}"`, "f-string: expecting '=', or '!', or ':', or '}'"},
+		{"fstring dangling operator", `f"{1+}"`, "f-string: expecting '=', or '!', or ':', or '}'"},
+		{"fstring dangling comparison", `f"{x==}"`, "f-string: expecting '=', or '!', or ':', or '}'"},
+		{"fstring two expressions", `f"{1 x}"`, "f-string: expecting '=', or '!', or ':', or '}'"},
+		{"fstring bare star", `f"{*x}"`, "can't use starred expression here"},
+		{"fstring star in tuple", `f"{*a, b}"`, "iterable unpacking is not supported yet"},
+		{"fstring keyword arg inside", `f"{g(a=1)}"`, "keyword arguments are not supported yet"},
+		{"fstring lambda inside", `f"{(lambda: x)}"`, "lambda expressions are not supported yet"},
+		{"fstring yield inside", `f"{yield}"`, "yield expressions are not supported yet"},
+		{"assign to fstring", `f"{x}" = 1`, "cannot assign to f-string expression"},
+		{"assign to folded fstring", `f"a" = 1`, "cannot assign to literal"},
+		{"aug assign to fstring", `f"{x}" += 1`, "'f-string expression' is an illegal expression for augmented assignment"},
+		{"del fstring", `del f"{x}"`, "cannot delete f-string expression"},
+		{"walrus fstring target", `(f"{x}" := 1)`, "cannot use assignment expressions with f-string expression"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

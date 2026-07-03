@@ -103,7 +103,7 @@ func (p *parser) errf(pos Pos, format string, args ...any) {
 // of a generic one.
 func startsExpr(t token) bool {
 	switch t.kind {
-	case tName, tInt, tFloat, tString:
+	case tName, tInt, tFloat, tString, tFStrStart:
 		return true
 	case tKeyword:
 		switch t.text {
@@ -276,6 +276,8 @@ func (p *parser) addDelTargets(d *Del, e Expr) {
 		p.errf(e.Span(), "list deletion targets are not supported yet")
 	case *Starred:
 		p.errf(e.Span(), "cannot delete starred")
+	case *FStr:
+		p.errf(e.Span(), "cannot delete f-string expression")
 	case *IntLit, *FloatLit, *StrLit:
 		p.errf(e.Span(), "cannot delete literal")
 	case *BoolLit:
@@ -296,7 +298,7 @@ func (p *parser) addDelTargets(d *Del, e Expr) {
 
 func (p *parser) looksLikeMatch() bool {
 	switch nt := p.peek(); nt.kind {
-	case tName, tInt, tFloat, tString:
+	case tName, tInt, tFloat, tString, tFStrStart:
 		return true
 	case tKeyword:
 		switch nt.text {
@@ -336,6 +338,8 @@ func (p *parser) checkAssignTarget(e Expr) {
 		p.errf(e.Span(), "list assignment targets are not supported yet")
 	case *Attribute:
 		p.errf(e.Span(), "attribute assignment targets are not supported yet")
+	case *FStr:
+		p.errf(e.Span(), "cannot assign to f-string expression")
 	case *IntLit, *FloatLit, *StrLit:
 		p.errf(e.Span(), "cannot assign to literal")
 	case *BoolLit:
@@ -365,6 +369,8 @@ func (p *parser) checkAugTarget(e Expr) {
 		p.errf(e.Span(), "'tuple' is an illegal expression for augmented assignment")
 	case *ListLit:
 		p.errf(e.Span(), "'list' is an illegal expression for augmented assignment")
+	case *FStr:
+		p.errf(e.Span(), "'f-string expression' is an illegal expression for augmented assignment")
 	default:
 		p.errf(e.Span(), "illegal expression for augmented assignment")
 	}
@@ -746,6 +752,8 @@ func (p *parser) parseNamedTest() Expr {
 		p.errf(e.Span(), "cannot use assignment expressions with list")
 	case *DictLit:
 		p.errf(e.Span(), "cannot use assignment expressions with dict literal")
+	case *FStr:
+		p.errf(e.Span(), "cannot use assignment expressions with f-string expression")
 	case *IntLit, *FloatLit, *StrLit:
 		p.errf(e.Span(), "cannot use assignment expressions with literal")
 	case *BoolLit:
@@ -1032,14 +1040,12 @@ func (p *parser) parseAtom() Expr {
 		// an infinity, which matches CPython evaluating huge literals.
 		v, _ := strconv.ParseFloat(t.text, 64)
 		return &FloatLit{Pos_: t.pos, Val: v}
-	case tString:
-		p.advance()
-		val := t.text
-		// Adjacent string literals concatenate.
-		for p.cur().kind == tString {
-			val += p.advance().text
-		}
-		return &StrLit{Pos_: t.pos, Val: val}
+	case tString, tFStrStart:
+		return p.parseStrings()
+	case tFStrClose, tFStrEq, tFStrConv, tFStrMid:
+		// An interpolation terminator where an operand should be, as in
+		// f"{1+}"; the wording is CPython's.
+		p.errf(t.pos, "f-string: expecting '=', or '!', or ':', or '}'")
 	case tKeyword:
 		switch t.text {
 		case "True", "False":
@@ -1071,6 +1077,88 @@ func (p *parser) parseAtom() Expr {
 	}
 	p.errf(t.pos, "invalid syntax")
 	return nil
+}
+
+// parseStrings parses a run of adjacent string and f-string literals into one
+// value, coalescing neighboring text pieces as it goes. A run with no
+// interpolations folds down to a plain StrLit, so f"plain" and mixed
+// text-only concatenations stay on the simple path downstream.
+func (p *parser) parseStrings() Expr {
+	start := p.cur()
+	var parts []FPart
+	text := func(s string) {
+		if s == "" {
+			return
+		}
+		if len(parts) > 0 {
+			if ft, ok := parts[len(parts)-1].(*FText); ok {
+				ft.Text += s
+				return
+			}
+		}
+		parts = append(parts, &FText{Text: s})
+	}
+	for {
+		switch p.cur().kind {
+		case tString:
+			text(p.advance().text)
+			continue
+		case tFStrStart:
+			p.advance()
+			for p.cur().kind != tFStrEnd {
+				if p.cur().kind == tFStrMid {
+					text(p.advance().text)
+					continue
+				}
+				parts = append(parts, p.parseFInterp())
+			}
+			p.advance()
+			continue
+		}
+		break
+	}
+	interp := false
+	for _, part := range parts {
+		if _, ok := part.(*FInterp); ok {
+			interp = true
+			break
+		}
+	}
+	if !interp {
+		val := ""
+		if len(parts) == 1 {
+			val = parts[0].(*FText).Text
+		}
+		return &StrLit{Pos_: start.pos, Val: val}
+	}
+	return &FStr{Pos_: start.pos, Parts: parts}
+}
+
+// parseFInterp parses one interpolation between the lexer's brace markers.
+// The expression grammar is the full one, so tuples and parenthesized
+// walruses work; the lexer already peeled the =, conversion, and spec pieces
+// off into their own tokens, in that order.
+func (p *parser) parseFInterp() *FInterp {
+	t := p.advance() // tFStrOpen
+	in := &FInterp{Pos_: t.pos}
+	x := p.parseStarTestlist()
+	p.rejectStarred(x)
+	in.X = x
+	if p.cur().kind == tFStrEq {
+		in.Eq = p.advance().text
+	}
+	if p.cur().kind == tFStrConv {
+		in.Conv = p.advance().text[0]
+	}
+	if p.cur().kind == tFStrMid {
+		in.Spec = p.advance().text
+		in.HasSpec = true
+	}
+	if p.cur().kind != tFStrClose {
+		p.errf(p.cur().pos, "f-string: expecting '=', or '!', or ':', or '}'")
+	}
+	p.advance()
+	return in
 }
 
 func (p *parser) parseParen() Expr {

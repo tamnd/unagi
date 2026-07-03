@@ -387,6 +387,42 @@ type Starred struct {
 	X    Expr
 }
 
+// FStr is an f-string after parsing: literal text runs interleaved with
+// interpolations, in source order. Adjacent string and f-string literals in
+// a concatenation are already merged into one FStr by the parser.
+type FStr struct {
+	Pos_  Pos
+	Parts []FPart
+}
+
+// FPart is one piece of an f-string: FText or FInterp.
+type FPart interface {
+	fpart()
+}
+
+// FText is a literal text run, with doubled braces already collapsed and
+// escapes processed.
+type FText struct {
+	Text string
+}
+
+// FInterp is one {expression} interpolation. Conv is 0 when absent or one of
+// 's', 'r', 'a'. Spec is the literal format spec text after the colon;
+// HasSpec tells the empty spec `{x:}` apart from no spec at all, which
+// matters for the self-documenting form. Eq holds the verbatim source text
+// through the equals sign (whitespace included) for `{x=}`, empty otherwise.
+type FInterp struct {
+	Pos_    Pos
+	X       Expr
+	Conv    byte
+	Spec    string
+	HasSpec bool
+	Eq      string
+}
+
+func (*FText) fpart()   {}
+func (*FInterp) fpart() {}
+
 func (e *Name) Span() Pos      { return e.Pos_ }
 func (e *IntLit) Span() Pos    { return e.Pos_ }
 func (e *FloatLit) Span() Pos  { return e.Pos_ }
@@ -407,6 +443,7 @@ func (e *SliceExpr) Span() Pos { return e.Pos_ }
 func (e *IfExp) Span() Pos     { return e.Pos_ }
 func (e *NamedExpr) Span() Pos { return e.Pos_ }
 func (e *Starred) Span() Pos   { return e.Pos_ }
+func (e *FStr) Span() Pos      { return e.Pos_ }
 
 func (*Name) expr()      {}
 func (*IntLit) expr()    {}
@@ -428,3 +465,4 @@ func (*SliceExpr) expr() {}
 func (*IfExp) expr()     {}
 func (*NamedExpr) expr() {}
 func (*Starred) expr()   {}
+func (*FStr) expr()      {}

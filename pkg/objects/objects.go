@@ -22,6 +22,7 @@ const (
 	UnboundLocalError = "UnboundLocalError"
 	AttributeError    = "AttributeError"
 	RuntimeError      = "RuntimeError"
+	OverflowError     = "OverflowError"
 )
 
 // Frame is one traceback entry: where the exception passed through on
