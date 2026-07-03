@@ -43,6 +43,9 @@ type Exception struct {
 	Cause           *Exception // raise ... from X
 	Context         *Exception // implicit chaining
 	SuppressContext bool       // raise ... from None, or an explicit cause
+	// Notes holds PEP 678 add_note strings. The traceback renderer prints
+	// each one verbatim after the final exception line.
+	Notes []string
 	// Reraised marks a bare `raise` so the next TB call skips its frame.
 	// CPython 3.14 keeps the original raise-site line for the re-raising
 	// function and adds no entry for the bare raise itself.

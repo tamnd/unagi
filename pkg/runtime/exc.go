@@ -218,4 +218,10 @@ func renderOne(b *strings.Builder, e *objects.Exception) {
 	}
 	b.WriteString(e.Error())
 	b.WriteByte('\n')
+	// PEP 678 notes print verbatim after the final line, one per line,
+	// multi-line notes spanning as many lines as they contain.
+	for _, n := range e.Notes {
+		b.WriteString(n)
+		b.WriteByte('\n')
+	}
 }
