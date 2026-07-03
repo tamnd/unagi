@@ -81,6 +81,20 @@ func varDecl(name string, typ ast.Expr) *ast.DeclStmt {
 // exprStmt evaluates an expression for effect.
 func exprStmt(x ast.Expr) *ast.ExprStmt { return &ast.ExprStmt{X: x} }
 
+// strSliceLit builds a []string{...} composite literal.
+func strSliceLit(elts []string) ast.Expr {
+	lits := make([]ast.Expr, len(elts))
+	for i, s := range elts {
+		lits[i] = strLit(s)
+	}
+	return &ast.CompositeLit{Type: &ast.ArrayType{Elt: ident("string")}, Elts: lits}
+}
+
+// kv is one key: value entry in a keyed composite literal.
+func kv(key string, val ast.Expr) ast.Expr {
+	return &ast.KeyValueExpr{Key: ident(key), Value: val}
+}
+
 // block wraps statements in a braces block.
 func block(list ...ast.Stmt) *ast.BlockStmt { return &ast.BlockStmt{List: list} }
 

@@ -38,6 +38,8 @@ type fnCtx struct {
 	inFunc      bool
 	loops       []*loopInfo
 	fname       string
+	qual        string // __qualname__, "" for the module body
+	outer       *fnCtx // lexically enclosing context, set for lambdas only
 	line        int
 	closure     int
 	frames      []*tryFrame
@@ -135,6 +137,11 @@ func (e *emitter) emitMain(body []frontend.Stmt) (*ast.FuncDecl, error) {
 	f := newFnCtx(e, false, "<module>")
 	collectAssigned(body, f.locals)
 	collectDeleted(body, f.deleted)
+	// A rebound def name is nil until its def statement runs, so every read
+	// goes through the NameError check like a deleted name does.
+	for n := range e.rebound {
+		f.deleted[n] = true
+	}
 	for _, name := range sortedNames(f.locals) {
 		f.declLocal(name)
 	}
@@ -155,6 +162,7 @@ func (e *emitter) emitMain(body []frontend.Stmt) (*ast.FuncDecl, error) {
 
 func (e *emitter) emitFunc(d *frontend.FuncDef) (*ast.FuncDecl, error) {
 	f := newFnCtx(e, true, d.Name)
+	f.qual = d.Name
 	params := &ast.FieldList{}
 	for _, p := range d.Params {
 		f.locals[p.Name] = true
@@ -256,6 +264,12 @@ func collectAssigned(body []frontend.Stmt, out map[string]bool) {
 			walkExpr(e.Else)
 		case *frontend.Starred:
 			walkExpr(e.X)
+		case *frontend.Lambda:
+			// A lambda is its own scope: a walrus in the body binds there.
+			// Its defaults evaluate here, so only they can bind this scope.
+			for _, p := range e.Params {
+				walkExpr(p.Default)
+			}
 		case *frontend.FStr:
 			for _, p := range e.Parts {
 				if in, ok := p.(*frontend.FInterp); ok {
