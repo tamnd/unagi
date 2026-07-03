@@ -1,4 +1,4 @@
-package emit
+package lower
 
 import (
 	"strings"
@@ -116,6 +116,70 @@ func TestCompileErrors(t *testing.T) {
 				&frontend.ExprStmt{X: call("one")},
 			}},
 			"one() takes 1 positional arguments but 0 were given",
+		},
+		{
+			"return inside finally",
+			&frontend.Module{Body: []frontend.Stmt{
+				&frontend.FuncDef{Name: "f", Body: []frontend.Stmt{
+					&frontend.Try{
+						Body:  []frontend.Stmt{&frontend.Pass{}},
+						Final: []frontend.Stmt{&frontend.Return{}},
+					},
+				}},
+			}},
+			"'return' inside 'finally' is not supported yet",
+		},
+		{
+			"break inside finally",
+			&frontend.Module{Body: []frontend.Stmt{
+				&frontend.While{Cond: &frontend.BoolLit{Val: true}, Body: []frontend.Stmt{
+					&frontend.Try{
+						Body:  []frontend.Stmt{&frontend.Pass{}},
+						Final: []frontend.Stmt{&frontend.Break{}},
+					},
+				}},
+			}},
+			"'break' inside 'finally' is not supported yet",
+		},
+		{
+			"except matcher is a variable",
+			&frontend.Module{Body: []frontend.Stmt{
+				&frontend.Assign{Targets: []frontend.Expr{&frontend.Name{Id: "x"}}, Value: &frontend.IntLit{Text: "1"}},
+				&frontend.Try{
+					Body: []frontend.Stmt{&frontend.Pass{}},
+					Handlers: []*frontend.ExceptHandler{{
+						Type: &frontend.Name{Id: "x"},
+						Body: []frontend.Stmt{&frontend.Pass{}},
+					}},
+				},
+			}},
+			"except matcher must be a builtin exception class name",
+		},
+		{
+			"except matcher unknown name",
+			&frontend.Module{Body: []frontend.Stmt{
+				&frontend.Try{
+					Body: []frontend.Stmt{&frontend.Pass{}},
+					Handlers: []*frontend.ExceptHandler{{
+						Type: &frontend.Name{Id: "NoSuchError"},
+						Body: []frontend.Stmt{&frontend.Pass{}},
+					}},
+				},
+			}},
+			`name "NoSuchError" is not defined`,
+		},
+		{
+			"except matcher not a name",
+			&frontend.Module{Body: []frontend.Stmt{
+				&frontend.Try{
+					Body: []frontend.Stmt{&frontend.Pass{}},
+					Handlers: []*frontend.ExceptHandler{{
+						Type: &frontend.IntLit{Text: "1"},
+						Body: []frontend.Stmt{&frontend.Pass{}},
+					}},
+				},
+			}},
+			"except matcher must be an exception class name or a tuple of them",
 		},
 	}
 	for _, tc := range cases {
