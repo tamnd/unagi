@@ -1,0 +1,22 @@
+123 0 7
+31 5 15 0
+255 255 35 10 19
+99999999999999999999 -99999999999999999999
+1000.5 inf -inf inf nan
+12.5
+ve: invalid literal for int() with base 10: ''
+ve: invalid literal for int() with base 10: '1__2'
+ve: invalid literal for int() with base 10: '_12'
+ve: invalid literal for int() with base 10: '12_'
+ve: invalid literal for int() with base 10: '1.5'
+ve: invalid literal for int() with base 10: '0x1f'
+ve0: invalid literal for int() with base 0: '019'
+base: int() base must be >= 2 and <= 36, or 0
+base2: int() base must be >= 2 and <= 36, or 0
+te: int() can't convert non-string with explicit base
+te2: int() argument must be a string, a bytes-like object or a real number, not 'list'
+kw: int() missing string argument
+kw2: int() got an unexpected keyword argument 'x'
+kw3: 'NoneType' object cannot be interpreted as an integer
+fe: could not convert string to float: 'x'
+fe2: float() argument must be a string or a real number, not 'list'
