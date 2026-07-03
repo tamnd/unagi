@@ -281,6 +281,34 @@ type SetLit struct {
 	Elts []Expr
 }
 
+// CompKind picks the container a comprehension builds.
+type CompKind int
+
+const (
+	CompList CompKind = iota
+	CompSet
+	CompDict
+)
+
+// CompClause is one `for target in iter` leg with its trailing `if`
+// conditions. A comprehension carries one or more in source order.
+type CompClause struct {
+	Pos_   Pos
+	Target Expr
+	Iter   Expr
+	Ifs    []Expr
+}
+
+// Comp is a list, set, or dict comprehension. Elt is the element, or the
+// key when Kind is CompDict, with Val carrying the value.
+type Comp struct {
+	Pos_    Pos
+	Kind    CompKind
+	Elt     Expr
+	Val     Expr
+	Clauses []CompClause
+}
+
 // BinKind is an arithmetic or bitwise binary operator.
 type BinKind int
 
@@ -485,6 +513,7 @@ func (e *ListLit) Span() Pos   { return e.Pos_ }
 func (e *TupleLit) Span() Pos  { return e.Pos_ }
 func (e *DictLit) Span() Pos   { return e.Pos_ }
 func (e *SetLit) Span() Pos    { return e.Pos_ }
+func (e *Comp) Span() Pos      { return e.Pos_ }
 func (e *BinOp) Span() Pos     { return e.Pos_ }
 func (e *UnaryOp) Span() Pos   { return e.Pos_ }
 func (e *BoolOp) Span() Pos    { return e.Pos_ }
@@ -509,6 +538,7 @@ func (*ListLit) expr()   {}
 func (*TupleLit) expr()  {}
 func (*DictLit) expr()   {}
 func (*SetLit) expr()    {}
+func (*Comp) expr()      {}
 func (*BinOp) expr()     {}
 func (*UnaryOp) expr()   {}
 func (*BoolOp) expr()    {}
