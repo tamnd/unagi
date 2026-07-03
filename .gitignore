@@ -1,6 +1,7 @@
 /bin/
 /dist/
 *.out
+!testdata/fixtures/*.out
 .DS_Store
 
 # Scratch build dirs the pipeline tests create under the module tree so the

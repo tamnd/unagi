@@ -1,0 +1,18 @@
+a = 7
+b = 2
+print(a + b)
+print(a - b)
+print(a * b)
+print(a / b)
+print(a // b)
+print(a % b)
+print(a ** b)
+print(-7 // 2)
+print(-7 % 2)
+print(2 ** -1)
+print(1.5 + 2)
+print(3.0)
+print(10 ** 15)
+print(abs(-5))
+print(abs(-2.5))
+print(1_000_000 + 0x10 + 0o10 + 0b10)
