@@ -19,6 +19,11 @@ var binFuncs = map[frontend.BinKind]string{
 	frontend.BinFloorDiv: "FloorDiv",
 	frontend.BinMod:      "Mod",
 	frontend.BinPow:      "Pow",
+	frontend.BinBitOr:    "BitOr",
+	frontend.BinBitXor:   "BitXor",
+	frontend.BinBitAnd:   "BitAnd",
+	frontend.BinLShift:   "LShift",
+	frontend.BinRShift:   "RShift",
 }
 
 var cmpOps = map[frontend.CmpKind]string{
@@ -74,6 +79,14 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 			return nil, err
 		}
 		return callExpr(f.e.obj("NewTuple"), f.objSlice(elts)), nil
+	case *frontend.SetLit:
+		elts, err := f.exprList(e.Elts)
+		if err != nil {
+			return nil, err
+		}
+		tmp := f.tmpVar()
+		f.fallible(tmp, f.e.obj("NewSet"), f.objSlice(elts))
+		return ident(tmp), nil
 	case *frontend.DictLit:
 		keys, err := f.exprList(e.Keys)
 		if err != nil {
@@ -109,6 +122,10 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		case frontend.UnaryNeg:
 			tmp := f.tmpVar()
 			f.fallible(tmp, f.e.obj("Neg"), x)
+			return ident(tmp), nil
+		case frontend.UnaryInvert:
+			tmp := f.tmpVar()
+			f.fallible(tmp, f.e.obj("Invert"), x)
 			return ident(tmp), nil
 		default:
 			tmp := f.tmpVar()

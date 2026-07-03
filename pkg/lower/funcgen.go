@@ -224,6 +224,8 @@ func collectAssigned(body []frontend.Stmt, out map[string]bool) {
 		case *frontend.DictLit:
 			walkExprs(e.Keys)
 			walkExprs(e.Vals)
+		case *frontend.SetLit:
+			walkExprs(e.Elts)
 		case *frontend.BinOp:
 			walkExpr(e.Left)
 			walkExpr(e.Right)
