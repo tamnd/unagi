@@ -15,8 +15,8 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/tamnd/unagi/pkg/lower"
 	"github.com/tamnd/unagi/pkg/frontend"
+	"github.com/tamnd/unagi/pkg/lower"
 )
 
 // Options controls a build.
