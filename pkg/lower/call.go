@@ -16,7 +16,7 @@ var builtinNames = map[string]bool{
 	"pow": true, "bin": true, "oct": true, "hex": true, "ord": true,
 	"chr": true, "sorted": true, "reversed": true, "enumerate": true,
 	"zip": true, "list": true, "tuple": true, "dict": true, "set": true,
-	"frozenset": true,
+	"frozenset": true, "format": true,
 }
 
 // call lowers a call expression. M0 resolves callees statically: a name bound
@@ -208,6 +208,14 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		tmp := f.tmpVar()
 		f.fallible(tmp, sel("runtime", "DivMod"), args[0], args[1])
 		return ident(tmp), nil
+	case "format":
+		if argc == 0 {
+			return nil, f.e.errf(e.Span(), "format expected at least 1 argument, got 0")
+		}
+		if argc > 2 {
+			return nil, f.e.errf(e.Span(), "format expected at most 2 arguments, got %d", argc)
+		}
+		return f.runtimeSliceCall("Format", e)
 	case "pow":
 		if argc < 2 {
 			if argc == 0 {

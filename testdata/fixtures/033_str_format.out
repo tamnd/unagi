@@ -1,0 +1,27 @@
+1 and two
+b before a
+x x y
+'q' q
+    ab cd       ef   |
+0003.142 +42 ff 0o10 1,234,567
+{literal} 5
+hi 'hi'
+7     7 7    | 00007
++3  3 -3
+ff FF 0xff 10 0o10
+2.500000 2.67       2.67 1.234568e+04 1.234568E+04 100000
+1e+17 0.0001
+A z
+[1, 2] 3
+    42|42    |2.67
+ana is 3
+100% -> 99%
+3.14 42   hi| 0xff
+True None
+caught format() argument 2 must be str, not int
+caught Replacement index 1 out of range for positional args tuple
+caught cannot switch from automatic field numbering to manual field specification
+caught not enough arguments for format string
+caught not all arguments converted during string formatting
+caught %d format: a real number is required, not str
+caught unsupported format character 'y' (0x79) at index 1

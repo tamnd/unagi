@@ -242,8 +242,12 @@ func FloorDiv(a, b Object) (Object, error) {
 	return nil, unsupported("//", a, b)
 }
 
-// Mod implements the % operator with floor semantics.
+// Mod implements the % operator with floor semantics. A str left
+// operand means percent formatting instead.
 func Mod(a, b Object) (Object, error) {
+	if s, ok := a.(*strObject); ok {
+		return percentFormat(s.v, b)
+	}
 	if ai, bi, ok := bothInt(a, b); ok {
 		if bi == 0 {
 			return nil, Raise(ZeroDivisionError, "division by zero")

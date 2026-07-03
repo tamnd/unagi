@@ -554,7 +554,8 @@ func TestListMethods(t *testing.T) {
 		t.Errorf("index = %v, %v", v, err)
 	}
 	_, err = CallMethod(l, "index", []Object{NewStr("a")})
-	checkErr(t, "index missing", err, "ValueError: 'a' is not in list")
+	// Probed on 3.14: the message no longer names the value.
+	checkErr(t, "index missing", err, "ValueError: list.index(x): x not in list")
 
 	l2 := L(NewInt(1), NewInt(2), NewInt(1), NewFloat(1))
 	v, err = CallMethod(l2, "count", []Object{NewInt(1)})
