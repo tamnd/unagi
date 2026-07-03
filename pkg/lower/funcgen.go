@@ -319,6 +319,12 @@ func collectAssigned(body []frontend.Stmt, out map[string]bool) {
 				}
 				walk(s.OrElse)
 				walk(s.Final)
+			case *frontend.FuncDef:
+				// Defaults evaluate in the enclosing scope, so a walrus
+				// inside one binds here, not in the function body.
+				for _, p := range s.Params {
+					walkExpr(p.Default)
+				}
 			}
 		}
 	}

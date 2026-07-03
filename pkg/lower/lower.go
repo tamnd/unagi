@@ -42,7 +42,7 @@ func (e *Error) Error() string {
 // source path as given on the command line; it lands in the generated
 // header, in compile errors, and in traceback frames.
 func Module(mod *frontend.Module, file string) ([]byte, error) {
-	e := &emitter{file: file, defs: map[string]*frontend.FuncDef{}}
+	e := &emitter{file: file, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}}
 
 	var body []frontend.Stmt
 	var defs []*frontend.FuncDef
@@ -53,10 +53,18 @@ func Module(mod *frontend.Module, file string) ([]byte, error) {
 				// binding cannot take effect and we refuse it instead.
 				return nil, e.errf(d.Span(), "redefining function %q is not supported in M0", d.Name)
 			}
+			e.defOrd[d.Name] = len(defs)
+			for _, p := range d.Params {
+				if p.Default != nil {
+					e.slots = append(e.slots, e.slotName(d.Name, p.Name))
+					e.usedObjects = true
+				}
+			}
 			e.defs[d.Name] = d
 			defs = append(defs, d)
-			continue
 		}
+		// Defs stay in the body: the def statement evaluates its parameter
+		// defaults when it executes, so the slot fills at that point.
 		body = append(body, s)
 	}
 
@@ -88,6 +96,13 @@ func Module(mod *frontend.Module, file string) ([]byte, error) {
 	if e.usedTB {
 		fmt.Fprintf(&out, "// pyFile is the source path traceback frames cite.\nconst pyFile = %s\n\n", strconv.Quote(file))
 	}
+	if len(e.slots) > 0 {
+		out.WriteString("// Parameter default slots, assigned when each def statement runs.\nvar (\n")
+		for _, s := range e.slots {
+			fmt.Fprintf(&out, "\t%s objects.Object\n", s)
+		}
+		out.WriteString(")\n\n")
+	}
 	if err := writeDecl(&out, mainDecl()); err != nil {
 		return nil, err
 	}
@@ -113,8 +128,17 @@ func Module(mod *frontend.Module, file string) ([]byte, error) {
 type emitter struct {
 	file        string
 	defs        map[string]*frontend.FuncDef
+	defOrd      map[string]int
+	slots       []string
 	usedObjects bool
 	usedTB      bool
+}
+
+// slotName is the module-level variable holding one parameter default,
+// evaluated when the def statement runs. The def ordinal keeps names unique
+// without leaning on the mangled namespace.
+func (e *emitter) slotName(fname, pname string) string {
+	return fmt.Sprintf("dflt%d_%s", e.defOrd[fname], pname)
 }
 
 func (e *emitter) errf(pos frontend.Pos, format string, args ...any) error {

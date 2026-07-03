@@ -81,6 +81,23 @@ func TestFunctionLowering(t *testing.T) {
 	}
 }
 
+// Binding failures that CPython raises at call time lower to inline raises,
+// so the TypeError stays catchable rather than failing the compile.
+func TestWrongArityLowersToRaise(t *testing.T) {
+	mod := &frontend.Module{Body: []frontend.Stmt{
+		&frontend.FuncDef{Name: "one", Params: params("a"), Body: []frontend.Stmt{&frontend.Pass{}}},
+		&frontend.ExprStmt{X: call("one")},
+	}}
+	src, err := Module(mod, "arity.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `objects.Raise(objects.TypeError, "one() missing 1 required positional argument: 'a'")`
+	if !strings.Contains(string(src), want) {
+		t.Errorf("emitted source missing %q:\n%s", want, src)
+	}
+}
+
 func TestCompileErrors(t *testing.T) {
 	cases := []struct {
 		name string
@@ -120,14 +137,6 @@ func TestCompileErrors(t *testing.T) {
 				}},
 			}},
 			"nested def",
-		},
-		{
-			"wrong arity",
-			&frontend.Module{Body: []frontend.Stmt{
-				&frontend.FuncDef{Name: "one", Params: params("a"), Body: []frontend.Stmt{&frontend.Pass{}}},
-				&frontend.ExprStmt{X: call("one")},
-			}},
-			"one() takes 1 positional arguments but 0 were given",
 		},
 		{
 			"return inside finally",

@@ -44,17 +44,7 @@ func (f *fnCtx) call(e *frontend.Call) (ast.Expr, error) {
 		return nil, f.e.errf(e.Span(), "calling a variable is not supported in M0")
 	}
 	if d, isDef := f.e.defs[name.Id]; isDef {
-		if len(e.Args) != len(d.Params) {
-			return nil, f.e.errf(e.Span(), "%s() takes %d positional arguments but %d were given",
-				name.Id, len(d.Params), len(e.Args))
-		}
-		args, err := f.plainArgExprs(e.Args)
-		if err != nil {
-			return nil, err
-		}
-		tmp := f.tmpVar()
-		f.fallible(tmp, ident(mangle(name.Id)), args...)
-		return ident(tmp), nil
+		return f.userCall(d, e)
 	}
 	if builtinNames[name.Id] {
 		return f.builtinCall(name.Id, e)
