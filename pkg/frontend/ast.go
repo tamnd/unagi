@@ -94,6 +94,46 @@ type FuncDef struct {
 	Body   []Stmt
 }
 
+// Try is the full try/except/else/finally statement. A try with no handlers
+// carries only Final (the try/finally form); the parser enforces that at
+// least one of Handlers and Final is present.
+type Try struct {
+	Pos_     Pos
+	Body     []Stmt
+	Handlers []*ExceptHandler
+	OrElse   []Stmt
+	Final    []Stmt
+}
+
+// ExceptHandler is one except clause. Type is nil for the bare `except:`
+// form and Name is empty when there is no `as` binding. The grammar allows
+// any expression as the matcher; the emitter enforces what it can lower.
+type ExceptHandler struct {
+	Pos_ Pos
+	Type Expr
+	Name string
+	Body []Stmt
+}
+
+func (h *ExceptHandler) Span() Pos { return h.Pos_ }
+
+// Raise is `raise`, `raise exc`, and `raise exc from cause`. Exc is nil for
+// the bare re-raise form; Cause is nil when there is no from clause, and a
+// NoneLit for the explicit `from None`.
+type Raise struct {
+	Pos_  Pos
+	Exc   Expr
+	Cause Expr
+}
+
+// Assert is `assert test` and `assert test, msg`; Msg is nil for the bare
+// form.
+type Assert struct {
+	Pos_ Pos
+	Test Expr
+	Msg  Expr
+}
+
 // Return is `return` or `return value`; Value is nil for the bare form.
 type Return struct {
 	Pos_  Pos
@@ -115,6 +155,9 @@ type Continue struct {
 	Pos_ Pos
 }
 
+func (s *Try) Span() Pos       { return s.Pos_ }
+func (s *Raise) Span() Pos     { return s.Pos_ }
+func (s *Assert) Span() Pos    { return s.Pos_ }
 func (s *ExprStmt) Span() Pos  { return s.Pos_ }
 func (s *Assign) Span() Pos    { return s.Pos_ }
 func (s *AugAssign) Span() Pos { return s.Pos_ }
@@ -127,6 +170,9 @@ func (s *Pass) Span() Pos      { return s.Pos_ }
 func (s *Break) Span() Pos     { return s.Pos_ }
 func (s *Continue) Span() Pos  { return s.Pos_ }
 
+func (*Try) stmt()       {}
+func (*Raise) stmt()     {}
+func (*Assert) stmt()    {}
 func (*ExprStmt) stmt()  {}
 func (*Assign) stmt()    {}
 func (*AugAssign) stmt() {}

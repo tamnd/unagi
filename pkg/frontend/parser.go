@@ -136,6 +136,8 @@ func (p *parser) parseStatement() []Stmt {
 			return []Stmt{p.parseFor()}
 		case "def":
 			return []Stmt{p.parseDef()}
+		case "try":
+			return []Stmt{p.parseTry()}
 		}
 	}
 	return p.parseSimpleLine()
@@ -190,16 +192,27 @@ func (p *parser) parseSimpleStmt() Stmt {
 			p.errf(t.pos, "import statements are not supported yet")
 		case "from":
 			p.errf(t.pos, "from imports are not supported yet")
-		case "try":
-			p.errf(t.pos, "try statements are not supported yet")
 		case "with":
 			p.errf(t.pos, "with statements are not supported yet")
 		case "del":
 			p.errf(t.pos, "del statements are not supported yet")
 		case "raise":
-			p.errf(t.pos, "raise statements are not supported yet")
+			p.advance()
+			r := &Raise{Pos_: t.pos}
+			if startsExpr(p.cur()) {
+				r.Exc = p.parseTest()
+				if p.eatKw("from") {
+					r.Cause = p.parseTest()
+				}
+			}
+			return r
 		case "assert":
-			p.errf(t.pos, "assert statements are not supported yet")
+			p.advance()
+			a := &Assert{Pos_: t.pos, Test: p.parseTest()}
+			if p.eatOp(",") {
+				a.Msg = p.parseTest()
+			}
+			return a
 		case "global":
 			p.errf(t.pos, "global statements are not supported yet")
 		case "nonlocal":
@@ -440,6 +453,115 @@ func (p *parser) parseDef() Stmt {
 	}
 	p.wantOp(")")
 	return &FuncDef{Pos_: t.pos, Name: nt.text, Params: params, Body: p.parseSuite()}
+}
+
+// parseTry parses try/except/else/finally. The two legal shapes are try with
+// one or more except clauses (then optional else, optional finally) and the
+// handler-free try/finally; anything else gets CPython's message.
+func (p *parser) parseTry() Stmt {
+	t := p.advance()
+	node := &Try{Pos_: t.pos, Body: p.parseSuite()}
+	for p.isKw("except") {
+		node.Handlers = append(node.Handlers, p.parseExcept())
+	}
+	// A bare except: catches everything, so CPython only allows it last.
+	for i, h := range node.Handlers {
+		if h.Type == nil && i != len(node.Handlers)-1 {
+			p.errf(h.Pos_, "default 'except:' must be last")
+		}
+	}
+	if len(node.Handlers) == 0 {
+		if !p.isKw("finally") {
+			p.errf(p.cur().pos, "expected 'except' or 'finally' block")
+		}
+		p.advance()
+		node.Final = p.parseSuite()
+		return node
+	}
+	if p.eatKw("else") {
+		node.OrElse = p.parseSuite()
+	}
+	if p.eatKw("finally") {
+		node.Final = p.parseSuite()
+	}
+	return node
+}
+
+// parseExcept parses one except clause. The matcher is a full expression;
+// PEP 758 lets several run comma-separated without parentheses as long as
+// there is no as binding, and they land in a TupleLit either way.
+func (p *parser) parseExcept() *ExceptHandler {
+	t := p.advance()
+	if p.isOp("*") {
+		p.errf(t.pos, "except* is not supported yet")
+	}
+	h := &ExceptHandler{Pos_: t.pos}
+	if !p.isOp(":") {
+		first := p.parseTest()
+		if p.isOp(",") {
+			elts := []Expr{first}
+			for p.eatOp(",") {
+				if p.isOp(":") {
+					break
+				}
+				elts = append(elts, p.parseTest())
+			}
+			if p.isKw("as") {
+				p.errf(p.cur().pos, "multiple exception types must be parenthesized when using 'as'")
+			}
+			h.Type = &TupleLit{Pos_: first.Span(), Elts: elts}
+		} else {
+			h.Type = first
+			if p.eatKw("as") {
+				h.Name = p.parseExceptName()
+				if p.isOp(",") {
+					p.errf(p.cur().pos, "invalid syntax")
+				}
+			}
+		}
+	}
+	h.Body = p.parseSuite()
+	return h
+}
+
+// parseExceptName parses the as binding, which must be a plain name. The
+// target parses as a full expression first so the rejections carry CPython's
+// per-shape messages.
+func (p *parser) parseExceptName() string {
+	start := p.i
+	target := p.parseTest()
+	switch e := target.(type) {
+	case *Name:
+		// CPython wants a bare NAME token here; even (n) is rejected, and a
+		// single consumed token is the only way the name arrived bare.
+		if p.i == start+1 {
+			return e.Id
+		}
+		p.errf(e.Span(), "cannot use except statement with name")
+	case *Attribute:
+		p.errf(e.Span(), "cannot use except statement with attribute")
+	case *Subscript:
+		p.errf(e.Span(), "cannot use except statement with subscript")
+	case *Call:
+		p.errf(e.Span(), "cannot use except statement with function call")
+	case *TupleLit:
+		p.errf(e.Span(), "cannot use except statement with tuple")
+	case *ListLit:
+		p.errf(e.Span(), "cannot use except statement with list")
+	case *DictLit:
+		p.errf(e.Span(), "cannot use except statement with dict literal")
+	case *IntLit, *FloatLit, *StrLit:
+		p.errf(e.Span(), "cannot use except statement with literal")
+	case *BoolLit:
+		if e.Val {
+			p.errf(e.Span(), "cannot use except statement with True")
+		}
+		p.errf(e.Span(), "cannot use except statement with False")
+	case *NoneLit:
+		p.errf(e.Span(), "cannot use except statement with None")
+	}
+	p.errf(target.Span(), "cannot use except statement with expression")
+	return ""
 }
 
 // --- expressions ---
