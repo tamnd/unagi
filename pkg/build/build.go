@@ -15,8 +15,8 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/tamnd/unagi/pkg/emit"
 	"github.com/tamnd/unagi/pkg/frontend"
+	"github.com/tamnd/unagi/pkg/lower"
 )
 
 // Options controls a build.
@@ -39,7 +39,7 @@ func Build(ctx context.Context, pyPath string, opts Options) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	goSrc, err := emit.Module(mod, filepath.Base(pyPath))
+	goSrc, err := lower.Module(mod, pyPath)
 	if err != nil {
 		return "", err
 	}

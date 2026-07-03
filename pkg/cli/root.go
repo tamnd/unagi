@@ -1,6 +1,6 @@
 // Package cli is unagi's command surface: the cobra tree, the global flags,
 // and the fang-rendered help and errors. The compiler work lives under
-// pkg/frontend, pkg/emit, and pkg/build; this layer only parses arguments and
+// pkg/frontend, pkg/lower, and pkg/build; this layer only parses arguments and
 // hands off.
 package cli
 

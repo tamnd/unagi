@@ -339,7 +339,8 @@ func dictMethod(x *dictObject, name string, args []Object) (Object, error) {
 		if len(args) == 2 {
 			return args[1], nil
 		}
-		return nil, Raise(KeyError, "%s", Repr(args[0]))
+		// Carry the key object so str(e) is its repr, like CPython.
+		return nil, NewException(KeyError, []Object{args[0]})
 	case "keys":
 		if len(args) != 0 {
 			return nil, Raise(TypeError, "keys() takes no arguments (%d given)", len(args))

@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "../../testdata/fixtures/016_uncaught.py", line 6, in <module>
+  File "../../testdata/fixtures/016_uncaught.py", line 4, in outer
+  File "../../testdata/fixtures/016_uncaught.py", line 2, in inner
+ValueError: deep failure

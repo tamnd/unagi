@@ -1,0 +1,446 @@
+package lower
+
+import (
+	"go/ast"
+	"go/token"
+	"strconv"
+
+	"github.com/tamnd/unagi/pkg/frontend"
+	"github.com/tamnd/unagi/pkg/objects"
+)
+
+// This file lowers try/except/else/finally, raise, and assert. The try body,
+// each handler body, and the else body become immediately-invoked closures
+// returning error, so an in-flight exception is a value the dispatch code
+// after the closures can match, chain, and propagate. Return, break, and
+// continue inside a closure cannot jump to their real target directly; they
+// park the jump in the per-function pending variables (pend, pendVal) and the
+// dispatch after finally performs it at statement level, where plain Go
+// break and continue are legal. That ordering is exactly Python's: finally
+// runs before the jump leaves the try.
+
+// tryFrame records, for one open try statement, which pending jumps pass
+// through its dispatch. depth is the closure depth the dispatch code runs at.
+// An exec flag means this dispatch performs the jump (the target loop or the
+// function itself lives at the same depth); a prop flag means it forwards the
+// pending state to the next enclosing dispatch.
+type tryFrame struct {
+	depth    int
+	execRet  bool
+	propRet  bool
+	execBrk  bool
+	propBrk  bool
+	execCont bool
+	propCont bool
+}
+
+// neqNil is `x != nil`.
+func neqNil(x ast.Expr) ast.Expr {
+	return &ast.BinaryExpr{X: x, Op: token.NEQ, Y: ident("nil")}
+}
+
+// pendIs is `pend == n`.
+func pendIs(n int) ast.Expr {
+	return &ast.BinaryExpr{X: ident("pend"), Op: token.EQL, Y: intLit(strconv.Itoa(n))}
+}
+
+// funcErrType is the closure signature func() error.
+func funcErrType() *ast.FuncType {
+	return &ast.FuncType{Params: &ast.FieldList{}, Results: fieldList(field(ident("error")))}
+}
+
+// scanPending reports whether any try in body encloses a return (needs pend
+// and pendVal) or a break/continue (needs pend). The scan is conservative: a
+// break whose loop sits inside the same try still counts, which only costs an
+// unused declaration.
+func scanPending(body []frontend.Stmt) (act, ret bool) {
+	var walk func(list []frontend.Stmt, inTry bool)
+	walk = func(list []frontend.Stmt, inTry bool) {
+		for _, s := range list {
+			switch s := s.(type) {
+			case *frontend.Return:
+				if inTry {
+					act, ret = true, true
+				}
+			case *frontend.Break, *frontend.Continue:
+				if inTry {
+					act = true
+				}
+			case *frontend.If:
+				walk(s.Body, inTry)
+				walk(s.Else, inTry)
+			case *frontend.While:
+				walk(s.Body, inTry)
+				walk(s.Else, inTry)
+			case *frontend.For:
+				walk(s.Body, inTry)
+				walk(s.Else, inTry)
+			case *frontend.Try:
+				walk(s.Body, true)
+				for _, h := range s.Handlers {
+					walk(h.Body, true)
+				}
+				walk(s.OrElse, true)
+				walk(s.Final, true)
+			}
+		}
+	}
+	walk(body, false)
+	return act, ret
+}
+
+// declPending declares the pending-jump variables when any try in the body
+// needs them. They are per function, like the locals.
+func (f *fnCtx) declPending(body []frontend.Stmt) {
+	act, ret := scanPending(body)
+	if act {
+		f.add(&ast.DeclStmt{Decl: &ast.GenDecl{Tok: token.VAR, Specs: []ast.Spec{
+			&ast.ValueSpec{Names: []*ast.Ident{ident("pend")}, Type: ident("int")},
+		}}})
+		f.add(set(ident("_"), ident("pend")))
+		f.pendAct = true
+	}
+	if ret && f.inFunc {
+		f.add(&ast.DeclStmt{Decl: &ast.GenDecl{Tok: token.VAR, Specs: []ast.Spec{
+			&ast.ValueSpec{Names: []*ast.Ident{ident("pendVal")}, Type: f.e.obj("Object")},
+		}}})
+		f.add(set(ident("_"), ident("pendVal")))
+		f.pendRet = true
+	}
+}
+
+// checkFinallyJump rejects a break or continue written inside a finally block
+// whose target loop lives outside it. CPython runs these (with a warning
+// since 3.14); this slice does not lower them yet.
+func (f *fnCtx) checkFinallyJump(pos frontend.Pos, kind string) error {
+	if len(f.finallyBase) > 0 && len(f.loops) <= f.finallyBase[len(f.finallyBase)-1] {
+		return f.e.errf(pos, "'%s' inside 'finally' is not supported yet", kind)
+	}
+	return nil
+}
+
+// pendingJump parks a break (code 2) or continue (code 3) that must unwind
+// through enclosing try closures before reaching its loop, and marks every
+// dispatch on the way.
+func (f *fnCtx) pendingJump(code, loopDepth int) {
+	f.add(set(ident("pend"), intLit(strconv.Itoa(code))))
+	for i := len(f.frames) - 1; i >= 0; i-- {
+		fr := f.frames[i]
+		if fr.depth > loopDepth {
+			if code == 2 {
+				fr.propBrk = true
+			} else {
+				fr.propCont = true
+			}
+			continue
+		}
+		if fr.depth == loopDepth {
+			if code == 2 {
+				fr.execBrk = true
+			} else {
+				fr.execCont = true
+			}
+		}
+		break
+	}
+	f.add(&ast.ReturnStmt{Results: []ast.Expr{ident("nil")}})
+}
+
+// closureCall emits body into a func() error literal and returns the
+// immediately-invoked call expression.
+func (f *fnCtx) closureCall(body []frontend.Stmt) (ast.Expr, error) {
+	f.push()
+	f.closure++
+	err := f.stmts(body)
+	f.closure--
+	if err != nil {
+		f.pop()
+		return nil, err
+	}
+	f.add(&ast.ReturnStmt{Results: []ast.Expr{ident("nil")}})
+	return callExpr(&ast.FuncLit{Type: funcErrType(), Body: f.pop()}), nil
+}
+
+// matcherClasses resolves an except matcher to the class names it catches.
+// Matchers must be exception class names known to the compiler, or tuples of
+// them; exception classes are not first-class values yet.
+func (f *fnCtx) matcherClasses(t frontend.Expr) ([]string, error) {
+	switch t := t.(type) {
+	case *frontend.Name:
+		_, isDef := f.e.defs[t.Id]
+		if f.locals[t.Id] || isDef {
+			return nil, f.e.errf(t.Span(), "except matcher must be a builtin exception class name in this slice")
+		}
+		if objects.IsExceptionClass(t.Id) {
+			return []string{t.Id}, nil
+		}
+		return nil, f.e.errf(t.Span(), "name %q is not defined", t.Id)
+	case *frontend.TupleLit:
+		var out []string
+		for _, el := range t.Elts {
+			cs, err := f.matcherClasses(el)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, cs...)
+		}
+		return out, nil
+	default:
+		return nil, f.e.errf(t.Span(), "except matcher must be an exception class name or a tuple of them")
+	}
+}
+
+// handlerBody emits one handler's dispatch block: bind the as-name, bracket
+// the body closure with the handled stack so bare raise and implicit context
+// stamping see the in-flight exception, unbind, and either clear the
+// exception or replace it with the handler's own, chained as context.
+func (f *fnCtx) handlerBody(h *frontend.ExceptHandler, tExc string) (*ast.BlockStmt, error) {
+	f.push()
+	if h.Name != "" {
+		f.add(set(ident(mangle(h.Name)), callExpr(sel("runtime", "ExcObj"), ident(tExc))))
+	}
+	f.add(exprStmt(callExpr(sel("runtime", "PushHandled"), ident(tExc))))
+	call, err := f.closureCall(h.Body)
+	if err != nil {
+		f.pop()
+		return nil, err
+	}
+	tH := f.tmpVar()
+	f.add(define(ident(tH), call))
+	f.add(exprStmt(callExpr(sel("runtime", "PopHandled"))))
+	if h.Name != "" {
+		// CPython unbinds the as-name when the handler exits.
+		f.add(set(ident(mangle(h.Name)), ident("nil")))
+	}
+	f.add(set(ident(tExc), callExpr(sel("runtime", "ChainContext"), ident(tH), ident(tExc))))
+	return f.pop(), nil
+}
+
+// handlerChain builds the if/else-if dispatch over the handlers, in source
+// order like CPython's matching. A bare except is the trailing else.
+func (f *fnCtx) handlerChain(hs []*frontend.ExceptHandler, i int, tExc string) (ast.Stmt, error) {
+	h := hs[i]
+	if h.Type == nil {
+		return f.handlerBody(h, tExc)
+	}
+	classes, err := f.matcherClasses(h.Type)
+	if err != nil {
+		return nil, err
+	}
+	args := []ast.Expr{ident(tExc)}
+	for _, c := range classes {
+		args = append(args, strLit(c))
+	}
+	blk, err := f.handlerBody(h, tExc)
+	if err != nil {
+		return nil, err
+	}
+	out := &ast.IfStmt{Cond: callExpr(sel("runtime", "ExcMatches"), args...), Body: blk}
+	if i+1 < len(hs) {
+		next, err := f.handlerChain(hs, i+1, tExc)
+		if err != nil {
+			return nil, err
+		}
+		out.Else = next
+	}
+	return out, nil
+}
+
+func (f *fnCtx) tryStmt(s *frontend.Try) error {
+	fr := &tryFrame{depth: f.closure}
+	f.frames = append(f.frames, fr)
+
+	tExc := f.tmpVar()
+	bodyCall, err := f.closureCall(s.Body)
+	if err != nil {
+		return err
+	}
+	f.add(define(ident(tExc), bodyCall))
+
+	if len(s.Handlers) > 0 {
+		chain, err := f.handlerChain(s.Handlers, 0, tExc)
+		if err != nil {
+			return err
+		}
+		top := &ast.IfStmt{Cond: neqNil(ident(tExc))}
+		if blk, ok := chain.(*ast.BlockStmt); ok {
+			top.Body = blk
+		} else {
+			top.Body = block(chain)
+		}
+		if len(s.OrElse) > 0 {
+			// else runs only when the body finished with no exception and no
+			// pending jump: a return inside try skips else.
+			f.push()
+			if f.pendAct {
+				f.push()
+			}
+			call, err := f.closureCall(s.OrElse)
+			if err != nil {
+				return err
+			}
+			f.add(set(ident(tExc), call))
+			if f.pendAct {
+				inner := f.pop()
+				f.add(&ast.IfStmt{Cond: pendIs(0), Body: inner})
+			}
+			top.Else = f.pop()
+		}
+		f.add(top)
+	}
+
+	if len(s.Final) > 0 {
+		f.finallyBase = append(f.finallyBase, len(f.loops))
+		finCall, err := f.closureCall(s.Final)
+		f.finallyBase = f.finallyBase[:len(f.finallyBase)-1]
+		if err != nil {
+			return err
+		}
+		tF := f.tmpVar()
+		f.add(define(ident(tF), finCall))
+		// A raising finally wins over both a pending jump and an in-flight
+		// exception; the latter chains in as context.
+		var body []ast.Stmt
+		if f.pendAct {
+			body = append(body, set(ident("pend"), intLit("0")))
+		}
+		body = append(body, set(ident(tExc), callExpr(sel("runtime", "ChainContext"), ident(tF), ident(tExc))))
+		f.add(&ast.IfStmt{Cond: neqNil(ident(tF)), Body: block(body...)})
+	}
+
+	f.frames = f.frames[:len(f.frames)-1]
+
+	// Propagation is raw: the failing operation already collected this
+	// frame's traceback entry inside the closure.
+	f.add(&ast.IfStmt{Cond: neqNil(ident(tExc)), Body: block(f.retErr(ident(tExc)))})
+
+	f.pendingDispatch(fr)
+	return nil
+}
+
+// pendingDispatch performs or forwards the jumps parked while this try's
+// closures ran. Exec branches leave the statement, so a single collapsed
+// forward covers every propagating kind.
+func (f *fnCtx) pendingDispatch(fr *tryFrame) {
+	if fr.execRet {
+		f.add(&ast.IfStmt{Cond: pendIs(1), Body: block(
+			&ast.ReturnStmt{Results: []ast.Expr{ident("pendVal"), ident("nil")}},
+		)})
+	}
+	if fr.execBrk {
+		f.add(&ast.IfStmt{Cond: pendIs(2), Body: block(
+			set(ident("pend"), intLit("0")),
+			&ast.BranchStmt{Tok: token.BREAK},
+		)})
+	}
+	if fr.execCont {
+		f.add(&ast.IfStmt{Cond: pendIs(3), Body: block(
+			set(ident("pend"), intLit("0")),
+			&ast.BranchStmt{Tok: token.CONTINUE},
+		)})
+	}
+	if fr.propRet || fr.propBrk || fr.propCont {
+		f.add(&ast.IfStmt{
+			Cond: &ast.BinaryExpr{X: ident("pend"), Op: token.NEQ, Y: intLit("0")},
+			Body: block(&ast.ReturnStmt{Results: []ast.Expr{ident("nil")}}),
+		})
+	}
+}
+
+// excClassNew recognizes the ClassName and ClassName(args) forms and returns
+// the runtime.NewExc call for them. Anything else lowers as a normal
+// expression and goes through RaiseObj's runtime validation.
+func (f *fnCtx) excClassNew(e frontend.Expr) (ast.Expr, bool, error) {
+	className := func(x frontend.Expr) string {
+		n, ok := x.(*frontend.Name)
+		if !ok || f.locals[n.Id] {
+			return ""
+		}
+		if _, isDef := f.e.defs[n.Id]; isDef || !objects.IsExceptionClass(n.Id) {
+			return ""
+		}
+		return n.Id
+	}
+	switch e := e.(type) {
+	case *frontend.Name:
+		if c := className(e); c != "" {
+			return callExpr(sel("runtime", "NewExc"), strLit(c), ident("nil")), true, nil
+		}
+	case *frontend.Call:
+		c := className(e.Fn)
+		if c == "" {
+			break
+		}
+		args, err := f.exprList(e.Args)
+		if err != nil {
+			return nil, false, err
+		}
+		return callExpr(sel("runtime", "NewExc"), strLit(c), f.objSlice(args)), true, nil
+	}
+	return nil, false, nil
+}
+
+func (f *fnCtx) raiseStmt(s *frontend.Raise) error {
+	var raised ast.Expr
+	if s.Exc == nil {
+		raised = callExpr(sel("runtime", "RaiseBare"))
+	} else {
+		newExc, ok, err := f.excClassNew(s.Exc)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			v, err := f.expr(s.Exc)
+			if err != nil {
+				return err
+			}
+			newExc = v
+		}
+		raised = callExpr(sel("runtime", "RaiseObj"), newExc)
+	}
+	if s.Cause != nil {
+		tmp := f.tmpVar()
+		f.add(define(ident(tmp), raised))
+		if _, isNone := s.Cause.(*frontend.NoneLit); isNone {
+			f.add(set(ident(tmp), callExpr(sel("runtime", "SetCause"), ident(tmp), ident("nil"), ident("true"))))
+		} else {
+			cause, ok, err := f.excClassNew(s.Cause)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				cause, err = f.expr(s.Cause)
+				if err != nil {
+					return err
+				}
+			}
+			f.add(set(ident(tmp), callExpr(sel("runtime", "SetCause"), ident(tmp), cause, ident("false"))))
+		}
+		raised = ident(tmp)
+	}
+	f.add(f.retErr(f.tb(raised)))
+	return nil
+}
+
+func (f *fnCtx) assertStmt(s *frontend.Assert) error {
+	cond, err := f.expr(s.Test)
+	if err != nil {
+		return err
+	}
+	f.push()
+	var args ast.Expr = ident("nil")
+	if s.Msg != nil {
+		// The message evaluates only when the assertion fails.
+		m, err := f.expr(s.Msg)
+		if err != nil {
+			f.pop()
+			return err
+		}
+		args = f.objSlice([]ast.Expr{m})
+	}
+	raised := callExpr(sel("runtime", "RaiseObj"),
+		callExpr(sel("runtime", "NewExc"), strLit("AssertionError"), args))
+	f.add(f.retErr(f.tb(raised)))
+	f.add(&ast.IfStmt{Cond: notExpr(callExpr(f.e.obj("Truth"), cond)), Body: f.pop()})
+	return nil
+}

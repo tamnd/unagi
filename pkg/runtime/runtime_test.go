@@ -301,14 +301,16 @@ func TestBuiltin(t *testing.T) {
 	}
 }
 
-func TestPrintUncaught(t *testing.T) {
+func TestPrintUncaughtFrameless(t *testing.T) {
 	var buf bytes.Buffer
 	old := Stderr
 	Stderr = &buf
 	defer func() { Stderr = old }()
 
+	// An exception that never picked up frames prints only its final
+	// line, the way 3.14 renders a traceback-less cause.
 	PrintUncaught(objects.Raise(objects.ZeroDivisionError, "division by zero"))
-	want := "Traceback (most recent call last):\nZeroDivisionError: division by zero\n"
+	want := "ZeroDivisionError: division by zero\n"
 	if got := buf.String(); got != want {
 		t.Errorf("PrintUncaught = %q, want %q", got, want)
 	}

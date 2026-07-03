@@ -23,16 +23,67 @@ const (
 	RuntimeError      = "RuntimeError"
 )
 
-// Exception is the error type raised by all runtime operations.
-type Exception struct {
-	Kind, Msg string
+// Frame is one traceback entry: where the exception passed through on
+// its way out. Frames collect innermost raise site first.
+type Frame struct {
+	File string
+	Line int
+	Func string
 }
 
-func (e *Exception) Error() string { return e.Kind + ": " + e.Msg }
+// Exception is the error type raised by all runtime operations and the
+// object bound by `except ... as e`. Kind is the Python class name and
+// Args the constructor arguments, so str/repr can match CPython.
+type Exception struct {
+	Kind            string
+	Args            []Object
+	Frames          []Frame
+	Cause           *Exception // raise ... from X
+	Context         *Exception // implicit chaining
+	SuppressContext bool       // raise ... from None, or an explicit cause
+	// Reraised marks a bare `raise` so the next TB call skips its frame.
+	// CPython 3.14 keeps the original raise-site line for the re-raising
+	// function and adds no entry for the bare raise itself.
+	Reraised bool
+}
 
-// Raise builds an *Exception with a formatted message.
+func (e *Exception) TypeName() string { return e.Kind }
+
+// Text is str(e). Probed on 3.14: zero args give "", one arg gives
+// str(arg) except KeyError which gives repr(arg), more args give the
+// str of the args tuple.
+func (e *Exception) Text() string {
+	switch len(e.Args) {
+	case 0:
+		return ""
+	case 1:
+		if e.Kind == KeyError {
+			return Repr(e.Args[0])
+		}
+		return Str(e.Args[0])
+	}
+	return Str(NewTuple(e.Args))
+}
+
+// Error is the final traceback line: "Kind: str", or the bare kind when
+// str(e) is empty, matching `raise ValueError` vs `raise ValueError("x")`.
+func (e *Exception) Error() string {
+	if s := e.Text(); s != "" {
+		return e.Kind + ": " + s
+	}
+	return e.Kind
+}
+
+// Raise builds an *Exception with one formatted string argument. This is
+// the constructor every preformatted-message call site uses.
 func Raise(kind, format string, a ...any) *Exception {
-	return &Exception{Kind: kind, Msg: fmt.Sprintf(format, a...)}
+	return &Exception{Kind: kind, Args: []Object{NewStr(fmt.Sprintf(format, a...))}}
+}
+
+// NewException builds an *Exception carrying explicit argument objects,
+// the ExceptionClass(args...) path.
+func NewException(kind string, args []Object) *Exception {
+	return &Exception{Kind: kind, Args: args}
 }
 
 type noneObject struct{}

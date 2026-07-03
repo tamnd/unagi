@@ -56,6 +56,27 @@ func ds(s Stmt) string {
 		return "(for " + de(s.Target) + " " + de(s.Iter) + " " + dbody(s.Body) + " " + dbody(s.Else) + ")"
 	case *FuncDef:
 		return "(def " + s.Name + " (" + strings.Join(s.Params, " ") + ") " + dbody(s.Body) + ")"
+	case *Try:
+		parts := []string{"try", dbody(s.Body)}
+		for _, h := range s.Handlers {
+			parts = append(parts, dhandler(h))
+		}
+		parts = append(parts, dbody(s.OrElse), dbody(s.Final))
+		return "(" + strings.Join(parts, " ") + ")"
+	case *Raise:
+		out := "(raise"
+		if s.Exc != nil {
+			out += " " + de(s.Exc)
+		}
+		if s.Cause != nil {
+			out += " from " + de(s.Cause)
+		}
+		return out + ")"
+	case *Assert:
+		if s.Msg == nil {
+			return "(assert " + de(s.Test) + ")"
+		}
+		return "(assert " + de(s.Test) + " " + de(s.Msg) + ")"
 	case *Return:
 		if s.Value == nil {
 			return "(return)"
@@ -69,6 +90,17 @@ func ds(s Stmt) string {
 		return "(continue)"
 	}
 	return "?stmt"
+}
+
+func dhandler(h *ExceptHandler) string {
+	out := "(except"
+	if h.Type != nil {
+		out += " " + de(h.Type)
+	}
+	if h.Name != "" {
+		out += " as " + h.Name
+	}
+	return out + " " + dbody(h.Body) + ")"
 }
 
 func de(e Expr) string {
@@ -204,6 +236,57 @@ func TestParse(t *testing.T) {
 		{"one line suite", "if x: a = 1; b = 2", "(if x [(= a 1) (= b 2)] [])"},
 		{"nested compound", "def f(n):\n    while n:\n        if n % 2 == 0:\n            n = n // 2\n        else:\n            n = 3 * n + 1\n    return n\n",
 			"(def f (n) [(while n [(if (cmp (% n 2) == 0) [(= n (// n 2))] [(= n (+ (* 3 n) 1))])] []) (return n)])"},
+		{"try bare except", "try:\n    x = 1\nexcept:\n    pass\n",
+			"(try [(= x 1)] (except [(pass)]) [] [])"},
+		{"try except type", "try:\n    pass\nexcept E:\n    pass\n",
+			"(try [(pass)] (except E [(pass)]) [] [])"},
+		{"try except as", "try:\n    pass\nexcept E as e:\n    x = e\n",
+			"(try [(pass)] (except E as e [(= x e)]) [] [])"},
+		{"try except paren tuple", "try:\n    pass\nexcept (A, B):\n    pass\n",
+			"(try [(pass)] (except (tuple A B) [(pass)]) [] [])"},
+		{"try except paren tuple as", "try:\n    pass\nexcept (A, B) as e:\n    pass\n",
+			"(try [(pass)] (except (tuple A B) as e [(pass)]) [] [])"},
+		{"try except paren one tuple as", "try:\n    pass\nexcept (A,) as e:\n    pass\n",
+			"(try [(pass)] (except (tuple A) as e [(pass)]) [] [])"},
+		{"pep758 two types", "try:\n    pass\nexcept A, B:\n    pass\n",
+			"(try [(pass)] (except (tuple A B) [(pass)]) [] [])"},
+		{"pep758 three types", "try:\n    pass\nexcept A, B, C:\n    pass\n",
+			"(try [(pass)] (except (tuple A B C) [(pass)]) [] [])"},
+		{"pep758 trailing comma", "try:\n    pass\nexcept A,:\n    pass\n",
+			"(try [(pass)] (except (tuple A) [(pass)]) [] [])"},
+		{"pep758 tuple element", "try:\n    pass\nexcept (A, B), C:\n    pass\n",
+			"(try [(pass)] (except (tuple (tuple A B) C) [(pass)]) [] [])"},
+		{"try multiple handlers bare last", "try:\n    pass\nexcept A:\n    pass\nexcept B as b:\n    pass\nexcept:\n    pass\n",
+			"(try [(pass)] (except A [(pass)]) (except B as b [(pass)]) (except [(pass)]) [] [])"},
+		{"try except else", "try:\n    pass\nexcept E:\n    pass\nelse:\n    x = 1\n",
+			"(try [(pass)] (except E [(pass)]) [(= x 1)] [])"},
+		{"try except finally", "try:\n    pass\nexcept E:\n    pass\nfinally:\n    x = 1\n",
+			"(try [(pass)] (except E [(pass)]) [] [(= x 1)])"},
+		{"try except else finally", "try:\n    pass\nexcept E:\n    pass\nelse:\n    x = 1\nfinally:\n    y = 2\n",
+			"(try [(pass)] (except E [(pass)]) [(= x 1)] [(= y 2)])"},
+		{"try finally only", "try:\n    pass\nfinally:\n    pass\n",
+			"(try [(pass)] [] [(pass)])"},
+		{"try one line suites", "try: pass\nexcept: pass\n",
+			"(try [(pass)] (except [(pass)]) [] [])"},
+		{"except attribute matcher", "try:\n    pass\nexcept a.b.C as e:\n    pass\n",
+			"(try [(pass)] (except (. (. a b) C) as e [(pass)]) [] [])"},
+		{"except call matcher", "try:\n    pass\nexcept f():\n    pass\n",
+			"(try [(pass)] (except (call f) [(pass)]) [] [])"},
+		{"nested try", "try:\n    try:\n        pass\n    finally:\n        pass\nexcept E:\n    pass\n",
+			"(try [(try [(pass)] [] [(pass)])] (except E [(pass)]) [] [])"},
+		{"raise bare", "raise", "(raise)"},
+		{"raise name", "raise ValueError", "(raise ValueError)"},
+		{"raise call", "raise ValueError('bad')", `(raise (call ValueError "bad"))`},
+		{"raise from", "raise E from cause", "(raise E from cause)"},
+		{"raise from None", "raise E from None", "(raise E from None)"},
+		{"raise paren tuple", "raise (A, B)", "(raise (tuple A B))"},
+		{"raise in def", "def f():\n    raise StopIteration\n", "(def f () [(raise StopIteration)])"},
+		{"raise with semicolon", "raise; x = 1", "(raise) (= x 1)"},
+		{"assert test", "assert x", "(assert x)"},
+		{"assert msg", "assert x, 'bad'", `(assert x "bad")`},
+		{"assert comparison", "assert x == 1, y", "(assert (cmp x == 1) y)"},
+		{"assert paren tuple test", "assert (x, 'm')", `(assert (tuple x "m"))`},
+		{"assert in suite", "if x:\n    assert y, 'no'\n", `(if x [(assert y "no")] [])`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -227,11 +310,8 @@ func TestParseErrors(t *testing.T) {
 		{"class", "class A: pass", "class definitions are not supported yet"},
 		{"import", "import os", "import statements are not supported yet"},
 		{"from import", "from os import path", "from imports are not supported yet"},
-		{"try", "try:\n    pass\n", "try statements are not supported yet"},
 		{"with", "with open(f) as g: pass", "with statements are not supported yet"},
 		{"del", "del x", "del statements are not supported yet"},
-		{"raise", "raise ValueError", "raise statements are not supported yet"},
-		{"assert", "assert x", "assert statements are not supported yet"},
 		{"global", "global x", "global statements are not supported yet"},
 		{"nonlocal", "nonlocal x", "nonlocal statements are not supported yet"},
 		{"async def", "async def f(): pass", "async is not supported yet"},
@@ -282,6 +362,42 @@ func TestParseErrors(t *testing.T) {
 		{"dangling operator", "x = 1 +", "invalid syntax"},
 		{"missing colon", "if x\n    pass\n", "expected ':'"},
 		{"lexer error surfaces", "x = 0x", "invalid hexadecimal literal"},
+		{"try alone", "try:\n    pass\nx = 1\n", "expected 'except' or 'finally' block"},
+		{"try at eof", "try:\n    pass\n", "expected 'except' or 'finally' block"},
+		{"try else only", "try:\n    pass\nelse:\n    pass\n", "expected 'except' or 'finally' block"},
+		{"try else finally", "try:\n    pass\nelse:\n    pass\nfinally:\n    pass\n", "expected 'except' or 'finally' block"},
+		{"else before except", "try:\n    pass\nelse:\n    pass\nexcept E:\n    pass\n", "expected 'except' or 'finally' block"},
+		{"bare except not last", "try:\n    pass\nexcept:\n    pass\nexcept E:\n    pass\n", "default 'except:' must be last"},
+		{"two bare excepts", "try:\n    pass\nexcept:\n    pass\nexcept:\n    pass\n", "default 'except:' must be last"},
+		{"pep758 with as", "try:\n    pass\nexcept A, B as e:\n    pass\n", "multiple exception types must be parenthesized when using 'as'"},
+		{"except star", "try:\n    pass\nexcept* E:\n    pass\n", "except* is not supported yet"},
+		{"except star spaced", "try:\n    pass\nexcept *E:\n    pass\n", "except* is not supported yet"},
+		{"except as attribute", "try:\n    pass\nexcept E as a.b:\n    pass\n", "cannot use except statement with attribute"},
+		{"except as subscript", "try:\n    pass\nexcept E as a[0]:\n    pass\n", "cannot use except statement with subscript"},
+		{"except as call", "try:\n    pass\nexcept E as f():\n    pass\n", "cannot use except statement with function call"},
+		{"except as tuple", "try:\n    pass\nexcept E as (a, b):\n    pass\n", "cannot use except statement with tuple"},
+		{"except as list", "try:\n    pass\nexcept E as [a]:\n    pass\n", "cannot use except statement with list"},
+		{"except as dict", "try:\n    pass\nexcept E as {}:\n    pass\n", "cannot use except statement with dict literal"},
+		{"except as int", "try:\n    pass\nexcept E as 1:\n    pass\n", "cannot use except statement with literal"},
+		{"except as string", "try:\n    pass\nexcept E as 's':\n    pass\n", "cannot use except statement with literal"},
+		{"except as True", "try:\n    pass\nexcept E as True:\n    pass\n", "cannot use except statement with True"},
+		{"except as None", "try:\n    pass\nexcept E as None:\n    pass\n", "cannot use except statement with None"},
+		{"except as expression", "try:\n    pass\nexcept E as a + b:\n    pass\n", "cannot use except statement with expression"},
+		{"except as paren name", "try:\n    pass\nexcept E as (a):\n    pass\n", "cannot use except statement with name"},
+		{"except as then comma", "try:\n    pass\nexcept A as e, B:\n    pass\n", "invalid syntax"},
+		{"except comma then as", "try:\n    pass\nexcept A, as e:\n    pass\n", "invalid syntax"},
+		{"except missing colon", "try:\n    pass\nexcept E\n    pass\n", "expected ':'"},
+		{"try in simple line", "x = 1; try: pass", "invalid syntax"},
+		{"stray finally after try", "try:\n    pass\nfinally:\n    pass\nfinally:\n    pass\n", "unexpected keyword 'finally'"},
+		{"stray except after finally", "try:\n    pass\nexcept:\n    pass\nfinally:\n    pass\nexcept E:\n    pass\n", "unexpected keyword 'except'"},
+		{"raise from missing exc", "raise from x", "invalid syntax"},
+		{"raise bare tuple", "raise A, B", "invalid syntax"},
+		{"raise trailing comma", "raise E,", "invalid syntax"},
+		{"raise from dangling", "raise E from", "invalid syntax"},
+		{"raise double from", "raise A from B from C", "invalid syntax"},
+		{"assert bare", "assert", "invalid syntax"},
+		{"assert three parts", "assert x, y, z", "invalid syntax"},
+		{"assert msg trailing comma", "assert x, y,", "invalid syntax"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -304,6 +420,47 @@ func TestParseErrorFormat(t *testing.T) {
 	want := "main.py:1:1: SyntaxError: cannot assign to literal"
 	if err.Error() != want {
 		t.Errorf("got %q, want %q", err.Error(), want)
+	}
+}
+
+func TestTryPositions(t *testing.T) {
+	src := "try:\n    pass\nexcept E as e:\n    raise\nfinally:\n    assert x, y\n"
+	m, err := Parse([]byte(src), "test.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := m.Body[0].(*Try)
+	if tr.Pos_ != (Pos{Line: 1, Col: 1}) {
+		t.Errorf("try pos %+v", tr.Pos_)
+	}
+	h := tr.Handlers[0]
+	if h.Pos_ != (Pos{Line: 3, Col: 1}) {
+		t.Errorf("except pos %+v", h.Pos_)
+	}
+	r := h.Body[0].(*Raise)
+	if r.Pos_ != (Pos{Line: 4, Col: 5}) {
+		t.Errorf("raise pos %+v", r.Pos_)
+	}
+	if r.Exc != nil || r.Cause != nil {
+		t.Errorf("bare raise carries exc %v cause %v", r.Exc, r.Cause)
+	}
+	a := tr.Final[0].(*Assert)
+	if a.Pos_ != (Pos{Line: 6, Col: 5}) {
+		t.Errorf("assert pos %+v", a.Pos_)
+	}
+	if a.Msg == nil {
+		t.Error("assert msg missing")
+	}
+}
+
+func TestRaiseFromNoneShape(t *testing.T) {
+	m, err := Parse([]byte("raise E from None"), "test.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := m.Body[0].(*Raise)
+	if _, ok := r.Cause.(*NoneLit); !ok {
+		t.Errorf("cause is %T, want *NoneLit", r.Cause)
 	}
 }
 
