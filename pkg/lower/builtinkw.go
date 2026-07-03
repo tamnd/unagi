@@ -6,6 +6,7 @@ import (
 	"go/token"
 
 	"github.com/tamnd/unagi/pkg/frontend"
+	"github.com/tamnd/unagi/pkg/objects"
 )
 
 // This file lowers builtin calls that carry keyword arguments. Each builtin
@@ -69,11 +70,7 @@ func (f *fnCtx) discard(v ast.Expr) {
 }
 
 func (f *fnCtx) unexpectedKw(fname, kw string, candidates []string) string {
-	msg := fmt.Sprintf("%s() got an unexpected keyword argument '%s'", fname, kw)
-	if s := suggestKeyword(kw, candidates); s != "" {
-		msg += fmt.Sprintf(". Did you mean '%s'?", s)
-	}
-	return msg
+	return objects.UnexpectedKwMsg(fname, kw, candidates)
 }
 
 // printKw lowers print(*args, sep=..., end=..., flush=..., file=None).

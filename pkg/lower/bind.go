@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
-	"strings"
 
 	"github.com/tamnd/unagi/pkg/frontend"
+	"github.com/tamnd/unagi/pkg/objects"
 )
 
 // This file binds call sites to module-level defs under the full calling
@@ -151,9 +151,7 @@ func (f *fnCtx) userCall(d *frontend.FuncDef, e *frontend.Call) (ast.Expr, error
 			}
 		}
 		if len(viol) > 0 {
-			msg := fmt.Sprintf("%s() got some positional-only arguments passed as keyword arguments: '%s'",
-				d.Name, strings.Join(viol, ", "))
-			return f.raiseBindError(temps, msg), nil
+			return f.raiseBindError(temps, objects.PosOnlyKwMsg(d.Name, viol)), nil
 		}
 	}
 
@@ -172,11 +170,7 @@ func (f *fnCtx) userCall(d *frontend.FuncDef, e *frontend.Call) (ast.Expr, error
 				kwExtra = append(kwExtra, kw)
 				continue
 			}
-			msg := fmt.Sprintf("%s() got an unexpected keyword argument '%s'", d.Name, kw.name)
-			if s := suggestKeyword(kw.name, keywordNames(sig)); s != "" {
-				msg += fmt.Sprintf(". Did you mean '%s'?", s)
-			}
-			return f.raiseBindError(temps, msg), nil
+			return f.raiseBindError(temps, objects.UnexpectedKwMsg(d.Name, kw.name, keywordNames(sig))), nil
 		}
 		if idx < bound {
 			return f.raiseBindError(temps, fmt.Sprintf("%s() got multiple values for argument '%s'", d.Name, kw.name)), nil
@@ -198,7 +192,7 @@ func (f *fnCtx) userCall(d *frontend.FuncDef, e *frontend.Call) (ast.Expr, error
 		}
 	}
 	if len(missing) > 0 {
-		return f.raiseBindError(temps, missingMsg(d.Name, "positional", missing)), nil
+		return f.raiseBindError(temps, objects.MissingArgsMsg(d.Name, "positional", missing)), nil
 	}
 	missing = missing[:0]
 	for i := sig.nPosCap; i < len(sig.named); i++ {
@@ -207,7 +201,7 @@ func (f *fnCtx) userCall(d *frontend.FuncDef, e *frontend.Call) (ast.Expr, error
 		}
 	}
 	if len(missing) > 0 {
-		return f.raiseBindError(temps, missingMsg(d.Name, "keyword-only", missing)), nil
+		return f.raiseBindError(temps, objects.MissingArgsMsg(d.Name, "keyword-only", missing)), nil
 	}
 
 	for i := range slot {
@@ -260,118 +254,5 @@ func tooManyMsg(fname string, sig signature, given, kwonlyGiven int) string {
 			minReq++
 		}
 	}
-	var takes string
-	if minReq == sig.nPosCap {
-		takes = fmt.Sprintf("takes %d positional argument%s", sig.nPosCap, plural(sig.nPosCap))
-	} else {
-		takes = fmt.Sprintf("takes from %d to %d positional arguments", minReq, sig.nPosCap)
-	}
-	if kwonlyGiven > 0 {
-		return fmt.Sprintf("%s() %s but %d positional argument%s (and %d keyword-only argument%s) were given",
-			fname, takes, given, plural(given), kwonlyGiven, plural(kwonlyGiven))
-	}
-	verb := "were"
-	if given == 1 {
-		verb = "was"
-	}
-	return fmt.Sprintf("%s() %s but %d %s given", fname, takes, given, verb)
-}
-
-func missingMsg(fname, kind string, names []string) string {
-	return fmt.Sprintf("%s() missing %d required %s argument%s: %s",
-		fname, len(names), kind, plural(len(names)), joinQuoted(names))
-}
-
-func plural(n int) string {
-	if n == 1 {
-		return ""
-	}
-	return "s"
-}
-
-// joinQuoted renders CPython's name list: 'a' / 'a' and 'b' / 'a', 'b', and 'c'.
-func joinQuoted(names []string) string {
-	q := make([]string, len(names))
-	for i, n := range names {
-		q[i] = "'" + n + "'"
-	}
-	switch len(q) {
-	case 1:
-		return q[0]
-	case 2:
-		return q[0] + " and " + q[1]
-	default:
-		return strings.Join(q[:len(q)-1], ", ") + ", and " + q[len(q)-1]
-	}
-}
-
-// suggestKeyword mirrors CPython's Python/suggestions.c: substitutions cost
-// 2, case-only substitutions 1, and a candidate qualifies when its distance
-// stays within (len(a)+len(b)+3)*2/6. The first candidate with the strictly
-// smallest distance wins.
-const (
-	suggestMoveCost = 2
-	suggestCaseCost = 1
-	suggestMaxLen   = 40
-)
-
-func suggestKeyword(name string, candidates []string) string {
-	if len(name) > suggestMaxLen {
-		return ""
-	}
-	best, bestDist := "", -1
-	for _, c := range candidates {
-		if c == name || len(c) > suggestMaxLen {
-			continue
-		}
-		maxDist := (len(name) + len(c) + 3) * suggestMoveCost / 6
-		d := editDistance(name, c)
-		if d > maxDist {
-			continue
-		}
-		if bestDist < 0 || d < bestDist {
-			best, bestDist = c, d
-		}
-	}
-	return best
-}
-
-func editDistance(a, b string) int {
-	prev := make([]int, len(b)+1)
-	cur := make([]int, len(b)+1)
-	for j := range prev {
-		prev[j] = j * suggestMoveCost
-	}
-	for i := 1; i <= len(a); i++ {
-		cur[0] = i * suggestMoveCost
-		for j := 1; j <= len(b); j++ {
-			d := prev[j-1] + substCost(a[i-1], b[j-1])
-			if x := prev[j] + suggestMoveCost; x < d {
-				d = x
-			}
-			if x := cur[j-1] + suggestMoveCost; x < d {
-				d = x
-			}
-			cur[j] = d
-		}
-		prev, cur = cur, prev
-	}
-	return prev[len(b)]
-}
-
-func substCost(x, y byte) int {
-	if x == y {
-		return 0
-	}
-	if lowerByte(x) == lowerByte(y) {
-		return suggestCaseCost
-	}
-	return suggestMoveCost
-}
-
-func lowerByte(c byte) byte {
-	if c >= 'A' && c <= 'Z' {
-		return c + 'a' - 'A'
-	}
-	return c
+	return objects.TooManyPosMsg(fname, minReq, sig.nPosCap, given, kwonlyGiven)
 }
