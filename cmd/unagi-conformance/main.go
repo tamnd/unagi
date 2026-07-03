@@ -127,7 +127,7 @@ func newFixturesCmd() *cobra.Command {
 			if coverage {
 				conformance.PrintCoverage(cmd.OutOrStdout(), results)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%d fixtures, %d failing\n", len(fixtures), failed)
+			cmd.Printf("%d fixtures, %d failing\n", len(fixtures), failed)
 			if failed > 0 {
 				os.Exit(1)
 			}
@@ -166,10 +166,10 @@ func newRecordCmd() *cobra.Command {
 				}
 				if ch {
 					changed++
-					fmt.Fprintf(cmd.OutOrStdout(), "recorded %s\n", f.Name)
+					cmd.Printf("recorded %s\n", f.Name)
 				}
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "recorded %d fixtures, %d changed\n", len(fixtures), changed)
+			cmd.Printf("recorded %d fixtures, %d changed\n", len(fixtures), changed)
 			return nil
 		},
 	}
@@ -190,6 +190,6 @@ func checkPin(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "oracle: Python %s [pinned: OK]\n", strings.Split(full, "\n")[0])
+	cmd.Printf("oracle: Python %s [pinned: OK]\n", strings.Split(full, "\n")[0])
 	return nil
 }
