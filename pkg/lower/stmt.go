@@ -39,6 +39,8 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 		return f.assign(s)
 	case *frontend.AugAssign:
 		return f.augAssign(s)
+	case *frontend.Del:
+		return f.delStmt(s)
 	case *frontend.If:
 		return f.ifStmt(s)
 	case *frontend.While:
@@ -128,6 +130,13 @@ func (f *fnCtx) assign(s *frontend.Assign) error {
 	if err != nil {
 		return err
 	}
+	if len(s.Targets) > 1 {
+		// A lowered value can be an inline constructor call; chained targets
+		// must all see the one object, so bind it once.
+		tmp := f.tmpVar()
+		f.add(define(ident(tmp), v))
+		v = ident(tmp)
+	}
 	for _, t := range s.Targets {
 		if err := f.assignTo(t, v); err != nil {
 			return err
@@ -146,6 +155,14 @@ func (f *fnCtx) assignTo(target frontend.Expr, v ast.Expr) error {
 		if err != nil {
 			return err
 		}
+		if sl, ok := t.Index.(*frontend.SliceExpr); ok {
+			lo, hi, step, err := f.sliceParts(sl)
+			if err != nil {
+				return err
+			}
+			f.fallibleVoid(f.e.obj("SetSlice"), x, lo, hi, step, v)
+			return nil
+		}
 		idx, err := f.expr(t.Index)
 		if err != nil {
 			return err
@@ -153,6 +170,11 @@ func (f *fnCtx) assignTo(target frontend.Expr, v ast.Expr) error {
 		f.fallibleVoid(f.e.obj("SetItem"), x, idx, v)
 		return nil
 	case *frontend.TupleLit:
+		for i, el := range t.Elts {
+			if _, ok := el.(*frontend.Starred); ok {
+				return f.assignStarred(t, i, v)
+			}
+		}
 		parts := f.tmpVar()
 		f.fallible(parts, f.e.obj("Unpack"), v, intLit(strconv.Itoa(len(t.Elts))))
 		for i, el := range t.Elts {
@@ -167,6 +189,65 @@ func (f *fnCtx) assignTo(target frontend.Expr, v ast.Expr) error {
 	}
 }
 
+// assignStarred handles a target list with one starred element. UnpackEx
+// splits the value into exactly before heads and after tails around a list of
+// whatever remains, so the parts index one to one with the targets.
+func (f *fnCtx) assignStarred(t *frontend.TupleLit, star int, v ast.Expr) error {
+	before := star
+	after := len(t.Elts) - star - 1
+	parts := f.tmpVar()
+	f.fallible(parts, f.e.obj("UnpackEx"), v,
+		intLit(strconv.Itoa(before)), intLit(strconv.Itoa(after)))
+	for i, el := range t.Elts {
+		if i == star {
+			el = el.(*frontend.Starred).X
+		}
+		part := &ast.IndexExpr{X: ident(parts), Index: intLit(strconv.Itoa(i))}
+		if err := f.assignTo(el, part); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// delStmt lowers del. Deleting a name runs the scope's checked delete and
+// resets the slot to nil so later reads see the unbound state; deleting a
+// subscript or slice goes through the container protocol.
+func (f *fnCtx) delStmt(s *frontend.Del) error {
+	for _, t := range s.Targets {
+		switch t := t.(type) {
+		case *frontend.Name:
+			fn := "DelName"
+			if f.inFunc {
+				fn = "DelLocal"
+			}
+			f.fallibleVoid(sel("runtime", fn), ident(mangle(t.Id)), strLit(t.Id))
+			f.add(set(ident(mangle(t.Id)), ident("nil")))
+		case *frontend.Subscript:
+			x, err := f.expr(t.X)
+			if err != nil {
+				return err
+			}
+			if sl, ok := t.Index.(*frontend.SliceExpr); ok {
+				lo, hi, step, err := f.sliceParts(sl)
+				if err != nil {
+					return err
+				}
+				f.fallibleVoid(f.e.obj("DelSlice"), x, lo, hi, step)
+				continue
+			}
+			idx, err := f.expr(t.Index)
+			if err != nil {
+				return err
+			}
+			f.fallibleVoid(f.e.obj("DelItem"), x, idx)
+		default:
+			return f.e.errf(t.Span(), "cannot delete this expression")
+		}
+	}
+	return nil
+}
+
 func (f *fnCtx) augAssign(s *frontend.AugAssign) error {
 	op, ok := binFuncs[s.Op]
 	if !ok {
@@ -174,18 +255,37 @@ func (f *fnCtx) augAssign(s *frontend.AugAssign) error {
 	}
 	switch t := s.Target.(type) {
 	case *frontend.Name:
+		// The target reads before the value evaluates, so an unbound name
+		// raises before any value side effects, like CPython's LOAD_FAST.
+		cur := f.loadName(t.Id)
 		v, err := f.expr(s.Value)
 		if err != nil {
 			return err
 		}
 		tmp := f.tmpVar()
-		f.fallible(tmp, f.e.obj(op), ident(mangle(t.Id)), v)
+		f.fallible(tmp, f.e.obj(op), cur, v)
 		f.add(set(ident(mangle(t.Id)), ident(tmp)))
 		return nil
 	case *frontend.Subscript:
 		x, err := f.expr(t.X)
 		if err != nil {
 			return err
+		}
+		if sl, ok := t.Index.(*frontend.SliceExpr); ok {
+			lo, hi, step, err := f.sliceParts(sl)
+			if err != nil {
+				return err
+			}
+			cur := f.tmpVar()
+			f.fallible(cur, f.e.obj("GetSlice"), x, lo, hi, step)
+			v, err := f.expr(s.Value)
+			if err != nil {
+				return err
+			}
+			res := f.tmpVar()
+			f.fallible(res, f.e.obj(op), ident(cur), v)
+			f.fallibleVoid(f.e.obj("SetSlice"), x, lo, hi, step, ident(res))
+			return nil
 		}
 		idx, err := f.expr(t.Index)
 		if err != nil {

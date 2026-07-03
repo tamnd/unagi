@@ -70,6 +70,14 @@ func set(lhs, rhs ast.Expr) *ast.AssignStmt {
 	return assign(token.ASSIGN, []ast.Expr{lhs}, rhs)
 }
 
+// varDecl declares one variable of the given type with no initializer, the
+// `var name type` statement.
+func varDecl(name string, typ ast.Expr) *ast.DeclStmt {
+	return &ast.DeclStmt{Decl: &ast.GenDecl{Tok: token.VAR, Specs: []ast.Spec{
+		&ast.ValueSpec{Names: []*ast.Ident{ident(name)}, Type: typ},
+	}}}
+}
+
 // exprStmt evaluates an expression for effect.
 func exprStmt(x ast.Expr) *ast.ExprStmt { return &ast.ExprStmt{X: x} }
 

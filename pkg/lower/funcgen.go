@@ -34,6 +34,7 @@ type fnCtx struct {
 	stack       [][]ast.Stmt
 	tmp         int
 	locals      map[string]bool
+	deleted     map[string]bool
 	inFunc      bool
 	loops       []*loopInfo
 	fname       string
@@ -46,7 +47,7 @@ type fnCtx struct {
 }
 
 func newFnCtx(e *emitter, inFunc bool, fname string) *fnCtx {
-	return &fnCtx{e: e, stack: make([][]ast.Stmt, 1), locals: map[string]bool{}, inFunc: inFunc, fname: fname}
+	return &fnCtx{e: e, stack: make([][]ast.Stmt, 1), locals: map[string]bool{}, deleted: map[string]bool{}, inFunc: inFunc, fname: fname}
 }
 
 // add appends a statement to the innermost open block.
@@ -126,15 +127,14 @@ func (f *fnCtx) fallibleVoid(fn ast.Expr, args ...ast.Expr) {
 // declLocal declares one mangled local as objects.Object plus the blank use
 // that keeps unreferenced Python variables from breaking the Go compile.
 func (f *fnCtx) declLocal(name string) {
-	f.add(&ast.DeclStmt{Decl: &ast.GenDecl{Tok: token.VAR, Specs: []ast.Spec{
-		&ast.ValueSpec{Names: []*ast.Ident{ident(mangle(name))}, Type: f.e.obj("Object")},
-	}}})
+	f.add(varDecl(mangle(name), f.e.obj("Object")))
 	f.add(set(ident("_"), ident(mangle(name))))
 }
 
 func (e *emitter) emitMain(body []frontend.Stmt) (*ast.FuncDecl, error) {
 	f := newFnCtx(e, false, "<module>")
 	collectAssigned(body, f.locals)
+	collectDeleted(body, f.deleted)
 	for _, name := range sortedNames(f.locals) {
 		f.declLocal(name)
 	}
@@ -163,6 +163,7 @@ func (e *emitter) emitFunc(d *frontend.FuncDef) (*ast.FuncDecl, error) {
 	}
 	assigned := map[string]bool{}
 	collectAssigned(d.Body, assigned)
+	collectDeleted(d.Body, f.deleted)
 	for _, name := range sortedNames(assigned) {
 		if f.locals[name] {
 			continue
@@ -185,39 +186,116 @@ func (e *emitter) emitFunc(d *frontend.FuncDef) (*ast.FuncDecl, error) {
 	}, nil
 }
 
-// collectAssigned gathers every name bound by assignment, augmented
-// assignment, a for target, or an except-as binding, without descending into
-// nested defs.
+// collectAssigned gathers every name bound in this body: assignment targets,
+// augmented assignment, for targets, except-as bindings, walrus targets
+// anywhere in an expression, and del targets (del binds the name to the scope
+// just like assignment does). It does not descend into nested defs.
 func collectAssigned(body []frontend.Stmt, out map[string]bool) {
 	var walkTarget func(t frontend.Expr)
 	walkTarget = func(t frontend.Expr) {
 		switch t := t.(type) {
 		case *frontend.Name:
 			out[t.Id] = true
+		case *frontend.Starred:
+			walkTarget(t.X)
 		case *frontend.TupleLit:
 			for _, el := range t.Elts {
 				walkTarget(el)
 			}
 		}
 	}
+	// walkExpr finds walrus targets; every other case just recurses. A nil
+	// child (optional slice part, bare return) matches no case and is skipped.
+	var walkExpr func(e frontend.Expr)
+	walkExprs := func(list []frontend.Expr) {
+		for _, x := range list {
+			walkExpr(x)
+		}
+	}
+	walkExpr = func(e frontend.Expr) {
+		switch e := e.(type) {
+		case *frontend.NamedExpr:
+			out[e.Target] = true
+			walkExpr(e.Value)
+		case *frontend.ListLit:
+			walkExprs(e.Elts)
+		case *frontend.TupleLit:
+			walkExprs(e.Elts)
+		case *frontend.DictLit:
+			walkExprs(e.Keys)
+			walkExprs(e.Vals)
+		case *frontend.BinOp:
+			walkExpr(e.Left)
+			walkExpr(e.Right)
+		case *frontend.UnaryOp:
+			walkExpr(e.X)
+		case *frontend.BoolOp:
+			walkExprs(e.Values)
+		case *frontend.Compare:
+			walkExpr(e.Left)
+			walkExprs(e.Rights)
+		case *frontend.Call:
+			walkExpr(e.Fn)
+			walkExprs(e.Args)
+		case *frontend.Attribute:
+			walkExpr(e.X)
+		case *frontend.Subscript:
+			walkExpr(e.X)
+			walkExpr(e.Index)
+		case *frontend.SliceExpr:
+			walkExpr(e.Lo)
+			walkExpr(e.Hi)
+			walkExpr(e.Step)
+		case *frontend.IfExp:
+			walkExpr(e.Cond)
+			walkExpr(e.Then)
+			walkExpr(e.Else)
+		case *frontend.Starred:
+			walkExpr(e.X)
+		}
+	}
 	var walk func(list []frontend.Stmt)
 	walk = func(list []frontend.Stmt) {
 		for _, s := range list {
 			switch s := s.(type) {
+			case *frontend.ExprStmt:
+				walkExpr(s.X)
 			case *frontend.Assign:
 				for _, t := range s.Targets {
 					walkTarget(t)
+					walkExpr(t)
 				}
+				walkExpr(s.Value)
 			case *frontend.AugAssign:
 				walkTarget(s.Target)
+				walkExpr(s.Target)
+				walkExpr(s.Value)
+			case *frontend.Del:
+				for _, t := range s.Targets {
+					if n, ok := t.(*frontend.Name); ok {
+						out[n.Id] = true
+					}
+					walkExpr(t)
+				}
+			case *frontend.Return:
+				walkExpr(s.Value)
+			case *frontend.Raise:
+				walkExpr(s.Exc)
+				walkExpr(s.Cause)
+			case *frontend.Assert:
+				walkExpr(s.Test)
+				walkExpr(s.Msg)
 			case *frontend.If:
+				walkExpr(s.Cond)
 				walk(s.Body)
 				walk(s.Else)
 			case *frontend.While:
+				walkExpr(s.Cond)
 				walk(s.Body)
 				walk(s.Else)
 			case *frontend.For:
 				walkTarget(s.Target)
+				walkExpr(s.Iter)
 				walk(s.Body)
 				walk(s.Else)
 			case *frontend.Try:
@@ -226,6 +304,43 @@ func collectAssigned(body []frontend.Stmt, out map[string]bool) {
 					if h.Name != "" {
 						out[h.Name] = true
 					}
+					walkExpr(h.Type)
+					walk(h.Body)
+				}
+				walk(s.OrElse)
+				walk(s.Final)
+			}
+		}
+	}
+	walk(body)
+}
+
+// collectDeleted gathers every name a del statement can unbind in this body.
+// Reads and deletes of those names, and only those, go through the runtime
+// unbound check; every other local stays a plain slot read.
+func collectDeleted(body []frontend.Stmt, out map[string]bool) {
+	var walk func(list []frontend.Stmt)
+	walk = func(list []frontend.Stmt) {
+		for _, s := range list {
+			switch s := s.(type) {
+			case *frontend.Del:
+				for _, t := range s.Targets {
+					if n, ok := t.(*frontend.Name); ok {
+						out[n.Id] = true
+					}
+				}
+			case *frontend.If:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.While:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.For:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.Try:
+				walk(s.Body)
+				for _, h := range s.Handlers {
 					walk(h.Body)
 				}
 				walk(s.OrElse)

@@ -53,7 +53,7 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		return f.e.obj("None"), nil
 	case *frontend.Name:
 		if f.locals[e.Id] {
-			return ident(mangle(e.Id)), nil
+			return f.loadName(e.Id), nil
 		}
 		if _, isDef := f.e.defs[e.Id]; isDef {
 			return nil, f.e.errf(e.Span(), "using function %q as a value is not supported in M0", e.Id)
@@ -119,12 +119,30 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		return f.boolOp(e)
 	case *frontend.Compare:
 		return f.compare(e)
+	case *frontend.IfExp:
+		return f.ifExp(e)
+	case *frontend.NamedExpr:
+		v, err := f.expr(e.Value)
+		if err != nil {
+			return nil, err
+		}
+		f.add(set(ident(mangle(e.Target)), v))
+		return ident(mangle(e.Target)), nil
 	case *frontend.Call:
 		return f.call(e)
 	case *frontend.Subscript:
 		x, err := f.expr(e.X)
 		if err != nil {
 			return nil, err
+		}
+		if sl, ok := e.Index.(*frontend.SliceExpr); ok {
+			lo, hi, step, err := f.sliceParts(sl)
+			if err != nil {
+				return nil, err
+			}
+			tmp := f.tmpVar()
+			f.fallible(tmp, f.e.obj("GetSlice"), x, lo, hi, step)
+			return ident(tmp), nil
 		}
 		idx, err := f.expr(e.Index)
 		if err != nil {
@@ -138,6 +156,71 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 	default:
 		return nil, f.e.errf(e.Span(), "expression not supported in M0")
 	}
+}
+
+// loadName reads a bound local slot. Names a del statement can unbind go
+// through the runtime check that raises UnboundLocalError in a function and
+// NameError at module level; every other local is a plain slot read.
+func (f *fnCtx) loadName(id string) ast.Expr {
+	if !f.deleted[id] {
+		return ident(mangle(id))
+	}
+	fn := "LoadName"
+	if f.inFunc {
+		fn = "LoadLocal"
+	}
+	tmp := f.tmpVar()
+	f.fallible(tmp, sel("runtime", fn), ident(mangle(id)), strLit(id))
+	return ident(tmp)
+}
+
+// ifExp lowers the conditional expression. Exactly one arm may evaluate, so
+// each arm lowers inside its own branch of the emitted if, assigning into a
+// shared result variable declared up front.
+func (f *fnCtx) ifExp(e *frontend.IfExp) (ast.Expr, error) {
+	cond, err := f.expr(e.Cond)
+	if err != nil {
+		return nil, err
+	}
+	res := f.tmpVar()
+	f.add(varDecl(res, f.e.obj("Object")))
+	f.push()
+	thenV, err := f.expr(e.Then)
+	if err != nil {
+		return nil, err
+	}
+	f.add(set(ident(res), thenV))
+	body := f.pop()
+	f.push()
+	elseV, err := f.expr(e.Else)
+	if err != nil {
+		return nil, err
+	}
+	f.add(set(ident(res), elseV))
+	f.add(&ast.IfStmt{Cond: callExpr(f.e.obj("Truth"), cond), Body: body, Else: f.pop()})
+	return ident(res), nil
+}
+
+// sliceParts lowers the three optional parts of a slice expression. An
+// omitted part is objects.None, which the slice helpers read as the CPython
+// default for that position.
+func (f *fnCtx) sliceParts(sl *frontend.SliceExpr) (lo, hi, step ast.Expr, err error) {
+	part := func(e frontend.Expr) (ast.Expr, error) {
+		if e == nil {
+			return f.e.obj("None"), nil
+		}
+		return f.expr(e)
+	}
+	if lo, err = part(sl.Lo); err != nil {
+		return nil, nil, nil, err
+	}
+	if hi, err = part(sl.Hi); err != nil {
+		return nil, nil, nil, err
+	}
+	if step, err = part(sl.Step); err != nil {
+		return nil, nil, nil, err
+	}
+	return lo, hi, step, nil
 }
 
 func (f *fnCtx) exprList(list []frontend.Expr) ([]ast.Expr, error) {
