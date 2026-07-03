@@ -1,6 +1,10 @@
 package runtime
 
-import "github.com/tamnd/unagi/pkg/objects"
+import (
+	"fmt"
+
+	"github.com/tamnd/unagi/pkg/objects"
+)
 
 // iterObject is the one shape behind the enumerate, zip and reversed
 // results. The input is snapshotted eagerly at construction, which is
@@ -8,9 +12,10 @@ import "github.com/tamnd/unagi/pkg/objects"
 // iterators yet; only the type name differs per builtin, matching what
 // type(x).__name__ reports on 3.14.
 type iterObject struct {
-	name string
-	elts []objects.Object
-	i    int
+	name    string
+	elts    []objects.Object
+	i       int
+	tailErr error // raised once the elements run out (zip strict)
 }
 
 func (it *iterObject) TypeName() string { return it.name }
@@ -21,7 +26,11 @@ func (it *iterObject) Iterate() (objects.Iterator, error) { return it, nil }
 
 func (it *iterObject) Next() (objects.Object, bool, error) {
 	if it.i >= len(it.elts) {
-		return nil, false, nil
+		// A strict zip mismatch surfaces here, after the common rows were
+		// yielded, then the iterator counts as plainly exhausted.
+		err := it.tailErr
+		it.tailErr = nil
+		return nil, false, err
 	}
 	v := it.elts[it.i]
 	it.i++
@@ -135,4 +144,72 @@ func Zip(args []objects.Object) (objects.Object, error) {
 		rows[r] = objects.NewTuple(row)
 	}
 	return &iterObject{name: "zip", elts: rows}, nil
+}
+
+// ZipStrict implements zip(*iterables, strict=...). With strict falsy it
+// is plain zip. With strict truthy a length mismatch surfaces as a
+// ValueError from the iterator after the common rows were yielded,
+// matching CPython's lazy check.
+func ZipStrict(args []objects.Object, strict objects.Object) (objects.Object, error) {
+	if !objects.Truth(strict) {
+		return Zip(args)
+	}
+	cols := make([][]objects.Object, len(args))
+	n := -1
+	for i, a := range args {
+		col, err := materialize(a)
+		if err != nil {
+			return nil, err
+		}
+		cols[i] = col
+		if n < 0 || len(col) < n {
+			n = len(col)
+		}
+	}
+	if n < 0 {
+		n = 0
+	}
+	rows := make([]objects.Object, n)
+	for r := 0; r < n; r++ {
+		row := make([]objects.Object, len(cols))
+		for c := range cols {
+			row[c] = cols[c][r]
+		}
+		rows[r] = objects.NewTuple(row)
+	}
+	return &iterObject{name: "zip", elts: rows, tailErr: zipStrictErr(cols, n)}, nil
+}
+
+// zipStrictErr reproduces CPython's strict-mode report: the first input
+// that ran out decides between the longer and shorter wordings, always
+// measured against the inputs before it.
+func zipStrictErr(cols [][]objects.Object, n int) error {
+	m := -1
+	for i, c := range cols {
+		if len(c) == n {
+			m = i
+			break
+		}
+	}
+	if m < 0 {
+		return nil
+	}
+	if m == 0 {
+		for k := 1; k < len(cols); k++ {
+			if len(cols[k]) > n {
+				return objects.Raise(objects.ValueError,
+					"zip() argument %d is longer than %s", k+1, argRange(k))
+			}
+		}
+		return nil
+	}
+	return objects.Raise(objects.ValueError,
+		"zip() argument %d is shorter than %s", m+1, argRange(m))
+}
+
+func argRange(k int) string {
+	if k == 1 {
+		return "argument 1"
+	}
+	return fmt.Sprintf("arguments 1-%d", k)
 }

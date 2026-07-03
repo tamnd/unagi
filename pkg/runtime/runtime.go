@@ -34,6 +34,42 @@ func Print(args ...objects.Object) error {
 	return err
 }
 
+// PrintKw implements print(*args, sep=..., end=...). The file and flush
+// keywords resolve at compile time: file must be the literal None and
+// flush is dropped because Stdout never buffers here.
+func PrintKw(args []objects.Object, sep, end objects.Object) error {
+	sepS, err := printOpt("sep", sep, " ")
+	if err != nil {
+		return err
+	}
+	endS, err := printOpt("end", end, "\n")
+	if err != nil {
+		return err
+	}
+	var b strings.Builder
+	for i, a := range args {
+		if i > 0 {
+			b.WriteString(sepS)
+		}
+		b.WriteString(objects.Str(a))
+	}
+	b.WriteString(endS)
+	_, werr := io.WriteString(Stdout, b.String())
+	return werr
+}
+
+// printOpt resolves one print separator option. Probed wording:
+// sep must be None or a string, not int.
+func printOpt(name string, o objects.Object, dflt string) (string, error) {
+	if o == objects.None {
+		return dflt, nil
+	}
+	if s, ok := objects.AsStr(o); ok {
+		return s, nil
+	}
+	return "", objects.Raise(objects.TypeError, "%s must be None or a string, not %s", name, o.TypeName())
+}
+
 // Len implements len(o) returning a boxed int.
 func Len(o objects.Object) (objects.Object, error) {
 	n, err := objects.Len(o)

@@ -68,6 +68,33 @@ func (f *fnCtx) raiseBindError(temps []ast.Expr, msg string) ast.Expr {
 	return f.raiseTypeError(msg)
 }
 
+// kwVal pairs a keyword argument's name with its evaluated temporary.
+type kwVal struct {
+	name string
+	val  ast.Expr
+}
+
+// evalArgs lowers every argument in source order into temporaries, the
+// CPython order: all values exist before any binding decision, so binding
+// errors raise after the argument side effects ran.
+func (f *fnCtx) evalArgs(e *frontend.Call) (pos []ast.Expr, kws []kwVal, temps []ast.Expr, err error) {
+	for _, a := range e.Args {
+		v, verr := f.expr(a.Value)
+		if verr != nil {
+			return nil, nil, nil, verr
+		}
+		t := f.tmpVar()
+		f.add(define(ident(t), v))
+		temps = append(temps, ident(t))
+		if a.Name == "" {
+			pos = append(pos, ident(t))
+		} else {
+			kws = append(kws, kwVal{name: a.Name, val: ident(t)})
+		}
+	}
+	return pos, kws, temps, nil
+}
+
 // userCall lowers a call to a module-level def.
 func (f *fnCtx) userCall(d *frontend.FuncDef, e *frontend.Call) (ast.Expr, error) {
 	sig := splitSig(d)
@@ -98,28 +125,9 @@ func (f *fnCtx) userCall(d *frontend.FuncDef, e *frontend.Call) (ast.Expr, error
 		return ident(tmp), nil
 	}
 
-	// CPython evaluates every argument before binding, so all values land in
-	// temporaries first and binding errors raise after the side effects ran.
-	type kwVal struct {
-		name string
-		val  ast.Expr
-	}
-	var posVals []ast.Expr
-	var kws []kwVal
-	var temps []ast.Expr
-	for _, a := range e.Args {
-		v, err := f.expr(a.Value)
-		if err != nil {
-			return nil, err
-		}
-		t := f.tmpVar()
-		f.add(define(ident(t), v))
-		temps = append(temps, ident(t))
-		if a.Name == "" {
-			posVals = append(posVals, ident(t))
-		} else {
-			kws = append(kws, kwVal{name: a.Name, val: ident(t)})
-		}
+	posVals, kws, temps, err := f.evalArgs(e)
+	if err != nil {
+		return nil, err
 	}
 
 	slot := make([]ast.Expr, len(sig.named))

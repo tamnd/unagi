@@ -53,6 +53,11 @@ func (f *fnCtx) call(e *frontend.Call) (ast.Expr, error) {
 }
 
 func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
+	for _, a := range e.Args {
+		if a.Name != "" {
+			return f.builtinKwCall(name, e)
+		}
+	}
 	argc := len(e.Args)
 	need1 := func() error {
 		if argc != 1 {
