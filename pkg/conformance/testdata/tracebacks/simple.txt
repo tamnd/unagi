@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/private/tmp/tbsamples/simple.py", line 4, in <module>
+    f()
+    ~^^
+  File "/private/tmp/tbsamples/simple.py", line 2, in f
+    return 1 / 0
+           ~~^~~
+ZeroDivisionError: division by zero

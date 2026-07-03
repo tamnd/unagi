@@ -3,6 +3,7 @@ module github.com/tamnd/unagi
 go 1.26.4
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/charmbracelet/fang v1.0.0
 	github.com/spf13/cobra v1.10.2
 )

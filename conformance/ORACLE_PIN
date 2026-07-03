@@ -1,0 +1,6 @@
+version: 3.14.6
+# The exact CPython the goldens are recorded against. Move this only in a
+# dedicated PR whose diff is the regenerated goldens, so upstream behavior
+# changes are visible in review instead of ambient.
+# CI runners will additionally pin a python-build-standalone release and
+# checksum here once the CI lanes install a managed oracle (doc 19, 8.5).

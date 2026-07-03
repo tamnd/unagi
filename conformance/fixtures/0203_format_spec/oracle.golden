@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+[    42] [42    ] [  42  ]
+[****42] [42****] [**42***]
+[000042] [-00007] [-    7]
+[+42] [-7] [ 42]
+[2a] [2A] [0x2a] [52] [0o52] [101010] [0b101010]
+[1,234,567] [1_234_567] [      1,234,567]
+[*]
+[3.14] [     3.142] [3.141590e+00] [3.141590E+00] [3.14159] [3] [314.159000%]
+[42.00] [4.200000e+01]
+[    hi] [hi    |] [  hi  ] [h] [**hi**]
+[True] [1] [     1] [None]
+[  'hi']
+caught Unknown format code 'd' for object of type 'str'
+caught unsupported format string passed to NoneType.__format__
+caught Cannot specify ',' with 's'.
+== exception:
+== stderr:

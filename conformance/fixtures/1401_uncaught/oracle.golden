@@ -1,0 +1,9 @@
+== exit: 1
+== stdout:
+before the crash
+== exception:
+ValueError: deep failure
+  main.py:6 <module>
+  main.py:4 outer
+  main.py:2 inner
+== stderr:

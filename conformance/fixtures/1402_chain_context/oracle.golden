@@ -1,0 +1,9 @@
+== exit: 1
+== stdout:
+== exception:
+RuntimeError: while handling
+  main.py:4 <module>
+context:
+ZeroDivisionError: division by zero
+  main.py:2 <module>
+== stderr:

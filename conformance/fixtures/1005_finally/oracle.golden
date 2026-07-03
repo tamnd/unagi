@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+body
+finally after clean body
+handled
+finally after handled
+finally before return
+returned from try
+finally on the way out
+caught after finally: gone
+loop body 0
+loop finally 0
+loop finally 1
+loop body 2
+loop finally 2
+loop finally 3
+after loop
+== exception:
+== stderr:

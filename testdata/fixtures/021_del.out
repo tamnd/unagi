@@ -1,7 +1,0 @@
-caught name 'x' is not defined
-[1, 3, 4, 5]
-[1, 5]
-{'b': 2}
-caught in f cannot access local variable 'b' where it is not associated with a value
-6
-caught again name 'x' is not defined

@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+3 [1, 2, 3]
+True False
+[2, 3, 5]
+[2, 5] [2, 3, 5, 7] [3] [3, 7]
+True False True
+3 [1, 2, 3]
+[1, 2, 3, 4]
+True
+key
+set()
+{9}
+frozenset()
+True True
+[1, 2, 3]
+[2, 3]
+[1, 2]
+set()
+caught 9
+caught cannot use 'list' as a set element (unhashable type: 'list')
+caught unsupported operand type(s) for |: 'set' and 'list'
+caught cannot use 'set' as a dict key (unhashable type: 'set')
+== exception:
+== stderr:

@@ -1,0 +1,14 @@
+== exit: 1
+== stdout:
+== exception:
+RuntimeError: config failed
+  : first note
+  : second
+  : note
+  main.py:13 <module>
+cause:
+ValueError: bad literal
+  : while reading config
+  main.py:7 <module>
+  main.py:4 parse
+== stderr:

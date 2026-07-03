@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+hello world
+7 squared is 49
+'world' and world
+{braces} 7
+n=7
+n = 7
+n=   7
+plain and 7 tail
+ab
+same quote inner
+3 then 3
+'h\xe9llo'
+list [1, 2] len 2
+cond yes
+== exception:
+== stderr:

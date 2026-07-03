@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+2 1
+[1, 2, 3] [1, 2, 3] [1, 2, 3]
+1 [2, 3, 4]
+[1, 2, 3] 4
+10 [20, 30, 40] 50
+1 []
+1 [2, 3]
+4 [5]
+6 []
+caught not enough values to unpack (expected at least 2, got 1)
+caught not enough values to unpack (expected at least 2, got 1)
+== exception:
+== stderr:
