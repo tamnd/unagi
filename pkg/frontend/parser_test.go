@@ -88,6 +88,8 @@ func ds(s Stmt) string {
 		return "(break)"
 	case *Continue:
 		return "(continue)"
+	case *Del:
+		return dexprs("del", s.Targets)
 	}
 	return "?stmt"
 }
@@ -153,8 +155,24 @@ func de(e Expr) string {
 		return "(. " + de(e.X) + " " + e.Name + ")"
 	case *Subscript:
 		return "([] " + de(e.X) + " " + de(e.Index) + ")"
+	case *SliceExpr:
+		return "(slice " + dopt(e.Lo) + " " + dopt(e.Hi) + " " + dopt(e.Step) + ")"
+	case *IfExp:
+		return "(ifexp " + de(e.Cond) + " " + de(e.Then) + " " + de(e.Else) + ")"
+	case *NamedExpr:
+		return "(:= " + e.Target + " " + de(e.Value) + ")"
+	case *Starred:
+		return "(* " + de(e.X) + ")"
 	}
 	return "?expr"
+}
+
+// dopt renders an optional slice part, with _ standing in for an omitted one.
+func dopt(e Expr) string {
+	if e == nil {
+		return "_"
+	}
+	return de(e)
 }
 
 func dexprs(name string, exprs []Expr) string {
@@ -287,6 +305,44 @@ func TestParse(t *testing.T) {
 		{"assert comparison", "assert x == 1, y", "(assert (cmp x == 1) y)"},
 		{"assert paren tuple test", "assert (x, 'm')", `(assert (tuple x "m"))`},
 		{"assert in suite", "if x:\n    assert y, 'no'\n", `(if x [(assert y "no")] [])`},
+		{"del name", "del x", "(del x)"},
+		{"del multiple", "del a, b[0], c.d", "(del a ([] b 0) (. c d))"},
+		{"del paren tuple", "del (a, b)", "(del a b)"},
+		{"del nested paren tuple", "del (a, (b, c))", "(del a b c)"},
+		{"del trailing comma", "del x,", "(del x)"},
+		{"del slice", "del x[1:3]", "(del ([] x (slice 1 3 _)))"},
+		{"del empty tuple", "del ()", "(del)"},
+		{"walrus parenthesized", "(x := 1)", "(expr (:= x 1))"},
+		{"walrus if cond", "if x := f(): pass", "(if (:= x (call f)) [(pass)] [])"},
+		{"walrus elif cond", "if a: pass\nelif y := g(): pass\n",
+			"(if a [(pass)] [(if (:= y (call g)) [(pass)] [])])"},
+		{"walrus while cond", "while chunk := read(): pass",
+			"(while (:= chunk (call read)) [(pass)] [])"},
+		{"walrus call arg", "f(x := 1, 2)", "(expr (call f (:= x 1) 2))"},
+		{"walrus nested value", "(x := (y := 1))", "(expr (:= x (:= y 1)))"},
+		{"walrus in paren tuple", "(a, b := 2)", "(expr (tuple a (:= b 2)))"},
+		{"walrus ifexp value", "(x := 1 if c else 2)", "(expr (:= x (ifexp c 1 2)))"},
+		{"ifexp", "x = 1 if c else 2", "(= x (ifexp c 1 2))"},
+		{"ifexp right assoc", "a if c1 else b if c2 else c",
+			"(expr (ifexp c1 a (ifexp c2 b c)))"},
+		{"ifexp binds looser than or", "a or b if c else d", "(expr (ifexp c (or a b) d))"},
+		{"ifexp in call arg", "f(a if c else b)", "(expr (call f (ifexp c a b)))"},
+		{"ifexp in return", "return a if c else b", "(return (ifexp c a b))"},
+		{"slice lo hi", "x[a:b]", "(expr ([] x (slice a b _)))"},
+		{"slice lo hi step", "x[a:b:c]", "(expr ([] x (slice a b c)))"},
+		{"slice bare", "x[:]", "(expr ([] x (slice _ _ _)))"},
+		{"slice step only", "x[::2]", "(expr ([] x (slice _ _ 2)))"},
+		{"slice lo only", "x[1:]", "(expr ([] x (slice 1 _ _)))"},
+		{"slice hi only", "x[:n]", "(expr ([] x (slice _ n _)))"},
+		{"slice negative step", "x[::-1]", "(expr ([] x (slice _ _ (neg 1))))"},
+		{"slice target", "x[a:b] = y", "(= ([] x (slice a b _)) y)"},
+		{"plain index stays plain", "x[i]", "(expr ([] x i))"},
+		{"star middle target", "a, *b, c = d", "(= (tuple a (* b) c) d)"},
+		{"star first target", "*a, b = c", "(= (tuple (* a) b) c)"},
+		{"star last target", "a, *b = c", "(= (tuple a (* b)) c)"},
+		{"star for target", "for a, *b in x: pass", "(for (tuple a (* b)) x [(pass)] [])"},
+		{"star for target first", "for *a, b in x: pass", "(for (tuple (* a) b) x [(pass)] [])"},
+		{"chained mixed targets", "a, b = c = [1, 2]", "(= (tuple a b) c (list 1 2))"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -311,14 +367,12 @@ func TestParseErrors(t *testing.T) {
 		{"import", "import os", "import statements are not supported yet"},
 		{"from import", "from os import path", "from imports are not supported yet"},
 		{"with", "with open(f) as g: pass", "with statements are not supported yet"},
-		{"del", "del x", "del statements are not supported yet"},
 		{"global", "global x", "global statements are not supported yet"},
 		{"nonlocal", "nonlocal x", "nonlocal statements are not supported yet"},
 		{"async def", "async def f(): pass", "async is not supported yet"},
 		{"lambda", "x = lambda a: a", "lambda expressions are not supported yet"},
 		{"yield", "yield 1", "yield expressions are not supported yet"},
 		{"await", "x = await f()", "await is not supported yet"},
-		{"conditional expr", "x = 1 if y else 2", "conditional expressions are not supported yet"},
 		{"list comprehension", "[x for x in y]", "list comprehensions are not supported yet"},
 		{"dict comprehension", "{k: v for k in y}", "dict comprehensions are not supported yet"},
 		{"set comprehension", "{x for x in y}", "set comprehensions are not supported yet"},
@@ -327,8 +381,8 @@ func TestParseErrors(t *testing.T) {
 		{"set literal", "{1, 2}", "set literals are not supported yet"},
 		{"single set literal", "{1}", "set literals are not supported yet"},
 		{"dict unpacking", "{**a}", "dict unpacking is not supported yet"},
-		{"slice", "a[1:2]", "slices are not supported yet"},
-		{"open slice", "a[:2]", "slices are not supported yet"},
+		{"slice tuple after slice", "x[a:b, c]", "tuples of slices are not supported yet"},
+		{"slice tuple before slice", "x[a, b:c]", "tuples of slices are not supported yet"},
 		{"keyword argument", "f(a=1)", "keyword arguments are not supported yet"},
 		{"star arg", "f(*a)", "'*' argument unpacking is not supported yet"},
 		{"double star arg", "f(**a)", "'**' argument unpacking is not supported yet"},
@@ -350,11 +404,20 @@ func TestParseErrors(t *testing.T) {
 		{"assign in tuple", "a, 1 = x", "cannot assign to literal"},
 		{"list target", "[a] = x", "list assignment targets are not supported yet"},
 		{"attribute target", "a.b = 1", "attribute assignment targets are not supported yet"},
-		{"starred target", "*a, b = c", "starred expressions are not supported yet"},
+		{"bare star target", "*a = b", "starred assignment target must be in a list or tuple"},
+		{"two stars in target", "a, *b, *c = x", "multiple starred expressions in assignment"},
+		{"two stars only", "*a, *b = c", "multiple starred expressions in assignment"},
+		{"star value", "y = *x", "can't use starred expression here"},
+		{"bare star statement", "*a", "can't use starred expression here"},
+		{"star in value tuple", "x = *a, b", "iterable unpacking is not supported yet"},
+		{"star in paren tuple", "(a, *b) = c", "starred expressions are not supported yet"},
 		{"aug tuple target", "a, b += 1", "'tuple' is an illegal expression for augmented assignment"},
 		{"aug literal target", "1 += 1", "illegal expression for augmented assignment"},
+		{"aug star target", "*a += 1", "'starred' is an illegal expression for augmented assignment"},
 		{"for subscript target", "for a[0] in x: pass", "for loop target must be a name or tuple of names"},
 		{"for literal target", "for 1 in x: pass", "for loop target must be a name or tuple of names"},
+		{"bare star for target", "for *a in b: pass", "starred assignment target must be in a list or tuple"},
+		{"two stars in for target", "for a, *b, *c in d: pass", "multiple starred expressions in assignment"},
 		{"missing block", "if x:\npass", "expected an indented block"},
 		{"unexpected indent first line", "  x = 1", "unexpected indent"},
 		{"unexpected indent later", "x = 1\n    y = 2\n", "unexpected indent"},
@@ -398,6 +461,36 @@ func TestParseErrors(t *testing.T) {
 		{"assert bare", "assert", "invalid syntax"},
 		{"assert three parts", "assert x, y, z", "invalid syntax"},
 		{"assert msg trailing comma", "assert x, y,", "invalid syntax"},
+		{"del literal", "del 1", "cannot delete literal"},
+		{"del string", "del 's'", "cannot delete literal"},
+		{"del call", "del f()", "cannot delete function call"},
+		{"del expression", "del x + y", "cannot delete expression"},
+		{"del paren expression", "del (a + b)", "cannot delete expression"},
+		{"del True", "del True", "cannot delete True"},
+		{"del False", "del False", "cannot delete False"},
+		{"del None", "del None", "cannot delete None"},
+		{"del dict", "del {}", "cannot delete dict literal"},
+		{"del starred", "del *a", "cannot delete starred"},
+		{"del starred in list", "del *a, b", "cannot delete starred"},
+		{"del list target", "del [a]", "list deletion targets are not supported yet"},
+		{"del bare", "del", "invalid syntax"},
+		{"bare walrus statement", "x := 1", "invalid syntax"},
+		{"walrus attribute target", "(x.y := 1)", "cannot use assignment expressions with attribute"},
+		{"walrus subscript target", "(x[0] := 1)", "cannot use assignment expressions with subscript"},
+		{"walrus call target", "(f() := 1)", "cannot use assignment expressions with function call"},
+		{"walrus tuple target", "((a, b) := 1)", "cannot use assignment expressions with tuple"},
+		{"walrus paren name target", "((x) := 1)", "cannot use assignment expressions with name"},
+		{"walrus literal target", "(1 := 2)", "cannot use assignment expressions with literal"},
+		{"walrus string target", "('s' := 1)", "cannot use assignment expressions with literal"},
+		{"walrus True target", "(True := 1)", "cannot use assignment expressions with True"},
+		{"walrus False target", "(False := 1)", "cannot use assignment expressions with False"},
+		{"walrus None target", "(None := 1)", "cannot use assignment expressions with None"},
+		{"walrus list target", "([a] := 1)", "cannot use assignment expressions with list"},
+		{"walrus dict target", "({} := 1)", "cannot use assignment expressions with dict literal"},
+		{"walrus expression target", "(a + b := 1)", "cannot use assignment expressions with expression"},
+		{"walrus chained", "(x := y := 1)", "invalid syntax"},
+		{"ifexp missing else", "x = 1 if y", "expected 'else' after 'if' expression"},
+		{"ifexp missing else in call", "f(a if b)", "expected 'else' after 'if' expression"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

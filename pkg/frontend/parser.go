@@ -195,7 +195,10 @@ func (p *parser) parseSimpleStmt() Stmt {
 		case "with":
 			p.errf(t.pos, "with statements are not supported yet")
 		case "del":
-			p.errf(t.pos, "del statements are not supported yet")
+			p.advance()
+			d := &Del{Pos_: t.pos}
+			p.addDelTargets(d, p.parseStarTestlist())
+			return d
 		case "raise":
 			p.advance()
 			r := &Raise{Pos_: t.pos}
@@ -228,7 +231,7 @@ func (p *parser) parseSimpleStmt() Stmt {
 	if t.kind == tName && t.text == "match" && p.looksLikeMatch() {
 		p.errf(t.pos, "match statements are not supported yet")
 	}
-	first := p.parseTestlist()
+	first := p.parseStarTestlist()
 	if p.isOp(":") {
 		p.errf(p.cur().pos, "variable annotations are not supported yet")
 	}
@@ -242,17 +245,53 @@ func (p *parser) parseSimpleStmt() Stmt {
 	if p.isOp("=") {
 		targets := []Expr{first}
 		p.advance()
-		e := p.parseTestlist()
+		e := p.parseStarTestlist()
 		for p.eatOp("=") {
 			targets = append(targets, e)
-			e = p.parseTestlist()
+			e = p.parseStarTestlist()
 		}
 		for _, tgt := range targets {
 			p.checkAssignTarget(tgt)
 		}
+		p.rejectStarred(e)
 		return &Assign{Pos_: first.Span(), Targets: targets, Value: e}
 	}
+	p.rejectStarred(first)
 	return &ExprStmt{Pos_: first.Span(), X: first}
+}
+
+// addDelTargets flattens one del target list into d.Targets; a parenthesized
+// tuple like del (a, b) contributes each element. Attribute passes here like
+// it does in CPython's parser; the lowering rejects it later. Everything else
+// gets CPython's cannot-delete message.
+func (p *parser) addDelTargets(d *Del, e Expr) {
+	switch e := e.(type) {
+	case *Name, *Subscript, *Attribute:
+		d.Targets = append(d.Targets, e)
+	case *TupleLit:
+		for _, elt := range e.Elts {
+			p.addDelTargets(d, elt)
+		}
+	case *ListLit:
+		p.errf(e.Span(), "list deletion targets are not supported yet")
+	case *Starred:
+		p.errf(e.Span(), "cannot delete starred")
+	case *IntLit, *FloatLit, *StrLit:
+		p.errf(e.Span(), "cannot delete literal")
+	case *BoolLit:
+		if e.Val {
+			p.errf(e.Span(), "cannot delete True")
+		}
+		p.errf(e.Span(), "cannot delete False")
+	case *NoneLit:
+		p.errf(e.Span(), "cannot delete None")
+	case *Call:
+		p.errf(e.Span(), "cannot delete function call")
+	case *DictLit:
+		p.errf(e.Span(), "cannot delete dict literal")
+	default:
+		p.errf(e.Span(), "cannot delete expression")
+	}
 }
 
 func (p *parser) looksLikeMatch() bool {
@@ -276,8 +315,21 @@ var augOps = map[string]BinKind{
 func (p *parser) checkAssignTarget(e Expr) {
 	switch e := e.(type) {
 	case *Name, *Subscript:
+	case *Starred:
+		// A bare *a target only appears outside a tuple; inside one the
+		// TupleLit branch unwraps it before recursing.
+		p.errf(e.Span(), "starred assignment target must be in a list or tuple")
 	case *TupleLit:
+		stars := 0
 		for _, elt := range e.Elts {
+			if s, ok := elt.(*Starred); ok {
+				stars++
+				if stars > 1 {
+					p.errf(s.Span(), "multiple starred expressions in assignment")
+				}
+				p.checkAssignTarget(s.X)
+				continue
+			}
 			p.checkAssignTarget(elt)
 		}
 	case *ListLit:
@@ -307,6 +359,8 @@ func (p *parser) checkAugTarget(e Expr) {
 	case *Name, *Subscript:
 	case *Attribute:
 		p.errf(e.Span(), "attribute assignment targets are not supported yet")
+	case *Starred:
+		p.errf(e.Span(), "'starred' is an illegal expression for augmented assignment")
 	case *TupleLit:
 		p.errf(e.Span(), "'tuple' is an illegal expression for augmented assignment")
 	case *ListLit:
@@ -340,7 +394,7 @@ func (p *parser) parseSuite() []Stmt {
 
 func (p *parser) parseIf() Stmt {
 	t := p.advance() // if or elif
-	cond := p.parseTest()
+	cond := p.parseNamedTest()
 	node := &If{Pos_: t.pos, Cond: cond, Body: p.parseSuite()}
 	switch {
 	case p.isKw("elif"):
@@ -354,7 +408,7 @@ func (p *parser) parseIf() Stmt {
 
 func (p *parser) parseWhile() Stmt {
 	t := p.advance()
-	cond := p.parseTest()
+	cond := p.parseNamedTest()
 	node := &While{Pos_: t.pos, Cond: cond, Body: p.parseSuite()}
 	if p.eatKw("else") {
 		node.Else = p.parseSuite()
@@ -365,6 +419,9 @@ func (p *parser) parseWhile() Stmt {
 func (p *parser) parseFor() Stmt {
 	t := p.advance()
 	target := p.parseForTarget()
+	if s, ok := target.(*Starred); ok {
+		p.errf(s.Span(), "starred assignment target must be in a list or tuple")
+	}
 	p.wantKw("in")
 	iter := p.parseTestlist()
 	node := &For{Pos_: t.pos, Target: target, Iter: iter, Body: p.parseSuite()}
@@ -374,8 +431,9 @@ func (p *parser) parseFor() Stmt {
 	return node
 }
 
-// parseForTarget parses the loop target, which M0 limits to a name or a
-// comma tuple of names, with parentheses allowed.
+// parseForTarget parses the loop target, which M1 limits to a name, a
+// starred name, or a comma tuple of those, with parentheses allowed. Each
+// tuple level allows at most one star, per CPython.
 func (p *parser) parseForTarget() Expr {
 	first := p.parseForTargetAtom()
 	if !p.isOp(",") {
@@ -388,6 +446,15 @@ func (p *parser) parseForTarget() Expr {
 			break
 		}
 		elts = append(elts, p.parseForTargetAtom())
+	}
+	stars := 0
+	for _, elt := range elts {
+		if s, ok := elt.(*Starred); ok {
+			stars++
+			if stars > 1 {
+				p.errf(s.Span(), "multiple starred expressions in assignment")
+			}
+		}
 	}
 	return &TupleLit{Pos_: first.Span(), Elts: elts}
 }
@@ -407,7 +474,8 @@ func (p *parser) parseForTargetAtom() Expr {
 		p.wantOp(")")
 		return inner
 	case p.isOp("*"):
-		p.errf(t.pos, "starred assignment targets are not supported yet")
+		p.advance()
+		return &Starred{Pos_: t.pos, X: p.parseForTargetAtom()}
 	}
 	p.errf(t.pos, "for loop target must be a name or tuple of names")
 	return nil
@@ -583,12 +651,113 @@ func (p *parser) parseTestlist() Expr {
 	return &TupleLit{Pos_: first.Span(), Elts: elts}
 }
 
+// parseStarTestlist is parseTestlist with starred elements allowed, for
+// positions that may turn out to be assignment or del targets. The callers
+// that keep an expression instead run rejectStarred over the result.
+func (p *parser) parseStarTestlist() Expr {
+	first := p.parseStarTest()
+	if !p.isOp(",") {
+		return first
+	}
+	elts := []Expr{first}
+	for p.eatOp(",") {
+		if !startsExpr(p.cur()) {
+			break
+		}
+		elts = append(elts, p.parseStarTest())
+	}
+	return &TupleLit{Pos_: first.Span(), Elts: elts}
+}
+
+// parseStarTest parses one testlist element that may carry a leading star.
+func (p *parser) parseStarTest() Expr {
+	if t := p.cur(); p.isOp("*") {
+		p.advance()
+		return &Starred{Pos_: t.pos, X: p.parseOr()}
+	}
+	return p.parseTest()
+}
+
+// rejectStarred errors when a star survived into value position. A bare star
+// gets CPython's message; a star inside a tuple would be iterable unpacking,
+// which the emitter cannot lower yet. Stars nest no deeper than one tuple
+// level because only parseStarTestlist produces them.
+func (p *parser) rejectStarred(e Expr) {
+	switch e := e.(type) {
+	case *Starred:
+		p.errf(e.Span(), "can't use starred expression here")
+	case *TupleLit:
+		for _, elt := range e.Elts {
+			if s, ok := elt.(*Starred); ok {
+				p.errf(s.Span(), "iterable unpacking is not supported yet")
+			}
+		}
+	}
+}
+
+// parseTest parses a conditional expression or anything tighter. The
+// condition sits at or level, and the else arm re-enters test, so nested
+// conditionals hang off the else like CPython's right-associative grammar.
 func (p *parser) parseTest() Expr {
 	e := p.parseOr()
-	if p.isKw("if") {
-		p.errf(p.cur().pos, "conditional expressions are not supported yet")
+	if !p.isKw("if") {
+		return e
 	}
-	return e
+	p.advance()
+	cond := p.parseOr()
+	if !p.eatKw("else") {
+		p.errf(p.cur().pos, "expected 'else' after 'if' expression")
+	}
+	return &IfExp{Pos_: e.Span(), Cond: cond, Then: e, Else: p.parseTest()}
+}
+
+// parseNamedTest parses test with an optional walrus, for the positions
+// CPython allows one: if/elif/while conditions, top-level call arguments,
+// and anything parenthesized. The rejections mirror CPython's per-shape
+// messages.
+func (p *parser) parseNamedTest() Expr {
+	start := p.i
+	e := p.parseTest()
+	if !p.isOp(":=") {
+		return e
+	}
+	switch e := e.(type) {
+	case *Name:
+		// CPython wants a bare NAME as the target; even (n) is rejected,
+		// and a single consumed token is the only way the name arrived bare.
+		if p.i == start+1 {
+			p.advance()
+			v := p.parseTest()
+			if p.isOp(":=") {
+				p.errf(p.cur().pos, "invalid syntax")
+			}
+			return &NamedExpr{Pos_: e.Pos_, Target: e.Id, Value: v}
+		}
+		p.errf(e.Span(), "cannot use assignment expressions with name")
+	case *Attribute:
+		p.errf(e.Span(), "cannot use assignment expressions with attribute")
+	case *Subscript:
+		p.errf(e.Span(), "cannot use assignment expressions with subscript")
+	case *Call:
+		p.errf(e.Span(), "cannot use assignment expressions with function call")
+	case *TupleLit:
+		p.errf(e.Span(), "cannot use assignment expressions with tuple")
+	case *ListLit:
+		p.errf(e.Span(), "cannot use assignment expressions with list")
+	case *DictLit:
+		p.errf(e.Span(), "cannot use assignment expressions with dict literal")
+	case *IntLit, *FloatLit, *StrLit:
+		p.errf(e.Span(), "cannot use assignment expressions with literal")
+	case *BoolLit:
+		if e.Val {
+			p.errf(e.Span(), "cannot use assignment expressions with True")
+		}
+		p.errf(e.Span(), "cannot use assignment expressions with False")
+	case *NoneLit:
+		p.errf(e.Span(), "cannot use assignment expressions with None")
+	}
+	p.errf(e.Span(), "cannot use assignment expressions with expression")
+	return nil
 }
 
 func (p *parser) parseOr() Expr {
@@ -760,15 +929,32 @@ func (p *parser) parsePostfix() Expr {
 			e = &Attribute{Pos_: e.Span(), X: e, Name: nt.text}
 		case "[":
 			p.advance()
-			if p.isOp(":") {
-				p.errf(p.cur().pos, "slices are not supported yet")
-			}
 			if p.isOp("]") {
 				p.errf(p.cur().pos, "invalid syntax")
 			}
-			idx := p.parseTestlist()
+			var idx Expr
 			if p.isOp(":") {
-				p.errf(p.cur().pos, "slices are not supported yet")
+				idx = p.parseSlice(p.cur().pos, nil)
+			} else {
+				first := p.parseTest()
+				switch {
+				case p.isOp(":"):
+					idx = p.parseSlice(first.Span(), first)
+				case p.isOp(","):
+					elts := []Expr{first}
+					for p.eatOp(",") {
+						if p.isOp("]") {
+							break
+						}
+						elts = append(elts, p.parseTest())
+						if p.isOp(":") {
+							p.errf(p.cur().pos, "tuples of slices are not supported yet")
+						}
+					}
+					idx = &TupleLit{Pos_: first.Span(), Elts: elts}
+				default:
+					idx = first
+				}
 			}
 			p.wantOp("]")
 			e = &Subscript{Pos_: e.Span(), X: e, Index: idx}
@@ -776,6 +962,26 @@ func (p *parser) parsePostfix() Expr {
 			return e
 		}
 	}
+}
+
+// parseSlice parses the lo:hi:step tail of a subscript once the cursor sits
+// on the first ':'; any omitted part stays nil. A comma next to a colon
+// would make a tuple of slices, which the emitter cannot lower.
+func (p *parser) parseSlice(pos Pos, lo Expr) Expr {
+	sl := &SliceExpr{Pos_: pos, Lo: lo}
+	p.wantOp(":")
+	if !p.isOp(":") && !p.isOp("]") && !p.isOp(",") {
+		sl.Hi = p.parseTest()
+	}
+	if p.eatOp(":") {
+		if !p.isOp("]") && !p.isOp(",") {
+			sl.Step = p.parseTest()
+		}
+	}
+	if p.isOp(",") {
+		p.errf(p.cur().pos, "tuples of slices are not supported yet")
+	}
+	return sl
 }
 
 func (p *parser) parseCall(fn Expr) Expr {
@@ -791,7 +997,7 @@ func (p *parser) parseCall(fn Expr) Expr {
 		if p.isOp("**") {
 			p.errf(p.cur().pos, "'**' argument unpacking is not supported yet")
 		}
-		arg := p.parseTest()
+		arg := p.parseNamedTest()
 		if p.isOp("=") {
 			p.errf(p.cur().pos, "keyword arguments are not supported yet")
 		}
@@ -872,7 +1078,7 @@ func (p *parser) parseParen() Expr {
 	if p.eatOp(")") {
 		return &TupleLit{Pos_: lp.pos}
 	}
-	first := p.parseTest()
+	first := p.parseNamedTest()
 	if p.isKw("for") {
 		p.errf(p.cur().pos, "generator expressions are not supported yet")
 	}
@@ -884,7 +1090,7 @@ func (p *parser) parseParen() Expr {
 		if p.isOp(")") {
 			break
 		}
-		elts = append(elts, p.parseTest())
+		elts = append(elts, p.parseNamedTest())
 	}
 	p.wantOp(")")
 	return &TupleLit{Pos_: lp.pos, Elts: elts}

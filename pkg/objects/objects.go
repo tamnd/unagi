@@ -19,6 +19,7 @@ const (
 	IndexError        = "IndexError"
 	KeyError          = "KeyError"
 	NameError         = "NameError"
+	UnboundLocalError = "UnboundLocalError"
 	AttributeError    = "AttributeError"
 	RuntimeError      = "RuntimeError"
 )
