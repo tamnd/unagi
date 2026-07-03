@@ -534,7 +534,10 @@ func GetItem(o, key Object) (Object, error) {
 	case *listObject:
 		i, ok := AsInt(key)
 		if !ok {
-			return nil, Raise(TypeError, "list indices must be integers or slices, not '%s'", key.TypeName())
+			// Probed on 3.14: [1][None] -> TypeError: list indices must be
+			// integers or slices, not NoneType. List, tuple and range spell
+			// the type bare; only the string message quotes it.
+			return nil, Raise(TypeError, "list indices must be integers or slices, not %s", key.TypeName())
 		}
 		j, err := seqIndex(i, len(x.elts), "list index out of range")
 		if err != nil {
@@ -544,7 +547,7 @@ func GetItem(o, key Object) (Object, error) {
 	case *tupleObject:
 		i, ok := AsInt(key)
 		if !ok {
-			return nil, Raise(TypeError, "tuple indices must be integers or slices, not '%s'", key.TypeName())
+			return nil, Raise(TypeError, "tuple indices must be integers or slices, not %s", key.TypeName())
 		}
 		j, err := seqIndex(i, len(x.elts), "tuple index out of range")
 		if err != nil {
@@ -556,7 +559,7 @@ func GetItem(o, key Object) (Object, error) {
 	case *rangeObject:
 		i, ok := AsInt(key)
 		if !ok {
-			return nil, Raise(TypeError, "range indices must be integers or slices, not '%s'", key.TypeName())
+			return nil, Raise(TypeError, "range indices must be integers or slices, not %s", key.TypeName())
 		}
 		n := x.length()
 		if i < 0 {
@@ -576,7 +579,8 @@ func SetItem(o, key, val Object) error {
 	case *listObject:
 		i, ok := AsInt(key)
 		if !ok {
-			return Raise(TypeError, "list indices must be integers or slices, not '%s'", key.TypeName())
+			// Probed on 3.14: xs[None] = 1 spells the type bare too.
+			return Raise(TypeError, "list indices must be integers or slices, not %s", key.TypeName())
 		}
 		j, err := seqIndex(i, len(x.elts), "list assignment index out of range")
 		if err != nil {
@@ -711,4 +715,39 @@ func Unpack(o Object, n int) ([]Object, error) {
 		return nil, Raise(ValueError, "not enough values to unpack (expected %d, got %d)", n, len(out))
 	}
 	return out, nil
+}
+
+// UnpackEx destructures an iterable around a starred target: before
+// fixed leading values, one list soaking up the middle, then after
+// fixed trailing values. The result has before+1+after entries with
+// the list at index before.
+func UnpackEx(o Object, before, after int) ([]Object, error) {
+	it, err := Iter(o)
+	if err != nil {
+		// Probed on 3.14: a, *b = 1 gives the same text as the plain form.
+		return nil, Raise(TypeError, "cannot unpack non-iterable %s object", o.TypeName())
+	}
+	var vals []Object
+	for {
+		v, ok, err := it.Next()
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			break
+		}
+		vals = append(vals, v)
+	}
+	need := before + after
+	if len(vals) < need {
+		// Probed on 3.14: a, b, *c = [1] -> ValueError: not enough values
+		// to unpack (expected at least 2, got 1).
+		return nil, Raise(ValueError, "not enough values to unpack (expected at least %d, got %d)",
+			need, len(vals))
+	}
+	mid := len(vals) - after
+	out := make([]Object, 0, need+1)
+	out = append(out, vals[:before]...)
+	out = append(out, NewList(append([]Object(nil), vals[before:mid]...)))
+	return append(out, vals[mid:]...), nil
 }

@@ -609,7 +609,9 @@ func TestItems(t *testing.T) {
 	_, err = GetItem(l, NewInt(3))
 	checkErr(t, "list oob", err, "IndexError: list index out of range")
 	_, err = GetItem(l, NewStr("a"))
-	checkErr(t, "list str index", err, "TypeError: list indices must be integers or slices, not 'str'")
+	// Probed on 3.14: list, tuple and range index messages spell the type
+	// bare; only the string-index message quotes it.
+	checkErr(t, "list str index", err, "TypeError: list indices must be integers or slices, not str")
 
 	if err := SetItem(l, NewInt(-3), NewInt(0)); err != nil {
 		t.Fatalf("SetItem: %v", err)
@@ -748,6 +750,54 @@ func TestIterAndUnpack(t *testing.T) {
 	checkErr(t, "too many", err, "ValueError: too many values to unpack (expected 2, got 3)")
 	_, err = Unpack(L(NewInt(1), NewInt(2)), 3)
 	checkErr(t, "not enough", err, "ValueError: not enough values to unpack (expected 3, got 2)")
+}
+
+func TestUnpackEx(t *testing.T) {
+	tests := []struct {
+		name          string
+		o             Object
+		before, after int
+		want          []string
+		wantErr       string
+	}{
+		// Probed on 3.14: a, *b, c = [1, 2, 3, 4, 5] -> (1, [2, 3, 4], 5).
+		{"middle", L(NewInt(1), NewInt(2), NewInt(3), NewInt(4), NewInt(5)), 1, 1,
+			[]string{"1", "[2, 3, 4]", "5"}, ""},
+		// Probed on 3.14: a, *b, c = range(3) -> (0, [1], 2).
+		{"range", NewRange(0, 3, 1), 1, 1, []string{"0", "[1]", "2"}, ""},
+		// Probed on 3.14: *a, = [1, 2] -> a == [1, 2].
+		{"star-only", L(NewInt(1), NewInt(2)), 0, 0, []string{"[1, 2]"}, ""},
+		{"empty-middle", T(NewInt(1), NewInt(2)), 1, 1, []string{"1", "[]", "2"}, ""},
+		{"trailing-star", L(NewInt(1), NewInt(2), NewInt(3)), 1, 0, []string{"1", "[2, 3]"}, ""},
+		{"str", NewStr("abc"), 0, 1, []string{"['a', 'b']", "'c'"}, ""},
+		// Probed on 3.14: a, b, *c = [1] and a, *b, c, d = [1, 2].
+		{"not-enough", L(NewInt(1)), 2, 0, nil,
+			"ValueError: not enough values to unpack (expected at least 2, got 1)"},
+		{"not-enough-tail", L(NewInt(1), NewInt(2)), 1, 2, nil,
+			"ValueError: not enough values to unpack (expected at least 3, got 2)"},
+		// Probed on 3.14: a, *b = 1.
+		{"non-iterable", NewInt(1), 1, 0, nil, "TypeError: cannot unpack non-iterable int object"},
+	}
+	for _, tt := range tests {
+		vals, err := UnpackEx(tt.o, tt.before, tt.after)
+		if tt.wantErr != "" {
+			checkErr(t, tt.name, err, tt.wantErr)
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: unexpected error %v", tt.name, err)
+			continue
+		}
+		if len(vals) != len(tt.want) {
+			t.Errorf("%s: got %d values, want %d", tt.name, len(vals), len(tt.want))
+			continue
+		}
+		for i, w := range tt.want {
+			if got := Repr(vals[i]); got != w {
+				t.Errorf("%s: vals[%d] = %s, want %s", tt.name, i, got, w)
+			}
+		}
+	}
 }
 
 func TestCall(t *testing.T) {
