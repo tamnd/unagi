@@ -1,0 +1,5 @@
+assert passed
+assert caught: math broke
+bare assert repr: AssertionError()
+from none: clean slate
+done

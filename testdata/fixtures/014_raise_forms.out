@@ -1,0 +1,10 @@
+caught: boom
+bare class: RuntimeError()
+keyerror str: 'missing'
+keyerror repr: KeyError('missing')
+two args: (1, 2)
+two args repr: TypeError(1, 2)
+from function: from fail
+re-raising
+outer got: inner
+propagated: 'k'

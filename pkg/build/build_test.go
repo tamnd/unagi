@@ -1,6 +1,7 @@
 package build
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
@@ -31,8 +32,43 @@ func golden(t *testing.T, pyPath string) string {
 	return string(out)
 }
 
+// goldenErr returns the golden stderr for fixtures that die on an uncaught
+// exception, and "" for fixtures that exit cleanly. The .err goldens hold the
+// traceback without source excerpt or caret lines, because compiled binaries
+// do not embed source; filterTraceback reduces CPython's stderr to the same
+// shape for the oracle comparison.
+func goldenErr(t *testing.T, pyPath string) (string, bool) {
+	t.Helper()
+	out, err := os.ReadFile(strings.TrimSuffix(pyPath, ".py") + ".err")
+	if os.IsNotExist(err) {
+		return "", false
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out), true
+}
+
+// run executes cmd and returns stdout, stderr, and the exit code.
+func run(t *testing.T, cmd *exec.Cmd) (string, string, int) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	code := 0
+	if err != nil {
+		exit, ok := err.(*exec.ExitError)
+		if !ok {
+			t.Fatalf("run %v: %v", cmd.Args, err)
+		}
+		code = exit.ExitCode()
+	}
+	return stdout.String(), stderr.String(), code
+}
+
 // TestFixtures compiles every fixture with unagi, runs the binary, and
-// compares stdout against the golden.
+// compares stdout, stderr, and the exit code against the goldens.
 func TestFixtures(t *testing.T) {
 	if testing.Short() {
 		t.Skip("compiles binaries; skipped in -short")
@@ -46,15 +82,47 @@ func TestFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatalf("build: %v", err)
 			}
-			out, err := exec.Command(bin).Output()
-			if err != nil {
-				t.Fatalf("run: %v", err)
+			wantErr, dies := goldenErr(t, py)
+			wantCode := 0
+			if dies {
+				wantCode = 1
 			}
-			if got, want := string(out), golden(t, py); got != want {
-				t.Errorf("stdout mismatch\n--- got ---\n%s--- want ---\n%s", got, want)
+			stdout, stderr, code := run(t, exec.Command(bin))
+			if code != wantCode {
+				t.Errorf("exit code = %d, want %d\nstderr:\n%s", code, wantCode, stderr)
+			}
+			if want := golden(t, py); stdout != want {
+				t.Errorf("stdout mismatch\n--- got ---\n%s--- want ---\n%s", stdout, want)
+			}
+			if stderr != wantErr {
+				t.Errorf("stderr mismatch\n--- got ---\n%s--- want ---\n%s", stderr, wantErr)
 			}
 		})
 	}
+}
+
+// filterTraceback reduces CPython stderr to the lines a compiled binary
+// prints: the traceback headers, the File lines, the chain connectives, the
+// blank lines between chained tracebacks, and the final message line. Source
+// excerpts and caret anchors are indented and get dropped, and the cwd prefix
+// CPython adds to the script path comes off so both sides cite the path as
+// given on the command line.
+func filterTraceback(t *testing.T, s string) string {
+	t.Helper()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	for line := range strings.Lines(s) {
+		switch {
+		case strings.HasPrefix(line, "  File "):
+			b.WriteString(strings.Replace(line, cwd+string(filepath.Separator), "", 1))
+		case strings.TrimRight(line, "\n") == "" || !strings.HasPrefix(line, " "):
+			b.WriteString(line)
+		}
+	}
+	return b.String()
 }
 
 // TestOracle replays every fixture under real CPython and checks the goldens
@@ -66,12 +134,20 @@ func TestOracle(t *testing.T) {
 	}
 	for _, py := range fixtures(t) {
 		t.Run(filepath.Base(py), func(t *testing.T) {
-			out, err := exec.Command("python3", py).Output()
-			if err != nil {
-				t.Fatalf("python3: %v", err)
+			wantErr, dies := goldenErr(t, py)
+			wantCode := 0
+			if dies {
+				wantCode = 1
 			}
-			if got, want := string(out), golden(t, py); got != want {
-				t.Errorf("golden is not CPython-true\n--- python3 ---\n%s--- golden ---\n%s", got, want)
+			stdout, stderr, code := run(t, exec.Command("python3", py))
+			if code != wantCode {
+				t.Errorf("python3 exit code = %d, want %d\nstderr:\n%s", code, wantCode, stderr)
+			}
+			if want := golden(t, py); stdout != want {
+				t.Errorf("golden is not CPython-true\n--- python3 ---\n%s--- golden ---\n%s", stdout, want)
+			}
+			if got := filterTraceback(t, stderr); got != wantErr {
+				t.Errorf("stderr golden is not CPython-true\n--- python3 (filtered) ---\n%s--- golden ---\n%s", got, wantErr)
 			}
 		})
 	}
