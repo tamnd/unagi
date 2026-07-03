@@ -96,12 +96,13 @@ var keywords = map[string]bool{
 	"with": true, "yield": true,
 }
 
-// opTable holds every operator and delimiter M0 accepts, longest first so
-// the matcher never splits **= into ** and =.
+// opTable holds every operator and delimiter the frontend accepts, longest
+// first so the matcher never splits **= into ** and =.
 var opTable = []string{
-	"**=", "//=",
+	"**=", "//=", "<<=", ">>=",
 	"**", "//", "==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "%=", ":=",
-	"+", "-", "*", "/", "%", "=", "<", ">",
+	"<<", ">>", "&=", "|=", "^=",
+	"+", "-", "*", "/", "%", "=", "<", ">", "&", "|", "^", "~",
 	"(", ")", "[", "]", "{", "}", ",", ":", ".", ";",
 }
 
@@ -634,11 +635,8 @@ func hexVal(c byte) int {
 }
 
 func (lx *lexer) lexOp(pos Pos) {
-	switch {
-	case lx.lookahead("->"):
+	if lx.lookahead("->") {
 		lx.err(pos, "return type annotations ('->') are not supported yet")
-	case lx.lookahead("<<"), lx.lookahead(">>"):
-		lx.err(pos, "the bitwise operator '%s' is not supported yet", string(lx.src[lx.off:lx.off+2]))
 	}
 	switch c := lx.ch(); c {
 	case '!':
@@ -648,8 +646,6 @@ func (lx *lexer) lexOp(pos Pos) {
 		if lx.ch2() != '=' && len(lx.fbase) > 0 {
 			lx.err(pos, "f-string: expecting '=', or '!', or ':', or '}'")
 		}
-	case '&', '|', '^', '~':
-		lx.err(pos, "the bitwise operator '%c' is not supported yet", c)
 	case '@':
 		if len(lx.toks) == lx.lineStart {
 			lx.err(pos, "decorators are not supported yet")

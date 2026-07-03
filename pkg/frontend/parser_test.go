@@ -12,6 +12,8 @@ import (
 var binNames = map[BinKind]string{
 	BinAdd: "+", BinSub: "-", BinMul: "*", BinDiv: "/",
 	BinFloorDiv: "//", BinMod: "%", BinPow: "**",
+	BinBitOr: "|", BinBitXor: "^", BinBitAnd: "&",
+	BinLShift: "<<", BinRShift: ">>",
 }
 
 var cmpNames = map[CmpKind]string{
@@ -132,10 +134,12 @@ func de(e Expr) string {
 			parts = append(parts, "("+de(e.Keys[i])+" "+de(e.Vals[i])+")")
 		}
 		return "(" + strings.Join(parts, " ") + ")"
+	case *SetLit:
+		return dexprs("set", e.Elts)
 	case *BinOp:
 		return "(" + binNames[e.Op] + " " + de(e.Left) + " " + de(e.Right) + ")"
 	case *UnaryOp:
-		name := map[UnaryKind]string{UnaryNeg: "neg", UnaryPos: "pos", UnaryNot: "not"}[e.Op]
+		name := map[UnaryKind]string{UnaryNeg: "neg", UnaryPos: "pos", UnaryNot: "not", UnaryInvert: "inv"}[e.Op]
 		return "(" + name + " " + de(e.X) + ")"
 	case *BoolOp:
 		name := "and"
@@ -225,6 +229,8 @@ func TestParse(t *testing.T) {
 		{"aug ops", "x += 1; x -= 2; x *= 3; x /= 4; x //= 5; x %= 6; x **= 7",
 			"(+= x 1) (-= x 2) (*= x 3) (/= x 4) (//= x 5) (%= x 6) (**= x 7)"},
 		{"aug subscript", "a[i] -= 2", "(-= ([] a i) 2)"},
+		{"bitwise aug ops", "x |= 1; x ^= 2; x &= 3; x <<= 4; x >>= 5",
+			"(|= x 1) (^= x 2) (&= x 3) (<<= x 4) (>>= x 5)"},
 		{"mul binds tighter", "1 + 2 * 3", "(expr (+ 1 (* 2 3)))"},
 		{"parens override", "(1 + 2) * 3", "(expr (* (+ 1 2) 3))"},
 		{"add left assoc", "1 + 2 - 3", "(expr (- (+ 1 2) 3))"},
@@ -234,6 +240,22 @@ func TestParse(t *testing.T) {
 		{"pow right assoc", "2 ** 3 ** 2", "(expr (** 2 (** 3 2)))"},
 		{"unary chain", "--x", "(expr (neg (neg x)))"},
 		{"unary plus", "+x", "(expr (pos x))"},
+		{"bitwise ladder", "1 | 2 ^ 3 & 4 << 5 + 6", "(expr (| 1 (^ 2 (& 3 (<< 4 (+ 5 6))))))"},
+		{"bitor left assoc", "a | b | c", "(expr (| (| a b) c))"},
+		{"bitxor left assoc", "a ^ b ^ c", "(expr (^ (^ a b) c))"},
+		{"bitand left assoc", "a & b & c", "(expr (& (& a b) c))"},
+		{"shift left assoc", "a << b >> c", "(expr (>> (<< a b) c))"},
+		{"bitand beats equality", "a & b == c", "(expr (cmp (& a b) == c))"},
+		{"bitor operands compared", "a | b < c | d", "(expr (cmp (| a b) < (| c d)))"},
+		{"in of bitor", "1 in a | b", "(expr (cmp 1 in (| a b)))"},
+		{"not of bitor", "not a | b", "(expr (not (| a b)))"},
+		{"invert", "~x", "(expr (inv x))"},
+		{"invert chain", "~~x", "(expr (inv (inv x)))"},
+		{"invert of neg", "~-x", "(expr (inv (neg x)))"},
+		{"neg of invert", "-~x", "(expr (neg (inv x)))"},
+		{"pow beats invert", "~2 ** 2", "(expr (inv (** 2 2)))"},
+		{"invert on pow right", "2 ** ~x", "(expr (** 2 (inv x)))"},
+		{"invert binds tighter than mul", "~x * y", "(expr (* (inv x) y))"},
 		{"bool precedence", "not a or b and c", "(expr (or (not a) (and b c)))"},
 		{"or flattens", "a or b or c", "(expr (or a b c))"},
 		{"chained comparison", "1 < x <= 10", "(expr (cmp 1 < x <= 10))"},
@@ -257,6 +279,15 @@ func TestParse(t *testing.T) {
 		{"list trailing comma", "[1, 2,]", "(expr (list 1 2))"},
 		{"empty dict", "{}", "(expr (dict))"},
 		{"dict", "{1: 'a', 'b': 2,}", `(expr (dict (1 "a") ("b" 2)))`},
+		{"set single", "{1}", "(expr (set 1))"},
+		{"set multiple", "{1, 'a', x}", `(expr (set 1 "a" x))`},
+		{"set trailing comma", "{1, 2,}", "(expr (set 1 2))"},
+		{"set nested containers", "{(1, 2), [3]}", "(expr (set (tuple 1 2) (list 3)))"},
+		{"set inside set", "{{1}}", "(expr (set (set 1)))"},
+		{"set as dict value", "{1: {2}}", "(expr (dict (1 (set 2))))"},
+		{"set expression element", "{a | b, ~c}", "(expr (set (| a b) (inv c)))"},
+		{"set walrus in parens", "{(x := 1), x}", "(expr (set (:= x 1) x))"},
+		{"set as assign value", "x = {1, 2}", "(= x (set 1 2))"},
 		{"string concat", `'a' 'b' "c"`, `(expr "abc")`},
 		{"string concat across lines", "x = ('a'\n'b')", `(= x "ab")`},
 		{"semicolons", "True; False; None", "(expr True) (expr False) (expr None)"},
@@ -443,9 +474,19 @@ func TestParseErrors(t *testing.T) {
 		{"set comprehension", "{x for x in y}", "set comprehensions are not supported yet"},
 		{"generator expr", "(x for x in y)", "generator expressions are not supported yet"},
 		{"generator arg", "f(x for x in y)", "generator expressions are not supported yet"},
-		{"set literal", "{1, 2}", "set literals are not supported yet"},
-		{"single set literal", "{1}", "set literals are not supported yet"},
 		{"dict unpacking", "{**a}", "dict unpacking is not supported yet"},
+		{"dict then set element", "{1: 2, 3}", "':' expected after dictionary key"},
+		{"set then dict entry", "{1, 2: 3}", "invalid syntax"},
+		{"set star element", "{*x}", "starred expressions are not supported yet"},
+		{"set star later element", "{1, *x}", "starred expressions are not supported yet"},
+		{"set double star element", "{1, **x}", "invalid syntax"},
+		{"set bare walrus", "{x := 1}", "expected '}'"},
+		{"set missing comma", "{1 2}", "expected '}'"},
+		{"assign to set", "{1} = x", "cannot assign to set display"},
+		{"del set", "del {1}", "cannot delete set display"},
+		{"aug set target", "{1} += 1", "'set display' is an illegal expression for augmented assignment"},
+		{"walrus set target", "({1} := 2)", "cannot use assignment expressions with set display"},
+		{"except as set", "try:\n    pass\nexcept E as {1}:\n    pass\n", "cannot use except statement with set display"},
 		{"slice tuple after slice", "x[a:b, c]", "tuples of slices are not supported yet"},
 		{"slice tuple before slice", "x[a, b:c]", "tuples of slices are not supported yet"},
 		{"keyword argument", "f(a=1)", "keyword arguments are not supported yet"},

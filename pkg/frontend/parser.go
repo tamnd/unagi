@@ -112,7 +112,7 @@ func startsExpr(t token) bool {
 		}
 	case tOp:
 		switch t.text {
-		case "(", "[", "{", "+", "-", "*", "**":
+		case "(", "[", "{", "+", "-", "~", "*", "**":
 			return true
 		}
 	}
@@ -291,6 +291,8 @@ func (p *parser) addDelTargets(d *Del, e Expr) {
 		p.errf(e.Span(), "cannot delete function call")
 	case *DictLit:
 		p.errf(e.Span(), "cannot delete dict literal")
+	case *SetLit:
+		p.errf(e.Span(), "cannot delete set display")
 	default:
 		p.errf(e.Span(), "cannot delete expression")
 	}
@@ -312,6 +314,8 @@ func (p *parser) looksLikeMatch() bool {
 var augOps = map[string]BinKind{
 	"+=": BinAdd, "-=": BinSub, "*=": BinMul, "/=": BinDiv,
 	"//=": BinFloorDiv, "%=": BinMod, "**=": BinPow,
+	"|=": BinBitOr, "^=": BinBitXor, "&=": BinBitAnd,
+	"<<=": BinLShift, ">>=": BinRShift,
 }
 
 func (p *parser) checkAssignTarget(e Expr) {
@@ -353,6 +357,8 @@ func (p *parser) checkAssignTarget(e Expr) {
 		p.errf(e.Span(), "cannot assign to function call")
 	case *DictLit:
 		p.errf(e.Span(), "cannot assign to dict literal")
+	case *SetLit:
+		p.errf(e.Span(), "cannot assign to set display")
 	default:
 		p.errf(e.Span(), "cannot assign to expression")
 	}
@@ -369,6 +375,8 @@ func (p *parser) checkAugTarget(e Expr) {
 		p.errf(e.Span(), "'tuple' is an illegal expression for augmented assignment")
 	case *ListLit:
 		p.errf(e.Span(), "'list' is an illegal expression for augmented assignment")
+	case *SetLit:
+		p.errf(e.Span(), "'set display' is an illegal expression for augmented assignment")
 	case *FStr:
 		p.errf(e.Span(), "'f-string expression' is an illegal expression for augmented assignment")
 	default:
@@ -624,6 +632,8 @@ func (p *parser) parseExceptName() string {
 		p.errf(e.Span(), "cannot use except statement with list")
 	case *DictLit:
 		p.errf(e.Span(), "cannot use except statement with dict literal")
+	case *SetLit:
+		p.errf(e.Span(), "cannot use except statement with set display")
 	case *IntLit, *FloatLit, *StrLit:
 		p.errf(e.Span(), "cannot use except statement with literal")
 	case *BoolLit:
@@ -752,6 +762,8 @@ func (p *parser) parseNamedTest() Expr {
 		p.errf(e.Span(), "cannot use assignment expressions with list")
 	case *DictLit:
 		p.errf(e.Span(), "cannot use assignment expressions with dict literal")
+	case *SetLit:
+		p.errf(e.Span(), "cannot use assignment expressions with set display")
 	case *FStr:
 		p.errf(e.Span(), "cannot use assignment expressions with f-string expression")
 	case *IntLit, *FloatLit, *StrLit:
@@ -805,7 +817,7 @@ var cmpOps = map[string]CmpKind{
 }
 
 func (p *parser) parseComparison() Expr {
-	left := p.parseArith()
+	left := p.parseBitOr()
 	var ops []CmpKind
 	var rights []Expr
 	for {
@@ -814,7 +826,7 @@ func (p *parser) parseComparison() Expr {
 			break
 		}
 		ops = append(ops, op)
-		rights = append(rights, p.parseArith())
+		rights = append(rights, p.parseBitOr())
 	}
 	if len(ops) == 0 {
 		return left
@@ -852,6 +864,53 @@ func (p *parser) cmpOpAt() (CmpKind, bool) {
 		}
 	}
 	return 0, false
+}
+
+// parseBitOr parses the bitwise ladder top: | over ^ over & over shifts over
+// arithmetic, each level left-associative. Comparison operands enter here,
+// so a & b == c compares (a & b) against c.
+func (p *parser) parseBitOr() Expr {
+	e := p.parseBitXor()
+	for p.isOp("|") {
+		p.advance()
+		e = &BinOp{Pos_: e.Span(), Left: e, Op: BinBitOr, Right: p.parseBitXor()}
+	}
+	return e
+}
+
+func (p *parser) parseBitXor() Expr {
+	e := p.parseBitAnd()
+	for p.isOp("^") {
+		p.advance()
+		e = &BinOp{Pos_: e.Span(), Left: e, Op: BinBitXor, Right: p.parseBitAnd()}
+	}
+	return e
+}
+
+func (p *parser) parseBitAnd() Expr {
+	e := p.parseShift()
+	for p.isOp("&") {
+		p.advance()
+		e = &BinOp{Pos_: e.Span(), Left: e, Op: BinBitAnd, Right: p.parseShift()}
+	}
+	return e
+}
+
+func (p *parser) parseShift() Expr {
+	e := p.parseArith()
+	for {
+		var op BinKind
+		switch {
+		case p.isOp("<<"):
+			op = BinLShift
+		case p.isOp(">>"):
+			op = BinRShift
+		default:
+			return e
+		}
+		p.advance()
+		e = &BinOp{Pos_: e.Span(), Left: e, Op: op, Right: p.parseArith()}
+	}
 }
 
 func (p *parser) parseArith() Expr {
@@ -892,15 +951,18 @@ func (p *parser) parseTerm() Expr {
 	}
 }
 
-// parseFactor handles unary + and -. Power binds tighter than a unary minus
-// on its left, so -2**2 comes out as -(2**2).
+// parseFactor handles unary +, -, and ~. Power binds tighter than a unary
+// operator on its left, so -2**2 comes out as -(2**2) and ~2**2 as ~(2**2).
 func (p *parser) parseFactor() Expr {
 	t := p.cur()
-	if t.kind == tOp && (t.text == "+" || t.text == "-") {
+	if t.kind == tOp && (t.text == "+" || t.text == "-" || t.text == "~") {
 		p.advance()
 		op := UnaryPos
-		if t.text == "-" {
+		switch t.text {
+		case "-":
 			op = UnaryNeg
+		case "~":
+			op = UnaryInvert
 		}
 		return &UnaryOp{Pos_: t.pos, Op: op, X: p.parseFactor()}
 	}
@@ -1070,7 +1132,7 @@ func (p *parser) parseAtom() Expr {
 		case "[":
 			return p.parseList()
 		case "{":
-			return p.parseDict()
+			return p.parseBraces()
 		case "*":
 			p.errf(t.pos, "starred expressions are not supported yet")
 		}
@@ -1204,7 +1266,10 @@ func (p *parser) parseList() Expr {
 	return node
 }
 
-func (p *parser) parseDict() Expr {
+// parseBraces parses a brace display. Empty braces are a dict, a colon after
+// the first element makes it a dict, and anything else is a set literal, the
+// same probe CPython uses.
+func (p *parser) parseBraces() Expr {
 	lb := p.advance()
 	node := &DictLit{Pos_: lb.pos}
 	if p.eatOp("}") {
@@ -1217,10 +1282,10 @@ func (p *parser) parseDict() Expr {
 	if p.isKw("for") {
 		p.errf(p.cur().pos, "set comprehensions are not supported yet")
 	}
-	if !p.isOp(":") && (p.isOp(",") || p.isOp("}")) {
-		p.errf(key.Span(), "set literals are not supported yet")
+	if !p.isOp(":") {
+		return p.parseSetTail(lb, key)
 	}
-	p.wantOp(":")
+	p.advance()
 	val := p.parseTest()
 	if p.isKw("for") {
 		p.errf(p.cur().pos, "dict comprehensions are not supported yet")
@@ -1235,10 +1300,35 @@ func (p *parser) parseDict() Expr {
 			p.errf(p.cur().pos, "dict unpacking is not supported yet")
 		}
 		k := p.parseTest()
-		p.wantOp(":")
+		if !p.isOp(":") {
+			// A set element after dict entries, as in {1: 2, 3}.
+			p.errf(k.Span(), "':' expected after dictionary key")
+		}
+		p.advance()
 		v := p.parseTest()
 		node.Keys = append(node.Keys, k)
 		node.Vals = append(node.Vals, v)
+	}
+	p.wantOp("}")
+	return node
+}
+
+// parseSetTail finishes a set literal once the colon probe on the first
+// element ruled out a dict. Empty sets have no literal form, so at least one
+// element is always present.
+func (p *parser) parseSetTail(lb token, first Expr) Expr {
+	node := &SetLit{Pos_: lb.pos, Elts: []Expr{first}}
+	for p.eatOp(",") {
+		if p.isOp("}") {
+			break
+		}
+		elt := p.parseTest()
+		if p.isOp(":") {
+			// A dict entry after set elements, as in {1, 2: 3}; CPython
+			// reports plain invalid syntax at the colon.
+			p.errf(p.cur().pos, "invalid syntax")
+		}
+		node.Elts = append(node.Elts, elt)
 	}
 	p.wantOp("}")
 	return node
