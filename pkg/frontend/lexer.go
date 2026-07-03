@@ -234,12 +234,12 @@ func (lx *lexer) startLine() bool {
 				break ws
 			}
 		}
-		switch c := lx.ch(); {
-		case c == 0:
+		switch lx.ch() {
+		case 0:
 			return true
-		case c == '\n' || c == '\r':
+		case '\n', '\r':
 			lx.consumeNewline()
-		case c == '#':
+		case '#':
 			lx.skipComment()
 			lx.consumeNewline()
 		default:
@@ -272,10 +272,10 @@ func (lx *lexer) lexLogicalLine() {
 	start := len(lx.toks)
 	lx.lineStart = start
 	for {
-		switch c := lx.ch(); {
-		case c == ' ' || c == '\t' || c == '\f':
+		switch lx.ch() {
+		case ' ', '\t', '\f':
 			lx.adv()
-		case c == 0:
+		case 0:
 			if len(lx.brackets) > 0 {
 				b := lx.brackets[len(lx.brackets)-1]
 				lx.err(b.pos, "'%c' was never closed", b.ch)
@@ -284,7 +284,7 @@ func (lx *lexer) lexLogicalLine() {
 				lx.emit(tNewline, "")
 			}
 			return
-		case c == '\n' || c == '\r':
+		case '\n', '\r':
 			if len(lx.brackets) > 0 {
 				lx.consumeNewline()
 				continue
@@ -295,9 +295,9 @@ func (lx *lexer) lexLogicalLine() {
 				lx.emitAt(pos, tNewline, "")
 			}
 			return
-		case c == '#':
+		case '#':
 			lx.skipComment()
-		case c == '\\':
+		case '\\':
 			pos := lx.pos()
 			lx.adv()
 			if lx.ch() == '\n' || lx.ch() == '\r' {
@@ -513,13 +513,13 @@ func (lx *lexer) lexString(pos Pos) {
 	var sb strings.Builder
 	for {
 		c := lx.ch()
-		switch {
-		case c == 0:
+		switch c {
+		case 0:
 			if triple {
 				lx.err(pos, "unterminated triple-quoted string literal (detected at line %d)", lx.line)
 			}
 			lx.err(pos, "unterminated string literal (detected at line %d)", lx.line)
-		case c == q:
+		case q:
 			if !triple {
 				lx.adv()
 				lx.emitAt(pos, tString, sb.String())
@@ -534,13 +534,13 @@ func (lx *lexer) lexString(pos Pos) {
 			}
 			sb.WriteByte(q)
 			lx.adv()
-		case c == '\n' || c == '\r':
+		case '\n', '\r':
 			if !triple {
 				lx.err(pos, "unterminated string literal (detected at line %d)", lx.line)
 			}
 			sb.WriteByte('\n')
 			lx.consumeNewline()
-		case c == '\\':
+		case '\\':
 			lx.lexEscape(pos, &sb)
 		default:
 			r, _ := utf8.DecodeRune(lx.src[lx.off:])

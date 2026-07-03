@@ -229,5 +229,6 @@ func Builtin(name string) (objects.Object, bool) {
 // PrintUncaught writes the CPython-style two-line traceback for an
 // uncaught exception to Stderr.
 func PrintUncaught(err error) {
-	fmt.Fprintf(Stderr, "Traceback (most recent call last):\n%s\n", err.Error())
+	// Nothing sensible to do if stderr itself is gone.
+	_, _ = fmt.Fprintf(Stderr, "Traceback (most recent call last):\n%s\n", err.Error())
 }

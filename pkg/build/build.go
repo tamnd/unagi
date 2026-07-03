@@ -50,7 +50,7 @@ func Build(ctx context.Context, pyPath string, opts Options) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		defer os.RemoveAll(genDir)
+		defer func() { _ = os.RemoveAll(genDir) }()
 	} else if err := os.MkdirAll(genDir, 0o755); err != nil {
 		return "", err
 	}
@@ -86,7 +86,7 @@ func Run(ctx context.Context, pyPath string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	bin, err := Build(ctx, pyPath, Options{Out: filepath.Join(dir, "prog")})
 	if err != nil {
 		return 0, err
