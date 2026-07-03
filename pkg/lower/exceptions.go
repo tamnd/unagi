@@ -361,10 +361,20 @@ func (f *fnCtx) excClassNew(e frontend.Expr) (ast.Expr, bool, error) {
 		}
 		return n.Id
 	}
+	newExc := func(c string, args ast.Expr) (ast.Expr, bool, error) {
+		if objects.IsExcGroupClass(c) {
+			// Group construction validates eagerly, so it is fallible and
+			// its TypeError/ValueError stays catchable at the call site.
+			tmp := f.tmpVar()
+			f.fallible(tmp, sel("runtime", "NewExcGroup"), strLit(c), args)
+			return ident(tmp), true, nil
+		}
+		return callExpr(sel("runtime", "NewExc"), strLit(c), args), true, nil
+	}
 	switch e := e.(type) {
 	case *frontend.Name:
 		if c := className(e); c != "" {
-			return callExpr(sel("runtime", "NewExc"), strLit(c), ident("nil")), true, nil
+			return newExc(c, ident("nil"))
 		}
 	case *frontend.Call:
 		c := className(e.Fn)
@@ -375,7 +385,7 @@ func (f *fnCtx) excClassNew(e frontend.Expr) (ast.Expr, bool, error) {
 		if err != nil {
 			return nil, false, err
 		}
-		return callExpr(sel("runtime", "NewExc"), strLit(c), f.objSlice(args)), true, nil
+		return newExc(c, f.objSlice(args))
 	}
 	return nil, false, nil
 }

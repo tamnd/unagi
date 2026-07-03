@@ -46,6 +46,10 @@ type Exception struct {
 	// Notes holds PEP 678 add_note strings. The traceback renderer prints
 	// each one verbatim after the final exception line.
 	Notes []string
+	// Group holds the sub-exceptions when this is an ExceptionGroup or
+	// BaseExceptionGroup; nil for every other exception. Args still keeps
+	// the two constructor arguments, so repr echoes the given sequence.
+	Group []*Exception
 	// Reraised marks a bare `raise` so the next TB call skips its frame.
 	// CPython 3.14 keeps the original raise-site line for the re-raising
 	// function and adds no entry for the bare raise itself.
@@ -56,8 +60,15 @@ func (e *Exception) TypeName() string { return e.Kind }
 
 // Text is str(e). Probed on 3.14: zero args give "", one arg gives
 // str(arg) except KeyError which gives repr(arg), more args give the
-// str of the args tuple.
+// str of the args tuple. Groups append their sub-exception count.
 func (e *Exception) Text() string {
+	if e.Group != nil {
+		s := "s"
+		if len(e.Group) == 1 {
+			s = ""
+		}
+		return fmt.Sprintf("%s (%d sub-exception%s)", Str(e.Args[0]), len(e.Group), s)
+	}
 	switch len(e.Args) {
 	case 0:
 		return ""

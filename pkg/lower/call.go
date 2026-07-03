@@ -49,6 +49,11 @@ func (f *fnCtx) call(e *frontend.Call) (ast.Expr, error) {
 	if builtinNames[name.Id] {
 		return f.builtinCall(name.Id, e)
 	}
+	// Exception constructors work in expression position too, so a program
+	// can build, annotate, and inspect an exception before raising it.
+	if x, ok, err := f.excClassNew(e); ok || err != nil {
+		return x, err
+	}
 	return nil, f.e.errf(e.Span(), "name %q is not defined", name.Id)
 }
 
