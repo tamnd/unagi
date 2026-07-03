@@ -157,11 +157,19 @@ func Abs(o objects.Object) (objects.Object, error) {
 
 // builtins maps names to function objects for the case where a builtin
 // is passed around as a value. Variadic ones use a negative arity so
-// Call skips the count check and they validate themselves.
-var builtins map[string]objects.Object
+// Call skips the count check and they validate themselves. The map is
+// allocated up front because several files register into it from their
+// own init functions.
+var builtins = make(map[string]objects.Object)
+
+func register(m map[string]objects.Object) {
+	for name, f := range m {
+		builtins[name] = f
+	}
+}
 
 func init() {
-	builtins = map[string]objects.Object{
+	register(map[string]objects.Object{
 		"print": objects.NewFunc("print", -1, func(args []objects.Object) (objects.Object, error) {
 			if err := Print(args...); err != nil {
 				return nil, err
@@ -216,7 +224,7 @@ func init() {
 		"abs": objects.NewFunc("abs", 1, func(args []objects.Object) (objects.Object, error) {
 			return Abs(args[0])
 		}),
-	}
+	})
 }
 
 // Builtin looks up a builtin by name as a callable object.
