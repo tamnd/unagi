@@ -23,6 +23,13 @@ const (
 	tFloat
 	tString
 	tOp
+	tFStrStart // f-string opener, the prefix plus the quote (PEP 701 FSTRING_START)
+	tFStrMid   // literal text run or format spec inside an f-string
+	tFStrEnd   // f-string closing quote
+	tFStrOpen  // '{' opening an interpolation
+	tFStrClose // '}' closing an interpolation
+	tFStrEq    // verbatim text of a self-documenting '=' field
+	tFStrConv  // conversion character after '!'
 )
 
 func (k tokKind) String() string {
@@ -47,6 +54,20 @@ func (k tokKind) String() string {
 		return "STRING"
 	case tOp:
 		return "OP"
+	case tFStrStart:
+		return "FSTRING_START"
+	case tFStrMid:
+		return "FSTRING_MIDDLE"
+	case tFStrEnd:
+		return "FSTRING_END"
+	case tFStrOpen:
+		return "FSTRING_LBRACE"
+	case tFStrClose:
+		return "FSTRING_RBRACE"
+	case tFStrEq:
+		return "FSTRING_EQ"
+	case tFStrConv:
+		return "FSTRING_CONV"
 	}
 	return "UNKNOWN"
 }
@@ -97,7 +118,8 @@ type lexer struct {
 	indents   []int
 	brackets  []openBracket
 	toks      []token
-	lineStart int // token count at the start of the current logical line
+	lineStart int   // token count at the start of the current logical line
+	fbase     []int // bracket-depth floor of each open f-string interpolation
 }
 
 // lex turns source into the logical token stream, always ending with tEOF
@@ -342,14 +364,15 @@ func isIdentStart(r rune) bool { return r == '_' || unicode.IsLetter(r) }
 func isIdentPart(r rune) bool  { return isIdentStart(r) || unicode.IsDigit(r) }
 
 // isStringPrefix reports whether name could be a string literal prefix like
-// f, rb, or B.
+// f, rb, or B. The t is PEP 750; the lexer recognizes it only to reject it
+// with a real message instead of misreading t"x" as a name and a string.
 func isStringPrefix(name string) bool {
 	if len(name) == 0 || len(name) > 2 {
 		return false
 	}
 	for i := 0; i < len(name); i++ {
 		switch name[i] {
-		case 'r', 'R', 'b', 'B', 'u', 'U', 'f', 'F':
+		case 'r', 'R', 'b', 'B', 'u', 'U', 'f', 'F', 't', 'T':
 		default:
 			return false
 		}
@@ -371,8 +394,14 @@ func (lx *lexer) lexName(pos Pos) {
 	if (lx.ch() == '\'' || lx.ch() == '"') && isStringPrefix(name) {
 		low := strings.ToLower(name)
 		switch {
-		case strings.Contains(low, "f"):
-			lx.err(pos, "f-strings are not supported yet")
+		case strings.Contains(low, "t"):
+			lx.err(pos, "t-strings are not supported yet")
+		case low == "f":
+			if len(lx.fbase) > 0 {
+				lx.err(pos, "nested f-strings are not supported yet")
+			}
+			lx.lexFString(pos, name)
+			return
 		case strings.Contains(low, "b"):
 			lx.err(pos, "bytes literals are not supported yet")
 		default:
@@ -612,6 +641,13 @@ func (lx *lexer) lexOp(pos Pos) {
 		lx.err(pos, "the bitwise operator '%s' is not supported yet", string(lx.src[lx.off:lx.off+2]))
 	}
 	switch c := lx.ch(); c {
+	case '!':
+		// A lone '!' below the top bracket level of an interpolation; the
+		// top-level conversion form never reaches lexOp, and != falls
+		// through to the operator table.
+		if lx.ch2() != '=' && len(lx.fbase) > 0 {
+			lx.err(pos, "f-string: expecting '=', or '!', or ':', or '}'")
+		}
 	case '&', '|', '^', '~':
 		lx.err(pos, "the bitwise operator '%c' is not supported yet", c)
 	case '@':
@@ -641,6 +677,11 @@ func (lx *lexer) lexOp(pos Pos) {
 }
 
 func (lx *lexer) closeBracket(pos Pos, c byte) {
+	// Brackets opened outside an interpolation are out of reach inside it,
+	// so a closer at the interpolation's own level is unmatched.
+	if n := len(lx.fbase); n > 0 && len(lx.brackets) <= lx.fbase[n-1] {
+		lx.err(pos, "f-string: unmatched '%c'", c)
+	}
 	if len(lx.brackets) == 0 {
 		lx.err(pos, "unmatched '%c'", c)
 	}
@@ -650,4 +691,326 @@ func (lx *lexer) closeBracket(pos Pos, c byte) {
 		lx.err(pos, "closing parenthesis '%c' does not match opening parenthesis '%c'", c, open.ch)
 	}
 	lx.brackets = lx.brackets[:len(lx.brackets)-1]
+}
+
+// --- f-strings ---
+
+// lexFString scans one f-string literal in the PEP 701 shape: an FSTRING_START
+// token carrying the prefix and quote, literal middle runs, one brace-marked
+// token group per interpolation, and FSTRING_END. Expression tokens inside the
+// braces come from the ordinary lexer, so strings reusing the outer quote,
+// nested brackets, and newlines all behave like they do outside an f-string.
+func (lx *lexer) lexFString(pos Pos, prefix string) {
+	q := lx.ch()
+	lx.adv()
+	triple := false
+	if lx.ch() == q && lx.ch2() == q {
+		triple = true
+		lx.adv()
+		lx.adv()
+	}
+	closing := strings.Repeat(string(q), 3)
+	quote := string(q)
+	if triple {
+		quote = closing
+	}
+	lx.emitAt(pos, tFStrStart, prefix+quote)
+	var sb strings.Builder
+	runPos := lx.pos()
+	flush := func() {
+		if sb.Len() > 0 {
+			lx.emitAt(runPos, tFStrMid, sb.String())
+			sb.Reset()
+		}
+	}
+	for {
+		if sb.Len() == 0 {
+			runPos = lx.pos()
+		}
+		c := lx.ch()
+		switch c {
+		case 0:
+			if triple {
+				lx.err(pos, "unterminated triple-quoted f-string literal (detected at line %d)", lx.line)
+			}
+			lx.err(pos, "unterminated f-string literal (detected at line %d)", lx.line)
+		case q:
+			if triple && !lx.lookahead(closing) {
+				sb.WriteByte(q)
+				lx.adv()
+				continue
+			}
+			flush()
+			endPos := lx.pos()
+			for range quote {
+				lx.adv()
+			}
+			lx.emitAt(endPos, tFStrEnd, quote)
+			return
+		case '\n', '\r':
+			if !triple {
+				lx.err(pos, "unterminated f-string literal (detected at line %d)", lx.line)
+			}
+			sb.WriteByte('\n')
+			lx.consumeNewline()
+		case '{':
+			if lx.ch2() == '{' {
+				sb.WriteByte('{')
+				lx.adv()
+				lx.adv()
+				continue
+			}
+			flush()
+			lx.lexFInterp(q, triple)
+		case '}':
+			if lx.ch2() == '}' {
+				sb.WriteByte('}')
+				lx.adv()
+				lx.adv()
+				continue
+			}
+			lx.err(lx.pos(), "f-string: single '}' is not allowed")
+		case '\\':
+			// CPython keeps the backslash of a \{ or \} escape but still
+			// gives the brace its usual meaning, so peel the backslash off
+			// alone and come back around for the brace.
+			if lx.ch2() == '{' || lx.ch2() == '}' {
+				sb.WriteByte('\\')
+				lx.adv()
+				continue
+			}
+			if lx.ch2() == 0 {
+				if triple {
+					lx.err(pos, "unterminated triple-quoted f-string literal (detected at line %d)", lx.line)
+				}
+				lx.err(pos, "unterminated f-string literal (detected at line %d)", lx.line)
+			}
+			lx.lexEscape(pos, &sb)
+		default:
+			r, _ := utf8.DecodeRune(lx.src[lx.off:])
+			sb.WriteRune(r)
+			lx.adv()
+		}
+	}
+}
+
+// lexFInterp scans one {...} interpolation. At the interpolation's own
+// bracket level '}' closes the field, ':' starts the format spec, '!' takes
+// a conversion, and a lone '=' captures the self-documenting text; anything
+// deeper belongs to the expression and goes through lexToken.
+func (lx *lexer) lexFInterp(q byte, triple bool) {
+	openPos := lx.pos()
+	lx.adv() // {
+	lx.emitAt(openPos, tFStrOpen, "{")
+	base := len(lx.brackets)
+	lx.fbase = append(lx.fbase, base)
+	exprStart := lx.off
+	startToks := len(lx.toks)
+	empty := func() bool { return len(lx.toks) == startToks }
+	for {
+		c := lx.ch()
+		atBase := len(lx.brackets) == base
+		switch {
+		case c == 0:
+			lx.err(openPos, "'{' was never closed")
+		case c == ' ' || c == '\t' || c == '\f':
+			lx.adv()
+		case c == '\n' || c == '\r':
+			// Newlines are legal inside the braces even in a single-quoted
+			// f-string, the same as inside ordinary brackets.
+			lx.consumeNewline()
+		case c == '#':
+			lx.skipComment()
+		case atBase && c == '}':
+			if empty() {
+				lx.err(lx.pos(), "f-string: valid expression required before '}'")
+			}
+			lx.closeFInterp()
+			return
+		case atBase && c == ':':
+			if empty() {
+				lx.err(lx.pos(), "f-string: valid expression required before ':'")
+			}
+			lx.adv()
+			lx.lexFSpec(openPos, q, triple)
+			lx.closeFInterp()
+			return
+		case atBase && c == '!' && lx.ch2() != '=':
+			if empty() {
+				lx.err(lx.pos(), "f-string: valid expression required before '!'")
+			}
+			lx.lexFConv(openPos)
+			lx.finishFInterp(openPos, q, triple)
+			return
+		case atBase && c == '!':
+			// != with nothing on its left cannot start an expression.
+			if empty() {
+				lx.err(lx.pos(), "f-string: expecting a valid expression after '{'")
+			}
+			lx.lexToken()
+		case atBase && c == '=' && lx.ch2() != '=':
+			if empty() {
+				lx.err(lx.pos(), "f-string: valid expression required before '='")
+			}
+			eqPos := lx.pos()
+			lx.adv() // =
+			lx.skipFSpace()
+			// The output prefix is the source text verbatim, from just after
+			// the brace through the equals sign and any trailing whitespace.
+			lx.emitAt(eqPos, tFStrEq, string(lx.src[exprStart:lx.off]))
+			switch lx.ch() {
+			case '}':
+				lx.closeFInterp()
+				return
+			case ':':
+				lx.adv()
+				lx.lexFSpec(openPos, q, triple)
+				lx.closeFInterp()
+				return
+			case '!':
+				lx.lexFConv(openPos)
+				lx.finishFInterp(openPos, q, triple)
+				return
+			case 0:
+				lx.err(openPos, "'{' was never closed")
+			default:
+				lx.err(lx.pos(), "f-string: expecting '!', or ':', or '}'")
+			}
+		case c == q && !triple:
+			// The outer quote only opens an inner string here when that
+			// string closes on the same line (PEP 701); otherwise it must be
+			// the f-string terminator arriving before the field closed.
+			if !lx.innerStringCloses(q) {
+				lx.err(lx.pos(), "f-string: expecting '}'")
+			}
+			lx.lexToken()
+		default:
+			lx.lexToken()
+		}
+	}
+}
+
+// closeFInterp emits the closing brace marker with the cursor on '}'.
+func (lx *lexer) closeFInterp() {
+	lx.fbase = lx.fbase[:len(lx.fbase)-1]
+	lx.emit(tFStrClose, "}")
+	lx.adv()
+}
+
+// finishFInterp finishes an interpolation after its conversion: optional
+// whitespace, then either a format spec or the closing brace.
+func (lx *lexer) finishFInterp(openPos Pos, q byte, triple bool) {
+	lx.skipFSpace()
+	switch lx.ch() {
+	case '}':
+		lx.closeFInterp()
+	case ':':
+		lx.adv()
+		lx.lexFSpec(openPos, q, triple)
+		lx.closeFInterp()
+	case 0:
+		lx.err(openPos, "'{' was never closed")
+	default:
+		lx.err(lx.pos(), "f-string: expecting ':' or '}'")
+	}
+}
+
+// skipFSpace skips whitespace, newlines included, between the trailing
+// pieces of an interpolation.
+func (lx *lexer) skipFSpace() {
+	for {
+		switch lx.ch() {
+		case ' ', '\t', '\f':
+			lx.adv()
+		case '\n', '\r':
+			lx.consumeNewline()
+		default:
+			return
+		}
+	}
+}
+
+// lexFConv reads the conversion after '!'. CPython insists the character
+// follows the bang immediately and reads a whole identifier before judging
+// it, which is why !ss reports 'ss' rather than stopping at the first s.
+func (lx *lexer) lexFConv(openPos Pos) {
+	lx.adv() // !
+	pos := lx.pos()
+	switch lx.ch() {
+	case '}', ':':
+		lx.err(pos, "f-string: missing conversion character")
+	case ' ', '\t', '\f', '\n', '\r':
+		lx.err(pos, "f-string: conversion type must come right after the exclamation mark")
+	case 0:
+		lx.err(openPos, "'{' was never closed")
+	}
+	r, _ := utf8.DecodeRune(lx.src[lx.off:])
+	if !isIdentStart(r) {
+		lx.err(pos, "f-string: invalid conversion character")
+	}
+	var sb strings.Builder
+	for lx.off < len(lx.src) {
+		r, _ := utf8.DecodeRune(lx.src[lx.off:])
+		if !isIdentPart(r) {
+			break
+		}
+		sb.WriteRune(r)
+		lx.adv()
+	}
+	name := sb.String()
+	if name != "s" && name != "r" && name != "a" {
+		lx.err(pos, "f-string: invalid conversion character '%s': expected 's', 'r', or 'a'", name)
+	}
+	lx.emitAt(pos, tFStrConv, name)
+}
+
+// lexFSpec reads the literal format spec after ':' up to the closing brace,
+// with the same escape processing as the text runs. A '{' here would start a
+// nested expression, which the lowering cannot take yet.
+func (lx *lexer) lexFSpec(openPos Pos, q byte, triple bool) {
+	pos := lx.pos()
+	closing := strings.Repeat(string(q), 3)
+	var sb strings.Builder
+	for {
+		c := lx.ch()
+		switch {
+		case c == '}':
+			lx.emitAt(pos, tFStrMid, sb.String())
+			return
+		case c == '{':
+			lx.err(lx.pos(), "f-string: expressions in format specifiers are not supported yet")
+		case c == 0 && triple:
+			lx.err(openPos, "unterminated triple-quoted f-string literal (detected at line %d)", lx.line)
+		case c == 0 || ((c == '\n' || c == '\r') && !triple):
+			lx.err(lx.pos(), "f-string: newlines are not allowed in format specifiers for single quoted f-strings")
+		case c == '\n' || c == '\r':
+			sb.WriteByte('\n')
+			lx.consumeNewline()
+		case c == q && (!triple || lx.lookahead(closing)):
+			lx.err(lx.pos(), "f-string: expecting '}', or format specs")
+		case c == '\\':
+			lx.lexEscape(openPos, &sb)
+		default:
+			r, _ := utf8.DecodeRune(lx.src[lx.off:])
+			sb.WriteRune(r)
+			lx.adv()
+		}
+	}
+}
+
+// innerStringCloses reports whether the quote at the cursor has a matching
+// close before the end of the physical line, meaning it really starts an
+// inner string rather than closing the f-string early.
+func (lx *lexer) innerStringCloses(q byte) bool {
+	for i := lx.off + 1; i < len(lx.src); i++ {
+		switch lx.src[i] {
+		case '\n', '\r':
+			return false
+		case '\\':
+			i++
+		case q:
+			return true
+		}
+	}
+	return false
 }
