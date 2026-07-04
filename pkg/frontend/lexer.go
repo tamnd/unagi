@@ -22,6 +22,7 @@ const (
 	tInt
 	tFloat
 	tString
+	tBytes
 	tOp
 	tFStrStart // f-string opener, the prefix plus the quote (PEP 701 FSTRING_START)
 	tFStrMid   // literal text run or format spec inside an f-string
@@ -52,6 +53,8 @@ func (k tokKind) String() string {
 		return "FLOAT"
 	case tString:
 		return "STRING"
+	case tBytes:
+		return "BYTES"
 	case tOp:
 		return "OP"
 	case tFStrStart:
@@ -406,7 +409,10 @@ func (lx *lexer) lexName(pos Pos) {
 			lx.lexFString(pos, name)
 			return
 		case strings.Contains(low, "b"):
-			lx.err(pos, "bytes literals are not supported yet")
+			// b, B and the raw combinations rb/br/Rb/bR reach here; lexBytes
+			// derives raw mode from whether the prefix carries an r.
+			lx.lexBytes(pos, strings.Contains(low, "r"))
+			return
 		case low == "u":
 			// A legacy u-prefix string is exactly a plain str literal.
 			lx.lexString(pos, false)
@@ -601,6 +607,143 @@ func (lx *lexer) lexString(pos Pos, raw bool) {
 			sb.WriteRune(r)
 			lx.adv()
 		}
+	}
+}
+
+// lexBytes reads a bytes literal. It mirrors lexString but the payload is a
+// byte buffer: \xHH and octal escapes land as raw bytes, there are no
+// \u/\U/\N escapes, and every literal character has to be ASCII.
+func (lx *lexer) lexBytes(pos Pos, raw bool) {
+	q := lx.ch()
+	lx.adv()
+	triple := false
+	if lx.ch() == q && lx.ch2() == q {
+		triple = true
+		lx.adv()
+		lx.adv()
+	}
+	closing := strings.Repeat(string(q), 3)
+	var sb strings.Builder
+	warned := false
+	for {
+		c := lx.ch()
+		switch c {
+		case 0:
+			if triple {
+				lx.err(pos, "unterminated triple-quoted string literal (detected at line %d)", lx.line)
+			}
+			lx.err(pos, "unterminated string literal (detected at line %d)", lx.line)
+		case q:
+			if !triple {
+				lx.adv()
+				lx.emitAt(pos, tBytes, sb.String())
+				return
+			}
+			if lx.lookahead(closing) {
+				lx.adv()
+				lx.adv()
+				lx.adv()
+				lx.emitAt(pos, tBytes, sb.String())
+				return
+			}
+			sb.WriteByte(q)
+			lx.adv()
+		case '\n', '\r':
+			if !triple {
+				lx.err(pos, "unterminated string literal (detected at line %d)", lx.line)
+			}
+			sb.WriteByte('\n')
+			lx.consumeNewline()
+		case '\\':
+			if raw {
+				sb.WriteByte('\\')
+				lx.adv()
+				if lx.ch() == 0 {
+					lx.err(pos, "unterminated string literal (detected at line %d)", lx.line)
+				}
+				if lx.ch() >= 0x80 {
+					lx.err(pos, "bytes can only contain ASCII literal characters")
+				}
+				sb.WriteByte(lx.ch())
+				lx.adv()
+				continue
+			}
+			lx.lexByteEscape(pos, &sb, &warned)
+		default:
+			if c >= 0x80 {
+				lx.err(pos, "bytes can only contain ASCII literal characters")
+			}
+			sb.WriteByte(c)
+			lx.adv()
+		}
+	}
+}
+
+// lexByteEscape handles one backslash escape inside a bytes literal. It
+// shares the control and quote escapes with str, reads \x and octal as raw
+// bytes, and treats \u/\U/\N as unknown escapes that keep the backslash and
+// record a SyntaxWarning like any other invalid sequence.
+func (lx *lexer) lexByteEscape(strPos Pos, sb *strings.Builder, warned *bool) {
+	escPos := lx.pos()
+	lx.adv() // backslash
+	switch e := lx.ch(); e {
+	case 0:
+		lx.err(strPos, "unterminated string literal (detected at line %d)", lx.line)
+	case '\\', '\'', '"':
+		sb.WriteByte(e)
+		lx.adv()
+	case 'n':
+		sb.WriteByte('\n')
+		lx.adv()
+	case 't':
+		sb.WriteByte('\t')
+		lx.adv()
+	case 'r':
+		sb.WriteByte('\r')
+		lx.adv()
+	case 'a':
+		sb.WriteByte('\a')
+		lx.adv()
+	case 'b':
+		sb.WriteByte('\b')
+		lx.adv()
+	case 'f':
+		sb.WriteByte('\f')
+		lx.adv()
+	case 'v':
+		sb.WriteByte('\v')
+		lx.adv()
+	case '0', '1', '2', '3', '4', '5', '6', '7':
+		// An octal escape takes one to three octal digits; a bytes value
+		// wraps to a single byte, so \777 lands as 0xff.
+		v := 0
+		for n := 0; n < 3 && lx.ch() >= '0' && lx.ch() <= '7'; n++ {
+			v = v<<3 | int(lx.ch()-'0')
+			lx.adv()
+		}
+		sb.WriteByte(byte(v))
+	case 'x':
+		lx.adv()
+		h1, h2 := lx.ch(), lx.ch2()
+		if !isHexDigit(h1) || !isHexDigit(h2) {
+			lx.err(escPos, `invalid \x escape`)
+		}
+		sb.WriteByte(byte(hexVal(h1)<<4 | hexVal(h2)))
+		lx.adv()
+		lx.adv()
+	case '\n', '\r':
+		lx.consumeNewline()
+	default:
+		if e >= 0x80 {
+			lx.err(strPos, "bytes can only contain ASCII literal characters")
+		}
+		if !*warned {
+			*warned = true
+			lx.escWarns = append(lx.escWarns, EscapeWarning{Line: escPos.Line, Col: escPos.Col, Char: string(rune(e))})
+		}
+		sb.WriteByte('\\')
+		sb.WriteByte(e)
+		lx.adv()
 	}
 }
 

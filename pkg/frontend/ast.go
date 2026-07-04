@@ -356,6 +356,14 @@ type StrLit struct {
 	Val  string
 }
 
+// BytesLit is a bytes literal after quote and escape processing. Val holds
+// the decoded bytes, one Go byte per byte value. Adjacent bytes literals are
+// already concatenated by the parser.
+type BytesLit struct {
+	Pos_ Pos
+	Val  string
+}
+
 // BoolLit is True or False.
 type BoolLit struct {
 	Pos_ Pos
@@ -662,6 +670,7 @@ func (e *Name) Span() Pos        { return e.Pos_ }
 func (e *IntLit) Span() Pos      { return e.Pos_ }
 func (e *FloatLit) Span() Pos    { return e.Pos_ }
 func (e *StrLit) Span() Pos      { return e.Pos_ }
+func (e *BytesLit) Span() Pos    { return e.Pos_ }
 func (e *BoolLit) Span() Pos     { return e.Pos_ }
 func (e *NoneLit) Span() Pos     { return e.Pos_ }
 func (e *EllipsisLit) Span() Pos { return e.Pos_ }
@@ -688,6 +697,7 @@ func (*Name) expr()        {}
 func (*IntLit) expr()      {}
 func (*FloatLit) expr()    {}
 func (*StrLit) expr()      {}
+func (*BytesLit) expr()    {}
 func (*BoolLit) expr()     {}
 func (*NoneLit) expr()     {}
 func (*EllipsisLit) expr() {}

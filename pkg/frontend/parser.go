@@ -3,6 +3,7 @@ package frontend
 import (
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // parser walks the token stream from lex and builds the AST from ast.go.
@@ -116,7 +117,7 @@ func (p *parser) isAsyncFor() bool {
 // of a generic one.
 func startsExpr(t token) bool {
 	switch t.kind {
-	case tName, tInt, tFloat, tString, tFStrStart:
+	case tName, tInt, tFloat, tString, tBytes, tFStrStart:
 		return true
 	case tKeyword:
 		switch t.text {
@@ -408,7 +409,7 @@ func (p *parser) looksLikeMatch() bool {
 // startsSubject reports whether t can begin a match subject expression.
 func startsSubject(t token) bool {
 	switch t.kind {
-	case tName, tInt, tFloat, tString, tFStrStart:
+	case tName, tInt, tFloat, tString, tBytes, tFStrStart:
 		return true
 	case tKeyword:
 		switch t.text {
@@ -1558,6 +1559,8 @@ func (p *parser) parseAtom() Expr {
 		return &FloatLit{Pos_: t.pos, Val: v}
 	case tString, tFStrStart:
 		return p.parseStrings()
+	case tBytes:
+		return p.parseBytes()
 	case tFStrClose, tFStrEq, tFStrConv, tFStrMid:
 		// An interpolation terminator where an operand should be, as in
 		// f"{1+}"; the wording is CPython's.
@@ -1642,6 +1645,9 @@ func (p *parser) parseStrings() Expr {
 		}
 		break
 	}
+	if p.cur().kind == tBytes {
+		p.errf(p.cur().pos, "cannot mix bytes and nonbytes literals")
+	}
 	interp := false
 	for _, part := range parts {
 		if _, ok := part.(*FInterp); ok {
@@ -1657,6 +1663,21 @@ func (p *parser) parseStrings() Expr {
 		return &StrLit{Pos_: start.pos, Val: val}
 	}
 	return &FStr{Pos_: start.pos, Parts: parts}
+}
+
+// parseBytes parses a run of adjacent bytes literals into one value,
+// concatenating their bytes. Mixing a bytes literal with a str or f-string
+// literal is the SyntaxError CPython reports.
+func (p *parser) parseBytes() Expr {
+	start := p.cur()
+	var b strings.Builder
+	for p.cur().kind == tBytes {
+		b.WriteString(p.advance().text)
+	}
+	if p.cur().kind == tString || p.cur().kind == tFStrStart {
+		p.errf(p.cur().pos, "cannot mix bytes and nonbytes literals")
+	}
+	return &BytesLit{Pos_: start.pos, Val: b.String()}
 }
 
 // parseFInterp parses one interpolation between the lexer's brace markers.

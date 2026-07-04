@@ -1,0 +1,29 @@
+== exit: 0
+== stdout:
+b'hello\x00\ttab\n\\end'
+b'hello\x00\ttab\n\\end'
+b'hello\x00\ttab\n\\end'
+b'upper' b'C:\\new' b'raw\\t' b'a\\z' b'b\\q'
+97 101
+b'bcd' b'edcba' b'ace'
+[97, 98, 99]
+5 0
+b'abcd'
+b'ababab' b'xyxyxy' b''
+b'onetwo'
+True True False
+True False False
+True True True
+False True
+2
+1 2
+[65, 66, 7, 8, 12, 11, 0]
+[254, 63]
+concat can't concat str to bytes
+rconcat can only concatenate str (not "bytes") to str
+order '<' not supported between instances of 'bytes' and 'int'
+index index out of range
+member byte must be in range(0, 256)
+wrongtype a bytes-like object is required, not 'str'
+== exception:
+== stderr:
