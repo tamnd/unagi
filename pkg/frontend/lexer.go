@@ -341,7 +341,7 @@ func (lx *lexer) lexToken() {
 	c := lx.ch()
 	switch {
 	case c == '\'' || c == '"':
-		lx.lexString(pos)
+		lx.lexString(pos, false)
 	case isDigit(c) || (c == '.' && isDigit(lx.ch2())):
 		lx.lexNumber(pos)
 	default:
@@ -405,7 +405,16 @@ func (lx *lexer) lexName(pos Pos) {
 			return
 		case strings.Contains(low, "b"):
 			lx.err(pos, "bytes literals are not supported yet")
+		case low == "u":
+			// A legacy u-prefix string is exactly a plain str literal.
+			lx.lexString(pos, false)
+			return
+		case low == "r":
+			lx.lexString(pos, true)
+			return
 		default:
+			// Raw f-strings (rf/fr) still land here until the f-string lexer
+			// learns the raw mode.
 			lx.err(pos, "string prefix %q is not supported yet", name)
 		}
 	}
@@ -530,7 +539,7 @@ func (lx *lexer) lexRadix(pos Pos, base int, kind string, isdig func(byte) bool)
 	lx.emitAt(pos, tInt, n.String())
 }
 
-func (lx *lexer) lexString(pos Pos) {
+func (lx *lexer) lexString(pos Pos, raw bool) {
 	q := lx.ch()
 	lx.adv()
 	triple := false
@@ -572,6 +581,20 @@ func (lx *lexer) lexString(pos Pos) {
 			sb.WriteByte('\n')
 			lx.consumeNewline()
 		case '\\':
+			if raw {
+				// A raw string keeps the backslash literally, but it still
+				// escapes the following character so the quote after \" does
+				// not close the string; both characters are kept.
+				sb.WriteByte('\\')
+				lx.adv()
+				if lx.ch() == 0 {
+					lx.err(pos, "unterminated string literal (detected at line %d)", lx.line)
+				}
+				r, _ := utf8.DecodeRune(lx.src[lx.off:])
+				sb.WriteRune(r)
+				lx.adv()
+				continue
+			}
 			lx.lexEscape(pos, &sb, &warned)
 		default:
 			r, _ := utf8.DecodeRune(lx.src[lx.off:])
