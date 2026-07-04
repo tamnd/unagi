@@ -136,13 +136,13 @@ func TestCompileErrors(t *testing.T) {
 			`name "ghost" is not defined`,
 		},
 		{
-			"nested def",
+			"conditional module-level def",
 			&frontend.Module{Body: []frontend.Stmt{
-				&frontend.FuncDef{Name: "outer", Body: []frontend.Stmt{
+				&frontend.If{Cond: &frontend.BoolLit{Val: true}, Body: []frontend.Stmt{
 					&frontend.FuncDef{Name: "inner", Body: []frontend.Stmt{&frontend.Pass{}}},
 				}},
 			}},
-			"nested def",
+			"conditional module-level def",
 		},
 		{
 			"return inside finally",
