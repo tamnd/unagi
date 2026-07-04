@@ -215,6 +215,8 @@ func reprCore(o Object, strict bool) (string, error) {
 		return instanceRepr(x), nil
 	case *boundMethod:
 		return boundMethodRepr(x), nil
+	case *excTypeObject:
+		return excTypeRepr(x), nil
 	}
 	return fmt.Sprintf("<%s object>", o.TypeName()), nil
 }

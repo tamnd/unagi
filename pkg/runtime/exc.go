@@ -185,6 +185,39 @@ func SetCause(err error, cause objects.Object, fromNone bool) error {
 	return e
 }
 
+// WithExit runs a context manager's __exit__ on the way out of a with block.
+// exc is the exception leaving the body, or nil on a normal exit or a parked
+// return, break, or continue. On a non-exception exit __exit__ receives
+// (None, None, None) and its return value is ignored; on the exception path it
+// receives the exception's type and value, a None traceback, and a truthy
+// return suppresses the exception. A __exit__ that itself raises replaces exc,
+// which chains in as its context. The third argument is None because unagi has
+// no first-class traceback objects yet.
+//
+// The second result reports whether __exit__ itself raised. Only then does the
+// error leave through the with statement's own frame, so the caller stamps a
+// traceback entry in that one case; a body exception that __exit__ merely lets
+// through already carries its frame from the raise site.
+func WithExit(exitFn objects.Object, exc error) (error, bool) {
+	et, ev := objects.None, objects.None
+	pe, _ := exc.(*objects.Exception)
+	if pe != nil {
+		et = objects.ExcType(pe.Kind)
+		ev = pe
+	}
+	res, cerr := objects.Call(exitFn, []objects.Object{et, ev, objects.None})
+	if cerr != nil {
+		return ChainContext(cerr, exc), true
+	}
+	if pe == nil {
+		return nil, false
+	}
+	if objects.Truth(res) {
+		return nil, false
+	}
+	return exc, false
+}
+
 // ChainContext links a pending exception under a newer one, the case
 // where a finally block raises over an in-flight exception. Same
 // self-reference rules as the implicit raise chaining.
