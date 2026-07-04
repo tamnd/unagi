@@ -660,7 +660,14 @@ func (p *parser) parseTry() Stmt {
 	t := p.advance()
 	node := &Try{Pos_: t.pos, Body: p.parseSuite()}
 	for p.isKw("except") {
-		node.Handlers = append(node.Handlers, p.parseExcept())
+		h, star := p.parseExcept()
+		if len(node.Handlers) == 0 {
+			node.IsStar = star
+		} else if star != node.IsStar {
+			// Probed on 3.14: a try may not carry both except and except*.
+			p.errf(h.Pos_, "cannot have both 'except' and 'except*' on the same 'try'")
+		}
+		node.Handlers = append(node.Handlers, h)
 	}
 	// A bare except: catches everything, so CPython only allows it last.
 	for i, h := range node.Handlers {
@@ -688,11 +695,9 @@ func (p *parser) parseTry() Stmt {
 // parseExcept parses one except clause. The matcher is a full expression;
 // PEP 758 lets several run comma-separated without parentheses as long as
 // there is no as binding, and they land in a TupleLit either way.
-func (p *parser) parseExcept() *ExceptHandler {
+func (p *parser) parseExcept() (*ExceptHandler, bool) {
 	t := p.advance()
-	if p.isOp("*") {
-		p.errf(t.pos, "except* is not supported yet")
-	}
+	star := p.eatOp("*")
 	h := &ExceptHandler{Pos_: t.pos}
 	if !p.isOp(":") {
 		first := p.parseTest()
@@ -718,8 +723,13 @@ func (p *parser) parseExcept() *ExceptHandler {
 			}
 		}
 	}
+	if star && h.Type == nil {
+		// Probed on 3.14: except* must name at least one type; the caret
+		// points at the colon where a type was expected.
+		p.errf(p.cur().pos, "expected one or more exception types")
+	}
 	h.Body = p.parseSuite()
-	return h
+	return h, star
 }
 
 // parseExceptName parses the as binding, which must be a plain name. The

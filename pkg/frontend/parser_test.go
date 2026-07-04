@@ -59,7 +59,11 @@ func ds(s Stmt) string {
 	case *FuncDef:
 		return "(def " + s.Name + " (" + strings.Join(dparams(s.Params), " ") + ") " + dbody(s.Body) + ")"
 	case *Try:
-		parts := []string{"try", dbody(s.Body)}
+		kw := "try"
+		if s.IsStar {
+			kw = "try*"
+		}
+		parts := []string{kw, dbody(s.Body)}
 		for _, h := range s.Handlers {
 			parts = append(parts, dhandler(h))
 		}
@@ -459,6 +463,18 @@ func TestParse(t *testing.T) {
 			"(try [(pass)] (except E [(pass)]) [(= x 1)] [(= y 2)])"},
 		{"try finally only", "try:\n    pass\nfinally:\n    pass\n",
 			"(try [(pass)] [] [(pass)])"},
+		{"except star one", "try:\n    pass\nexcept* E:\n    pass\n",
+			"(try* [(pass)] (except E [(pass)]) [] [])"},
+		{"except star spaced", "try:\n    pass\nexcept *E:\n    pass\n",
+			"(try* [(pass)] (except E [(pass)]) [] [])"},
+		{"except star as", "try:\n    pass\nexcept* E as e:\n    pass\n",
+			"(try* [(pass)] (except E as e [(pass)]) [] [])"},
+		{"except star tuple", "try:\n    pass\nexcept* (A, B) as e:\n    pass\n",
+			"(try* [(pass)] (except (tuple A B) as e [(pass)]) [] [])"},
+		{"except star two clauses", "try:\n    pass\nexcept* A:\n    pass\nexcept* B:\n    pass\n",
+			"(try* [(pass)] (except A [(pass)]) (except B [(pass)]) [] [])"},
+		{"except star else finally", "try:\n    pass\nexcept* E:\n    pass\nelse:\n    x = 1\nfinally:\n    y = 2\n",
+			"(try* [(pass)] (except E [(pass)]) [(= x 1)] [(= y 2)])"},
 		{"try one line suites", "try: pass\nexcept: pass\n",
 			"(try [(pass)] (except [(pass)]) [] [])"},
 		{"except attribute matcher", "try:\n    pass\nexcept a.b.C as e:\n    pass\n",
@@ -781,8 +797,10 @@ func TestParseErrors(t *testing.T) {
 		{"bare except not last", "try:\n    pass\nexcept:\n    pass\nexcept E:\n    pass\n", "default 'except:' must be last"},
 		{"two bare excepts", "try:\n    pass\nexcept:\n    pass\nexcept:\n    pass\n", "default 'except:' must be last"},
 		{"pep758 with as", "try:\n    pass\nexcept A, B as e:\n    pass\n", "multiple exception types must be parenthesized when using 'as'"},
-		{"except star", "try:\n    pass\nexcept* E:\n    pass\n", "except* is not supported yet"},
-		{"except star spaced", "try:\n    pass\nexcept *E:\n    pass\n", "except* is not supported yet"},
+		{"star then plain", "try:\n    pass\nexcept* E:\n    pass\nexcept F:\n    pass\n", "cannot have both 'except' and 'except*' on the same 'try'"},
+		{"plain then star", "try:\n    pass\nexcept E:\n    pass\nexcept* F:\n    pass\n", "cannot have both 'except' and 'except*' on the same 'try'"},
+		{"star no type", "try:\n    pass\nexcept*:\n    pass\n", "expected one or more exception types"},
+		{"star no type finally", "try:\n    pass\nexcept*:\n    pass\nfinally:\n    pass\n", "expected one or more exception types"},
 		{"except as attribute", "try:\n    pass\nexcept E as a.b:\n    pass\n", "cannot use except statement with attribute"},
 		{"except as subscript", "try:\n    pass\nexcept E as a[0]:\n    pass\n", "cannot use except statement with subscript"},
 		{"except as call", "try:\n    pass\nexcept E as f():\n    pass\n", "cannot use except statement with function call"},
