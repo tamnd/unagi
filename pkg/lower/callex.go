@@ -237,15 +237,24 @@ func (f *fnCtx) unpackKwM(recv ast.Expr, name string, args []frontend.Arg) (ast.
 	return cur, nil
 }
 
-// excClassStarNew lowers ClassName(*parts). The callee spelling is static,
-// so the lone-star conversion carries it as a literal.
+// excClassStarNew lowers ClassName(*parts) and ClassName(..., kw=v, **m). The
+// callee spelling is static, so the positional conversion and the keyword merge
+// both carry it as a literal. A builtin exception type takes no keywords, so any
+// surviving keyword raises the catchable takes-no-keyword TypeError, but only
+// after the argument assembly the way CPython orders it: keyword merge checks,
+// then the lone-star conversion, then the key-stringness check and the keyword
+// rejection.
 func (f *fnCtx) excClassStarNew(c string, e *frontend.Call) (ast.Expr, error) {
-	if hasKwParts(e.Args) {
-		return nil, f.e.errf(e.Span(), "keyword arguments on exception constructors are not supported yet")
-	}
 	pos, star, err := f.unpackPos(e.Args)
 	if err != nil {
 		return nil, err
+	}
+	var kw ast.Expr
+	if hasKwParts(e.Args) {
+		kw, err = f.unpackKwFor(c+"()", e.Args)
+		if err != nil {
+			return nil, err
+		}
 	}
 	argsExpr := pos
 	if star != nil {
@@ -253,10 +262,39 @@ func (f *fnCtx) excClassStarNew(c string, e *frontend.Call) (ast.Expr, error) {
 		f.fallible(t, f.e.obj("StarArgsFor"), strLit(c+"()"), star)
 		argsExpr = ident(t)
 	}
+	if kw != nil {
+		v := f.tmpVar()
+		f.fallible(v, f.e.obj("ExcNoKeywords"), strLit(c), argsExpr, kw)
+		argsExpr = ident(v)
+	}
 	if objects.IsExcGroupClass(c) {
 		tmp := f.tmpVar()
 		f.fallible(tmp, sel("runtime", "NewExcGroup"), strLit(c), argsExpr)
 		return ident(tmp), nil
 	}
 	return callExpr(sel("runtime", "NewExc"), strLit(c), argsExpr), nil
+}
+
+// unpackKwFor is unpackKw for a callee whose spelling is known at compile time,
+// like an exception class. It folds the keyword parts through KwSetFor and
+// KwMergeFor, which carry the pre-rendered funcstr instead of a callee value.
+func (f *fnCtx) unpackKwFor(funcstr string, args []frontend.Arg) (ast.Expr, error) {
+	cur := ast.Expr(ident("nil"))
+	for _, a := range args {
+		if a.Name == "" && a.Star != 2 {
+			continue
+		}
+		v, err := f.expr(a.Value)
+		if err != nil {
+			return nil, err
+		}
+		next := f.tmpVar()
+		if a.Star == 2 {
+			f.fallible(next, f.e.obj("KwMergeFor"), strLit(funcstr), cur, v)
+		} else {
+			f.fallible(next, f.e.obj("KwSetFor"), strLit(funcstr), cur, strLit(a.Name), v)
+		}
+		cur = ident(next)
+	}
+	return cur, nil
 }

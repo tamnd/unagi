@@ -546,7 +546,7 @@ func (f *fnCtx) excClassNew(e frontend.Expr) (ast.Expr, bool, error) {
 		if c == "" {
 			break
 		}
-		if hasUnpack(e.Args) {
+		if hasUnpack(e.Args) || hasKwParts(e.Args) {
 			x, err := f.excClassStarNew(c, e)
 			return x, true, err
 		}

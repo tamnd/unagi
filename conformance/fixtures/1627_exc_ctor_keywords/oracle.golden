@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+eval pos
+eval kw
+keyword -> ValueError() takes no keyword arguments
+raise -> KeyError() takes no keyword arguments
+keyonly -> RuntimeError() takes no keyword arguments
+group -> ExceptionGroup() takes no keyword arguments
+dup -> ValueError() got multiple values for keyword argument 'a'
+badmap -> ValueError() argument after ** must be a mapping, not list
+star-noniter -> ValueError() argument after * must be an iterable, not int
+nonstrkey -> keywords must be strings
+emptykw: ('ok',)
+star-empty: ('a', 'b')
+== exception:
+== stderr:
