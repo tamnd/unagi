@@ -596,21 +596,42 @@ type FText struct {
 }
 
 // FInterp is one {expression} interpolation. Conv is 0 when absent or one of
-// 's', 'r', 'a'. Spec is the literal format spec text after the colon;
-// HasSpec tells the empty spec `{x:}` apart from no spec at all, which
-// matters for the self-documenting form. Eq holds the verbatim source text
-// through the equals sign (whitespace included) for `{x=}`, empty otherwise.
+// 's', 'r', 'a'. Spec is the format spec after the colon, itself a list of
+// text runs and nested interpolations (PEP 701 allows `{x:{width}}`); a plain
+// `{x:>6}` is a single FText and `{x:}` is empty. HasSpec tells the empty spec
+// apart from no spec at all, which matters for the self-documenting form. Eq
+// holds the verbatim source text through the equals sign (whitespace included)
+// for `{x=}`, empty otherwise.
 type FInterp struct {
 	Pos_    Pos
 	X       Expr
 	Conv    byte
-	Spec    string
+	Spec    []FPart
 	HasSpec bool
 	Eq      string
 }
 
 func (*FText) fpart()   {}
 func (*FInterp) fpart() {}
+
+// FInterps returns every interpolation in the given f-string parts, including
+// those nested inside a field's format spec, depth-first in source order. Name
+// analysis, mangling, and yield detection use it so an expression inside a
+// spec, as in f"{x:{w}}", is seen exactly like any other interpolation.
+func FInterps(parts []FPart) []*FInterp {
+	var out []*FInterp
+	var walk func(ps []FPart)
+	walk = func(ps []FPart) {
+		for _, p := range ps {
+			if in, ok := p.(*FInterp); ok {
+				out = append(out, in)
+				walk(in.Spec)
+			}
+		}
+	}
+	walk(parts)
+	return out
+}
 
 func (e *Name) Span() Pos        { return e.Pos_ }
 func (e *IntLit) Span() Pos      { return e.Pos_ }

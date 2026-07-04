@@ -121,10 +121,8 @@ func scanYields(body []frontend.Stmt) yieldScan {
 		case *frontend.Starred:
 			walkExpr(e.X, guard)
 		case *frontend.FStr:
-			for _, p := range e.Parts {
-				if in, ok := p.(*frontend.FInterp); ok {
-					walkExpr(in.X, guard)
-				}
+			for _, in := range frontend.FInterps(e.Parts) {
+				walkExpr(in.X, guard)
 			}
 		}
 		// A Lambda or Comp starts a fresh scope; a yield inside one is that

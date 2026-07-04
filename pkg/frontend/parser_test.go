@@ -357,9 +357,41 @@ func dinterp(in *FInterp) string {
 		out += " !" + string(in.Conv)
 	}
 	if in.HasSpec {
-		out += " :" + strconv.Quote(in.Spec)
+		out += " :" + dspec(in.Spec)
 	}
 	return out + ")"
+}
+
+// dspec renders a format spec. A literal spec renders as its quoted text so
+// the common cases read plainly; a spec that carries replacement fields uses
+// the (spec ...) form to show the interleaved text and interpolations.
+func dspec(parts []FPart) string {
+	if text, ok := allFText(parts); ok {
+		return strconv.Quote(text)
+	}
+	var out []string
+	for _, part := range parts {
+		switch part := part.(type) {
+		case *FText:
+			out = append(out, strconv.Quote(part.Text))
+		case *FInterp:
+			out = append(out, dinterp(part))
+		}
+	}
+	return "(spec " + strings.Join(out, " ") + ")"
+}
+
+// allFText concatenates a spec's text when it holds no replacement fields.
+func allFText(parts []FPart) (string, bool) {
+	var b strings.Builder
+	for _, part := range parts {
+		t, ok := part.(*FText)
+		if !ok {
+			return "", false
+		}
+		b.WriteString(t.Text)
+	}
+	return b.String(), true
 }
 
 // dopt renders an optional slice part, with _ standing in for an omitted one.
@@ -726,6 +758,11 @@ func TestParse(t *testing.T) {
 		{"fstring concat mixed folds", `"a" f"b" "c"`, `(expr "abc")`},
 		{"fstring as assign value", `s = f"n={n}"`, `(= s (fstr "n=" (interp n)))`},
 		{"fstring in call", `log(f"{x}", 1)`, "(expr (call log (fstr (interp x)) 1))"},
+		{"fstring nested same quote", `f"{f"{x}"}"`, `(expr (fstr (interp (fstr (interp x)))))`},
+		{"fstring nested different quote", `f"{f'{x}'}"`, `(expr (fstr (interp (fstr (interp x)))))`},
+		{"fstring spec field only", `f"{x:{w}}"`, `(expr (fstr (interp x :(spec (interp w)))))`},
+		{"fstring spec text and field", `f"{x:>{w}}"`, `(expr (fstr (interp x :(spec ">" (interp w)))))`},
+		{"fstring spec field then text", `f"{v:.{p}f}"`, `(expr (fstr (interp v :(spec "." (interp p) "f"))))`},
 		{"global at module", "global x", "(global x)"},
 		{"global name list", "global a, b", "(global a b)"},
 		{"global then write", "def f():\n    global x\n    x = 1\n", "(def f () [(global x) (= x 1)])"},

@@ -1582,14 +1582,45 @@ func (p *parser) parseFInterp() *FInterp {
 		in.Conv = p.advance().text[0]
 	}
 	if p.cur().kind == tFStrMid {
-		in.Spec = p.advance().text
 		in.HasSpec = true
+		in.Spec = p.parseFSpecParts()
 	}
 	if p.cur().kind != tFStrClose {
 		p.errf(p.cur().pos, "f-string: expecting '=', or '!', or ':', or '}'")
 	}
 	p.advance()
 	return in
+}
+
+// parseFSpecParts reads a format spec's pieces between the leading tFStrMid and
+// the field's closing brace: literal text runs (tFStrMid) interleaved with
+// nested replacement fields (each a full interpolation), coalescing adjacent
+// text the way parseStrings does.
+func (p *parser) parseFSpecParts() []FPart {
+	var parts []FPart
+	text := func(s string) {
+		if s == "" {
+			return
+		}
+		if len(parts) > 0 {
+			if ft, ok := parts[len(parts)-1].(*FText); ok {
+				ft.Text += s
+				return
+			}
+		}
+		parts = append(parts, &FText{Text: s})
+	}
+	for p.cur().kind != tFStrClose {
+		switch p.cur().kind {
+		case tFStrMid:
+			text(p.advance().text)
+		case tFStrOpen:
+			parts = append(parts, p.parseFInterp())
+		default:
+			p.errf(p.cur().pos, "f-string: expecting '}', or format specs")
+		}
+	}
+	return parts
 }
 
 func (p *parser) parseParen() Expr {
@@ -1821,10 +1852,8 @@ func walkNamed(e Expr, fn func(*NamedExpr)) {
 		}
 		walkNamed(e.Body, fn)
 	case *FStr:
-		for _, part := range e.Parts {
-			if in, ok := part.(*FInterp); ok {
-				walkNamed(in.X, fn)
-			}
+		for _, in := range FInterps(e.Parts) {
+			walkNamed(in.X, fn)
 		}
 	}
 }
