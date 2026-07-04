@@ -16,7 +16,7 @@ type parser struct {
 
 // Parse turns Python source into a Module or a *SyntaxError.
 func Parse(src []byte, filename string) (mod *Module, err error) {
-	toks, lerr := lex(src, filename)
+	toks, warns, lerr := lex(src, filename)
 	if lerr != nil {
 		return nil, lerr
 	}
@@ -30,7 +30,7 @@ func Parse(src []byte, filename string) (mod *Module, err error) {
 			mod, err = nil, se
 		}
 	}()
-	m := &Module{}
+	m := &Module{EscapeWarnings: warns}
 	for p.cur().kind != tEOF {
 		m.Body = append(m.Body, p.parseStatement()...)
 	}

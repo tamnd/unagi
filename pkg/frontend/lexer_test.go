@@ -128,7 +128,7 @@ func TestLexTokens(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			toks, err := lex([]byte(tt.src), "test.py")
+			toks, _, err := lex([]byte(tt.src), "test.py")
 			if err != nil {
 				t.Fatalf("lex(%q) error: %v", tt.src, err)
 			}
@@ -211,7 +211,7 @@ func TestLexErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := lex([]byte(tt.src), "test.py")
+			_, _, err := lex([]byte(tt.src), "test.py")
 			if err == nil {
 				t.Fatalf("lex(%q): expected error containing %q, got none", tt.src, tt.wantErr)
 			}
@@ -223,7 +223,7 @@ func TestLexErrors(t *testing.T) {
 }
 
 func TestLexErrorFormat(t *testing.T) {
-	_, err := lex([]byte("x = 'a"), "t.py")
+	_, _, err := lex([]byte("x = 'a"), "t.py")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -240,8 +240,41 @@ func TestLexErrorFormat(t *testing.T) {
 	}
 }
 
+func TestLexEscapeWarnings(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want []EscapeWarning // Line/Char only; Col is not asserted
+	}{
+		{"single invalid escape", `x = "\q"`, []EscapeWarning{{Line: 1, Char: "q"}}},
+		{"first per literal only", `x = "a\wb\qc"`, []EscapeWarning{{Line: 1, Char: "w"}}},
+		{"adjacent literals each warn", `x = "\d" "\e"`, []EscapeWarning{{Line: 1, Char: "d"}, {Line: 1, Char: "e"}}},
+		{"octal out of range", `x = "\8\9"`, []EscapeWarning{{Line: 1, Char: "8"}}},
+		{"valid escapes are quiet", `x = "\n\t\101\x41€"`, nil},
+		{"backslash space warns", `x = "\ "`, []EscapeWarning{{Line: 1, Char: " "}}},
+		{"fstring resets per run", "x = f\"a\\qb\\w{1}\\e\"", []EscapeWarning{{Line: 1, Char: "q"}, {Line: 1, Char: "e"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, warns, err := lex([]byte(tt.src), "test.py")
+			if err != nil {
+				t.Fatalf("lex(%q) error: %v", tt.src, err)
+			}
+			if len(warns) != len(tt.want) {
+				t.Fatalf("lex(%q) got %d warnings %+v, want %d", tt.src, len(warns), warns, len(tt.want))
+			}
+			for i, w := range tt.want {
+				if warns[i].Line != w.Line || warns[i].Char != w.Char {
+					t.Errorf("warning %d: got line %d char %q, want line %d char %q",
+						i, warns[i].Line, warns[i].Char, w.Line, w.Char)
+				}
+			}
+		})
+	}
+}
+
 func TestLexPositions(t *testing.T) {
-	toks, err := lex([]byte("x = 1\n  y"), "test.py")
+	toks, _, err := lex([]byte("x = 1\n  y"), "test.py")
 	if err != nil {
 		t.Fatal(err)
 	}

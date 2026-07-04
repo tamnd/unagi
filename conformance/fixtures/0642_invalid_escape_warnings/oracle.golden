@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+'\\q'
+'a\\wb\\qc'
+'\\d\\e'
+\8\9
+a\qb\w3\e
+== exception:
+== stderr:
+main.py:4: SyntaxWarning: "\q" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\q"? A raw string is also an option.
+  print(repr("\q"))
+main.py:7: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+  print(repr("a\wb\qc"))
+main.py:10: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+  print(repr("\d" "\e"))
+main.py:10: SyntaxWarning: "\e" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\e"? A raw string is also an option.
+  print(repr("\d" "\e"))
+main.py:13: SyntaxWarning: "\8" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\8"? A raw string is also an option.
+  print("\8\9")
+main.py:18: SyntaxWarning: "\q" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\q"? A raw string is also an option.
+  print(f"a\qb\w{x}\e")
+main.py:18: SyntaxWarning: "\e" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\e"? A raw string is also an option.
+  print(f"a\qb\w{x}\e")

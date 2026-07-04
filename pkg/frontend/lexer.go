@@ -121,11 +121,12 @@ type lexer struct {
 	brackets  []openBracket
 	toks      []token
 	fbase     []int // bracket-depth floor of each open f-string interpolation
+	escWarns  []EscapeWarning
 }
 
 // lex turns source into the logical token stream, always ending with tEOF
 // on success.
-func lex(src []byte, file string) (toks []token, err error) {
+func lex(src []byte, file string) (toks []token, warns []EscapeWarning, err error) {
 	lx := &lexer{src: src, file: file, line: 1, col: 1, indents: []int{0}}
 	defer func() {
 		if r := recover(); r != nil {
@@ -133,11 +134,11 @@ func lex(src []byte, file string) (toks []token, err error) {
 			if !ok {
 				panic(r)
 			}
-			toks, err = nil, se
+			toks, warns, err = nil, nil, se
 		}
 	}()
 	lx.run()
-	return lx.toks, nil
+	return lx.toks, lx.escWarns, nil
 }
 
 func (lx *lexer) run() {
@@ -540,6 +541,7 @@ func (lx *lexer) lexString(pos Pos) {
 	}
 	closing := strings.Repeat(string(q), 3)
 	var sb strings.Builder
+	warned := false
 	for {
 		c := lx.ch()
 		switch c {
@@ -570,7 +572,7 @@ func (lx *lexer) lexString(pos Pos) {
 			sb.WriteByte('\n')
 			lx.consumeNewline()
 		case '\\':
-			lx.lexEscape(pos, &sb)
+			lx.lexEscape(pos, &sb, &warned)
 		default:
 			r, _ := utf8.DecodeRune(lx.src[lx.off:])
 			sb.WriteRune(r)
@@ -579,9 +581,11 @@ func (lx *lexer) lexString(pos Pos) {
 	}
 }
 
-// lexEscape handles one backslash escape inside a string. Unknown escapes
-// keep the backslash, matching CPython.
-func (lx *lexer) lexEscape(strPos Pos, sb *strings.Builder) {
+// lexEscape handles one backslash escape inside a string. Unknown escapes keep
+// the backslash, matching CPython, and record a SyntaxWarning through warned so
+// only the first invalid escape in a literal is reported, the way CPython's
+// tokenizer does.
+func (lx *lexer) lexEscape(strPos Pos, sb *strings.Builder, warned *bool) {
 	escPos := lx.pos()
 	lx.adv() // backslash
 	switch e := lx.ch(); e {
@@ -639,8 +643,12 @@ func (lx *lexer) lexEscape(strPos Pos, sb *strings.Builder) {
 		// A backslash before the newline joins the physical lines.
 		lx.consumeNewline()
 	default:
-		sb.WriteByte('\\')
 		r, _ := utf8.DecodeRune(lx.src[lx.off:])
+		if !*warned {
+			*warned = true
+			lx.escWarns = append(lx.escWarns, EscapeWarning{Line: escPos.Line, Col: escPos.Col, Char: string(r)})
+		}
+		sb.WriteByte('\\')
 		sb.WriteRune(r)
 		lx.adv()
 	}
@@ -754,6 +762,9 @@ func (lx *lexer) lexFString(pos Pos, prefix string) {
 			sb.Reset()
 		}
 	}
+	// Each literal run between interpolations is its own literal for the
+	// invalid-escape warning, so warned resets after every {...} field.
+	warned := false
 	for {
 		if sb.Len() == 0 {
 			runPos = lx.pos()
@@ -793,6 +804,7 @@ func (lx *lexer) lexFString(pos Pos, prefix string) {
 			}
 			flush()
 			lx.lexFInterp(q, triple)
+			warned = false
 		case '}':
 			if lx.ch2() == '}' {
 				sb.WriteByte('}')
@@ -816,7 +828,7 @@ func (lx *lexer) lexFString(pos Pos, prefix string) {
 				}
 				lx.err(pos, "unterminated f-string literal (detected at line %d)", lx.line)
 			}
-			lx.lexEscape(pos, &sb)
+			lx.lexEscape(pos, &sb, &warned)
 		default:
 			r, _ := utf8.DecodeRune(lx.src[lx.off:])
 			sb.WriteRune(r)
@@ -1004,6 +1016,7 @@ func (lx *lexer) lexFSpec(openPos Pos, q byte, triple bool) {
 	pos := lx.pos()
 	closing := strings.Repeat(string(q), 3)
 	var sb strings.Builder
+	warned := false
 	for {
 		c := lx.ch()
 		switch {
@@ -1015,6 +1028,7 @@ func (lx *lexer) lexFSpec(openPos Pos, q byte, triple bool) {
 			sb.Reset()
 			lx.lexFInterp(q, triple)
 			pos = lx.pos()
+			warned = false
 		case c == 0 && triple:
 			lx.err(openPos, "unterminated triple-quoted f-string literal (detected at line %d)", lx.line)
 		case c == 0 || ((c == '\n' || c == '\r') && !triple):
@@ -1025,7 +1039,7 @@ func (lx *lexer) lexFSpec(openPos Pos, q byte, triple bool) {
 		case c == q && (!triple || lx.lookahead(closing)):
 			lx.err(lx.pos(), "f-string: expecting '}', or format specs")
 		case c == '\\':
-			lx.lexEscape(openPos, &sb)
+			lx.lexEscape(openPos, &sb, &warned)
 		default:
 			r, _ := utf8.DecodeRune(lx.src[lx.off:])
 			sb.WriteRune(r)
