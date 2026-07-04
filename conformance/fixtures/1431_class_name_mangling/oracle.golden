@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+125
+alice:125
+bob:50
+2
+1
+2
+['x', 'y']
+== exception:
+== stderr:
