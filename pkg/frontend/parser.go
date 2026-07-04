@@ -153,6 +153,8 @@ func (p *parser) parseStatement() []Stmt {
 			return []Stmt{p.parseClass()}
 		case "try":
 			return []Stmt{p.parseTry()}
+		case "with":
+			return []Stmt{p.parseWith()}
 		}
 	}
 	return p.parseSimpleLine()
@@ -205,8 +207,6 @@ func (p *parser) parseSimpleStmt() Stmt {
 			p.errf(t.pos, "import statements are not supported yet")
 		case "from":
 			p.errf(t.pos, "from imports are not supported yet")
-		case "with":
-			p.errf(t.pos, "with statements are not supported yet")
 		case "del":
 			p.advance()
 			d := &Del{Pos_: t.pos}
@@ -465,6 +465,31 @@ func (p *parser) parseFor() Stmt {
 	if p.eatKw("else") {
 		node.Else = p.parseSuite()
 	}
+	return node
+}
+
+// parseWith parses `with item, ...: suite`. Each item is a context-manager
+// expression with an optional `as` target. Commas separate items, and the
+// target stops at the comma because it is parsed as a single test, so
+// `with A as a, B as b:` reads as two items rather than a tuple target. The
+// parenthesized form that puts `as` inside the parentheses is not parsed yet;
+// a lone pair of grouping parentheses around one manager still works.
+func (p *parser) parseWith() Stmt {
+	t := p.advance() // with
+	node := &With{Pos_: t.pos}
+	for {
+		item := WithItem{Context: p.parseTest()}
+		if p.eatKw("as") {
+			target := p.parseTest()
+			p.checkAssignTarget(target)
+			item.Target = target
+		}
+		node.Items = append(node.Items, item)
+		if !p.eatOp(",") {
+			break
+		}
+	}
+	node.Body = p.parseSuite()
 	return node
 }
 
