@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+m C.m
+n C.n
+True True
+m C.m
+True False
+False False
+True
+one two 2
+1 1
+True
+'function' object has no attribute 'nope'
+'function' object has no attribute 'nope'
+== exception:
+== stderr:

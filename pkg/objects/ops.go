@@ -776,6 +776,12 @@ func equals(a, b Object) bool {
 		// each compare equal, so slice(1, 2) == slice(1, 2) but not slice(1, 3).
 		y, ok := b.(*sliceObject)
 		return ok && equals(x.start, y.start) && equals(x.stop, y.stop) && equals(x.step, y.step)
+	case *boundMethod:
+		// Two bound methods are equal when they wrap the same function and their
+		// instances compare equal, so c.m == c.m across two reads but not c.m ==
+		// c.n or c.m == C().m.
+		y, ok := b.(*boundMethod)
+		return ok && x.fn == y.fn && equals(x.self, y.self)
 	}
 	return a == b
 }

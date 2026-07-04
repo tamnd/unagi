@@ -109,6 +109,15 @@ func hashKey(o Object) (string, error) {
 		// and everything else stays distinct. The Ellipsis and NotImplemented
 		// singletons key stably because each is a unique pointer.
 		return fmt.Sprintf("p%p", x), nil
+	case *boundMethod:
+		// A bound method keys by its function pointer and its instance key, so
+		// two reads of c.m collide while c.n or another instance's method do
+		// not, matching the equality above.
+		sk, err := hashKey(x.self)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("M%p:%s", x.fn, sk), nil
 	case *instanceObject:
 		val, hasVal, eqDefined, err := instanceHashInfo(x)
 		if err != nil {
