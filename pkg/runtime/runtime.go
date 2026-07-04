@@ -370,7 +370,11 @@ func init() {
 		"issubclass": objects.NewFunc("issubclass", 2, func(args []objects.Object) (objects.Object, error) {
 			return IsSubclass(args[0], args[1])
 		}),
-		"next": objects.NewFunc("next", -1, objects.NextValue),
+		"next":    objects.NewFunc("next", -1, objects.NextValue),
+		"getattr": objects.NewFunc("getattr", -1, GetAttr),
+		"hasattr": objects.NewFunc("hasattr", -1, HasAttr),
+		"setattr": objects.NewFunc("setattr", -1, SetAttr),
+		"delattr": objects.NewFunc("delattr", -1, DelAttr),
 	})
 }
 

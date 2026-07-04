@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+1
+default
+True False
+42 42
+False gone
+attr error: 'C' object has no attribute 'nope'
+getattr type error: attribute name must be string, not 'int'
+setattr type error: attribute name must be string, not 'int'
+hasattr type error: attribute name must be string, not 'int'
+delattr type error: attribute name must be string, not 'int'
+42
+== exception:
+== stderr:
