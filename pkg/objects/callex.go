@@ -123,6 +123,68 @@ func KwMerge(f, kw Object, m Object) (Object, error) {
 	return d, nil
 }
 
+// KwSetFor is KwSet for a callee whose spelling is known at compile time, like
+// an exception class. The funcstr arrives pre-rendered because no callee object
+// exists to derive it from, mirroring StarArgsFor on the positional side.
+func KwSetFor(funcstr string, kw Object, name string, v Object) (Object, error) {
+	d := kwAccum(kw)
+	key := NewStr(name)
+	if _, exists, err := d.lookup(key); err != nil {
+		return nil, err
+	} else if exists {
+		return nil, Raise(TypeError, "%s got multiple values for keyword argument '%s'",
+			funcstr, name)
+	}
+	if err := d.set(key, v); err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+// KwMergeFor is KwMerge for a compile-time-known callee spelling.
+func KwMergeFor(funcstr string, kw Object, m Object) (Object, error) {
+	src, ok := m.(*dictObject)
+	if !ok {
+		return nil, Raise(TypeError, "%s argument after ** must be a mapping, not %s",
+			funcstr, m.TypeName())
+	}
+	d := kwAccum(kw)
+	for _, k := range src.keySlice() {
+		if _, exists, err := d.lookup(k); err != nil {
+			return nil, err
+		} else if exists {
+			return nil, Raise(TypeError, "%s got multiple values for keyword argument '%s'",
+				funcstr, Str(k))
+		}
+		v, err := src.get(k)
+		if err != nil {
+			return nil, err
+		}
+		if err := d.set(k, v); err != nil {
+			return nil, err
+		}
+	}
+	return d, nil
+}
+
+// ExcNoKeywords rejects the keyword parts of a builtin exception constructor
+// the way every builtin exception type does and returns the positional slice
+// for construction to carry on with. The key-stringness check runs first, so a
+// non-string ** key raises "keywords must be strings" before the takes-no-keyword
+// error; an empty keyword dict (a **{} that merged nothing) passes so normal
+// construction proceeds. className is spelled bare, no module, matching the
+// type's own error.
+func ExcNoKeywords(className string, pos []Object, kw Object) ([]Object, error) {
+	names, _, err := kwSplit(kw)
+	if err != nil {
+		return nil, err
+	}
+	if len(names) > 0 {
+		return nil, Raise(TypeError, "%s() takes no keyword arguments", className)
+	}
+	return pos, nil
+}
+
 // kwSplit turns the accumulated dict into the binder's parallel slices.
 // The str check on keys lives here because CPython performs it when the
 // call happens, after the lone-star conversion.

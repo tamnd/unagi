@@ -160,6 +160,63 @@ func TestCallStarEx(t *testing.T) {
 		"TypeError: __main__.f() argument after * must be an iterable, not int")
 }
 
+func TestKwSetAndMergeFor(t *testing.T) {
+	// The funcstr arrives pre-rendered, the way an exception class spells it.
+	kw, err := KwSetFor("ValueError()", nil, "a", NewInt(1))
+	if err != nil {
+		t.Fatalf("first set: %v", err)
+	}
+	_, err = KwSetFor("ValueError()", kw, "a", NewInt(2))
+	checkErr(t, "literal collision", err,
+		"TypeError: ValueError() got multiple values for keyword argument 'a'")
+
+	m, err2 := NewDict([]Object{NewStr("a")}, []Object{NewInt(3)})
+	if err2 != nil {
+		t.Fatal(err2)
+	}
+	_, err = KwMergeFor("ValueError()", kw, m)
+	checkErr(t, "merge collision", err,
+		"TypeError: ValueError() got multiple values for keyword argument 'a'")
+
+	_, err = KwMergeFor("ValueError()", nil, NewList(nil))
+	checkErr(t, "merge non-mapping", err,
+		"TypeError: ValueError() argument after ** must be a mapping, not list")
+}
+
+func TestExcNoKeywords(t *testing.T) {
+	pos := []Object{NewInt(1)}
+
+	// No keyword parts: the positional slice passes straight through.
+	got, err := ExcNoKeywords("ValueError", pos, nil)
+	if err != nil {
+		t.Fatalf("no keywords: %v", err)
+	}
+	if s := Repr(NewTuple(got)); s != "(1,)" {
+		t.Errorf("passed through %s", s)
+	}
+
+	// A merged keyword is rejected with the bare class spelling.
+	kw, err := KwSetFor("ValueError()", nil, "x", NewInt(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = ExcNoKeywords("ValueError", pos, kw)
+	checkErr(t, "takes no keyword", err,
+		"TypeError: ValueError() takes no keyword arguments")
+
+	// A non-string key is caught before the takes-no-keyword rejection.
+	m, err := NewDict([]Object{NewInt(1)}, []Object{NewInt(2)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	badKw, err := KwMergeFor("ValueError()", nil, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = ExcNoKeywords("ValueError", pos, badKw)
+	checkErr(t, "non-str key first", err, "TypeError: keywords must be strings")
+}
+
 func TestCallMethodStar(t *testing.T) {
 	lst := NewList([]Object{NewInt(3)})
 	if _, err := CallMethodStar(lst, "append", NewTuple([]Object{NewInt(4)})); err != nil {
