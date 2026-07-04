@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+message: 'group msg'
+exceptions: (ValueError('a'), KeyError('b'))
+count: 2
+args: ('group msg', [ValueError('a'), KeyError('b')])
+bmessage: 'bmsg'
+bexc: (KeyError('only'),)
+plain message: 'ValueError' object has no attribute 'message'
+plain exceptions: 'ValueError' object has no attribute 'exceptions'
+caught message: boom
+caught count: 3
+  sub: ValueError('a')
+  sub: ValueError('c')
+  sub: ValueError('d')
+== exception:
+== stderr:

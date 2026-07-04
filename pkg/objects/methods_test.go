@@ -44,6 +44,31 @@ func TestExcNotesReadNeedsAddNote(t *testing.T) {
 	}
 }
 
+func TestExcGroupAttrs(t *testing.T) {
+	sub := []*Exception{Raise(ValueError, "a"), Raise(KeyError, "b")}
+	objs := []Object{sub[0], sub[1]}
+	g := &Exception{Kind: "ExceptionGroup", Args: []Object{NewStr("group msg"), NewList(objs)}, Group: sub}
+
+	msg, err := LoadAttr(g, "message")
+	if err != nil || Str(msg) != "group msg" {
+		t.Errorf("message = %v, %v", msg, err)
+	}
+	exc, err := LoadAttr(g, "exceptions")
+	if err != nil {
+		t.Fatalf("exceptions = %v", err)
+	}
+	if Repr(exc) != "(ValueError('a'), KeyError('b'))" {
+		t.Errorf("exceptions = %s", Repr(exc))
+	}
+
+	// A plain exception has neither attribute.
+	plain := Raise(ValueError, "x")
+	_, err = LoadAttr(plain, "message")
+	checkErr(t, "plain message", err, "AttributeError: 'ValueError' object has no attribute 'message'")
+	_, err = LoadAttr(plain, "exceptions")
+	checkErr(t, "plain exceptions", err, "AttributeError: 'ValueError' object has no attribute 'exceptions'")
+}
+
 func TestExcCauseWriteSetsSuppress(t *testing.T) {
 	e := Raise(ValueError, "x")
 	cause := Raise(KeyError, "k")
