@@ -22,6 +22,13 @@ func Ascii(o objects.Object) (objects.Object, error) {
 	return objects.NewStr(s), nil
 }
 
+// Vars implements the one-argument vars(o): the object's __dict__ as an
+// ordered dict. A no-argument vars() would return the caller's locals, which
+// the boxed tier does not model, so the lowering requires the argument.
+func Vars(o objects.Object) (objects.Object, error) {
+	return objects.InstanceDict(o)
+}
+
 // Any implements any(iterable): True as soon as an element is truthy, else
 // False (True for no elements is impossible, so empty is False).
 func Any(o objects.Object) (objects.Object, error) {
