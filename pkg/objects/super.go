@@ -88,6 +88,19 @@ func superCallMethod(s *superObject, name string, args []Object) (Object, error)
 	return nil, Raise(AttributeError, "'super' object has no attribute '%s'", name)
 }
 
+// superCallMethodKw dispatches super().name(pos, **kw): the resolved function
+// is called with the original instance as self and the keywords threaded into
+// its binder, the same cooperative walk superCallMethod uses.
+func superCallMethodKw(s *superObject, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	if v, ok := superLookup(s, name); ok {
+		if fn, ok := v.(*functionObject); ok {
+			return fn.bind(append([]Object{s.obj}, pos...), kwNames, kwVals)
+		}
+		return CallKw(v, pos, kwNames, kwVals)
+	}
+	return nil, Raise(AttributeError, "'super' object has no attribute '%s'", name)
+}
+
 // superRepr matches 3.14: the class is spelled by its bare name and the
 // instance by its type name without an address, so it is deterministic.
 func superRepr(s *superObject) string {

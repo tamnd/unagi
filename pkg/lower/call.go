@@ -33,6 +33,12 @@ func (f *fnCtx) call(e *frontend.Call) (ast.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
+		// The receiver evaluates before the arguments, matching CPython's
+		// LOAD_METHOD then argument evaluation; a keyword argument routes
+		// through CallMethodKw so the runtime binder resolves it.
+		if hasKeyword(e.Args) {
+			return f.methodCallKw(attr, recv, e)
+		}
 		args, err := f.plainArgExprs(e.Args)
 		if err != nil {
 			return nil, err
@@ -138,6 +144,39 @@ func (f *fnCtx) dynCall(e *frontend.Call) (ast.Expr, error) {
 		vals[i] = kw.val
 	}
 	f.fallible(tmp, f.e.obj("CallKw"), ident(ct), f.objSlice(pos), strSliceLit(names), f.objSlice(vals))
+	return ident(tmp), nil
+}
+
+// hasKeyword reports whether any argument is a bare keyword (name=value).
+// Star arguments are handled by the unpacking path, so they are not counted
+// here; a call with a star already routed to callEx before this point.
+func hasKeyword(args []frontend.Arg) bool {
+	for _, a := range args {
+		if a.Name != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// methodCallKw lowers obj.method(pos, kw=val) once the receiver sits in recv.
+// Arguments evaluate in source order into temporaries the CallMethodKw call
+// consumes, so the runtime binder sees positional and keyword groups the way
+// the function object's signature expects.
+func (f *fnCtx) methodCallKw(attr *frontend.Attribute, recv ast.Expr, e *frontend.Call) (ast.Expr, error) {
+	pos, kws, _, err := f.evalArgs(e)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, len(kws))
+	vals := make([]ast.Expr, len(kws))
+	for i, kw := range kws {
+		names[i] = kw.name
+		vals[i] = kw.val
+	}
+	tmp := f.tmpVar()
+	f.fallible(tmp, f.e.obj("CallMethodKw"), recv, strLit(attr.Name),
+		f.objSlice(pos), strSliceLit(names), f.objSlice(vals))
 	return ident(tmp), nil
 }
 

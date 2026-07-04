@@ -121,3 +121,42 @@ func TestInheritedMethodBinds(t *testing.T) {
 		t.Error("inherited method bound the wrong self")
 	}
 }
+
+// A keyword argument reaches an instance method through the function binder,
+// so a parameter named by keyword fills from the passed value.
+func TestCallMethodKwBinds(t *testing.T) {
+	c := mkclass(t, "C")
+	fn := NewFunction("C.echo", []Param{{Name: "self", Kind: ParamPlain}, {Name: "x", Kind: ParamPlain}}, nil,
+		func(args []Object) (Object, error) { return args[1], nil }).(*functionObject)
+	c.setAttr("echo", fn)
+	inst := &instanceObject{cls: c, dict: map[string]Object{}}
+	got, err := CallMethodKw(inst, "echo", nil, []string{"x"}, []Object{NewStr("kw")})
+	if err != nil {
+		t.Fatalf("CallMethodKw: %v", err)
+	}
+	if Repr(got) != "'kw'" {
+		t.Errorf("CallMethodKw returned %s, want 'kw'", Repr(got))
+	}
+}
+
+// An unexpected keyword surfaces the binder's qualname-spelled TypeError.
+func TestCallMethodKwUnexpected(t *testing.T) {
+	c := mkclass(t, "C")
+	fn := NewFunction("C.echo", []Param{{Name: "self", Kind: ParamPlain}, {Name: "x", Kind: ParamPlain}}, nil,
+		func(args []Object) (Object, error) { return args[1], nil }).(*functionObject)
+	c.setAttr("echo", fn)
+	inst := &instanceObject{cls: c, dict: map[string]Object{}}
+	_, err := CallMethodKw(inst, "echo", []Object{NewInt(1)}, []string{"z"}, []Object{NewInt(2)})
+	if err == nil || !strings.Contains(err.Error(), "C.echo() got an unexpected keyword argument 'z'") {
+		t.Fatalf("error = %v, want unexpected-keyword message", err)
+	}
+}
+
+// A keyword on a builtin receiver's method raises the type.method() takes-no-
+// keyword TypeError, since builtin methods are positional in this tier.
+func TestCallMethodKwBuiltinRejects(t *testing.T) {
+	_, err := CallMethodKw(NewList(nil), "append", []Object{NewInt(1)}, []string{"x"}, []Object{NewInt(2)})
+	if err == nil || !strings.Contains(err.Error(), "list.append() takes no keyword arguments") {
+		t.Fatalf("error = %v, want takes-no-keyword message", err)
+	}
+}

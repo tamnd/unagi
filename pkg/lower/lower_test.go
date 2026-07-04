@@ -154,6 +154,35 @@ func TestMethodDefaultLowering(t *testing.T) {
 	}
 }
 
+// A keyword argument on a method call routes through CallMethodKw with the
+// name and value carried as parallel slices, so the runtime binder resolves
+// it against the method's signature.
+func TestMethodKeywordCallLowering(t *testing.T) {
+	mod := &frontend.Module{Body: []frontend.Stmt{
+		&frontend.Assign{Targets: []frontend.Expr{&frontend.Name{Id: "obj"}}, Value: &frontend.IntLit{Text: "0"}},
+		&frontend.ExprStmt{X: &frontend.Call{
+			Fn: &frontend.Attribute{X: &frontend.Name{Id: "obj"}, Name: "m"},
+			Args: []frontend.Arg{
+				{Name: "x", Value: &frontend.IntLit{Text: "1"}},
+			},
+		}},
+	}}
+	src, err := Module(mod, "mk.py", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(src)
+	for _, want := range []string{
+		`objects.CallMethodKw(`,
+		`"m"`,
+		`[]string{"x"}`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("emitted source missing %q:\n%s", want, got)
+		}
+	}
+}
+
 // A literal past int64 lowers to a NewIntText call so the emitted program
 // parses it into a big int at startup.
 func TestHugeIntLiteralLowersToText(t *testing.T) {
