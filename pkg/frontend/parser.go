@@ -34,6 +34,7 @@ func Parse(src []byte, filename string) (mod *Module, err error) {
 	for p.cur().kind != tEOF {
 		m.Body = append(m.Body, p.parseStatement()...)
 	}
+	p.checkGlobals(m.Body, nil)
 	return m, nil
 }
 
@@ -228,7 +229,19 @@ func (p *parser) parseSimpleStmt() Stmt {
 			}
 			return a
 		case "global":
-			p.errf(t.pos, "global statements are not supported yet")
+			p.advance()
+			g := &Global{Pos_: t.pos}
+			for {
+				n := p.cur()
+				if n.kind != tName {
+					p.errf(n.pos, "invalid syntax")
+				}
+				p.advance()
+				g.Names = append(g.Names, n.text)
+				if !p.eatOp(",") {
+					return g
+				}
+			}
 		case "nonlocal":
 			p.errf(t.pos, "nonlocal statements are not supported yet")
 		case "async":
