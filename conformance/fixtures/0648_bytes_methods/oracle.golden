@@ -1,0 +1,28 @@
+== exit: 0
+== stdout:
+3 3 3 10
+2 2 2
+2 8 -1 0
+3 -1 3
+2 8
+0 3 -1
+3 2
+True True
+True True
+True True
+616263 
+61-62-63 61_6263
+01:0203:0405 0102:0304:05
+61-62
+2 2 True 61-62-63-61-62-63
+index subsection not found
+counttype argument should be integer or bytes-like object, not 'str'
+findfloat argument should be integer or bytes-like object, not 'float'
+countrange byte must be in range(0, 256)
+swtype startswith first arg must be bytes or a tuple of bytes, not str
+swtuple a bytes-like object is required, not 'int'
+startstr slice indices must be integers or None or have an __index__ method
+seplen sep must be length 1.
+sepint object of type 'int' has no len()
+== exception:
+== stderr:
