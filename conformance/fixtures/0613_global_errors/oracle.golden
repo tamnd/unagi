@@ -1,0 +1,7 @@
+== exit: 1
+== stdout:
+== exception:
+NameError: name 'tally' is not defined
+  main.py:7 <module>
+  main.py:5 bump
+== stderr:
