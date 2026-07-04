@@ -218,7 +218,18 @@ func reprCore(o Object, strict bool) (string, error) {
 	case *classObject:
 		return classRepr(x), nil
 	case *instanceObject:
-		return instanceRepr(x), nil
+		res, defined, err := instanceSpecial(x, "__repr__")
+		if err != nil {
+			return "", err
+		}
+		if !defined {
+			return instanceRepr(x), nil
+		}
+		s, ok := res.(*strObject)
+		if !ok {
+			return "", Raise(TypeError, "__repr__ returned non-string (type %s)", res.TypeName())
+		}
+		return s.v, nil
 	case *boundMethod:
 		return boundMethodRepr(x), nil
 	case *superObject:
@@ -251,6 +262,20 @@ func strCore(o Object, strict bool) (string, error) {
 		return x.v, nil
 	case *Exception:
 		return x.Text(), nil
+	case *instanceObject:
+		res, defined, err := instanceSpecial(x, "__str__")
+		if err != nil {
+			return "", err
+		}
+		if !defined {
+			// object.__str__ delegates to __repr__, which reprCore dispatches.
+			return reprCore(x, strict)
+		}
+		s, ok := res.(*strObject)
+		if !ok {
+			return "", Raise(TypeError, "__str__ returned non-string (type %s)", res.TypeName())
+		}
+		return s.v, nil
 	}
 	return reprCore(o, strict)
 }

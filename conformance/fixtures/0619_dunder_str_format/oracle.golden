@@ -1,0 +1,31 @@
+== exit: 0
+== stdout:
+Vec(1, 2)
+Vec(1, 2)
+Vec(1, 2)
+[Vec(1, 2), Vec(3, 4)]
+(Vec(1, 2),)
+{'k': Vec(1, 2)}
+here Vec(1, 2) and Vec(1, 2)
+(5, 6)
+Point(x=5, y=6)
+(5, 6)
+[Point(x=5, y=6)]
+str (5, 6) repr Point(x=5, y=6)
+Base.repr
+Base.repr
+Base.repr
+123.45
+     123.5
+123.45
+      123.45
+cost is 123.45
+FMT[]
+FMT[abc]
+FMT[]
+FMT[xyz]
+TypeError: __repr__ returned non-string (type int)
+TypeError: __str__ returned non-string (type int)
+TypeError: __format__ must return a str, not int
+== exception:
+== stderr:

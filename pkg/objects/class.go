@@ -597,6 +597,24 @@ func instanceCallMethod(x *instanceObject, name string, args []Object) (Object, 
 	return Call(v, args)
 }
 
+// instanceSpecial invokes a special method looked up on the instance's type,
+// the implicit-invocation path CPython uses for dunders like __repr__: it
+// skips the instance dict, binds self through the descriptor protocol, and
+// calls the result. defined is false when the type holds no such method, so
+// the caller falls back to the default behavior for the operation.
+func instanceSpecial(x *instanceObject, name string, args ...Object) (res Object, defined bool, err error) {
+	tv, ok := x.cls.lookup(name)
+	if !ok {
+		return nil, false, nil
+	}
+	bound, err := instanceGet(x, name, tv)
+	if err != nil {
+		return nil, true, err
+	}
+	res, err = Call(bound, args)
+	return res, true, err
+}
+
 // classCallMethod dispatches Cls.name(args): the name resolves on the class
 // through the descriptor protocol (a plain function stays unbound so self is
 // explicit, a classmethod binds the class, a staticmethod is bare), then the
