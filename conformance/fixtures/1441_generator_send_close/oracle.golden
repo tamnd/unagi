@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+10
+100
+101
+200
+0
+5
+15
+18
+1
+stop None
+type can't send non-None value to a just-started generator
+== exception:
+== stderr:

@@ -253,6 +253,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return propertyGetAttr(x, name)
 	case *superObject:
 		return superLoadAttr(x, name)
+	case *Exception:
+		return excLoadAttr(x, name)
 	}
 	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", o.TypeName(), name)
 }

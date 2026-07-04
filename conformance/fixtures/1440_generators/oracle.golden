@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+0
+1
+4
+9
+[0, 1, 4]
+()
+a b c
+30
+3
+25
+== exception:
+== stderr:

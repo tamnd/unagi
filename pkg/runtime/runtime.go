@@ -89,6 +89,11 @@ func Len(o objects.Object) (objects.Object, error) {
 	return objects.NewInt(int64(n)), nil
 }
 
+// Next implements the next() builtin, next(it) or next(it, default).
+func Next(args ...objects.Object) (objects.Object, error) {
+	return objects.NextValue(args)
+}
+
 // Range implements range(stop), range(start, stop) and
 // range(start, stop, step).
 func Range(args ...objects.Object) (objects.Object, error) {

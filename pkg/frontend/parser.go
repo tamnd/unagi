@@ -267,6 +267,11 @@ func (p *parser) parseSimpleStmt() Stmt {
 			}
 		case "async":
 			p.errf(t.pos, "async is not supported yet")
+		case "yield":
+			// A bare `yield ...` statement, the common driver-free generator
+			// form. It is never an assignment target, so it stands as its own
+			// expression statement.
+			return &ExprStmt{Pos_: t.pos, X: p.parseYield()}
 		case "elif", "else", "except", "finally", "as", "in", "is", "and", "or":
 			p.errf(t.pos, "unexpected keyword '%s'", t.text)
 		}
@@ -279,16 +284,16 @@ func (p *parser) parseSimpleStmt() Stmt {
 		if op, ok := augOps[p.cur().text]; ok {
 			p.checkAugTarget(first)
 			p.advance()
-			return &AugAssign{Pos_: first.Span(), Target: first, Op: op, Value: p.parseTestlist()}
+			return &AugAssign{Pos_: first.Span(), Target: first, Op: op, Value: p.parseAssignRHS()}
 		}
 	}
 	if p.isOp("=") {
 		targets := []Expr{first}
 		p.advance()
-		e := p.parseStarTestlist()
+		e := p.parseAssignRHS()
 		for p.eatOp("=") {
 			targets = append(targets, e)
-			e = p.parseStarTestlist()
+			e = p.parseAssignRHS()
 		}
 		for _, tgt := range targets {
 			p.checkAssignTarget(tgt)
@@ -927,6 +932,34 @@ func (p *parser) parseTestlist() Expr {
 	return &TupleLit{Pos_: first.Span(), Elts: elts}
 }
 
+// parseAssignRHS parses the right-hand side of an assignment or augmented
+// assignment, which CPython lets be a yield expression (`x = yield v`) as
+// well as an ordinary testlist. A yield can only be the whole right-hand
+// side, never a target, so the caller never treats the result as one.
+func (p *parser) parseAssignRHS() Expr {
+	if p.isKw("yield") {
+		return p.parseYield()
+	}
+	return p.parseStarTestlist()
+}
+
+// parseYield parses a `yield` or `yield from` expression, with the cursor on
+// the yield keyword. A bare `yield` carries no value; `yield a, b` yields the
+// tuple; `yield from it` delegates to the iterable it.
+func (p *parser) parseYield() Expr {
+	t := p.advance()
+	y := &Yield{Pos_: t.pos}
+	if p.eatKw("from") {
+		y.From = true
+		y.Value = p.parseTest()
+		return y
+	}
+	if startsExpr(p.cur()) {
+		y.Value = p.parseTestlist()
+	}
+	return y
+}
+
 // parseStarTestlist is parseTestlist with starred elements allowed, for
 // positions that may turn out to be assignment or del targets. The callers
 // that keep an expression instead run rejectStarred over the result.
@@ -1445,7 +1478,10 @@ func (p *parser) parseAtom() Expr {
 			// reports as plain invalid syntax.
 			p.errf(t.pos, "invalid syntax")
 		case "yield":
-			p.errf(t.pos, "yield expressions are not supported yet")
+			// yield reaches the atom parser only in a spot the grammar forbids,
+			// like `1 + yield`; the valid statement, assignment, and
+			// parenthesized forms are handled before descending here.
+			p.errf(t.pos, "invalid syntax")
 		case "await":
 			p.errf(t.pos, "await is not supported yet")
 		default:
@@ -1553,6 +1589,13 @@ func (p *parser) parseParen() Expr {
 	lp := p.advance()
 	if p.eatOp(")") {
 		return &TupleLit{Pos_: lp.pos}
+	}
+	if p.isKw("yield") {
+		// A parenthesized yield, `(yield v)`, the form that reads a sent value
+		// back: `x = (yield v)`.
+		y := p.parseYield()
+		p.wantOp(")")
+		return y
 	}
 	first := p.parseNamedTest()
 	if p.isKw("for") {

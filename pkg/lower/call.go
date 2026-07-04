@@ -16,7 +16,7 @@ var builtinNames = map[string]bool{
 	"pow": true, "bin": true, "oct": true, "hex": true, "ord": true,
 	"chr": true, "hash": true, "sorted": true, "reversed": true, "enumerate": true,
 	"zip": true, "list": true, "tuple": true, "dict": true, "set": true,
-	"frozenset": true, "format": true,
+	"frozenset": true, "format": true, "next": true,
 }
 
 // descriptorBuiltins are the builtin names that resolve to a value: the three
@@ -221,6 +221,20 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		}
 		tmp := f.tmpVar()
 		f.fallible(tmp, sel("runtime", "Len"), args[0])
+		return ident(tmp), nil
+	case "next":
+		if argc < 1 || argc > 2 {
+			if argc == 0 {
+				return nil, f.e.errf(e.Span(), "next expected at least 1 argument, got 0")
+			}
+			return nil, f.e.errf(e.Span(), "next expected at most 2 arguments, got %d", argc)
+		}
+		args, err := f.plainArgExprs(e.Args)
+		if err != nil {
+			return nil, err
+		}
+		tmp := f.tmpVar()
+		f.fallible(tmp, sel("runtime", "Next"), args...)
 		return ident(tmp), nil
 	case "range":
 		if argc < 1 || argc > 3 {
