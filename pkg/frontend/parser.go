@@ -149,6 +149,8 @@ func (p *parser) parseStatement() []Stmt {
 			return []Stmt{p.parseFor()}
 		case "def":
 			return []Stmt{p.parseDef()}
+		case "class":
+			return []Stmt{p.parseClass()}
 		case "try":
 			return []Stmt{p.parseTry()}
 		}
@@ -199,8 +201,6 @@ func (p *parser) parseSimpleStmt() Stmt {
 		case "continue":
 			p.advance()
 			return &Continue{Pos_: t.pos}
-		case "class":
-			p.errf(t.pos, "class definitions are not supported yet")
 		case "import":
 			p.errf(t.pos, "import statements are not supported yet")
 		case "from":
@@ -366,7 +366,7 @@ func (p *parser) checkAssignTarget(e Expr) {
 	case *ListLit:
 		p.errf(e.Span(), "list assignment targets are not supported yet")
 	case *Attribute:
-		p.errf(e.Span(), "attribute assignment targets are not supported yet")
+		// obj.attr = value is a valid target; the lowering stores through it.
 	case *FStr:
 		p.errf(e.Span(), "cannot assign to f-string expression")
 	case *IntLit, *FloatLit, *StrLit:
@@ -391,9 +391,7 @@ func (p *parser) checkAssignTarget(e Expr) {
 
 func (p *parser) checkAugTarget(e Expr) {
 	switch e.(type) {
-	case *Name, *Subscript:
-	case *Attribute:
-		p.errf(e.Span(), "attribute assignment targets are not supported yet")
+	case *Name, *Subscript, *Attribute:
 	case *Starred:
 		p.errf(e.Span(), "'starred' is an illegal expression for augmented assignment")
 	case *TupleLit:
@@ -531,6 +529,32 @@ func (p *parser) parseDef() Stmt {
 	params := p.parseParams(")")
 	p.wantOp(")")
 	return &FuncDef{Pos_: t.pos, Name: nt.text, Params: params, Body: p.parseSuite()}
+}
+
+// parseClass parses `class Name(bases): suite`. The base list is the
+// comma-separated positional bases; a trailing comma is allowed and an
+// empty pair of parentheses is the same as none. Keyword bases such as a
+// metaclass argument are not parsed yet, so the lowering restricts what the
+// bases may be.
+func (p *parser) parseClass() Stmt {
+	t := p.advance() // class
+	nt := p.cur()
+	if nt.kind != tName {
+		p.errf(nt.pos, "expected class name")
+	}
+	p.advance()
+	node := &ClassDef{Pos_: t.pos, Name: nt.text}
+	if p.eatOp("(") {
+		for !p.isOp(")") {
+			node.Bases = append(node.Bases, p.parseTest())
+			if !p.eatOp(",") {
+				break
+			}
+		}
+		p.wantOp(")")
+	}
+	node.Body = p.parseSuite()
+	return node
 }
 
 // parseParams parses a parameter list up to the end token, ")" for def and

@@ -114,6 +114,16 @@ type FuncDef struct {
 	Body   []Stmt
 }
 
+// ClassDef is `class Name(bases): body`. Bases holds the base-class
+// expressions in written order; an empty slice is the bare `class Name:`
+// form. The body carries method defs and class-variable assignments.
+type ClassDef struct {
+	Pos_  Pos
+	Name  string
+	Bases []Expr
+	Body  []Stmt
+}
+
 // Try is the full try/except/else/finally statement. A try with no handlers
 // carries only Final (the try/finally form); the parser enforces that at
 // least one of Handlers and Final is present.
@@ -206,6 +216,7 @@ func (s *If) Span() Pos        { return s.Pos_ }
 func (s *While) Span() Pos     { return s.Pos_ }
 func (s *For) Span() Pos       { return s.Pos_ }
 func (s *FuncDef) Span() Pos   { return s.Pos_ }
+func (s *ClassDef) Span() Pos  { return s.Pos_ }
 func (s *Return) Span() Pos    { return s.Pos_ }
 func (s *Pass) Span() Pos      { return s.Pos_ }
 func (s *Break) Span() Pos     { return s.Pos_ }
@@ -223,6 +234,7 @@ func (*If) stmt()        {}
 func (*While) stmt()     {}
 func (*For) stmt()       {}
 func (*FuncDef) stmt()   {}
+func (*ClassDef) stmt()  {}
 func (*Return) stmt()    {}
 func (*Pass) stmt()      {}
 func (*Break) stmt()     {}

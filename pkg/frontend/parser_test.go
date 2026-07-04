@@ -58,6 +58,12 @@ func ds(s Stmt) string {
 		return "(for " + de(s.Target) + " " + de(s.Iter) + " " + dbody(s.Body) + " " + dbody(s.Else) + ")"
 	case *FuncDef:
 		return "(def " + s.Name + " (" + strings.Join(dparams(s.Params), " ") + ") " + dbody(s.Body) + ")"
+	case *ClassDef:
+		bases := make([]string, len(s.Bases))
+		for i, b := range s.Bases {
+			bases[i] = de(b)
+		}
+		return "(class " + s.Name + " (" + strings.Join(bases, " ") + ") " + dbody(s.Body) + ")"
 	case *Try:
 		kw := "try"
 		if s.IsStar {
@@ -403,6 +409,15 @@ func TestParse(t *testing.T) {
 			"(def f (a b=1 / c=2 *args e g=3 **kw) [(pass)])"},
 		{"def posonly slash then bare star", "def f(a, /, b, *, c): pass",
 			"(def f (a / b * c) [(pass)])"},
+		{"class bare", "class C: pass", "(class C () [(pass)])"},
+		{"class empty bases", "class C(): pass", "(class C () [(pass)])"},
+		{"class object base", "class C(object): pass", "(class C (object) [(pass)])"},
+		{"class two bases", "class C(A, B): pass", "(class C (A B) [(pass)])"},
+		{"class trailing comma base", "class C(A,): pass", "(class C (A) [(pass)])"},
+		{"class body methods", "class C:\n    x = 1\n    def m(self):\n        return self.x\n",
+			"(class C () [(= x 1) (def m (self) [(return (. self x))])])"},
+		{"attribute target", "a.b = 1", "(= (. a b) 1)"},
+		{"attribute aug target", "a.b += 1", "(+= (. a b) 1)"},
 		{"call keyword", "f(a=1)", "(expr (call f a=1))"},
 		{"call keyword trailing comma", "f(a=1,)", "(expr (call f a=1))"},
 		{"call keywords after positionals", "f(1, 2, b=3, c=4)", "(expr (call f 1 2 b=3 c=4))"},
@@ -627,7 +642,6 @@ func TestParseErrors(t *testing.T) {
 		src     string
 		wantErr string
 	}{
-		{"class", "class A: pass", "class definitions are not supported yet"},
 		{"import", "import os", "import statements are not supported yet"},
 		{"from import", "from os import path", "from imports are not supported yet"},
 		{"with", "with open(f) as g: pass", "with statements are not supported yet"},
@@ -769,7 +783,6 @@ func TestParseErrors(t *testing.T) {
 		{"assign to expression", "a + b = 1", "cannot assign to expression"},
 		{"assign in tuple", "a, 1 = x", "cannot assign to literal"},
 		{"list target", "[a] = x", "list assignment targets are not supported yet"},
-		{"attribute target", "a.b = 1", "attribute assignment targets are not supported yet"},
 		{"bare star target", "*a = b", "starred assignment target must be in a list or tuple"},
 		{"two stars in target", "a, *b, *c = x", "multiple starred expressions in assignment"},
 		{"two stars only", "*a, *b = c", "multiple starred expressions in assignment"},
