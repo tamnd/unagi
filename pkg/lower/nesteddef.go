@@ -75,6 +75,7 @@ func (f *fnCtx) nestedDef(s *frontend.FuncDef) error {
 		in.locals[name] = true
 		in.declLocal(name)
 	}
+	in.markNonlocalDeletes(s.Body)
 	in.declPending(s.Body)
 	if err := in.stmts(s.Body); err != nil {
 		return err

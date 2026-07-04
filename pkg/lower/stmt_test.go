@@ -60,6 +60,45 @@ func TestAnnotatedAssignLowersToStore(t *testing.T) {
 	}
 }
 
+// A nested function that deletes an enclosing local through a nonlocal
+// declaration shares that slot by reference, so the enclosing scope must read
+// it through the unbound check. The outer read of x lowers to runtime.LoadLocal
+// instead of a bare slot read.
+func TestNonlocalDeleteChecksEnclosingRead(t *testing.T) {
+	src := "def outer():\n" +
+		"    x = 1\n" +
+		"    def inner():\n" +
+		"        nonlocal x\n" +
+		"        del x\n" +
+		"    inner()\n" +
+		"    print(x)\n"
+	got, err := lowerSrc(t, src)
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	if !strings.Contains(got, `runtime.LoadLocal(u_x, "x")`) {
+		t.Errorf("outer read of nonlocal-deleted x not checked:\n%s", got)
+	}
+}
+
+// A plain enclosing local no nested function deletes stays a bare slot read.
+func TestPlainEnclosingLocalStaysUnchecked(t *testing.T) {
+	src := "def outer():\n" +
+		"    x = 1\n" +
+		"    def inner():\n" +
+		"        nonlocal x\n" +
+		"        x = 2\n" +
+		"    inner()\n" +
+		"    print(x)\n"
+	got, err := lowerSrc(t, src)
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	if strings.Contains(got, `runtime.LoadLocal(u_x, "x")`) {
+		t.Errorf("outer read of undeleted x should not be checked:\n%s", got)
+	}
+}
+
 // Every augmented operator maps to its own symbol string.
 func TestAugAssignSymbols(t *testing.T) {
 	cases := map[string]string{
