@@ -99,6 +99,20 @@ func excLoadAttr(e *Exception, name string) (Object, error) {
 			}
 			return NewList(notes), nil
 		}
+	case "message":
+		// message and exceptions live only on an ExceptionGroup; a plain
+		// exception has neither, so both fall through to AttributeError.
+		if e.Group != nil {
+			return e.Args[0], nil
+		}
+	case "exceptions":
+		if e.Group != nil {
+			subs := make([]Object, len(e.Group))
+			for i, s := range e.Group {
+				subs[i] = s
+			}
+			return NewTuple(subs), nil
+		}
 	case "value":
 		if e.Kind == "StopIteration" || e.Kind == "StopAsyncIteration" {
 			if len(e.Args) > 0 {
