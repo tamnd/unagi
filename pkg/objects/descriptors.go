@@ -82,10 +82,22 @@ func noneToNil(o Object) Object {
 }
 
 // isDataDescriptor reports whether a class-dict value takes priority over an
-// instance dict on attribute read. Only property qualifies in this tier.
+// instance dict on attribute read. A property always qualifies; a user object
+// qualifies when its type defines __set__ or __delete__, the rule CPython uses
+// to rank a data descriptor above the instance dict.
 func isDataDescriptor(v Object) bool {
-	_, ok := v.(*propertyObject)
-	return ok
+	switch d := v.(type) {
+	case *propertyObject:
+		return true
+	case *instanceObject:
+		if _, ok := d.cls.lookup("__set__"); ok {
+			return true
+		}
+		if _, ok := d.cls.lookup("__delete__"); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // instanceGet applies the descriptor protocol to a class-dict value v resolved
@@ -105,6 +117,13 @@ func instanceGet(x *instanceObject, name string, v Object) (Object, error) {
 			return nil, Raise(AttributeError, "property '%s' of '%s' object has no getter", name, x.cls.name)
 		}
 		return Call(d.fget, []Object{x})
+	case *instanceObject:
+		// A user descriptor with __get__ runs __get__(descr, instance, owner);
+		// owner is the instance's type. Without __get__ the object is a plain
+		// class attribute and comes back as is.
+		if _, ok := d.cls.lookup("__get__"); ok {
+			return instanceCallMethod(d, "__get__", []Object{x, x.cls})
+		}
 	}
 	return v, nil
 }
@@ -119,6 +138,13 @@ func classGet(c *classObject, v Object) (Object, error) {
 		return d.fn, nil
 	case *classmethodObject:
 		return classmethodBind(d.fn, c), nil
+	case *instanceObject:
+		// Reading a descriptor off the class runs __get__(descr, None, owner);
+		// the None instance is what lets a descriptor hand back itself for
+		// class-level access.
+		if _, ok := d.cls.lookup("__get__"); ok {
+			return instanceCallMethod(d, "__get__", []Object{None, c})
+		}
 	}
 	return v, nil
 }
