@@ -32,6 +32,19 @@ type Expr interface {
 // Module is one parsed source file.
 type Module struct {
 	Body []Stmt
+	// EscapeWarnings are the invalid backslash-escape SyntaxWarnings the lexer
+	// found, one per string literal, in source order. CPython 3.14 prints these
+	// at compile time; the lowering replays them before the module body runs.
+	EscapeWarnings []EscapeWarning
+}
+
+// EscapeWarning records one invalid escape sequence (a backslash followed by a
+// character that is not a recognized escape). Char is the offending character
+// after the backslash, shown verbatim in the warning text.
+type EscapeWarning struct {
+	Line int
+	Col  int
+	Char string
 }
 
 // --- statements ---

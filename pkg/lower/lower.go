@@ -52,7 +52,7 @@ func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
 	// identifiers CPython would after mangling.
 	frontend.MangleClassPrivates(mod)
 
-	e := &emitter{file: file, source: source, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}, classOrd: map[string]int{}}
+	e := &emitter{file: file, source: source, escWarns: mod.EscapeWarnings, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}, classOrd: map[string]int{}}
 
 	var body []frontend.Stmt
 	var defs []*frontend.FuncDef
@@ -139,7 +139,7 @@ func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	e.prependFinallyWarnings(pymain)
+	e.prependWarnings(pymain)
 
 	// The assembly seam: the one place nodes become text. The header comment,
 	// package clause, and import block are plain lines, each declaration
@@ -228,8 +228,9 @@ type emitter struct {
 	globalDecl  map[string]bool // names some def declares global
 	moduleVars  map[string]bool // every module-scope variable, emitted at package level
 	slots       []string
-	classOrd    map[string]int // top-level class name to its emission ordinal
-	finWarns    []finWarn      // PEP 765 finally-jump SyntaxWarnings, in discovery order
+	classOrd    map[string]int           // top-level class name to its emission ordinal
+	finWarns    []finWarn                // PEP 765 finally-jump SyntaxWarnings, in discovery order
+	escWarns    []frontend.EscapeWarning // invalid backslash-escape SyntaxWarnings from the lexer
 	usedObjects bool
 	usedTB      bool
 }
@@ -266,21 +267,48 @@ func (e *emitter) sourceLine(n int) string {
 	return strings.TrimLeft(lines[n-1], " \t")
 }
 
-// prependFinallyWarnings injects one runtime.SyntaxWarn call per recorded
-// finally-jump at the top of pymain, sorted by source line so the program
-// replays them in the order CPython's compiler emitted them. Each call carries
-// the fully formatted message, so the runtime helper only writes it to stderr.
-func (e *emitter) prependFinallyWarnings(pymain *ast.FuncDecl) {
-	if len(e.finWarns) == 0 {
+// compileWarn is one compile-time SyntaxWarning ready to replay: its source
+// position orders it against the others, and msg is the fully formatted text.
+type compileWarn struct {
+	line, col int
+	msg       string
+}
+
+// prependWarnings injects one runtime.SyntaxWarn call per recorded compile-time
+// warning at the top of pymain, sorted by source position so the program
+// replays them in the order CPython's compiler emitted them. Both the PEP 765
+// finally-jump warnings and the invalid backslash-escape warnings flow through
+// here. Each call carries the fully formatted message, so the runtime helper
+// only writes it to stderr.
+func (e *emitter) prependWarnings(pymain *ast.FuncDecl) {
+	var warns []compileWarn
+	for _, w := range e.finWarns {
+		warns = append(warns, compileWarn{
+			line: w.line,
+			msg: fmt.Sprintf("%s:%d: SyntaxWarning: '%s' in a 'finally' block\n  %s\n",
+				e.file, w.line, w.kind, e.sourceLine(w.line)),
+		})
+	}
+	for _, w := range e.escWarns {
+		warns = append(warns, compileWarn{
+			line: w.Line,
+			col:  w.Col,
+			msg: fmt.Sprintf("%s:%d: SyntaxWarning: \"\\%s\" is an invalid escape sequence. Such sequences will not work in the future. Did you mean \"\\\\%s\"? A raw string is also an option.\n  %s\n",
+				e.file, w.Line, w.Char, w.Char, e.sourceLine(w.Line)),
+		})
+	}
+	if len(warns) == 0 {
 		return
 	}
-	warns := append([]finWarn(nil), e.finWarns...)
-	sort.Slice(warns, func(i, j int) bool { return warns[i].line < warns[j].line })
+	sort.SliceStable(warns, func(i, j int) bool {
+		if warns[i].line != warns[j].line {
+			return warns[i].line < warns[j].line
+		}
+		return warns[i].col < warns[j].col
+	})
 	var stmts []ast.Stmt
 	for _, w := range warns {
-		msg := fmt.Sprintf("%s:%d: SyntaxWarning: '%s' in a 'finally' block\n  %s\n",
-			e.file, w.line, w.kind, e.sourceLine(w.line))
-		stmts = append(stmts, exprStmt(callExpr(sel("runtime", "SyntaxWarn"), strLit(msg))))
+		stmts = append(stmts, exprStmt(callExpr(sel("runtime", "SyntaxWarn"), strLit(w.msg))))
 	}
 	pymain.Body.List = append(stmts, pymain.Body.List...)
 }
