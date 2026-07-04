@@ -381,6 +381,10 @@ func (f *fnCtx) excClassNew(e frontend.Expr) (ast.Expr, bool, error) {
 		if c == "" {
 			break
 		}
+		if hasUnpack(e.Args) {
+			x, err := f.excClassStarNew(c, e)
+			return x, true, err
+		}
 		args, err := f.plainArgExprs(e.Args)
 		if err != nil {
 			return nil, false, err

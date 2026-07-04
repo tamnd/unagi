@@ -1166,13 +1166,39 @@ func (p *parser) parseCall(fn Expr) Expr {
 		return call
 	}
 	sawKeyword := false
+	sawKwUnpack := false
 	kwSeen := map[string]bool{}
 	for {
 		if p.isOp("*") {
-			p.errf(p.cur().pos, "'*' argument unpacking is not supported yet")
+			starPos := p.cur().pos
+			if sawKwUnpack {
+				p.errf(starPos, "iterable argument unpacking follows keyword argument unpacking")
+			}
+			p.advance()
+			if p.isOp(")") || p.isOp(",") || p.isOp("*") || p.isOp("**") {
+				p.errf(p.cur().pos, "Invalid star expression")
+			}
+			call.Args = append(call.Args, Arg{Pos_: starPos, Star: 1, Value: p.parseTest()})
+			if p.eatOp(",") {
+				if p.isOp(")") {
+					break
+				}
+				continue
+			}
+			break
 		}
 		if p.isOp("**") {
-			p.errf(p.cur().pos, "'**' argument unpacking is not supported yet")
+			starPos := p.cur().pos
+			p.advance()
+			sawKwUnpack = true
+			call.Args = append(call.Args, Arg{Pos_: starPos, Star: 2, Value: p.parseTest()})
+			if p.eatOp(",") {
+				if p.isOp(")") {
+					break
+				}
+				continue
+			}
+			break
 		}
 		argStart := p.i
 		arg := p.parseNamedTest()
@@ -1195,6 +1221,9 @@ func (p *parser) parseCall(fn Expr) Expr {
 		} else {
 			if p.isKw("for") {
 				p.errf(p.cur().pos, "generator expressions are not supported yet")
+			}
+			if sawKwUnpack {
+				p.errf(arg.Span(), "positional argument follows keyword argument unpacking")
 			}
 			if sawKeyword {
 				p.errf(arg.Span(), "positional argument follows keyword argument")

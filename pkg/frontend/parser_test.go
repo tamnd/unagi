@@ -194,9 +194,14 @@ func de(e Expr) string {
 	case *Call:
 		parts := []string{"call", de(e.Fn)}
 		for _, a := range e.Args {
-			if a.Name != "" {
+			switch {
+			case a.Star == 1:
+				parts = append(parts, "*"+de(a.Value))
+			case a.Star == 2:
+				parts = append(parts, "**"+de(a.Value))
+			case a.Name != "":
 				parts = append(parts, a.Name+"="+de(a.Value))
-			} else {
+			default:
 				parts = append(parts, de(a.Value))
 			}
 		}
@@ -383,6 +388,13 @@ func TestParse(t *testing.T) {
 		{"call keyword eqeq is comparison", "f(a == 1)", "(expr (call f (cmp a == 1)))"},
 		{"call walrus stays positional", "f(a := 1)", "(expr (call f (:= a 1)))"},
 		{"call fstring keyword arg", `f"{g(a=1)}"`, "(expr (fstr (interp (call g a=1))))"},
+		{"call star unpack", "f(*a)", "(expr (call f *a))"},
+		{"call star among positionals", "f(1, *a, 2)", "(expr (call f 1 *a 2))"},
+		{"call double star unpack", "f(**d)", "(expr (call f **d))"},
+		{"call star then keyword then star", "f(1, *a, x=2, *b)", "(expr (call f 1 *a x=2 *b))"},
+		{"call star after double star", "f(**d, x=1)", "(expr (call f **d x=1))"},
+		{"call full unpack mix", "f(*a, 1, **d, **e)", "(expr (call f *a 1 **d **e))"},
+		{"call star expr value", "f(*g(x), **h[0])", "(expr (call f *(call g x) **([] h 0)))"},
 		{"return tuple", "return 1, 2", "(return (tuple 1 2))"},
 		{"if elif else", "if a:\n    x = 1\nelif b:\n    y = 2\nelse:\n    z = 3\n",
 			"(if a [(= x 1)] [(if b [(= y 2)] [(= z 3)])])"},
@@ -580,12 +592,17 @@ func TestParseErrors(t *testing.T) {
 		{"except as set", "try:\n    pass\nexcept E as {1}:\n    pass\n", "cannot use except statement with set display"},
 		{"slice tuple after slice", "x[a:b, c]", "tuples of slices are not supported yet"},
 		{"slice tuple before slice", "x[a, b:c]", "tuples of slices are not supported yet"},
-		{"star arg", "f(*a)", "'*' argument unpacking is not supported yet"},
-		{"double star arg", "f(**a)", "'**' argument unpacking is not supported yet"},
 		{"positional after keyword", "f(a=1, 2)", "positional argument follows keyword argument"},
 		{"positional between keywords", "f(a, b=1, c)", "positional argument follows keyword argument"},
 		{"keyword repeated", "f(b=1, b=2)", "keyword argument repeated: b"},
 		{"keyword repeated thrice", "f(b=1, b=2, b=3)", "keyword argument repeated: b"},
+		{"positional after kw unpack", "f(**d, 1)", "positional argument follows keyword argument unpacking"},
+		{"positional after kw unpack and keyword", "f(a=1, **d, 2)", "positional argument follows keyword argument unpacking"},
+		{"star after kw unpack", "f(**d, *a)", "iterable argument unpacking follows keyword argument unpacking"},
+		{"bare star in call", "f(*)", "Invalid star expression"},
+		{"bare star before arg", "f(*, 1)", "Invalid star expression"},
+		{"star star space star", "f(* *a)", "Invalid star expression"},
+		{"bare double star in call", "f(**)", "invalid syntax"},
 		{"paren name keyword", "f((a)=1)", `expression cannot contain assignment, perhaps you meant "=="?`},
 		{"literal keyword", "f(1=2)", `expression cannot contain assignment, perhaps you meant "=="?`},
 		{"attribute keyword", "f(a.b=1)", `expression cannot contain assignment, perhaps you meant "=="?`},

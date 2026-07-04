@@ -607,32 +607,60 @@ func init() {
 		"dict":      objects.NewFunc("dict", -1, DictOf),
 		"set":       objects.NewFunc("set", -1, SetOf),
 		"frozenset": objects.NewFunc("frozenset", -1, FrozensetOf),
-		"divmod": objects.NewFunc("divmod", 2, func(args []objects.Object) (objects.Object, error) {
+		// The fixed-arity ones validate their own counts because funcObject's
+		// generic wording ("takes 1 positional argument but 2 were given")
+		// differs from the CPython strings probed for these, which the static
+		// call lowering in pkg/lower also emits.
+		"divmod": objects.NewFunc("divmod", -1, func(args []objects.Object) (objects.Object, error) {
+			if len(args) != 2 {
+				return nil, objects.Raise(objects.TypeError, "divmod expected 2 arguments, got %d", len(args))
+			}
 			return DivMod(args[0], args[1])
 		}),
-		"bin": objects.NewFunc("bin", 1, func(args []objects.Object) (objects.Object, error) {
-			return Bin(args[0])
+		"pow": objects.NewFunc("pow", -1, func(args []objects.Object) (objects.Object, error) {
+			switch len(args) {
+			case 0:
+				return nil, objects.Raise(objects.TypeError, "pow() missing required argument 'base' (pos 1)")
+			case 1:
+				return nil, objects.Raise(objects.TypeError, "pow() missing required argument 'exp' (pos 2)")
+			case 2:
+				return objects.Pow(args[0], args[1])
+			case 3:
+				return Pow3(args[0], args[1], args[2])
+			}
+			return nil, objects.Raise(objects.TypeError, "pow() takes at most 3 arguments (%d given)", len(args))
 		}),
-		"oct": objects.NewFunc("oct", 1, func(args []objects.Object) (objects.Object, error) {
-			return Oct(args[0])
-		}),
-		"hex": objects.NewFunc("hex", 1, func(args []objects.Object) (objects.Object, error) {
-			return Hex(args[0])
-		}),
-		"ord": objects.NewFunc("ord", 1, func(args []objects.Object) (objects.Object, error) {
-			return Ord(args[0])
-		}),
-		"chr": objects.NewFunc("chr", 1, func(args []objects.Object) (objects.Object, error) {
-			return Chr(args[0])
-		}),
-		"hash": objects.NewFunc("hash", 1, func(args []objects.Object) (objects.Object, error) {
-			return HashOf(args[0])
-		}),
-		"sorted": objects.NewFunc("sorted", 1, func(args []objects.Object) (objects.Object, error) {
-			return Sorted(args[0])
-		}),
-		"reversed": objects.NewFunc("reversed", 1, func(args []objects.Object) (objects.Object, error) {
-			return Reversed(args[0])
-		}),
+		"bin":      exactlyOne("bin", Bin),
+		"oct":      exactlyOne("oct", Oct),
+		"hex":      exactlyOne("hex", Hex),
+		"ord":      exactlyOne("ord", Ord),
+		"chr":      exactlyOne("chr", Chr),
+		"hash":     exactlyOne("hash", HashOf),
+		"sorted":   exactlyOneWorded("sorted", Sorted),
+		"reversed": exactlyOneWorded("reversed", Reversed),
+	})
+}
+
+// exactlyOne wraps a METH_O style builtin: "len() takes exactly one
+// argument (2 given)", parentheses included.
+func exactlyOne(name string, fn func(objects.Object) (objects.Object, error)) objects.Object {
+	return objects.NewFunc(name, -1, func(args []objects.Object) (objects.Object, error) {
+		if len(args) != 1 {
+			return nil, objects.Raise(objects.TypeError,
+				"%s() takes exactly one argument (%d given)", name, len(args))
+		}
+		return fn(args[0])
+	})
+}
+
+// exactlyOneWorded wraps the argument-clinic style: "sorted expected 1
+// argument, got 2", no parentheses.
+func exactlyOneWorded(name string, fn func(objects.Object) (objects.Object, error)) objects.Object {
+	return objects.NewFunc(name, -1, func(args []objects.Object) (objects.Object, error) {
+		if len(args) != 1 {
+			return nil, objects.Raise(objects.TypeError,
+				"%s expected 1 argument, got %d", name, len(args))
+		}
+		return fn(args[0])
 	})
 }
