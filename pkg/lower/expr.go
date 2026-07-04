@@ -242,6 +242,20 @@ func (f *fnCtx) sliceParts(sl *frontend.SliceExpr) (lo, hi, step ast.Expr, err e
 	return lo, hi, step, nil
 }
 
+// plainArgExprs lowers call arguments that carry no keyword or star form.
+// Callers that reach it have already been vetted by the parser, which still
+// rejects keywords and unpacking, so a violation here is an internal error.
+func (f *fnCtx) plainArgExprs(args []frontend.Arg) ([]ast.Expr, error) {
+	exprs := make([]frontend.Expr, 0, len(args))
+	for _, a := range args {
+		if a.Name != "" || a.Star != 0 {
+			return nil, f.e.errf(a.Pos_, "keyword and star arguments are not supported here")
+		}
+		exprs = append(exprs, a.Value)
+	}
+	return f.exprList(exprs)
+}
+
 func (f *fnCtx) exprList(list []frontend.Expr) ([]ast.Expr, error) {
 	out := make([]ast.Expr, len(list))
 	for i, e := range list {

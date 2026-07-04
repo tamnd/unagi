@@ -119,7 +119,22 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 		f.pendingJump(3, loop.depth)
 		return nil
 	case *frontend.FuncDef:
-		return f.e.errf(s.Span(), "nested def is not supported in M0")
+		if f.inFunc || f.e.defs[s.Name] != s {
+			return f.e.errf(s.Span(), "nested def is not supported in M0")
+		}
+		// The def statement's runtime effect is evaluating parameter
+		// defaults, left to right, into their module-level slots.
+		for _, p := range s.Params {
+			if p.Default == nil {
+				continue
+			}
+			v, err := f.expr(p.Default)
+			if err != nil {
+				return err
+			}
+			f.add(set(ident(f.e.slotName(s.Name, p.Name)), v))
+		}
+		return nil
 	default:
 		return f.e.errf(s.Span(), "statement not supported in M0")
 	}

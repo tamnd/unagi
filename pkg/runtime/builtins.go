@@ -24,18 +24,32 @@ func asIndex(o objects.Object) (int64, error) {
 
 // Min implements min(iterable) and min(a, b, ...).
 func Min(args []objects.Object) (objects.Object, error) {
-	return minMax(args, "min", objects.OpLt)
+	return minMax(args, "min", objects.OpLt, objects.None, nil)
 }
 
 // Max implements max(iterable) and max(a, b, ...).
 func Max(args []objects.Object) (objects.Object, error) {
-	return minMax(args, "max", objects.OpGt)
+	return minMax(args, "max", objects.OpGt, objects.None, nil)
+}
+
+// MinKw implements min with key= and default=. The default sentinel is a
+// Go nil so an explicit default=None still counts as given.
+func MinKw(args []objects.Object, key, dflt objects.Object) (objects.Object, error) {
+	return minMax(args, "min", objects.OpLt, key, dflt)
+}
+
+// MaxKw implements max with key= and default=.
+func MaxKw(args []objects.Object, key, dflt objects.Object) (objects.Object, error) {
+	return minMax(args, "max", objects.OpGt, key, dflt)
 }
 
 // minMax keeps the first winner: a candidate only displaces the current
 // best when it compares strictly less (or greater), so min(True, 1) is
-// True and min(1, True) is 1, exactly as probed on 3.14.
-func minMax(args []objects.Object, name string, op objects.CmpOp) (objects.Object, error) {
+// True and min(1, True) is 1, exactly as probed on 3.14. Probed order for
+// the keyword forms: an empty iterable returns the default before the key
+// is checked, and a non-None key fails the callable check on non-empty
+// input because M1 has no function values.
+func minMax(args []objects.Object, name string, op objects.CmpOp, key, dflt objects.Object) (objects.Object, error) {
 	if len(args) == 0 {
 		// Probed: min() -> TypeError: min expected at least 1 argument, got 0.
 		return nil, objects.Raise(objects.TypeError, "%s expected at least 1 argument, got 0", name)
@@ -48,9 +62,15 @@ func minMax(args []objects.Object, name string, op objects.CmpOp) (objects.Objec
 			return nil, err
 		}
 		if len(items) == 0 {
+			if dflt != nil {
+				return dflt, nil
+			}
 			// Probed 3.14 wording: min() iterable argument is empty.
 			return nil, objects.Raise(objects.ValueError, "%s() iterable argument is empty", name)
 		}
+	}
+	if key != objects.None {
+		return nil, objects.Raise(objects.TypeError, "'%s' object is not callable", key.TypeName())
 	}
 	best := items[0]
 	for _, it := range items[1:] {
@@ -410,6 +430,42 @@ func Sorted(o objects.Object) (objects.Object, error) {
 			return false
 		}
 		r, err := objects.Compare(objects.OpLt, items[i], items[j])
+		if err != nil {
+			sortErr = err
+			return false
+		}
+		return objects.Truth(r)
+	})
+	if sortErr != nil {
+		return nil, sortErr
+	}
+	return objects.NewList(items), nil
+}
+
+// SortedKw implements sorted(iterable, key=..., reverse=...). M1 has no
+// function values, so a non-None key can only fail the callable check,
+// which CPython skips on empty input. reverse goes by truthiness and the
+// descending comparator keeps the stable-sort equal-element order, the
+// same result as CPython's reverse-sort-reverse dance.
+func SortedKw(o, key, reverse objects.Object) (objects.Object, error) {
+	items, err := materialize(o)
+	if err != nil {
+		return nil, err
+	}
+	if key != objects.None && len(items) > 0 {
+		return nil, objects.Raise(objects.TypeError, "'%s' object is not callable", key.TypeName())
+	}
+	desc := objects.Truth(reverse)
+	var sortErr error
+	sort.SliceStable(items, func(i, j int) bool {
+		if sortErr != nil {
+			return false
+		}
+		a, b := items[i], items[j]
+		if desc {
+			a, b = b, a
+		}
+		r, err := objects.Compare(objects.OpLt, a, b)
 		if err != nil {
 			sortErr = err
 			return false

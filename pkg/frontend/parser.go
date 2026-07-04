@@ -503,38 +503,128 @@ func (p *parser) parseDef() Stmt {
 	}
 	p.advance()
 	p.wantOp("(")
-	var params []string
+	params := p.parseParams()
+	p.wantOp(")")
+	return &FuncDef{Pos_: t.pos, Name: nt.text, Params: params, Body: p.parseSuite()}
+}
+
+// parseParams parses the def parameter list up to the closing paren: posonly
+// and plain params first, then *args or a bare *, then keyword-only params,
+// then **kwargs. Ordering violations carry CPython 3.14's exact messages.
+// Annotations stay rejected with an unagi not-supported error since we defer
+// them rather than mimic a SyntaxError CPython does not raise.
+func (p *parser) parseParams() []Param {
+	var params []Param
 	seen := map[string]bool{}
-	for !p.isOp(")") {
-		pt := p.cur()
-		switch {
-		case p.isOp("*"):
-			p.errf(pt.pos, "star parameters (*args) are not supported yet")
-		case p.isOp("**"):
-			p.errf(pt.pos, "keyword parameters (**kwargs) are not supported yet")
-		case p.isOp("/"):
-			p.errf(pt.pos, "positional-only parameter markers are not supported yet")
-		case pt.kind != tName:
-			p.errf(pt.pos, "expected parameter name")
-		}
-		p.advance()
-		if p.isOp("=") {
-			p.errf(p.cur().pos, "default parameter values are not supported yet")
-		}
-		if p.isOp(":") {
-			p.errf(p.cur().pos, "parameter annotations are not supported yet")
-		}
+	var (
+		seenDefault  bool // some posonly/plain param carried a default
+		slashSeen    bool
+		starSeen     bool // *args or the bare * separator
+		starstarSeen bool
+		bareStarPos  Pos // position of a bare * still waiting for a kwonly name
+		bareStar     bool
+	)
+	kind := ParamPlain
+	addParam := func(pt token, k ParamKind, def Expr) {
 		if seen[pt.text] {
 			p.errf(pt.pos, "duplicate argument '%s' in function definition", pt.text)
 		}
 		seen[pt.text] = true
-		params = append(params, pt.text)
+		params = append(params, Param{Pos_: pt.pos, Name: pt.text, Kind: k, Default: def})
+	}
+	// rejectAnnotation keeps annotations out ahead of the default probe so
+	// def f(a: int = 1) trips on the colon, not the equals.
+	rejectAnnotation := func() {
+		if p.isOp(":") {
+			p.errf(p.cur().pos, "parameter annotations are not supported yet")
+		}
+	}
+	for !p.isOp(")") {
+		pt := p.cur()
+		switch {
+		case starstarSeen:
+			p.errf(pt.pos, "arguments cannot follow var-keyword argument")
+		case p.isOp("/"):
+			if slashSeen {
+				p.errf(pt.pos, "/ may appear only once")
+			}
+			if starSeen {
+				p.errf(pt.pos, "/ must be ahead of *")
+			}
+			p.advance()
+			if len(params) == 0 {
+				// CPython reports the lone def f(/) as plain invalid syntax
+				// and def f(/, a) with the dedicated message.
+				if p.isOp(")") {
+					p.errf(pt.pos, "invalid syntax")
+				}
+				p.errf(pt.pos, "at least one argument must precede /")
+			}
+			slashSeen = true
+			for i := range params {
+				params[i].Kind = ParamPosOnly
+			}
+		case p.isOp("*"):
+			if starSeen {
+				p.errf(pt.pos, "* argument may appear only once")
+			}
+			p.advance()
+			starSeen = true
+			kind = ParamKwOnly
+			if nt := p.cur(); nt.kind == tName {
+				p.advance()
+				rejectAnnotation()
+				if p.isOp("=") {
+					p.errf(p.cur().pos, "var-positional argument cannot have default value")
+				}
+				addParam(nt, ParamStar, nil)
+			} else {
+				bareStar, bareStarPos = true, pt.pos
+			}
+		case p.isOp("**"):
+			if bareStar {
+				p.errf(bareStarPos, "named arguments must follow bare *")
+			}
+			p.advance()
+			nt := p.cur()
+			if nt.kind != tName {
+				p.errf(nt.pos, "expected parameter name")
+			}
+			p.advance()
+			rejectAnnotation()
+			if p.isOp("=") {
+				p.errf(p.cur().pos, "var-keyword argument cannot have default value")
+			}
+			addParam(nt, ParamStarStar, nil)
+			starstarSeen = true
+		case pt.kind == tName:
+			p.advance()
+			rejectAnnotation()
+			var def Expr
+			if p.eatOp("=") {
+				def = p.parseTest()
+			}
+			if kind == ParamKwOnly {
+				bareStar = false
+			} else if def != nil {
+				seenDefault = true
+			} else if seenDefault {
+				// The no-default-after-default rule spans the / marker but
+				// not the * one; keyword-only params mix freely above.
+				p.errf(pt.pos, "parameter without a default follows parameter with a default")
+			}
+			addParam(pt, kind, def)
+		default:
+			p.errf(pt.pos, "expected parameter name")
+		}
 		if !p.eatOp(",") {
 			break
 		}
 	}
-	p.wantOp(")")
-	return &FuncDef{Pos_: t.pos, Name: nt.text, Params: params, Body: p.parseSuite()}
+	if bareStar {
+		p.errf(bareStarPos, "named arguments must follow bare *")
+	}
+	return params
 }
 
 // parseTry parses try/except/else/finally. The two legal shapes are try with
@@ -1060,6 +1150,8 @@ func (p *parser) parseCall(fn Expr) Expr {
 	if p.eatOp(")") {
 		return call
 	}
+	sawKeyword := false
+	kwSeen := map[string]bool{}
 	for {
 		if p.isOp("*") {
 			p.errf(p.cur().pos, "'*' argument unpacking is not supported yet")
@@ -1067,14 +1159,33 @@ func (p *parser) parseCall(fn Expr) Expr {
 		if p.isOp("**") {
 			p.errf(p.cur().pos, "'**' argument unpacking is not supported yet")
 		}
+		argStart := p.i
 		arg := p.parseNamedTest()
 		if p.isOp("=") {
-			p.errf(p.cur().pos, "keyword arguments are not supported yet")
+			// A bare NAME before = makes a keyword argument. (a)=1 parses to
+			// a Name too, so require exactly one consumed token, the same
+			// probe the walrus target uses; anything else gets CPython's
+			// assignment-in-expression message.
+			n, ok := arg.(*Name)
+			if !ok || p.i != argStart+1 {
+				p.errf(p.cur().pos, `expression cannot contain assignment, perhaps you meant "=="?`)
+			}
+			p.advance()
+			if kwSeen[n.Id] {
+				p.errf(n.Pos_, "keyword argument repeated: %s", n.Id)
+			}
+			kwSeen[n.Id] = true
+			sawKeyword = true
+			call.Args = append(call.Args, Arg{Pos_: n.Pos_, Name: n.Id, Value: p.parseTest()})
+		} else {
+			if p.isKw("for") {
+				p.errf(p.cur().pos, "generator expressions are not supported yet")
+			}
+			if sawKeyword {
+				p.errf(arg.Span(), "positional argument follows keyword argument")
+			}
+			call.Args = append(call.Args, Arg{Pos_: arg.Span(), Value: arg})
 		}
-		if p.isKw("for") {
-			p.errf(p.cur().pos, "generator expressions are not supported yet")
-		}
-		call.Args = append(call.Args, arg)
 		if p.eatOp(",") {
 			if p.isOp(")") {
 				break

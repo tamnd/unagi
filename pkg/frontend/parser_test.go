@@ -57,7 +57,7 @@ func ds(s Stmt) string {
 	case *For:
 		return "(for " + de(s.Target) + " " + de(s.Iter) + " " + dbody(s.Body) + " " + dbody(s.Else) + ")"
 	case *FuncDef:
-		return "(def " + s.Name + " (" + strings.Join(s.Params, " ") + ") " + dbody(s.Body) + ")"
+		return "(def " + s.Name + " (" + strings.Join(dparams(s.Params), " ") + ") " + dbody(s.Body) + ")"
 	case *Try:
 		parts := []string{"try", dbody(s.Body)}
 		for _, h := range s.Handlers {
@@ -94,6 +94,44 @@ func ds(s Stmt) string {
 		return dexprs("del", s.Targets)
 	}
 	return "?stmt"
+}
+
+// dparams renders a parameter list back into source-like pieces. The / and
+// bare * markers carry no Param of their own, so they are reconstructed from
+// the kind sequence: / lands after the last posonly param, and a bare *
+// lands before the first kwonly param when no *args produced one.
+func dparams(params []Param) []string {
+	lastPos := -1
+	for i, pr := range params {
+		if pr.Kind == ParamPosOnly {
+			lastPos = i
+		}
+	}
+	starSeen := false
+	var parts []string
+	for i, pr := range params {
+		name := pr.Name
+		switch pr.Kind {
+		case ParamStar:
+			name = "*" + name
+			starSeen = true
+		case ParamStarStar:
+			name = "**" + name
+		case ParamKwOnly:
+			if !starSeen {
+				parts = append(parts, "*")
+				starSeen = true
+			}
+		}
+		if pr.Default != nil {
+			name += "=" + de(pr.Default)
+		}
+		parts = append(parts, name)
+		if i == lastPos {
+			parts = append(parts, "/")
+		}
+	}
+	return parts
 }
 
 func dhandler(h *ExceptHandler) string {
@@ -154,7 +192,15 @@ func de(e Expr) string {
 		}
 		return "(" + strings.Join(parts, " ") + ")"
 	case *Call:
-		return dexprs("call", append([]Expr{e.Fn}, e.Args...))
+		parts := []string{"call", de(e.Fn)}
+		for _, a := range e.Args {
+			if a.Name != "" {
+				parts = append(parts, a.Name+"="+de(a.Value))
+			} else {
+				parts = append(parts, de(a.Value))
+			}
+		}
+		return "(" + strings.Join(parts, " ") + ")"
 	case *Attribute:
 		return "(. " + de(e.X) + " " + e.Name + ")"
 	case *Subscript:
@@ -296,6 +342,36 @@ func TestParse(t *testing.T) {
 		{"def", "def add(a, b):\n    return a + b\n", "(def add (a b) [(return (+ a b))])"},
 		{"def bare return", "def f():\n    return\n", "(def f () [(return)])"},
 		{"def trailing comma", "def f(a, b,):\n    pass\n", "(def f (a b) [(pass)])"},
+		{"def default", "def f(a, b=1): pass", "(def f (a b=1) [(pass)])"},
+		{"def default complex exprs", "def f(a=[1, 2], b=x if y else z): pass",
+			"(def f (a=(list 1 2) b=(ifexp y x z)) [(pass)])"},
+		{"def default call expr", "def f(a=g(1) + 2): pass", "(def f (a=(+ (call g 1) 2)) [(pass)])"},
+		{"def posonly", "def f(a, b, /, c): pass", "(def f (a b / c) [(pass)])"},
+		{"def posonly only", "def f(a, /): pass", "(def f (a /) [(pass)])"},
+		{"def posonly trailing comma", "def f(a, /,): pass", "(def f (a /) [(pass)])"},
+		{"def posonly defaults", "def f(a, b=1, /, c=2): pass", "(def f (a b=1 / c=2) [(pass)])"},
+		{"def star args", "def f(a, *args): pass", "(def f (a *args) [(pass)])"},
+		{"def star args only", "def f(*args): pass", "(def f (*args) [(pass)])"},
+		{"def star args trailing comma", "def f(*args,): pass", "(def f (*args) [(pass)])"},
+		{"def star then kwonly", "def f(*args, b, c=1): pass", "(def f (*args b c=1) [(pass)])"},
+		{"def bare star", "def f(a, *, b): pass", "(def f (a * b) [(pass)])"},
+		{"def bare star only kwonly", "def f(*, a): pass", "(def f (* a) [(pass)])"},
+		{"def kwonly default then plain", "def f(a, *, b=1, c): pass", "(def f (a * b=1 c) [(pass)])"},
+		{"def kwargs", "def f(**kw): pass", "(def f (**kw) [(pass)])"},
+		{"def kwargs trailing comma", "def f(a, **kw,): pass", "(def f (a **kw) [(pass)])"},
+		{"def default before star args", "def f(a=1, *b): pass", "(def f (a=1 *b) [(pass)])"},
+		{"def default before kwargs", "def f(a=1, **kw): pass", "(def f (a=1 **kw) [(pass)])"},
+		{"def every kind", "def f(a, b=1, /, c=2, *args, e, g=3, **kw): pass",
+			"(def f (a b=1 / c=2 *args e g=3 **kw) [(pass)])"},
+		{"def posonly slash then bare star", "def f(a, /, b, *, c): pass",
+			"(def f (a / b * c) [(pass)])"},
+		{"call keyword", "f(a=1)", "(expr (call f a=1))"},
+		{"call keyword trailing comma", "f(a=1,)", "(expr (call f a=1))"},
+		{"call keywords after positionals", "f(1, 2, b=3, c=4)", "(expr (call f 1 2 b=3 c=4))"},
+		{"call keyword complex value", "f(a=1 + 2, b=g(c))", "(expr (call f a=(+ 1 2) b=(call g c)))"},
+		{"call keyword eqeq is comparison", "f(a == 1)", "(expr (call f (cmp a == 1)))"},
+		{"call walrus stays positional", "f(a := 1)", "(expr (call f (:= a 1)))"},
+		{"call fstring keyword arg", `f"{g(a=1)}"`, "(expr (fstr (interp (call g a=1))))"},
 		{"return tuple", "return 1, 2", "(return (tuple 1 2))"},
 		{"if elif else", "if a:\n    x = 1\nelif b:\n    y = 2\nelse:\n    z = 3\n",
 			"(if a [(= x 1)] [(if b [(= y 2)] [(= z 3)])])"},
@@ -489,16 +565,49 @@ func TestParseErrors(t *testing.T) {
 		{"except as set", "try:\n    pass\nexcept E as {1}:\n    pass\n", "cannot use except statement with set display"},
 		{"slice tuple after slice", "x[a:b, c]", "tuples of slices are not supported yet"},
 		{"slice tuple before slice", "x[a, b:c]", "tuples of slices are not supported yet"},
-		{"keyword argument", "f(a=1)", "keyword arguments are not supported yet"},
 		{"star arg", "f(*a)", "'*' argument unpacking is not supported yet"},
 		{"double star arg", "f(**a)", "'**' argument unpacking is not supported yet"},
-		{"default parameter", "def f(a=1): pass", "default parameter values are not supported yet"},
-		{"star parameter", "def f(*args): pass", "star parameters (*args) are not supported yet"},
-		{"kw parameter", "def f(**kw): pass", "keyword parameters (**kwargs) are not supported yet"},
+		{"positional after keyword", "f(a=1, 2)", "positional argument follows keyword argument"},
+		{"positional between keywords", "f(a, b=1, c)", "positional argument follows keyword argument"},
+		{"keyword repeated", "f(b=1, b=2)", "keyword argument repeated: b"},
+		{"keyword repeated thrice", "f(b=1, b=2, b=3)", "keyword argument repeated: b"},
+		{"paren name keyword", "f((a)=1)", `expression cannot contain assignment, perhaps you meant "=="?`},
+		{"literal keyword", "f(1=2)", `expression cannot contain assignment, perhaps you meant "=="?`},
+		{"attribute keyword", "f(a.b=1)", `expression cannot contain assignment, perhaps you meant "=="?`},
 		{"param annotation", "def f(a: int): pass", "parameter annotations are not supported yet"},
-		{"positional marker", "def f(a, /): pass", "positional-only parameter markers are not supported yet"},
+		{"star param annotation", "def f(*args: int): pass", "parameter annotations are not supported yet"},
+		{"kwargs annotation", "def f(**kw: int): pass", "parameter annotations are not supported yet"},
+		{"annotated default", "def f(a: int = 1): pass", "parameter annotations are not supported yet"},
 		{"duplicate param", "def f(a, a): pass", "duplicate argument 'a' in function definition"},
+		{"duplicate posonly param", "def f(a, /, a): pass", "duplicate argument 'a' in function definition"},
+		{"duplicate star param", "def f(*a, a): pass", "duplicate argument 'a' in function definition"},
+		{"duplicate kwargs param", "def f(a, **a): pass", "duplicate argument 'a' in function definition"},
 		{"bad param", "def f(1): pass", "expected parameter name"},
+		{"non-default after default", "def f(a=1, b): pass", "parameter without a default follows parameter with a default"},
+		{"non-default after default across slash", "def f(a=1, /, b): pass", "parameter without a default follows parameter with a default"},
+		{"non-default after default posonly", "def f(a, b=1, /, c): pass", "parameter without a default follows parameter with a default"},
+		{"default order beats duplicate", "def f(a=1, a): pass", "parameter without a default follows parameter with a default"},
+		{"lone slash", "def f(/): pass", "invalid syntax"},
+		{"slash first", "def f(/, a): pass", "at least one argument must precede /"},
+		{"slash twice", "def f(a, /, b, /): pass", "/ may appear only once"},
+		{"slash right after slash", "def f(a, /, /): pass", "/ may appear only once"},
+		{"slash after star args", "def f(*a, /): pass", "/ must be ahead of *"},
+		{"slash after star args and param", "def f(*args, /, b): pass", "/ must be ahead of *"},
+		{"slash after bare star", "def f(*, /): pass", "/ must be ahead of *"},
+		{"star twice", "def f(*a, *b): pass", "* argument may appear only once"},
+		{"star after bare star", "def f(*, *a): pass", "* argument may appear only once"},
+		{"bare star after star args", "def f(*args, *, b): pass", "* argument may appear only once"},
+		{"param after kwargs", "def f(**k, a): pass", "arguments cannot follow var-keyword argument"},
+		{"kwargs twice", "def f(**k, **j): pass", "arguments cannot follow var-keyword argument"},
+		{"slash after kwargs", "def f(**k, /): pass", "arguments cannot follow var-keyword argument"},
+		{"star after kwargs", "def f(a, **k, *b): pass", "arguments cannot follow var-keyword argument"},
+		{"bare star alone", "def f(*): pass", "named arguments must follow bare *"},
+		{"bare star trailing comma", "def f(*,): pass", "named arguments must follow bare *"},
+		{"bare star at end", "def f(a, *): pass", "named arguments must follow bare *"},
+		{"bare star then kwargs", "def f(*, **k): pass", "named arguments must follow bare *"},
+		{"bare star then kwargs after param", "def f(a, *, **k): pass", "named arguments must follow bare *"},
+		{"star args default", "def f(*args=1): pass", "var-positional argument cannot have default value"},
+		{"kwargs default", "def f(**k=1): pass", "var-keyword argument cannot have default value"},
 		{"variable annotation", "x: int = 1", "variable annotations are not supported yet"},
 		{"match statement", "match x:\n    case 1:\n        pass\n", "match statements are not supported yet"},
 		{"assign to int", "1 = x", "cannot assign to literal"},
@@ -603,7 +712,7 @@ func TestParseErrors(t *testing.T) {
 		{"fstring two expressions", `f"{1 x}"`, "f-string: expecting '=', or '!', or ':', or '}'"},
 		{"fstring bare star", `f"{*x}"`, "can't use starred expression here"},
 		{"fstring star in tuple", `f"{*a, b}"`, "iterable unpacking is not supported yet"},
-		{"fstring keyword arg inside", `f"{g(a=1)}"`, "keyword arguments are not supported yet"},
+		{"fstring repeated keyword inside", `f"{g(a=1, a=2)}"`, "keyword argument repeated: a"},
 		{"fstring lambda inside", `f"{(lambda: x)}"`, "lambda expressions are not supported yet"},
 		{"fstring yield inside", `f"{yield}"`, "yield expressions are not supported yet"},
 		{"assign to fstring", `f"{x}" = 1`, "cannot assign to f-string expression"},
@@ -689,7 +798,7 @@ func TestParsePositions(t *testing.T) {
 		t.Errorf("stmt 1 span %+v", got)
 	}
 	call := m.Body[1].(*Assign).Value.(*Call)
-	if got := call.Args[0].Span(); got != (Pos{Line: 2, Col: 7}) {
+	if got := call.Args[0].Value.Span(); got != (Pos{Line: 2, Col: 7}) {
 		t.Errorf("call arg span %+v", got)
 	}
 }

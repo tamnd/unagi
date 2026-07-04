@@ -371,7 +371,7 @@ func (f *fnCtx) excClassNew(e frontend.Expr) (ast.Expr, bool, error) {
 		if c == "" {
 			break
 		}
-		args, err := f.exprList(e.Args)
+		args, err := f.plainArgExprs(e.Args)
 		if err != nil {
 			return nil, false, err
 		}

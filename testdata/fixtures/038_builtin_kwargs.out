@@ -1,0 +1,30 @@
+1:2:3|
+ab
+sep must be None or a string, not int
+42
+16
+sum() takes at least 1 positional argument (0 given)
+2.67
+round() missing required argument 'number' (pos 1)
+argument for round() given by name ('number') and position (1)
+1024 32 4
+pow() missing required argument 'base' (pos 1)
+[(5, 'a'), (6, 'b')]
+[(0, 'x'), (1, 'y')]
+'start' is an invalid keyword argument for enumerate()
+[3, 2, 1]
+[1, 2]
+sort() got an unexpected keyword argument 'revers'. Did you mean 'reverse'?
+'int' object is not callable
+99 None
+Cannot specify a default for min() with multiple positional arguments
+'int' object is not callable
+[('a', 1), ('b', 2)]
+row ('a', 'a')
+row ('b', 'b')
+zip() argument 2 is shorter than argument 1
+zip() argument 3 is longer than arguments 1-2
+{'a': 1, 'b': 2}
+{'x': 1, 'a': 9, 'z': 3}
+len() takes no keyword arguments
+format() takes no keyword arguments
