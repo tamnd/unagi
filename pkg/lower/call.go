@@ -19,6 +19,7 @@ var builtinNames = map[string]bool{
 	"frozenset": true, "format": true, "next": true,
 	"isinstance": true, "issubclass": true,
 	"getattr": true, "hasattr": true, "setattr": true, "delattr": true,
+	"any": true, "all": true,
 }
 
 // descriptorBuiltins are the builtin names that resolve to a value: the three
@@ -445,6 +446,21 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		return f.runtimeSliceCall("Enumerate", e)
 	case "zip":
 		return f.runtimeSliceCall("Zip", e)
+	case "any", "all":
+		if err := need1(); err != nil {
+			return nil, err
+		}
+		args, err := f.plainArgExprs(e.Args)
+		if err != nil {
+			return nil, err
+		}
+		fn := "Any"
+		if name == "all" {
+			fn = "All"
+		}
+		tmp := f.tmpVar()
+		f.fallible(tmp, sel("runtime", fn), args[0])
+		return ident(tmp), nil
 	case "getattr", "hasattr", "setattr", "delattr":
 		// Arity and the non-string-name TypeError are checked in the runtime
 		// helper, so a program can catch them the way it does in CPython.
