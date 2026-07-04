@@ -1428,8 +1428,21 @@ func (p *parser) parseCall(fn Expr) Expr {
 			sawKeyword = true
 			call.Args = append(call.Args, Arg{Pos_: n.Pos_, Name: n.Id, Value: p.parseTest()})
 		} else {
-			if p.isKw("for") {
-				p.errf(p.cur().pos, "generator expressions are not supported yet")
+			if p.isKw("for") || p.isAsyncFor() {
+				// A genexp is legal as a call argument only when it is the sole
+				// argument: f(x for x in y). Anything else in the parentheses,
+				// an earlier argument or a trailing one, is the parenthesize-it
+				// syntax error.
+				if len(call.Args) != 0 || sawKeyword || sawKwUnpack {
+					p.errf(p.cur().pos, "Generator expression must be parenthesized")
+				}
+				comp := &Comp{Pos_: arg.Span(), Kind: CompGen, Elt: arg, Clauses: p.parseCompClauses(p.cur())}
+				p.validateComp(comp)
+				call.Args = append(call.Args, Arg{Pos_: comp.Pos_, Value: comp})
+				if !p.isOp(")") {
+					p.errf(p.cur().pos, "Generator expression must be parenthesized")
+				}
+				break
 			}
 			if sawKwUnpack {
 				p.errf(arg.Span(), "positional argument follows keyword argument unpacking")
@@ -1606,8 +1619,11 @@ func (p *parser) parseParen() Expr {
 		return y
 	}
 	first := p.parseNamedTest()
-	if p.isKw("for") {
-		p.errf(p.cur().pos, "generator expressions are not supported yet")
+	if p.isKw("for") || p.isAsyncFor() {
+		comp := &Comp{Pos_: lp.pos, Kind: CompGen, Elt: first, Clauses: p.parseCompClauses(lp)}
+		p.wantCompClose(")")
+		p.validateComp(comp)
+		return comp
 	}
 	if p.eatOp(")") {
 		return first

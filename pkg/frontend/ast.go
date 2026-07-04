@@ -376,6 +376,7 @@ const (
 	CompList CompKind = iota
 	CompSet
 	CompDict
+	CompGen
 )
 
 // CompClause is one `for target in iter` leg with its trailing `if`
@@ -387,8 +388,9 @@ type CompClause struct {
 	Ifs    []Expr
 }
 
-// Comp is a list, set, or dict comprehension. Elt is the element, or the
-// key when Kind is CompDict, with Val carrying the value.
+// Comp is a list, set, or dict comprehension, or a generator expression when
+// Kind is CompGen. Elt is the element, or the key when Kind is CompDict, with
+// Val carrying the value.
 type Comp struct {
 	Pos_    Pos
 	Kind    CompKind
