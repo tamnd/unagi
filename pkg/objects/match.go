@@ -82,9 +82,11 @@ func MatchKeys(o Object, keys []Object) ([]Object, bool, error) {
 }
 
 // MatchClass gates a class pattern (`case Cls(pos..., kw=...)`). cls must be a
-// class object, otherwise the probed "called match pattern must be a class"
-// TypeError fires regardless of the subject. When subj is not an instance of
-// cls the pattern simply does not match, so ok is false with no error. On a
+// user class or a builtin type; anything else raises the probed "called match
+// pattern must be a class" TypeError regardless of the subject. A builtin type
+// routes to matchBuiltinClass for its self-match rules. When subj is not an
+// instance of cls the pattern simply does not match, so ok is false with no
+// error. On a
 // match it resolves the attribute names the sub-patterns bind to: the first
 // nPos through the class's __match_args__ (validated as a tuple of strings,
 // with the too-many / non-tuple / non-string TypeErrors), then kwNames appended
@@ -94,6 +96,9 @@ func MatchKeys(o Object, keys []Object) ([]Object, bool, error) {
 func MatchClass(subj, cls Object, nPos int, kwNames []string) ([]string, bool, error) {
 	c, ok := cls.(*classObject)
 	if !ok {
+		if name, ok := builtinTypeArgName(cls); ok {
+			return matchBuiltinClass(subj, name, nPos, kwNames)
+		}
 		return nil, false, Raise(TypeError, "called match pattern must be a class")
 	}
 	if !classMatches(subj, c) {
@@ -131,6 +136,45 @@ func MatchClass(subj, cls Object, nPos int, kwNames []string) ([]string, bool, e
 	return names, true, nil
 }
 
+// selfMatchBuiltins are the builtin types CPython special-cases so a single
+// positional sub-pattern binds the whole subject rather than an attribute. Every
+// other builtin type accepts zero positional sub-patterns.
+var selfMatchBuiltins = map[string]bool{
+	"bool": true, "bytearray": true, "bytes": true, "dict": true,
+	"float": true, "frozenset": true, "int": true, "list": true,
+	"set": true, "str": true, "tuple": true,
+}
+
+// selfMatchSentinel is the attribute name MatchClass hands back for a builtin
+// self-match slot; MatchClassAttr reads it as the subject itself.
+const selfMatchSentinel = ""
+
+// matchBuiltinClass gates a class pattern whose class is a builtin type. The
+// isinstance test reuses the builtin subtype lattice, a self-match builtin takes
+// one positional that binds the subject, and every other builtin takes none.
+// Keyword sub-patterns load as ordinary attributes.
+func matchBuiltinClass(subj Object, name string, nPos int, kwNames []string) ([]string, bool, error) {
+	if !instanceOfBuiltin(subj, name) {
+		return nil, false, nil
+	}
+	maxPos := 0
+	if selfMatchBuiltins[name] {
+		maxPos = 1
+	}
+	if nPos > maxPos {
+		noun := "sub-patterns"
+		if maxPos == 1 {
+			noun = "sub-pattern"
+		}
+		return nil, false, Raise(TypeError, "%s() accepts %d positional %s (%d given)", name, maxPos, noun, nPos)
+	}
+	names := make([]string, 0, nPos+len(kwNames))
+	if nPos == 1 {
+		names = append(names, selfMatchSentinel)
+	}
+	return append(names, kwNames...), true, nil
+}
+
 // classMatches reports whether subj is an instance of c, the isinstance gate a
 // class pattern runs before touching any sub-pattern. object matches every
 // value; every other class matches only user instances carrying it in the MRO.
@@ -154,6 +198,9 @@ func classMatches(subj Object, c *classObject) bool {
 // attribute makes the whole pattern fail rather than raise, so an
 // AttributeError becomes ok=false; any other error propagates unchanged.
 func MatchClassAttr(subj Object, name string) (Object, bool, error) {
+	if name == selfMatchSentinel {
+		return subj, true, nil
+	}
 	v, err := LoadAttr(subj, name)
 	if err != nil {
 		if e, ok := err.(*Exception); ok && e.Kind == AttributeError {

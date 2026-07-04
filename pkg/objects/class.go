@@ -315,10 +315,58 @@ func classBase(c *classObject) Object {
 	return c.bases[0]
 }
 
-// IsInstance implements isinstance(obj, cls). cls is a class or a tuple of
-// classes; anything else raises the arg 2 TypeError probed on 3.14. A user
-// instance matches when cls is in its MRO or is the object root; a builtin
-// value is an instance of object alone.
+// builtinTypeArgName reports the type name carried by a value used as a type
+// argument to isinstance, issubclass, or a class pattern: a builtin constructor
+// like int or the metatype type, or a constructor-less type singleton like
+// type(None). It does not accept user classes (those take the classObject path)
+// or exception matchers.
+func builtinTypeArgName(cls Object) (string, bool) {
+	switch c := cls.(type) {
+	case *funcObject:
+		if builtinTypeReprs[c.name] {
+			return c.name, true
+		}
+	case *typeObject:
+		return c.name, true
+	}
+	return "", false
+}
+
+// isTypeArg reports whether o is itself a type value, the test isinstance(o,
+// type) runs. It extends IsTypeValue to the builtin constructors, which are
+// funcObjects rather than typeObjects yet still reprs as classes.
+func isTypeArg(o Object) bool {
+	if IsTypeValue(o) {
+		return true
+	}
+	if f, ok := o.(*funcObject); ok {
+		return builtinTypeReprs[f.name]
+	}
+	return false
+}
+
+// instanceOfBuiltin reports whether obj is an instance of the builtin type
+// named name. int owns bool as a subtype, type covers every type value, and
+// every other kind matches its own TypeName exactly.
+func instanceOfBuiltin(obj Object, name string) bool {
+	switch name {
+	case "type":
+		return isTypeArg(obj)
+	case "int":
+		switch obj.(type) {
+		case *intObject, *boolObject:
+			return true
+		}
+		return false
+	default:
+		return obj.TypeName() == name
+	}
+}
+
+// IsInstance implements isinstance(obj, cls). cls is a class, a builtin type, or
+// a tuple of those; anything else raises the arg 2 TypeError probed on 3.14. A
+// user instance matches when cls is in its MRO or is the object root; a builtin
+// value matches when its kind is or descends from the named builtin type.
 func IsInstance(obj, cls Object) (Object, error) {
 	if t, ok := cls.(*tupleObject); ok {
 		for _, e := range t.elts {
@@ -332,34 +380,42 @@ func IsInstance(obj, cls Object) (Object, error) {
 		}
 		return False, nil
 	}
-	c, ok := cls.(*classObject)
-	if !ok {
-		return nil, Raise(TypeError, "isinstance() arg 2 must be a type, a tuple of types, or a union")
-	}
-	if c == objectClass {
-		return True, nil
-	}
-	inst, ok := obj.(*instanceObject)
-	if !ok {
-		return False, nil
-	}
-	for _, k := range inst.cls.mro {
-		if k == c {
+	if c, ok := cls.(*classObject); ok {
+		if c == objectClass {
 			return True, nil
 		}
+		inst, ok := obj.(*instanceObject)
+		if !ok {
+			return False, nil
+		}
+		for _, k := range inst.cls.mro {
+			if k == c {
+				return True, nil
+			}
+		}
+		return False, nil
 	}
-	return False, nil
+	if name, ok := builtinTypeArgName(cls); ok {
+		if instanceOfBuiltin(obj, name) {
+			return True, nil
+		}
+		return False, nil
+	}
+	return nil, Raise(TypeError, "isinstance() arg 2 must be a type, a tuple of types, or a union")
 }
 
-// IsSubclass implements issubclass(sub, cls). sub is validated as a class
-// first, matching CPython's arg 1 check that fires before arg 2; cls is a
-// class or a tuple of classes. Every class is a subclass of object.
+// IsSubclass implements issubclass(sub, cls). sub is validated as a class or a
+// builtin type first, matching CPython's arg 1 check that fires before arg 2;
+// cls is a class, a builtin type, or a tuple of those. Every class is a
+// subclass of object.
 func IsSubclass(sub, cls Object) (Object, error) {
-	sc, ok := sub.(*classObject)
-	if !ok {
-		return nil, Raise(TypeError, "issubclass() arg 1 must be a class")
+	if sc, ok := sub.(*classObject); ok {
+		return subclassOf(sc, cls)
 	}
-	return subclassOf(sc, cls)
+	if sname, ok := builtinTypeArgName(sub); ok {
+		return builtinSubclassOf(sname, cls)
+	}
+	return nil, Raise(TypeError, "issubclass() arg 1 must be a class")
 }
 
 func subclassOf(sc *classObject, cls Object) (Object, error) {
@@ -375,22 +431,56 @@ func subclassOf(sc *classObject, cls Object) (Object, error) {
 		}
 		return False, nil
 	}
-	c, ok := cls.(*classObject)
-	if !ok {
-		return nil, Raise(TypeError, "issubclass() arg 2 must be a class, a tuple of classes, or a union")
-	}
-	if c == objectClass {
-		return True, nil
-	}
-	if sc == objectClass {
-		return False, nil
-	}
-	for _, k := range sc.mro {
-		if k == c {
+	if c, ok := cls.(*classObject); ok {
+		if c == objectClass {
 			return True, nil
 		}
+		if sc == objectClass {
+			return False, nil
+		}
+		for _, k := range sc.mro {
+			if k == c {
+				return True, nil
+			}
+		}
+		return False, nil
 	}
-	return False, nil
+	// A user class is a subclass of no builtin type other than object.
+	if _, ok := builtinTypeArgName(cls); ok {
+		return False, nil
+	}
+	return nil, Raise(TypeError, "issubclass() arg 2 must be a class, a tuple of classes, or a union")
+}
+
+// builtinSubclassOf answers issubclass when the first argument is a builtin
+// type. A builtin type descends only from itself, from object, and bool from
+// int; it is never a subclass of a user class.
+func builtinSubclassOf(sname string, cls Object) (Object, error) {
+	if t, ok := cls.(*tupleObject); ok {
+		for _, e := range t.elts {
+			r, err := builtinSubclassOf(sname, e)
+			if err != nil {
+				return nil, err
+			}
+			if r == True {
+				return True, nil
+			}
+		}
+		return False, nil
+	}
+	if c, ok := cls.(*classObject); ok {
+		if c == objectClass {
+			return True, nil
+		}
+		return False, nil
+	}
+	if tname, ok := builtinTypeArgName(cls); ok {
+		if sname == tname || (tname == "int" && sname == "bool") {
+			return True, nil
+		}
+		return False, nil
+	}
+	return nil, Raise(TypeError, "issubclass() arg 2 must be a class, a tuple of classes, or a union")
 }
 
 // lookup finds a name on the class by walking the MRO, so an inherited
