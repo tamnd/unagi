@@ -136,7 +136,7 @@ func (f *fnCtx) matchPat(pat frontend.Pattern, subj ast.Expr, binds *[]binder, k
 	case *frontend.PatOr:
 		return f.matchOr(pat, subj, binds, k)
 	case *frontend.PatClass:
-		return f.e.errf(pat.Span(), "class patterns are not supported yet")
+		return f.matchClass(pat, subj, binds, k)
 	default:
 		return f.e.errf(pat.Span(), "match pattern not supported yet")
 	}
@@ -256,6 +256,66 @@ func (f *fnCtx) matchSeqElts(subj ast.Expr, ln string, elts []frontend.Pattern, 
 	return f.matchPat(el, ident(t), binds, func() error {
 		return f.matchSeqElts(subj, ln, elts, star, before, after, idx+1, binds, k)
 	})
+}
+
+// matchClass matches a class pattern: the isinstance gate plus __match_args__
+// resolution run in MatchClass, then each attribute loads and funnels into its
+// sub-pattern. MatchClass returns the attribute names lined up with the
+// sub-patterns (positional first, then keyword), so the two walk in step.
+func (f *fnCtx) matchClass(pat *frontend.PatClass, subj ast.Expr, binds *[]binder, k func() error) error {
+	clsExpr, err := f.expr(pat.Cls)
+	if err != nil {
+		return err
+	}
+	cls := f.tmpVar()
+	f.add(define(ident(cls), clsExpr))
+	subs := make([]frontend.Pattern, 0, len(pat.Pos)+len(pat.KwValues))
+	subs = append(subs, pat.Pos...)
+	subs = append(subs, pat.KwValues...)
+	// The name slice is only indexed when a sub-pattern reads an attribute; with
+	// none, the gate runs for its isinstance check and the names go unread.
+	names := "_"
+	if len(subs) > 0 {
+		names = f.tmpVar()
+	}
+	okc := f.tmpVar()
+	f.add(assign(token.DEFINE, []ast.Expr{ident(names), ident(okc), ident("err")},
+		callExpr(f.e.obj("MatchClass"), subj, ident(cls),
+			intLit(strconv.Itoa(len(pat.Pos))), strSliceLit(pat.KwNames))))
+	f.check(nil)
+	f.push() // body of `if okc`
+	if err := f.matchClassAttrs(subj, names, subs, 0, binds, k); err != nil {
+		return err
+	}
+	f.add(&ast.IfStmt{Cond: ident(okc), Body: f.pop()})
+	return nil
+}
+
+// matchClassAttrs funnels through the class-pattern sub-patterns left to right.
+// Every slot loads through MatchClassAttr even under a wildcard, because a
+// missing attribute fails the whole pattern in CPython; a wildcard drops the
+// value into the blank but still gates on the attribute's presence.
+func (f *fnCtx) matchClassAttrs(subj ast.Expr, names string, subs []frontend.Pattern, i int, binds *[]binder, k func() error) error {
+	if i >= len(subs) {
+		return k()
+	}
+	tname := "_"
+	if !isWildcard(subs[i]) {
+		tname = f.tmpVar()
+	}
+	okt := f.tmpVar()
+	f.add(assign(token.DEFINE, []ast.Expr{ident(tname), ident(okt), ident("err")},
+		callExpr(f.e.obj("MatchClassAttr"), subj,
+			&ast.IndexExpr{X: ident(names), Index: intLit(strconv.Itoa(i))})))
+	f.check(nil)
+	f.push() // body of `if okt`
+	if err := f.matchPat(subs[i], ident(tname), binds, func() error {
+		return f.matchClassAttrs(subj, names, subs, i+1, binds, k)
+	}); err != nil {
+		return err
+	}
+	f.add(&ast.IfStmt{Cond: ident(okt), Body: f.pop()})
+	return nil
 }
 
 // matchMapping matches a mapping pattern: a MatchMapping kind check, a key

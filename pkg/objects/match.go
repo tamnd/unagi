@@ -81,6 +81,89 @@ func MatchKeys(o Object, keys []Object) ([]Object, bool, error) {
 	return vals, true, nil
 }
 
+// MatchClass gates a class pattern (`case Cls(pos..., kw=...)`). cls must be a
+// class object, otherwise the probed "called match pattern must be a class"
+// TypeError fires regardless of the subject. When subj is not an instance of
+// cls the pattern simply does not match, so ok is false with no error. On a
+// match it resolves the attribute names the sub-patterns bind to: the first
+// nPos through the class's __match_args__ (validated as a tuple of strings,
+// with the too-many / non-tuple / non-string TypeErrors), then kwNames appended
+// in order. A keyword naming an attribute a positional slot already claimed
+// raises the multiple-sub-patterns TypeError. The returned slice lines up with
+// the sub-patterns the caller matches: positional first, then keyword.
+func MatchClass(subj, cls Object, nPos int, kwNames []string) ([]string, bool, error) {
+	c, ok := cls.(*classObject)
+	if !ok {
+		return nil, false, Raise(TypeError, "called match pattern must be a class")
+	}
+	if !classMatches(subj, c) {
+		return nil, false, nil
+	}
+	names := make([]string, 0, nPos+len(kwNames))
+	if nPos > 0 {
+		var slots []Object
+		if ma, has := c.lookup("__match_args__"); has {
+			t, ok := ma.(*tupleObject)
+			if !ok {
+				return nil, false, Raise(TypeError, "%s.__match_args__ must be a tuple (got %s)", c.name, ma.TypeName())
+			}
+			slots = t.elts
+		}
+		if nPos > len(slots) {
+			return nil, false, Raise(TypeError, "%s() accepts %d positional sub-patterns (%d given)", c.name, len(slots), nPos)
+		}
+		for i := 0; i < nPos; i++ {
+			s, ok := AsStr(slots[i])
+			if !ok {
+				return nil, false, Raise(TypeError, "__match_args__ elements must be strings (got %s)", slots[i].TypeName())
+			}
+			names = append(names, s)
+		}
+	}
+	for _, kw := range kwNames {
+		for _, pn := range names {
+			if pn == kw {
+				return nil, false, Raise(TypeError, "%s() got multiple sub-patterns for attribute '%s'", c.name, kw)
+			}
+		}
+		names = append(names, kw)
+	}
+	return names, true, nil
+}
+
+// classMatches reports whether subj is an instance of c, the isinstance gate a
+// class pattern runs before touching any sub-pattern. object matches every
+// value; every other class matches only user instances carrying it in the MRO.
+func classMatches(subj Object, c *classObject) bool {
+	if c == objectClass {
+		return true
+	}
+	inst, ok := subj.(*instanceObject)
+	if !ok {
+		return false
+	}
+	for _, k := range inst.cls.mro {
+		if k == c {
+			return true
+		}
+	}
+	return false
+}
+
+// MatchClassAttr loads subj.name for a class-pattern sub-pattern. A missing
+// attribute makes the whole pattern fail rather than raise, so an
+// AttributeError becomes ok=false; any other error propagates unchanged.
+func MatchClassAttr(subj Object, name string) (Object, bool, error) {
+	v, err := LoadAttr(subj, name)
+	if err != nil {
+		if e, ok := err.(*Exception); ok && e.Kind == AttributeError {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	return v, true, nil
+}
+
 // MatchRest copies a mapping subject minus the given keys into a fresh dict,
 // preserving insertion order, for a mapping pattern's `**rest` capture.
 func MatchRest(o Object, keys []Object) (Object, error) {
