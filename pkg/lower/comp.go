@@ -71,6 +71,10 @@ func (f *fnCtx) comp(e *frontend.Comp) (ast.Expr, error) {
 				for _, el := range t.Elts {
 					walk(el)
 				}
+			case *frontend.ListLit:
+				for _, el := range t.Elts {
+					walk(el)
+				}
 			}
 		}
 		walk(target)
@@ -216,6 +220,10 @@ func (f *fnCtx) genexp(e *frontend.Comp) (ast.Expr, error) {
 			case *frontend.Starred:
 				walk(t.X)
 			case *frontend.TupleLit:
+				for _, el := range t.Elts {
+					walk(el)
+				}
+			case *frontend.ListLit:
 				for _, el := range t.Elts {
 					walk(el)
 				}

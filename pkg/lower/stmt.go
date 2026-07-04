@@ -245,20 +245,10 @@ func (f *fnCtx) assignTo(target frontend.Expr, v ast.Expr) error {
 		f.fallibleVoid(f.e.obj("SetItem"), x, idx, v)
 		return nil
 	case *frontend.TupleLit:
-		for i, el := range t.Elts {
-			if _, ok := el.(*frontend.Starred); ok {
-				return f.assignStarred(t, i, v)
-			}
-		}
-		parts := f.tmpVar()
-		f.fallible(parts, f.e.obj("Unpack"), v, intLit(strconv.Itoa(len(t.Elts))))
-		for i, el := range t.Elts {
-			part := &ast.IndexExpr{X: ident(parts), Index: intLit(strconv.Itoa(i))}
-			if err := f.assignTo(el, part); err != nil {
-				return err
-			}
-		}
-		return nil
+		return f.assignSequence(t.Elts, v)
+	case *frontend.ListLit:
+		// A list-display target unpacks exactly like a tuple target.
+		return f.assignSequence(t.Elts, v)
 	case *frontend.Attribute:
 		x, err := f.expr(t.X)
 		if err != nil {
@@ -271,16 +261,42 @@ func (f *fnCtx) assignTo(target frontend.Expr, v ast.Expr) error {
 	}
 }
 
+// assignSequence unpacks a value into a tuple- or list-display target. It
+// picks UnpackEx when one element is starred and plain Unpack otherwise, then
+// assigns each part to its element target.
+func (f *fnCtx) assignSequence(elts []frontend.Expr, v ast.Expr) error {
+	for i, el := range elts {
+		if _, ok := el.(*frontend.Starred); ok {
+			return f.assignStarred(elts, i, v)
+		}
+	}
+	parts := f.tmpVar()
+	f.fallible(parts, f.e.obj("Unpack"), v, intLit(strconv.Itoa(len(elts))))
+	if len(elts) == 0 {
+		// An empty target still runs Unpack to reject a non-empty value, but
+		// binds nothing, so the parts slice would go unused in Go.
+		f.add(set(ident("_"), ident(parts)))
+		return nil
+	}
+	for i, el := range elts {
+		part := &ast.IndexExpr{X: ident(parts), Index: intLit(strconv.Itoa(i))}
+		if err := f.assignTo(el, part); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // assignStarred handles a target list with one starred element. UnpackEx
 // splits the value into exactly before heads and after tails around a list of
 // whatever remains, so the parts index one to one with the targets.
-func (f *fnCtx) assignStarred(t *frontend.TupleLit, star int, v ast.Expr) error {
+func (f *fnCtx) assignStarred(elts []frontend.Expr, star int, v ast.Expr) error {
 	before := star
-	after := len(t.Elts) - star - 1
+	after := len(elts) - star - 1
 	parts := f.tmpVar()
 	f.fallible(parts, f.e.obj("UnpackEx"), v,
 		intLit(strconv.Itoa(before)), intLit(strconv.Itoa(after)))
-	for i, el := range t.Elts {
+	for i, el := range elts {
 		if i == star {
 			el = el.(*frontend.Starred).X
 		}

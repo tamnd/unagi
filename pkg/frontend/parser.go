@@ -315,12 +315,17 @@ func (p *parser) addDelTargets(d *Del, e Expr) {
 	switch e := e.(type) {
 	case *Name, *Subscript, *Attribute:
 		d.Targets = append(d.Targets, e)
-	case *TupleLit:
-		for _, elt := range e.Elts {
+	case *TupleLit, *ListLit:
+		// del (a, b) and del [a, b] both delete each element in turn.
+		var elts []Expr
+		if t, ok := e.(*TupleLit); ok {
+			elts = t.Elts
+		} else {
+			elts = e.(*ListLit).Elts
+		}
+		for _, elt := range elts {
 			p.addDelTargets(d, elt)
 		}
-	case *ListLit:
-		p.errf(e.Span(), "list deletion targets are not supported yet")
 	case *Starred:
 		p.errf(e.Span(), "cannot delete starred")
 	case *FStr:
@@ -408,20 +413,11 @@ func (p *parser) checkAssignTarget(e Expr) {
 		// TupleLit branch unwraps it before recursing.
 		p.errf(e.Span(), "starred assignment target must be in a list or tuple")
 	case *TupleLit:
-		stars := 0
-		for _, elt := range e.Elts {
-			if s, ok := elt.(*Starred); ok {
-				stars++
-				if stars > 1 {
-					p.errf(s.Span(), "multiple starred expressions in assignment")
-				}
-				p.checkAssignTarget(s.X)
-				continue
-			}
-			p.checkAssignTarget(elt)
-		}
+		// A list display unpacks exactly like a tuple, so `[a, b] = v` and
+		// `[a, *b] = v` share the element checks below.
+		p.checkTargetElts(e.Elts)
 	case *ListLit:
-		p.errf(e.Span(), "list assignment targets are not supported yet")
+		p.checkTargetElts(e.Elts)
 	case *Attribute:
 		// obj.attr = value is a valid target; the lowering stores through it.
 	case *FStr:
@@ -443,6 +439,24 @@ func (p *parser) checkAssignTarget(e Expr) {
 		p.errf(e.Span(), "cannot assign to set display")
 	default:
 		p.errf(e.Span(), "cannot assign to expression")
+	}
+}
+
+// checkTargetElts validates the elements of a tuple or list unpacking target.
+// At most one element may be starred, matching CPython's "multiple starred
+// expressions in assignment".
+func (p *parser) checkTargetElts(elts []Expr) {
+	stars := 0
+	for _, elt := range elts {
+		if s, ok := elt.(*Starred); ok {
+			stars++
+			if stars > 1 {
+				p.errf(s.Span(), "multiple starred expressions in assignment")
+			}
+			p.checkAssignTarget(s.X)
+			continue
+		}
+		p.checkAssignTarget(elt)
 	}
 }
 

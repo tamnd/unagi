@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+(10, 20, 1, 2, 3)
+h i
+{'k': 7} 8
+0 [1, 2, 3] 4
+empty ok
+42
+del name name 'g' is not defined
+after del subscript {'j': 2}
+too many too many values to unpack (expected 2, got 3)
+too few not enough values to unpack (expected 3, got 2)
+expected empty too many values to unpack (expected 0, got 1)
+== exception:
+== stderr:

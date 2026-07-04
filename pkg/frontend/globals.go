@@ -227,6 +227,10 @@ func boundNames(body []Stmt, params []Param) map[string]bool {
 			for _, el := range t.Elts {
 				bindTarget(el)
 			}
+		case *ListLit:
+			for _, el := range t.Elts {
+				bindTarget(el)
+			}
 		}
 	}
 
@@ -410,6 +414,10 @@ func (c *globalScope) target(t Expr) {
 	case *Starred:
 		c.target(t.X)
 	case *TupleLit:
+		for _, el := range t.Elts {
+			c.target(el)
+		}
+	case *ListLit:
 		for _, el := range t.Elts {
 			c.target(el)
 		}
