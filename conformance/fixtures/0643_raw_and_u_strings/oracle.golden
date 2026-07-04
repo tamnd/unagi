@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+'\\n\\t\\q'
+'C:\\path\\to\\file'
+'back\\\\slash'
+'a\\"b' 4
+'\\x41'
+'line\\none'
+'café'
+'plain' '€'
+== exception:
+== stderr:
