@@ -622,54 +622,42 @@ func (p *parser) matchParen(open int) int {
 	return -1
 }
 
-// parseForTarget parses the loop target, which M1 limits to a name, a
-// starred name, or a comma tuple of those, with parentheses allowed. Each
-// tuple level allows at most one star, per CPython.
+// parseForTarget parses the loop target, which is a full assignment-target
+// list: a name, attribute, subscript, list or tuple display, or a comma
+// tuple of those. Each element is a primary with trailers, so `for a[0] in x`,
+// `for a.b in x`, and `for [a, b] in x` all parse; checkAssignTarget then
+// rejects anything that cannot be assigned. The same parser serves the for
+// statement and comprehension clauses.
 func (p *parser) parseForTarget() Expr {
-	first := p.parseForTargetAtom()
+	first := p.parseForTargetElement()
 	if !p.isOp(",") {
+		p.checkAssignTarget(first)
 		return first
 	}
 	elts := []Expr{first}
 	for p.eatOp(",") {
-		t := p.cur()
-		if t.kind != tName && !p.isOp("(") && !p.isOp("*") {
+		if !startsExpr(p.cur()) {
 			break
 		}
-		elts = append(elts, p.parseForTargetAtom())
+		elts = append(elts, p.parseForTargetElement())
 	}
-	stars := 0
-	for _, elt := range elts {
-		if s, ok := elt.(*Starred); ok {
-			stars++
-			if stars > 1 {
-				p.errf(s.Span(), "multiple starred expressions in assignment")
-			}
-		}
-	}
-	return &TupleLit{Pos_: first.Span(), Elts: elts}
+	tup := &TupleLit{Pos_: first.Span(), Elts: elts}
+	p.checkAssignTarget(tup)
+	return tup
 }
 
-func (p *parser) parseForTargetAtom() Expr {
-	t := p.cur()
-	switch {
-	case t.kind == tName:
+// parseForTargetElement parses one element of a for-loop target list. A bare
+// star element is handled here so the surrounding tuple owns the one-star
+// rule; everything else is a primary with trailers via parsePostfix, which
+// stops before the `in` keyword since `in` is a comparison operator, not a
+// trailer.
+func (p *parser) parseForTargetElement() Expr {
+	if p.isOp("*") {
+		pos := p.cur().pos
 		p.advance()
-		if p.isOp(".") || p.isOp("[") || p.isOp("(") {
-			p.errf(t.pos, "for loop target must be a name or tuple of names")
-		}
-		return &Name{Pos_: t.pos, Id: t.text}
-	case p.isOp("("):
-		p.advance()
-		inner := p.parseForTarget()
-		p.wantOp(")")
-		return inner
-	case p.isOp("*"):
-		p.advance()
-		return &Starred{Pos_: t.pos, X: p.parseForTargetAtom()}
+		return &Starred{Pos_: pos, X: p.parseForTargetElement()}
 	}
-	p.errf(t.pos, "for loop target must be a name or tuple of names")
-	return nil
+	return p.parsePostfix()
 }
 
 // parseDecorated parses one or more `@ expr NEWLINE` lines followed by the
