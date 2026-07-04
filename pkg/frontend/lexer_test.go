@@ -32,6 +32,8 @@ func lexRender(toks []token) string {
 			parts = append(parts, "float:"+tk.text)
 		case tString:
 			parts = append(parts, "str:"+strconv.Quote(tk.text))
+		case tBytes:
+			parts = append(parts, "bytes:"+strconv.Quote(tk.text))
 		case tFStrStart:
 			parts = append(parts, "fstart:"+tk.text)
 		case tFStrMid:
@@ -88,6 +90,14 @@ func TestLexTokens(t *testing.T) {
 		{"raw string keeps backslashes", `r'\n\t\q'`, `str:"\\n\\t\\q" NL EOF`},
 		{"raw string escaped quote keeps both", `r'a\'b'`, `str:"a\\'b" NL EOF`},
 		{"raw string uppercase prefix", `R'\x41'`, `str:"\\x41" NL EOF`},
+		{"bytes literal", `b'hi'`, `bytes:"hi" NL EOF`},
+		{"bytes upper prefix", `B"hi"`, `bytes:"hi" NL EOF`},
+		{"bytes hex and octal escapes", `b'\x41\102\a\0'`, `bytes:"AB\a\x00" NL EOF`},
+		{"bytes octal wraps to one byte", `b'\777'`, "bytes:\"\\xff\" NL EOF"},
+		{"bytes unknown escape keeps backslash", `b'\q'`, `bytes:"\\q" NL EOF`},
+		{"raw bytes keeps backslashes", `rb'\n\t'`, `bytes:"\\n\\t" NL EOF`},
+		{"raw bytes alt order", `br'C:\x'`, `bytes:"C:\\x" NL EOF`},
+		{"bytes adjacent tokens stay separate", `b'a' b'b'`, `bytes:"a" bytes:"b" NL EOF`},
 		{"legacy u prefix is plain str", `u'caf\xe9'`, `str:"café" NL EOF`},
 		{"escaped newline in string", "'a\\\nb'", `str:"ab" NL EOF`},
 		{"longest match star", "a **= b ** c * d *= e", "a **= b ** c * d *= e NL EOF"},
@@ -168,8 +178,9 @@ func TestLexErrors(t *testing.T) {
 		{"bad hex escape", `x = '\x4'`, `invalid \x escape`},
 		{"bad short unicode escape", `x = '\u12'`, `invalid \u escape`},
 		{"bad long unicode escape", `x = '\U0001f60'`, `invalid \U escape`},
-		{"bytes", `b'hi'`, "bytes literals are not supported yet"},
-		{"raw bytes", `rb'hi'`, "bytes literals are not supported yet"},
+		{"bytes non-ascii", "b'é'", "bytes can only contain ASCII literal characters"},
+		{"bytes bad hex escape", `b'\x4'`, `invalid \x escape`},
+		{"unterminated bytes", `b'abc`, "unterminated string literal (detected at line 1)"},
 		{"tstring", `t"x"`, "t-strings are not supported yet"},
 		{"raw tstring", `rt'y'`, "t-strings are not supported yet"},
 		{"fstring lone closing brace", `f"}"`, "f-string: single '}' is not allowed"},

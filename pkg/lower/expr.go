@@ -70,6 +70,11 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		return callExpr(f.e.obj("NewFloat"), floatLit(e.Val)), nil
 	case *frontend.StrLit:
 		return callExpr(f.e.obj("NewStr"), strLit(e.Val)), nil
+	case *frontend.BytesLit:
+		// The decoded bytes ride in a Go string literal; strconv.Quote keeps
+		// every byte, then a []byte conversion hands them to NewBytes.
+		conv := callExpr(&ast.ArrayType{Elt: ident("byte")}, strLit(e.Val))
+		return callExpr(f.e.obj("NewBytes"), conv), nil
 	case *frontend.BoolLit:
 		if e.Val {
 			return f.e.obj("True"), nil

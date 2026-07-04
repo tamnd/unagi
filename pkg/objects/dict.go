@@ -62,6 +62,10 @@ func hashKey(o Object) (string, error) {
 		return "f" + strconv.FormatUint(math.Float64bits(v), 16), nil
 	case *strObject:
 		return "s" + x.v, nil
+	case *bytesObject:
+		// A distinct prefix keeps b"a" and "a" in separate slots, matching
+		// their inequality.
+		return "b" + string(x.v), nil
 	case *tupleObject:
 		var b strings.Builder
 		b.WriteString("t")

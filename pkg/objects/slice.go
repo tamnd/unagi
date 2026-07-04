@@ -127,6 +127,16 @@ func GetSlice(o, lo, hi, step Object) (Object, error) {
 			out = append(out, runes[j])
 		}
 		return NewStr(string(out)), nil
+	case *bytesObject:
+		start, st, n, err := sliceIndices(lo, hi, step, len(x.v))
+		if err != nil {
+			return nil, err
+		}
+		out := make([]byte, 0, n)
+		for i, j := 0, start; i < n; i, j = i+1, j+st {
+			out = append(out, x.v[j])
+		}
+		return NewBytes(out), nil
 	}
 	// Probed on 3.14: (1)[0:1] -> TypeError: 'int' object is not
 	// subscriptable. Range and dict slicing are not modeled yet.

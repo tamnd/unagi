@@ -46,6 +46,8 @@ func PyHash(o Object) (int64, error) {
 		return pyHashFloat(x.v), nil
 	case *strObject:
 		return pyHashStr(x.v), nil
+	case *bytesObject:
+		return pyHashBytes(x.v), nil
 	case *tupleObject:
 		return pyHashTuple(x.elts)
 	case *frozensetObject:
@@ -198,6 +200,20 @@ func pyHashStr(s string) int64 {
 		return 0
 	}
 	r := int64(siphash13(ucsBytes(s)))
+	if r == -1 {
+		r = -2
+	}
+	return r
+}
+
+// pyHashBytes hashes a bytes value with siphash13 over the raw buffer,
+// the same _Py_HashBytes CPython uses for str contents. Empty bytes hash
+// to 0 before any hashing, like the empty-string special case.
+func pyHashBytes(v []byte) int64 {
+	if len(v) == 0 {
+		return 0
+	}
+	r := int64(siphash13(v))
 	if r == -1 {
 		r = -2
 	}

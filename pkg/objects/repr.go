@@ -183,6 +183,8 @@ func reprCore(o Object, strict bool) (string, error) {
 		return floatRepr(x.v), nil
 	case *strObject:
 		return strRepr(x.v), nil
+	case *bytesObject:
+		return bytesRepr(x.v), nil
 	case *listObject:
 		return reprSeqCore(x.elts, "[", "]", strict)
 	case *tupleObject:

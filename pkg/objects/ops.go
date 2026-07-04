@@ -21,6 +21,8 @@ func Truth(o Object) bool {
 		return x.v != 0
 	case *strObject:
 		return len(x.v) > 0
+	case *bytesObject:
+		return len(x.v) > 0
 	case *listObject:
 		return len(x.elts) > 0
 	case *tupleObject:
@@ -162,6 +164,15 @@ func Add(a, b Object) (Object, error) {
 			return NewStr(x.v + y.v), nil
 		}
 		return nil, Raise(TypeError, "can only concatenate str (not %q) to str", b.TypeName())
+	case *bytesObject:
+		if y, ok := b.(*bytesObject); ok {
+			out := make([]byte, 0, len(x.v)+len(y.v))
+			out = append(out, x.v...)
+			out = append(out, y.v...)
+			return NewBytes(out), nil
+		}
+		// Probed on 3.14: b"a" + "b" -> TypeError: can't concat str to bytes.
+		return nil, Raise(TypeError, "can't concat %s to bytes", b.TypeName())
 	case *listObject:
 		if y, ok := b.(*listObject); ok {
 			out := make([]Object, 0, len(x.elts)+len(y.elts))
@@ -227,7 +238,7 @@ func Sub(a, b Object) (Object, error) {
 
 func isSequence(o Object) bool {
 	switch o.(type) {
-	case *strObject, *listObject, *tupleObject:
+	case *strObject, *bytesObject, *listObject, *tupleObject:
 		return true
 	}
 	return false
@@ -240,6 +251,12 @@ func repeatSeq(seq Object, n int64) Object {
 	switch x := seq.(type) {
 	case *strObject:
 		return NewStr(strings.Repeat(x.v, int(n)))
+	case *bytesObject:
+		out := make([]byte, 0, int64(len(x.v))*n)
+		for i := int64(0); i < n; i++ {
+			out = append(out, x.v...)
+		}
+		return NewBytes(out)
 	case *listObject:
 		out := make([]Object, 0, int64(len(x.elts))*n)
 		for i := int64(0); i < n; i++ {
@@ -662,6 +679,9 @@ func equals(a, b Object) bool {
 	case *strObject:
 		y, ok := b.(*strObject)
 		return ok && x.v == y.v
+	case *bytesObject:
+		y, ok := b.(*bytesObject)
+		return ok && string(x.v) == string(y.v)
 	case *listObject:
 		y, ok := b.(*listObject)
 		return ok && seqEquals(x.elts, y.elts)
@@ -753,6 +773,10 @@ func order(op CmpOp, a, b Object) (bool, error) {
 		if y, ok2 := b.(*strObject); ok2 {
 			return applyOrder(op, strings.Compare(x.v, y.v)), nil
 		}
+	} else if x, ok := a.(*bytesObject); ok {
+		if y, ok2 := b.(*bytesObject); ok2 {
+			return applyOrder(op, strings.Compare(string(x.v), string(y.v))), nil
+		}
 	} else if x, ok := a.(*listObject); ok {
 		if y, ok2 := b.(*listObject); ok2 {
 			return seqOrder(op, x.elts, y.elts)
@@ -814,6 +838,8 @@ func Contains(container, item Object) (Object, error) {
 				item.TypeName())
 		}
 		return NewBool(strings.Contains(x.v, sub.v)), nil
+	case *bytesObject:
+		return bytesContainsItem(x.v, item)
 	case *listObject:
 		return seqContains(x.elts, item), nil
 	case *tupleObject:
@@ -914,6 +940,21 @@ func GetItem(o, key Object) (Object, error) {
 			return nil, err
 		}
 		return NewStr(string(runes[j])), nil
+	case *bytesObject:
+		i, ok := AsInt(key)
+		if !ok {
+			if IsBigInt(key) {
+				return nil, errIndexFit()
+			}
+			// Probed on 3.14: b"abc"[1.0] -> TypeError: byte indices must be
+			// integers or slices, not float. Note the singular "byte".
+			return nil, Raise(TypeError, "byte indices must be integers or slices, not %s", key.TypeName())
+		}
+		j, err := seqIndex(i, len(x.v), "index out of range")
+		if err != nil {
+			return nil, err
+		}
+		return NewInt(int64(x.v[j])), nil
 	case *listObject:
 		i, ok := AsInt(key)
 		if !ok {
@@ -1012,6 +1053,8 @@ func Len(o Object) (int, error) {
 	switch x := o.(type) {
 	case *strObject:
 		return runeCount(x.v), nil
+	case *bytesObject:
+		return len(x.v), nil
 	case *listObject:
 		return len(x.elts), nil
 	case *tupleObject:
@@ -1093,6 +1136,8 @@ func Iter(o Object) (Iterator, error) {
 			elts = append(elts, NewStr(string(r)))
 		}
 		return &sliceIter{elts: elts}, nil
+	case *bytesObject:
+		return &bytesIter{v: x.v}, nil
 	case *listObject:
 		return &sliceIter{elts: x.elts}, nil
 	case *tupleObject:
