@@ -57,6 +57,10 @@ func CallKw(f Object, pos []Object, kwNames []string, kwVals []Object) (Object, 
 	switch fn := f.(type) {
 	case *functionObject:
 		return fn.bind(pos, kwNames, kwVals)
+	case *boundMethod:
+		return fn.fn.bind(append([]Object{fn.self}, pos...), kwNames, kwVals)
+	case *classObject:
+		return Instantiate(fn, pos, kwNames, kwVals)
 	case *funcObject:
 		if len(kwNames) > 0 {
 			return nil, Raise(TypeError, "%s() takes no keyword arguments", fn.name)

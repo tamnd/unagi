@@ -215,6 +215,12 @@ func Call(f Object, args []Object) (Object, error) {
 	if u, ok := f.(*functionObject); ok {
 		return u.bind(args, nil, nil)
 	}
+	if m, ok := f.(*boundMethod); ok {
+		return m.fn.bind(append([]Object{m.self}, args...), nil, nil)
+	}
+	if c, ok := f.(*classObject); ok {
+		return Instantiate(c, args, nil, nil)
+	}
 	fn, ok := f.(*funcObject)
 	if !ok {
 		return nil, Raise(TypeError, "'%s' object is not callable", f.TypeName())

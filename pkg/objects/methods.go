@@ -17,6 +17,10 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 		return tupleMethod(x, name, args)
 	case *Exception:
 		return excMethod(x, name, args)
+	case *instanceObject:
+		return instanceCallMethod(x, name, args)
+	case *classObject:
+		return classCallMethod(x, name, args)
 	}
 	return nil, noAttr(o, name)
 }
