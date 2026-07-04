@@ -82,6 +82,10 @@ func scanPending(body []frontend.Stmt) (act, ret bool) {
 				}
 				walk(s.OrElse, true)
 				walk(s.Final, true)
+			case *frontend.With:
+				// A with runs its body in the same kind of closure a try does,
+				// so a jump out of it parks and dispatches just like one.
+				walk(s.Body, true)
 			}
 		}
 	}
@@ -149,9 +153,16 @@ func (f *fnCtx) pendingJump(code, loopDepth int) {
 // closureCall emits body into a func() error literal and returns the
 // immediately-invoked call expression.
 func (f *fnCtx) closureCall(body []frontend.Stmt) (ast.Expr, error) {
+	return f.closureCallFn(func() error { return f.stmts(body) })
+}
+
+// closureCallFn is closureCall over an arbitrary emit callback, for a body a
+// with statement builds by nesting its remaining items rather than lowering a
+// fixed statement list.
+func (f *fnCtx) closureCallFn(emit func() error) (ast.Expr, error) {
 	f.push()
 	f.closure++
-	err := f.stmts(body)
+	err := emit()
 	f.closure--
 	if err != nil {
 		f.pop()

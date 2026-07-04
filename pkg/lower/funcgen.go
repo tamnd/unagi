@@ -368,6 +368,15 @@ func collectAssigned(body []frontend.Stmt, out map[string]bool) {
 				}
 				walk(s.OrElse)
 				walk(s.Final)
+			case *frontend.With:
+				for _, it := range s.Items {
+					walkExpr(it.Context)
+					if it.Target != nil {
+						walkTarget(it.Target)
+						walkExpr(it.Target)
+					}
+				}
+				walk(s.Body)
 			case *frontend.FuncDef:
 				// Defaults evaluate in the enclosing scope, so a walrus
 				// inside one binds here, not in the function body.
@@ -415,6 +424,8 @@ func collectGlobals(body []frontend.Stmt, out map[string]bool) {
 				}
 				walk(s.OrElse)
 				walk(s.Final)
+			case *frontend.With:
+				walk(s.Body)
 			}
 		}
 	}
@@ -451,6 +462,8 @@ func collectDeleted(body []frontend.Stmt, out map[string]bool) {
 				}
 				walk(s.OrElse)
 				walk(s.Final)
+			case *frontend.With:
+				walk(s.Body)
 			}
 		}
 	}

@@ -49,6 +49,8 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 		return f.forStmt(s)
 	case *frontend.Try:
 		return f.tryStmt(s)
+	case *frontend.With:
+		return f.withStmt(s)
 	case *frontend.Raise:
 		return f.raiseStmt(s)
 	case *frontend.Assert:
@@ -496,6 +498,10 @@ func hasBreak(body []frontend.Stmt) bool {
 				if hasBreak(h.Body) {
 					return true
 				}
+			}
+		case *frontend.With:
+			if hasBreak(s.Body) {
+				return true
 			}
 		}
 	}
