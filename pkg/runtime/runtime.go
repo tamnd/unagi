@@ -369,7 +369,7 @@ func TypeCall(args []objects.Object) (objects.Object, error) {
 	case 1:
 		return TypeOf(args[0]), nil
 	case 3:
-		return nil, objects.Raise(objects.TypeError, "type() with 3 arguments (dynamic class creation) is not supported yet")
+		return objects.NewType3(args[0], args[1], args[2])
 	default:
 		return nil, objects.Raise(objects.TypeError, "type() takes 1 or 3 arguments")
 	}

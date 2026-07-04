@@ -107,6 +107,47 @@ func NewClass(name, qual string, bases []Object, names []string, vals []Object, 
 	return c, nil
 }
 
+// NewType3 builds a class from the three-argument type(name, bases, namespace)
+// form: the dynamic-class path type.__new__ runs. It validates the argument
+// types with the probed type.__new__ wording, unpacks the namespace dict into
+// the ordered name/value pairs a class body would produce, and hands the rest
+// to NewClass so C3 linearization, __set_name__ and __init_subclass__ fire the
+// same way a class statement would. A namespace __module__ sets the qualified
+// name so repr reads <class 'module.Name'>, defaulting to __main__ like CPython.
+func NewType3(nameArg, basesArg, nsArg Object) (Object, error) {
+	name, ok := nameArg.(*strObject)
+	if !ok {
+		return nil, Raise(TypeError, "type.__new__() argument 1 must be str, not %s", nameArg.TypeName())
+	}
+	bases, ok := basesArg.(*tupleObject)
+	if !ok {
+		return nil, Raise(TypeError, "type.__new__() argument 2 must be tuple, not %s", basesArg.TypeName())
+	}
+	ns, ok := nsArg.(*dictObject)
+	if !ok {
+		return nil, Raise(TypeError, "type.__new__() argument 3 must be dict, not %s", nsArg.TypeName())
+	}
+	module := "__main__"
+	var names []string
+	var vals []Object
+	for _, e := range ns.entries {
+		key, ok := e.key.(*strObject)
+		if !ok {
+			// CPython only warns and keeps the entry under a non-str key; this
+			// tier cannot slot a non-str name and drops it, a documented edge.
+			continue
+		}
+		if key.v == "__module__" {
+			if m, ok := e.val.(*strObject); ok {
+				module = m.v
+			}
+		}
+		names = append(names, key.v)
+		vals = append(vals, e.val)
+	}
+	return NewClass(name.v, module+"."+name.v, bases.elts, names, vals, nil, nil)
+}
+
 // runInitSubclass fires the nearest base's __init_subclass__ on the new class,
 // after __set_name__, the order type.__new__ uses. __init_subclass__ is an
 // implicit classmethod, so the new class is passed as the leading argument and
