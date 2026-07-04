@@ -1,0 +1,9 @@
+== exit: 0
+== stdout:
+1
+dynamic:missing
+dynamic:other
+no attribute x
+5
+== exception:
+== stderr:
