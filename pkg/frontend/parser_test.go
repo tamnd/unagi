@@ -268,7 +268,7 @@ func de(e Expr) string {
 	case *SetLit:
 		return dexprs("set", e.Elts)
 	case *Comp:
-		kind := map[CompKind]string{CompList: "listcomp", CompSet: "setcomp", CompDict: "dictcomp"}[e.Kind]
+		kind := map[CompKind]string{CompList: "listcomp", CompSet: "setcomp", CompDict: "dictcomp", CompGen: "genexpr"}[e.Kind]
 		parts := []string{kind}
 		if e.Kind == CompDict {
 			parts = append(parts, "("+de(e.Elt)+" "+de(e.Val)+")")
@@ -639,6 +639,11 @@ func TestParse(t *testing.T) {
 			"(expr (listcomp (listcomp j (for j (call range i))) (for i y)))"},
 		{"set comp", "{c for c in s}", "(expr (setcomp c (for c s)))"},
 		{"dict comp", "{k: v for k, v in y}", "(expr (dictcomp (k v) (for (tuple k v) y)))"},
+		{"genexp", "(x * x for x in y)", "(expr (genexpr (* x x) (for x y)))"},
+		{"genexp condition", "(x for x in y if x > 0)", "(expr (genexpr x (for x y (if (cmp x > 0)))))"},
+		{"genexp sole call arg", "f(x for x in y)", "(expr (call f (genexpr x (for x y))))"},
+		{"genexp two clauses", "(i + j for i in a for j in b)",
+			"(expr (genexpr (+ i j) (for i a) (for j b)))"},
 		{"comp walrus element", "[(y := x) for x in s]", "(expr (listcomp (:= y x) (for x s)))"},
 		{"comp walrus condition", "[v for i in s if (v := i) > 0]",
 			"(expr (listcomp v (for i s (if (cmp (:= v i) > 0)))))"},
@@ -819,8 +824,8 @@ func TestParseErrors(t *testing.T) {
 		{"lambda param after kwargs", "f = lambda **k, x: 1", "arguments cannot follow var-keyword argument"},
 		{"lambda operand position", "x = 1 + lambda: 2", "invalid syntax"},
 		{"await", "x = await f()", "await is not supported yet"},
-		{"generator expr", "(x for x in y)", "generator expressions are not supported yet"},
-		{"generator arg", "f(x for x in y)", "generator expressions are not supported yet"},
+		{"generator arg unparenthesized", "f(a, x for x in y)", "Generator expression must be parenthesized"},
+		{"generator arg trailing", "f(x for x in y, z)", "Generator expression must be parenthesized"},
 		{"dict unpacking", "{**a}", "dict unpacking is not supported yet"},
 		{"dict then set element", "{1: 2, 3}", "':' expected after dictionary key"},
 		{"set then dict entry", "{1, 2: 3}", "invalid syntax"},
