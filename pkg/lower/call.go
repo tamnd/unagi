@@ -11,7 +11,7 @@ import (
 // lowering instead).
 var builtinNames = map[string]bool{
 	"print": true, "len": true, "range": true, "str": true, "repr": true,
-	"int": true, "float": true, "bool": true, "abs": true,
+	"int": true, "float": true, "bool": true, "complex": true, "abs": true,
 	"min": true, "max": true, "sum": true, "round": true, "divmod": true,
 	"pow": true, "bin": true, "oct": true, "hex": true, "ord": true,
 	"chr": true, "hash": true, "sorted": true, "reversed": true, "enumerate": true,
@@ -334,6 +334,10 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		tmp := f.tmpVar()
 		f.fallible(tmp, sel("runtime", "Abs"), args[0])
 		return ident(tmp), nil
+	case "complex":
+		// complex() takes zero, one or two arguments; the runtime helper
+		// checks the upper bound so the arity TypeError stays catchable.
+		return f.runtimeSliceCall("ComplexOf", e)
 	case "min", "max":
 		if argc == 0 {
 			return nil, f.e.errf(e.Span(), "%s expected at least 1 argument, got 0", name)

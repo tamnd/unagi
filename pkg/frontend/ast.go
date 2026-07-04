@@ -349,6 +349,13 @@ type FloatLit struct {
 	Val  float64
 }
 
+// ImagLit is an imaginary literal like 2j; Val carries the coefficient, which
+// the lowering pairs with a zero real part to build the complex.
+type ImagLit struct {
+	Pos_ Pos
+	Val  float64
+}
+
 // StrLit is a string literal after quote and escape processing. Adjacent
 // literals are already concatenated by the parser.
 type StrLit struct {
@@ -669,6 +676,7 @@ func FInterps(parts []FPart) []*FInterp {
 func (e *Name) Span() Pos        { return e.Pos_ }
 func (e *IntLit) Span() Pos      { return e.Pos_ }
 func (e *FloatLit) Span() Pos    { return e.Pos_ }
+func (e *ImagLit) Span() Pos     { return e.Pos_ }
 func (e *StrLit) Span() Pos      { return e.Pos_ }
 func (e *BytesLit) Span() Pos    { return e.Pos_ }
 func (e *BoolLit) Span() Pos     { return e.Pos_ }
@@ -696,6 +704,7 @@ func (e *FStr) Span() Pos        { return e.Pos_ }
 func (*Name) expr()        {}
 func (*IntLit) expr()      {}
 func (*FloatLit) expr()    {}
+func (*ImagLit) expr()     {}
 func (*StrLit) expr()      {}
 func (*BytesLit) expr()    {}
 func (*BoolLit) expr()     {}

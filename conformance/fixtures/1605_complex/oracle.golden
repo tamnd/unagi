@@ -1,0 +1,34 @@
+== exit: 0
+== stdout:
+(1+2j) (3-4j) 2j 0j (1+0j) (-1+0j)
+-0j (-0-0j) 1j -1j
+(1.5+2.5j) (2-0j) (-0+2j)
+0.5j 1e+300j (inf+nanj)
+(4+6j) (-2-2j) (-5+10j) (0.44+0.08j)
+(2+2j) (2+2j) (2.5+2j) (2+4j) (2+4j) 2j
+(1+1j) (1+1j) (-1-2j) (1+2j)
+(-5+12j) (1+0j) (0.2-0.4j) (-4+0j) 0j (1+0j)
+5.0 0.0 1.0
+1.0 2.0 (1-2j) -1j
+2000007 1 True 0
+True True True
+False True False
+False True False
+(1+2j) (1+2j) (3.5+0j) (1+0j)
+1j 1000j (inf+0j) (nan+infj)
+(1+2j) (1+2j) (-1-2j) (1+1j) (1-1j)
+0.5j 5j 0.0015j (100000+0j)
+(1+2j) 3j (1+2j) (1+0j)
+(1+2j)
+(1+2j) (3-4j) 2j <class 'complex'>
+zdiv: division by zero
+zpow: zero to a negative or complex power
+bad: complex() arg is a malformed string
+bad2: complex() arg is a malformed string
+ord: '<' not supported between instances of 'complex' and 'complex'
+arg: complex() argument must be a string or a number, not NoneType
+real: complex() argument 'real' must be a real number, not str
+imag: complex() argument 'imag' must be a real number, not str
+arity: complex() takes at most 2 arguments (3 given)
+== exception:
+== stderr:

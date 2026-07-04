@@ -21,6 +21,7 @@ const (
 	tKeyword
 	tInt
 	tFloat
+	tImag
 	tString
 	tBytes
 	tOp
@@ -51,6 +52,8 @@ func (k tokKind) String() string {
 		return "INT"
 	case tFloat:
 		return "FLOAT"
+	case tImag:
+		return "NUMBER"
 	case tString:
 		return "STRING"
 	case tBytes:
@@ -506,7 +509,10 @@ func (lx *lexer) lexNumber(pos Pos) {
 		sb.WriteString(lx.scanDigits(pos, isDigit, "decimal"))
 	}
 	if lx.ch() == 'j' || lx.ch() == 'J' {
-		lx.err(pos, "complex literals are not supported yet")
+		lx.adv()
+		lx.rejectTrailingJunk(pos, "imaginary")
+		lx.emitAt(pos, tImag, sb.String())
+		return
 	}
 	lx.rejectTrailingJunk(pos, "decimal")
 	text := sb.String()
@@ -537,7 +543,7 @@ func (lx *lexer) lexRadix(pos Pos, base int, kind string, isdig func(byte) bool)
 		lx.err(pos, "invalid %s literal", kind)
 	}
 	if lx.ch() == 'j' || lx.ch() == 'J' {
-		lx.err(pos, "complex literals are not supported yet")
+		lx.err(pos, "invalid %s literal", kind)
 	}
 	lx.rejectTrailingJunk(pos, kind)
 	n := new(big.Int)

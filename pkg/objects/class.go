@@ -494,6 +494,14 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return superLoadAttr(x, name)
 	case *Exception:
 		return excLoadAttr(x, name)
+	case *complexObject:
+		switch name {
+		case "real":
+			return NewFloat(x.re), nil
+		case "imag":
+			return NewFloat(x.im), nil
+		}
+		return nil, Raise(AttributeError, "'complex' object has no attribute '%s'", name)
 	}
 	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", o.TypeName(), name)
 }

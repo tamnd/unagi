@@ -57,11 +57,61 @@ func (f *fnCtx) builtinKwCall(name string, e *frontend.Call) (ast.Expr, error) {
 		return f.zipKw(pos, kws, temps)
 	case "dict":
 		return f.dictKw(pos, kws, e)
+	case "complex":
+		return f.complexKw(pos, kws, temps)
 	}
 	// Probed across len, abs, range, bool, list, tuple, set, frozenset,
 	// divmod, repr, bin, oct, hex, ord, chr, reversed, format and float:
 	// every one answers with the same TypeError.
 	return f.raiseBindError(temps, fmt.Sprintf("%s() takes no keyword arguments", name)), nil
+}
+
+// complexKw lowers complex(real=..., imag=...). Both slots are position-or-
+// keyword; an omitted slot passes a nil Object so the runtime constructor
+// treats it as absent. Probed on 3.14: complex(imag=3) is 3j and
+// complex(1, real=2) reports the given-by-name-and-position conflict.
+func (f *fnCtx) complexKw(pos []ast.Expr, kws []kwVal, temps []ast.Expr) (ast.Expr, error) {
+	if total := len(pos) + len(kws); total > 2 {
+		return f.raiseBindError(temps, fmt.Sprintf("complex() takes at most 2 arguments (%d given)", total)), nil
+	}
+	names := []string{"real", "imag"}
+	slots := make([]ast.Expr, 2)
+	copy(slots, pos)
+	conflict := -1
+	for _, kw := range kws {
+		idx := -1
+		for i, n := range names {
+			if n == kw.name {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			return f.raiseBindError(temps, f.unexpectedKw("complex", kw.name, names)), nil
+		}
+		if idx < len(pos) {
+			if conflict < 0 {
+				conflict = idx
+			}
+			continue
+		}
+		slots[idx] = kw.val
+	}
+	if conflict >= 0 {
+		return f.raiseBindError(temps,
+			fmt.Sprintf("argument for complex() given by name ('%s') and position (%d)", names[conflict], conflict+1)), nil
+	}
+	real := slots[0]
+	if real == nil {
+		real = ident("nil")
+	}
+	imag := slots[1]
+	if imag == nil {
+		imag = ident("nil")
+	}
+	tmp := f.tmpVar()
+	f.fallible(tmp, sel("runtime", "ComplexKw"), real, imag)
+	return ident(tmp), nil
 }
 
 // discard keeps an evaluated-but-unused temporary alive for Go.

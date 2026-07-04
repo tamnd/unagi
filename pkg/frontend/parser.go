@@ -357,7 +357,7 @@ func (p *parser) addDelTargets(d *Del, e Expr) {
 		p.errf(e.Span(), "cannot delete starred")
 	case *FStr:
 		p.errf(e.Span(), "cannot delete f-string expression")
-	case *IntLit, *FloatLit, *StrLit:
+	case *IntLit, *FloatLit, *ImagLit, *StrLit:
 		p.errf(e.Span(), "cannot delete literal")
 	case *BoolLit:
 		if e.Val {
@@ -449,7 +449,7 @@ func (p *parser) checkAssignTarget(e Expr) {
 		// obj.attr = value is a valid target; the lowering stores through it.
 	case *FStr:
 		p.errf(e.Span(), "cannot assign to f-string expression")
-	case *IntLit, *FloatLit, *StrLit:
+	case *IntLit, *FloatLit, *ImagLit, *StrLit:
 		p.errf(e.Span(), "cannot assign to literal")
 	case *BoolLit:
 		if e.Val {
@@ -1005,7 +1005,7 @@ func (p *parser) parseExceptName() string {
 		p.errf(e.Span(), "cannot use except statement with dict literal")
 	case *SetLit:
 		p.errf(e.Span(), "cannot use except statement with set display")
-	case *IntLit, *FloatLit, *StrLit:
+	case *IntLit, *FloatLit, *ImagLit, *StrLit:
 		p.errf(e.Span(), "cannot use except statement with literal")
 	case *BoolLit:
 		if e.Val {
@@ -1156,7 +1156,7 @@ func (p *parser) parseNamedTest() Expr {
 		p.errf(e.Span(), "cannot use assignment expressions with set display")
 	case *FStr:
 		p.errf(e.Span(), "cannot use assignment expressions with f-string expression")
-	case *IntLit, *FloatLit, *StrLit:
+	case *IntLit, *FloatLit, *ImagLit, *StrLit:
 		p.errf(e.Span(), "cannot use assignment expressions with literal")
 	case *BoolLit:
 		if e.Val {
@@ -1557,6 +1557,12 @@ func (p *parser) parseAtom() Expr {
 		// an infinity, which matches CPython evaluating huge literals.
 		v, _ := strconv.ParseFloat(t.text, 64)
 		return &FloatLit{Pos_: t.pos, Val: v}
+	case tImag:
+		p.advance()
+		// The lexer stripped the j; the coefficient parses like a float and
+		// an out-of-range magnitude becomes an infinity, as in CPython.
+		v, _ := strconv.ParseFloat(t.text, 64)
+		return &ImagLit{Pos_: t.pos, Val: v}
 	case tString, tFStrStart:
 		return p.parseStrings()
 	case tBytes:
