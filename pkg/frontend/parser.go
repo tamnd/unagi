@@ -160,6 +160,11 @@ func (p *parser) parseStatement() []Stmt {
 			return []Stmt{p.parseWith()}
 		}
 	}
+	// match is a soft keyword: only a header that reads as `match subject:` at
+	// statement start becomes a match statement, otherwise match is a name.
+	if t.kind == tName && t.text == "match" && p.looksLikeMatch() {
+		return []Stmt{p.parseMatch()}
+	}
 	return p.parseSimpleLine()
 }
 
@@ -266,11 +271,6 @@ func (p *parser) parseSimpleStmt() Stmt {
 			p.errf(t.pos, "unexpected keyword '%s'", t.text)
 		}
 	}
-	// match is a soft keyword; only treat it as a match statement when the
-	// next token could not continue an ordinary expression statement.
-	if t.kind == tName && t.text == "match" && p.looksLikeMatch() {
-		p.errf(t.pos, "match statements are not supported yet")
-	}
 	first := p.parseStarTestlist()
 	if p.isOp(":") {
 		p.errf(p.cur().pos, "variable annotations are not supported yet")
@@ -338,13 +338,48 @@ func (p *parser) addDelTargets(d *Del, e Expr) {
 	}
 }
 
+// looksLikeMatch decides whether a leading soft `match` opens a match
+// statement. The token after it must be able to start a subject expression,
+// and the logical line must be a compound header ending in ':' at bracket
+// depth zero. That tells `match [1, 2]:` (a statement) from `match[1]` (a
+// subscript) and `match(x)` (a call) without full backtracking.
 func (p *parser) looksLikeMatch() bool {
-	switch nt := p.peek(); nt.kind {
+	if !startsSubject(p.peek()) {
+		return false
+	}
+	depth := 0
+	var last token
+	for i := p.i + 1; i < len(p.toks); i++ {
+		t := p.toks[i]
+		if t.kind == tNewline || t.kind == tEOF {
+			return depth == 0 && last.kind == tOp && last.text == ":"
+		}
+		if t.kind == tOp {
+			switch t.text {
+			case "(", "[", "{":
+				depth++
+			case ")", "]", "}":
+				depth--
+			}
+		}
+		last = t
+	}
+	return false
+}
+
+// startsSubject reports whether t can begin a match subject expression.
+func startsSubject(t token) bool {
+	switch t.kind {
 	case tName, tInt, tFloat, tString, tFStrStart:
 		return true
 	case tKeyword:
-		switch nt.text {
-		case "True", "False", "None", "not":
+		switch t.text {
+		case "True", "False", "None", "not", "lambda", "await":
+			return true
+		}
+	case tOp:
+		switch t.text {
+		case "(", "[", "{", "+", "-", "~", "*":
 			return true
 		}
 	}

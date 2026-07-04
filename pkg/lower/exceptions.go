@@ -86,6 +86,12 @@ func scanPending(body []frontend.Stmt) (act, ret bool) {
 				// A with runs its body in the same kind of closure a try does,
 				// so a jump out of it parks and dispatches just like one.
 				walk(s.Body, true)
+			case *frontend.Match:
+				// A match adds no closure of its own; its case bodies inherit
+				// whatever try context encloses the whole statement.
+				for _, c := range s.Cases {
+					walk(c.Body, inTry)
+				}
 			}
 		}
 	}

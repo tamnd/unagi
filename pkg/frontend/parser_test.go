@@ -114,8 +114,66 @@ func ds(s Stmt) string {
 		return dexprs("del", s.Targets)
 	case *Global:
 		return "(global " + strings.Join(s.Names, " ") + ")"
+	case *Match:
+		parts := []string{"match", de(s.Subject)}
+		for _, c := range s.Cases {
+			cp := "(case " + dpat(c.Pattern)
+			if c.Guard != nil {
+				cp += " if " + de(c.Guard)
+			}
+			parts = append(parts, cp+" "+dbody(c.Body)+")")
+		}
+		return "(" + strings.Join(parts, " ") + ")"
 	}
 	return "?stmt"
+}
+
+// dpat renders a pattern as an s-expression for the parser tests. Captures show
+// as bare names so a value pattern is tagged (val ...) to keep the two apart.
+func dpat(p Pattern) string {
+	switch p := p.(type) {
+	case *PatCapture:
+		return p.Name
+	case *PatLiteral:
+		return "(lit " + de(p.Value) + ")"
+	case *PatValue:
+		return "(val " + de(p.Value) + ")"
+	case *PatStar:
+		return "(* " + p.Name + ")"
+	case *PatSequence:
+		parts := make([]string, len(p.Elts))
+		for i, e := range p.Elts {
+			parts[i] = dpat(e)
+		}
+		return "(seq " + strings.Join(parts, " ") + ")"
+	case *PatMapping:
+		parts := make([]string, 0, len(p.Keys)+1)
+		for i, k := range p.Keys {
+			parts = append(parts, "("+de(k)+" "+dpat(p.Vals[i])+")")
+		}
+		if p.Rest != "" {
+			parts = append(parts, "** "+p.Rest)
+		}
+		return "(map " + strings.Join(parts, " ") + ")"
+	case *PatClass:
+		parts := []string{"cls", de(p.Cls)}
+		for _, sp := range p.Pos {
+			parts = append(parts, dpat(sp))
+		}
+		for i, nm := range p.KwNames {
+			parts = append(parts, "(kw "+nm+" "+dpat(p.KwValues[i])+")")
+		}
+		return "(" + strings.Join(parts, " ") + ")"
+	case *PatOr:
+		parts := make([]string, len(p.Alts))
+		for i, a := range p.Alts {
+			parts[i] = dpat(a)
+		}
+		return "(or " + strings.Join(parts, " ") + ")"
+	case *PatAs:
+		return "(as " + dpat(p.Pattern) + " " + p.Name + ")"
+	}
+	return "?pat"
 }
 
 // ddecos renders a decorator list as a bracketed prefix, empty when the def
@@ -661,6 +719,25 @@ func TestParse(t *testing.T) {
 			"(def f () [(= r (listcomp 0 (for x (tuple)))) (global x)])"},
 		{"global list other name assigned between", "def f():\n    global x, y\n    y = 1\n    global x\n",
 			"(def f () [(global x y) (= y 1) (global x)])"},
+		{"match literal and capture", "match x:\n    case 1:\n        pass\n    case y:\n        pass\n",
+			"(match x (case (lit 1) [(pass)]) (case y [(pass)]))"},
+		{"match wildcard", "match x:\n    case _:\n        pass\n", "(match x (case _ [(pass)]))"},
+		{"match sequence with star", "match x:\n    case [a, *rest]:\n        pass\n",
+			"(match x (case (seq a (* rest)) [(pass)]))"},
+		{"match value pattern dotted", "match x:\n    case a.b:\n        pass\n",
+			"(match x (case (val (. a b)) [(pass)]))"},
+		{"match mapping with rest", "match x:\n    case {\"k\": v, **rest}:\n        pass\n",
+			"(match x (case (map (\"k\" v) ** rest) [(pass)]))"},
+		{"match or and as", "match x:\n    case 1 | 2 as n:\n        pass\n",
+			"(match x (case (as (or (lit 1) (lit 2)) n) [(pass)]))"},
+		{"match guard", "match x:\n    case n if n > 0:\n        pass\n",
+			"(match x (case n if (cmp n > 0) [(pass)]))"},
+		{"match class pattern", "match x:\n    case C(1, k=2):\n        pass\n",
+			"(match x (case (cls C (lit 1) (kw k (lit 2))) [(pass)]))"},
+		{"match as identifier assign", "match = 1", "(= match 1)"},
+		{"match as call", "match(x)", "(expr (call match x))"},
+		{"match as subscript", "match[0]", "(expr ([] match 0))"},
+		{"case as identifier", "case = 2", "(= case 2)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -833,7 +910,6 @@ func TestParseErrors(t *testing.T) {
 		{"star args default", "def f(*args=1): pass", "var-positional argument cannot have default value"},
 		{"kwargs default", "def f(**k=1): pass", "var-keyword argument cannot have default value"},
 		{"variable annotation", "x: int = 1", "variable annotations are not supported yet"},
-		{"match statement", "match x:\n    case 1:\n        pass\n", "match statements are not supported yet"},
 		{"assign to int", "1 = x", "cannot assign to literal"},
 		{"assign to string", "'s' = x", "cannot assign to literal"},
 		{"assign to True", "True = 1", "cannot assign to True"},
@@ -948,6 +1024,32 @@ func TestParseErrors(t *testing.T) {
 		{"aug assign to fstring", `f"{x}" += 1`, "'f-string expression' is an illegal expression for augmented assignment"},
 		{"del fstring", `del f"{x}"`, "cannot delete f-string expression"},
 		{"walrus fstring target", `(f"{x}" := 1)`, "cannot use assignment expressions with f-string expression"},
+		{"match no cases", "match x:\n    pass", "invalid syntax"},
+		{"match same name in sequence", "match x:\n    case [a, a]:\n        pass",
+			"multiple assignments to name 'a' in pattern"},
+		{"match same name across nesting", "match x:\n    case [a, [a]]:\n        pass",
+			"multiple assignments to name 'a' in pattern"},
+		{"match capture and as same name", "match x:\n    case [a] as a:\n        pass",
+			"multiple assignments to name 'a' in pattern"},
+		{"match multiple stars", "match x:\n    case [*a, *b]:\n        pass",
+			"multiple starred names in sequence pattern"},
+		{"match multiple stars spread", "match x:\n    case [1, *a, 2, *b]:\n        pass",
+			"multiple starred names in sequence pattern"},
+		{"match bare star", "match x:\n    case *a:\n        pass", "invalid syntax"},
+		{"match or different names", "match x:\n    case [a] | [b]:\n        pass",
+			"alternative patterns bind different names"},
+		{"match or capture unreachable", "match x:\n    case a | [1]:\n        pass",
+			"name capture 'a' makes remaining patterns unreachable"},
+		{"match capture before more cases", "match x:\n    case a:\n        pass\n    case 1:\n        pass",
+			"name capture 'a' makes remaining patterns unreachable"},
+		{"match wildcard before more cases", "match x:\n    case _:\n        pass\n    case 1:\n        pass",
+			"wildcard makes remaining patterns unreachable"},
+		{"match as wildcard target", "match x:\n    case 1 as _:\n        pass", "cannot use '_' as a target"},
+		{"match mapping duplicate key", "match x:\n    case {\"a\": 1, \"a\": 2}:\n        pass",
+			"mapping pattern checks duplicate key ('a')"},
+		{"match mapping rest not last", "match x:\n    case {**rest, \"a\": 1}:\n        pass", "invalid syntax"},
+		{"match mapping rest wildcard", "match x:\n    case {**_}:\n        pass", "invalid syntax"},
+		{"match mapping bare name key", "match x:\n    case {a: 1}:\n        pass", "invalid syntax"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

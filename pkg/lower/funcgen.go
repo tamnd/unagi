@@ -387,6 +387,17 @@ func collectAssigned(body []frontend.Stmt, out map[string]bool) {
 					}
 				}
 				walk(s.Body)
+			case *frontend.Match:
+				// A case binds its capture names in this scope; the subject and
+				// each guard evaluate here, so a walrus in one binds here too.
+				walkExpr(s.Subject)
+				for _, c := range s.Cases {
+					for _, name := range frontend.PatternNames(c.Pattern) {
+						out[name] = true
+					}
+					walkExpr(c.Guard)
+					walk(c.Body)
+				}
 			case *frontend.FuncDef:
 				// Decorators and defaults evaluate in the enclosing scope, so a
 				// walrus inside one binds here, not in the function body.
@@ -438,6 +449,10 @@ func collectGlobals(body []frontend.Stmt, out map[string]bool) {
 				walk(s.Final)
 			case *frontend.With:
 				walk(s.Body)
+			case *frontend.Match:
+				for _, c := range s.Cases {
+					walk(c.Body)
+				}
 			}
 		}
 	}
@@ -474,6 +489,10 @@ func collectNonlocals(body []frontend.Stmt, out map[string]bool) {
 				walk(s.Final)
 			case *frontend.With:
 				walk(s.Body)
+			case *frontend.Match:
+				for _, c := range s.Cases {
+					walk(c.Body)
+				}
 			}
 		}
 	}
@@ -512,6 +531,10 @@ func collectDeleted(body []frontend.Stmt, out map[string]bool) {
 				walk(s.Final)
 			case *frontend.With:
 				walk(s.Body)
+			case *frontend.Match:
+				for _, c := range s.Cases {
+					walk(c.Body)
+				}
 			}
 		}
 	}

@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+0 -> zero
+2 -> small
+None -> none
+True -> small
+False -> zero
+hi -> greeting
+3.5 -> pi-ish
+99 -> ('capture', 99)
+other -> ('capture', 'other')
+1 is 1
+0 is 0
+forty-two
+wildcard
+== exception:
+== stderr:

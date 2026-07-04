@@ -101,6 +101,23 @@ type With struct {
 	Body  []Stmt
 }
 
+// Match is `match subject:` with one or more case clauses (PEP 634). Subject
+// is the value matched against each case in written order.
+type Match struct {
+	Pos_    Pos
+	Subject Expr
+	Cases   []MatchCase
+}
+
+// MatchCase is one `case pattern [if guard]:` clause. Guard is nil when the
+// clause has no `if` condition.
+type MatchCase struct {
+	Pos_    Pos
+	Pattern Pattern
+	Guard   Expr
+	Body    []Stmt
+}
+
 // ParamKind classifies a formal parameter.
 type ParamKind int
 
@@ -246,6 +263,7 @@ func (s *If) Span() Pos        { return s.Pos_ }
 func (s *While) Span() Pos     { return s.Pos_ }
 func (s *For) Span() Pos       { return s.Pos_ }
 func (s *With) Span() Pos      { return s.Pos_ }
+func (s *Match) Span() Pos     { return s.Pos_ }
 func (s *FuncDef) Span() Pos   { return s.Pos_ }
 func (s *ClassDef) Span() Pos  { return s.Pos_ }
 func (s *Return) Span() Pos    { return s.Pos_ }
@@ -266,6 +284,7 @@ func (*If) stmt()        {}
 func (*While) stmt()     {}
 func (*For) stmt()       {}
 func (*With) stmt()      {}
+func (*Match) stmt()     {}
 func (*FuncDef) stmt()   {}
 func (*ClassDef) stmt()  {}
 func (*Return) stmt()    {}
@@ -611,3 +630,155 @@ func (*NamedExpr) expr() {}
 func (*Starred) expr()   {}
 func (*Lambda) expr()    {}
 func (*FStr) expr()      {}
+
+// --- patterns ---
+
+// Pattern is a case pattern (PEP 634). Patterns appear only inside a match
+// statement's case clauses, never as expressions.
+type Pattern interface {
+	Node
+	pattern()
+}
+
+// PatLiteral matches by value against a literal: a number, string, None,
+// True, or False. Value is the literal expression; None/True/False compare by
+// identity, everything else by equality.
+type PatLiteral struct {
+	Pos_  Pos
+	Value Expr
+}
+
+// PatValue matches by equality against a dotted name, like `Color.RED`. Value
+// is the attribute-access expression; a bare name is never a value pattern.
+type PatValue struct {
+	Pos_  Pos
+	Value Expr
+}
+
+// PatCapture binds the subject to a name. Name "_" is the wildcard, which
+// matches anything and binds nothing.
+type PatCapture struct {
+	Pos_ Pos
+	Name string
+}
+
+// PatStar is `*name` inside a sequence pattern, binding the middle run as a
+// list. Name "_" drops the run without binding.
+type PatStar struct {
+	Pos_ Pos
+	Name string
+}
+
+// PatSequence matches a sequence subject element by element. Elts may hold at
+// most one PatStar, which absorbs a variable-length run.
+type PatSequence struct {
+	Pos_ Pos
+	Elts []Pattern
+}
+
+// PatMapping matches a mapping subject by key. Keys and Vals run in parallel;
+// Rest is the `**name` capture for the remaining items, empty when absent.
+type PatMapping struct {
+	Pos_ Pos
+	Keys []Expr
+	Vals []Pattern
+	Rest string
+}
+
+// PatClass matches `Cls(pos..., kw=...)`: an isinstance check plus positional
+// sub-patterns via __match_args__ and keyword sub-patterns by attribute. Cls
+// is the class expression, a name or dotted name.
+type PatClass struct {
+	Pos_     Pos
+	Cls      Expr
+	Pos      []Pattern
+	KwNames  []string
+	KwValues []Pattern
+}
+
+// PatOr is `a | b | c`; Alts holds two or more alternatives tried left to
+// right. Every alternative binds the same set of names.
+type PatOr struct {
+	Pos_ Pos
+	Alts []Pattern
+}
+
+// PatAs is `pattern as name`: match the inner pattern, then bind the subject
+// to name. A bare `as name` with no inner pattern parses as a PatCapture.
+type PatAs struct {
+	Pos_    Pos
+	Pattern Pattern
+	Name    string
+}
+
+func (p *PatLiteral) Span() Pos  { return p.Pos_ }
+func (p *PatValue) Span() Pos    { return p.Pos_ }
+func (p *PatCapture) Span() Pos  { return p.Pos_ }
+func (p *PatStar) Span() Pos     { return p.Pos_ }
+func (p *PatSequence) Span() Pos { return p.Pos_ }
+func (p *PatMapping) Span() Pos  { return p.Pos_ }
+func (p *PatClass) Span() Pos    { return p.Pos_ }
+func (p *PatOr) Span() Pos       { return p.Pos_ }
+func (p *PatAs) Span() Pos       { return p.Pos_ }
+
+func (*PatLiteral) pattern()  {}
+func (*PatValue) pattern()    {}
+func (*PatCapture) pattern()  {}
+func (*PatStar) pattern()     {}
+func (*PatSequence) pattern() {}
+func (*PatMapping) pattern()  {}
+func (*PatClass) pattern()    {}
+func (*PatOr) pattern()       {}
+func (*PatAs) pattern()       {}
+
+// PatternNames returns the capture names a pattern binds, deduplicated and in
+// no particular order, with the wildcard "_" excluded. Both scope analysis
+// and lowering use it to know which locals a case introduces.
+func PatternNames(p Pattern) []string {
+	seen := map[string]bool{}
+	var walk func(Pattern)
+	add := func(name string) {
+		if name != "" && name != "_" {
+			seen[name] = true
+		}
+	}
+	walk = func(p Pattern) {
+		switch p := p.(type) {
+		case *PatCapture:
+			add(p.Name)
+		case *PatStar:
+			add(p.Name)
+		case *PatAs:
+			if p.Pattern != nil {
+				walk(p.Pattern)
+			}
+			add(p.Name)
+		case *PatSequence:
+			for _, e := range p.Elts {
+				walk(e)
+			}
+		case *PatMapping:
+			for _, v := range p.Vals {
+				walk(v)
+			}
+			add(p.Rest)
+		case *PatClass:
+			for _, sp := range p.Pos {
+				walk(sp)
+			}
+			for _, sp := range p.KwValues {
+				walk(sp)
+			}
+		case *PatOr:
+			for _, alt := range p.Alts {
+				walk(alt)
+			}
+		}
+	}
+	walk(p)
+	out := make([]string, 0, len(seen))
+	for name := range seen {
+		out = append(out, name)
+	}
+	return out
+}

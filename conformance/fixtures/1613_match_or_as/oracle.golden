@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+('or-seq', 7)
+('or-seq', 8)
+('letter', 'b')
+none
+as-whole [1, 2, 3]
+5
+6
+8
+None
+nested-as 10 20
+== exception:
+== stderr:
