@@ -520,6 +520,21 @@ func StoreAttr(o Object, name string, val Object) error {
 		o.TypeName(), name)
 }
 
+// classSubscript implements C[item] on a class. Subscription looks for a
+// __class_getitem__ on the class, which CPython treats as an implicit
+// classmethod, so cls is prepended whether it was written plain or with an
+// explicit @classmethod. A class without the hook is not subscriptable.
+func classSubscript(c *classObject, item Object) (Object, error) {
+	v, ok := c.lookup("__class_getitem__")
+	if !ok {
+		return nil, Raise(TypeError, "type '%s' is not subscriptable", c.name)
+	}
+	if cm, ok := v.(*classmethodObject); ok {
+		return Call(classmethodBind(cm.fn, c), []Object{item})
+	}
+	return Call(v, []Object{c, item})
+}
+
 // instanceCallMethod dispatches inst.name(args). It resolves the attribute
 // through the same descriptor protocol LoadAttr uses, so a plain method binds
 // self, a staticmethod is called bare, a classmethod binds the type, and a
