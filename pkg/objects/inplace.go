@@ -81,6 +81,19 @@ func remapAug(err error, sym string, a, b Object) error {
 // "'X' object is not iterable" like list.extend when b is not iterable) so a
 // list += never falls back to binary concatenation and aliases see the growth.
 func inplaceConcat(a, b Object) (Object, bool, error) {
+	// bytearray += only accepts a bytes-like right operand (probed: += a list
+	// or str raises "can't concat X to bytearray"), so a non-bytes-like operand
+	// declines and the binary Add raises that exact concat error.
+	if ba, ok := a.(*bytearrayObject); ok {
+		bl, ok := asBytesLike(b)
+		if !ok {
+			return nil, false, nil
+		}
+		ba.mu.Lock()
+		ba.v = append(ba.v, bl...)
+		ba.mu.Unlock()
+		return ba, true, nil
+	}
 	lst, ok := a.(*listObject)
 	if !ok {
 		return nil, false, nil
@@ -99,6 +112,23 @@ func inplaceConcat(a, b Object) (Object, bool, error) {
 // count declines (ok=false) so the binary Mul raises the same non-int or
 // overflow message it would for list * n.
 func inplaceRepeat(a, b Object) (Object, bool, error) {
+	if ba, ok := a.(*bytearrayObject); ok {
+		n, ok := AsInt(b)
+		if !ok {
+			return nil, false, nil
+		}
+		ba.mu.Lock()
+		if n <= 0 {
+			ba.v = ba.v[:0]
+		} else {
+			base := append([]byte(nil), ba.v...)
+			for i := int64(1); i < n; i++ {
+				ba.v = append(ba.v, base...)
+			}
+		}
+		ba.mu.Unlock()
+		return ba, true, nil
+	}
 	lst, ok := a.(*listObject)
 	if !ok {
 		return nil, false, nil
