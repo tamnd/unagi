@@ -101,6 +101,7 @@ func (f *fnCtx) lambda(e *frontend.Lambda) (ast.Expr, error) {
 		in.add(define(ident(mangle(p.Name)), &ast.IndexExpr{X: ident("args"), Index: intLit(strconv.Itoa(i))}))
 		in.add(set(ident("_"), ident(mangle(p.Name))))
 	}
+	in.recursionGuard()
 	// A walrus in the body binds lambda-local; one in a default already
 	// bound the enclosing scope when the default was evaluated above.
 	walrus := map[string]bool{}

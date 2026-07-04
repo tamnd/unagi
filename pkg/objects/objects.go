@@ -26,6 +26,7 @@ const (
 	AttributeError    = "AttributeError"
 	RuntimeError      = "RuntimeError"
 	OverflowError     = "OverflowError"
+	RecursionError    = "RecursionError"
 )
 
 // Frame is one traceback entry: where the exception passed through on

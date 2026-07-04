@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+depth 100: 100
+direct: maximum recursion depth exceeded
+mutual caught
+still works: 50
+method caught
+lambda caught
+nested caught
+== exception:
+== stderr:
