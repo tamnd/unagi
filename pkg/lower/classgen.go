@@ -28,11 +28,6 @@ func (e *emitter) emitClassMethods(c *frontend.ClassDef) ([]methodEmit, error) {
 		if !ok {
 			continue
 		}
-		for _, p := range m.Params {
-			if p.Default != nil {
-				return nil, e.errf(m.Span(), "method parameter defaults are not supported yet")
-			}
-		}
 		declName := e.methodDefName(c.Name, m.Name, mi)
 		implName := e.methodImplName(c.Name, m.Name, mi)
 		decl, err := e.emitMethodDecl(m, declName, m.Name, c.Name+"."+m.Name, c.Name)
@@ -88,15 +83,18 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 		for _, st := range s.Body {
 			switch st := st.(type) {
 			case *frontend.FuncDef:
-				for _, p := range st.Params {
-					if p.Default != nil {
-						return nil, f.e.errf(st.Span(), "method parameter defaults are not supported yet")
-					}
+				// Defaults evaluate at class-definition time in the class body's
+				// enclosing scope, the same left-to-right slot fill a def or
+				// lambda uses; the values ride on the function object so bind
+				// fills a missing argument from them.
+				dflts, err := f.lambdaDefaults(st.Params)
+				if err != nil {
+					return nil, err
 				}
 				methodObj := callExpr(f.e.obj("NewFunction"),
 					strLit(s.Name+"."+st.Name),
 					f.e.paramSpecLit(st.Params),
-					ident("nil"),
+					dflts,
 					ident(f.e.methodImplName(s.Name, st.Name, mi)))
 				mi++
 				names = append(names, st.Name)

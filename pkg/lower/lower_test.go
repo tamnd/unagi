@@ -124,6 +124,36 @@ func TestDecoratedDefLowering(t *testing.T) {
 	}
 }
 
+// A method parameter default evaluates once at class-definition time and
+// rides on the function object, so the NewFunction call carries the aligned
+// defaults slice with a nil for self and the temp for the defaulted param.
+func TestMethodDefaultLowering(t *testing.T) {
+	mod := &frontend.Module{Body: []frontend.Stmt{
+		&frontend.ClassDef{Name: "C", Body: []frontend.Stmt{
+			&frontend.FuncDef{Name: "m", Params: []frontend.Param{
+				{Name: "self", Kind: frontend.ParamPlain},
+				{Name: "x", Kind: frontend.ParamPlain, Default: &frontend.IntLit{Text: "1"}},
+			}, Body: []frontend.Stmt{
+				&frontend.Return{Value: &frontend.Name{Id: "x"}},
+			}},
+		}},
+	}}
+	src, err := Module(mod, "md.py", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(src)
+	for _, want := range []string{
+		"t1 := objects.NewInt(1)",
+		`objects.NewFunction("C.m"`,
+		"[]objects.Object{nil, t1}",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("emitted source missing %q:\n%s", want, got)
+		}
+	}
+}
+
 // A literal past int64 lowers to a NewIntText call so the emitted program
 // parses it into a big int at startup.
 func TestHugeIntLiteralLowersToText(t *testing.T) {
