@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+[hi world!]
+[hi sam!]
+[hi world?]
+hi via class!
+Sub.greet() got an unexpected keyword argument 'bogus'
+list.append() takes no keyword arguments
+== exception:
+== stderr:

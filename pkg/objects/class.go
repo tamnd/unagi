@@ -293,6 +293,32 @@ func classCallMethod(x *classObject, name string, args []Object) (Object, error)
 	return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
 }
 
+// instanceCallMethodKw is instanceCallMethod with keyword arguments: an
+// instance-dict entry is called through CallKw and a class function binds
+// self before the keywords reach its binder.
+func instanceCallMethodKw(x *instanceObject, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	if v, ok := x.dict[name]; ok {
+		return CallKw(v, pos, kwNames, kwVals)
+	}
+	if v, ok := x.cls.lookup(name); ok {
+		if fn, ok := v.(*functionObject); ok {
+			return fn.bind(append([]Object{x}, pos...), kwNames, kwVals)
+		}
+		return CallKw(v, pos, kwNames, kwVals)
+	}
+	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", x.cls.name, name)
+}
+
+// classCallMethodKw is classCallMethod with keyword arguments, so a method
+// reached through the class passes its self explicitly and the keywords land
+// on the function's own binder.
+func classCallMethodKw(x *classObject, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	if v, ok := x.lookup(name); ok {
+		return CallKw(v, pos, kwNames, kwVals)
+	}
+	return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
+}
+
 // classRepr and instanceRepr match 3.14: a class prints its qualified name,
 // an instance prints its class and identity. The address is not stable, so
 // fixtures never print a bare instance, the same rule the function reprs

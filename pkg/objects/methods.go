@@ -27,6 +27,28 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 	return nil, noAttr(o, name)
 }
 
+// CallMethodKw dispatches o.name(pos, **kw) for receivers whose methods take
+// keyword arguments: a user instance, class, or super object threads the
+// keywords into the function binder, which spells the unexpected-keyword and
+// arity errors against the method's qualname. A builtin receiver's methods
+// are positional in this tier, so a keyword there raises the type.method()
+// takes-no-keyword TypeError CPython gives for the builtin methods. With no
+// keywords it is exactly CallMethod.
+func CallMethodKw(o Object, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	if len(kwNames) == 0 {
+		return CallMethod(o, name, pos)
+	}
+	switch x := o.(type) {
+	case *instanceObject:
+		return instanceCallMethodKw(x, name, pos, kwNames, kwVals)
+	case *classObject:
+		return classCallMethodKw(x, name, pos, kwNames, kwVals)
+	case *superObject:
+		return superCallMethodKw(x, name, pos, kwNames, kwVals)
+	}
+	return nil, Raise(TypeError, "%s.%s() takes no keyword arguments", o.TypeName(), name)
+}
+
 // excMethod handles the methods every exception instance carries. Only
 // add_note exists so far; the arity message names the class as
 // BaseException.add_note, the type message drops the class, both probed
