@@ -136,11 +136,6 @@ func TestCompileErrors(t *testing.T) {
 			`name "ghost" is not defined`,
 		},
 		{
-			"attribute read",
-			&frontend.Module{Body: []frontend.Stmt{&frontend.ExprStmt{X: &frontend.Attribute{X: str("s"), Name: "upper"}}}},
-			"attribute access outside a method call",
-		},
-		{
 			"nested def",
 			&frontend.Module{Body: []frontend.Stmt{
 				&frontend.FuncDef{Name: "outer", Body: []frontend.Stmt{

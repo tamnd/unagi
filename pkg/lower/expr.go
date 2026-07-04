@@ -224,7 +224,13 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		f.fallible(tmp, f.e.obj("GetItem"), x, idx)
 		return ident(tmp), nil
 	case *frontend.Attribute:
-		return nil, f.e.errf(e.Span(), "attribute access outside a method call is not supported in M0")
+		x, err := f.expr(e.X)
+		if err != nil {
+			return nil, err
+		}
+		tmp := f.tmpVar()
+		f.fallible(tmp, f.e.obj("LoadAttr"), x, strLit(e.Name))
+		return ident(tmp), nil
 	default:
 		return nil, f.e.errf(e.Span(), "expression not supported in M0")
 	}

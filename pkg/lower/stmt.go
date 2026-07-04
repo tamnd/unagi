@@ -156,6 +156,8 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 			f.add(set(ident(mangle(s.Name)), ident(f.e.fnObjName(s.Name))))
 		}
 		return nil
+	case *frontend.ClassDef:
+		return f.classDef(s)
 	default:
 		return f.e.errf(s.Span(), "statement not supported in M0")
 	}
@@ -225,6 +227,13 @@ func (f *fnCtx) assignTo(target frontend.Expr, v ast.Expr) error {
 				return err
 			}
 		}
+		return nil
+	case *frontend.Attribute:
+		x, err := f.expr(t.X)
+		if err != nil {
+			return err
+		}
+		f.fallibleVoid(f.e.obj("StoreAttr"), x, strLit(t.Name), v)
 		return nil
 	default:
 		return f.e.errf(target.Span(), "cannot assign to this expression")
@@ -344,6 +353,23 @@ func (f *fnCtx) augAssign(s *frontend.AugAssign) error {
 		res := f.tmpVar()
 		f.fallible(res, f.e.obj(op), ident(cur), v)
 		f.fallibleVoid(f.e.obj("SetItem"), x, idx, ident(res))
+		return nil
+	case *frontend.Attribute:
+		// The receiver evaluates once; the read and the write share it, so
+		// obj.attr += v does not run obj twice.
+		x, err := f.expr(t.X)
+		if err != nil {
+			return err
+		}
+		cur := f.tmpVar()
+		f.fallible(cur, f.e.obj("LoadAttr"), x, strLit(t.Name))
+		v, err := f.expr(s.Value)
+		if err != nil {
+			return err
+		}
+		res := f.tmpVar()
+		f.fallible(res, f.e.obj(op), ident(cur), v)
+		f.fallibleVoid(f.e.obj("StoreAttr"), x, strLit(t.Name), ident(res))
 		return nil
 	default:
 		return f.e.errf(s.Span(), "augmented assignment target must be a name or subscript")
