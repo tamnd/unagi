@@ -237,3 +237,14 @@
     - identity-hash values differing run to run, as CPython's also do
   workaround: none; only self-consistency is promised
   status: under-review
+
+- id: CL-22
+  title: exception __traceback__ is always None
+  category: semantics
+  cpython: a caught exception's __traceback__ is a traceback object holding the frames.
+  unagi: __traceback__ reads as None; the frames live on the exception but there is no first-class traceback object.
+  why: unagi models frames as a slice on the exception, not a walkable traceback object; a fresh exception's __traceback__ is None in CPython too.
+  observable-as:
+    - repr(caught.__traceback__) is None instead of <traceback object at 0x...>
+  workaround: read the rendered traceback text instead of the object
+  status: under-review

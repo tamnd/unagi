@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+args: ('outer',)
+cause: None
+context: ValueError('inner')
+suppress: True
+fresh tb: None
+no notes: 'ValueError' object has no attribute '__notes__'
+notes: ['first', 'second']
+set cause: KeyError('k') suppress: True
+clear cause: None suppress: True
+set context: KeyError('k')
+reset suppress: False
+cause err: exception cause must be None or derive from BaseException
+context err: exception context must be None or derive from BaseException
+suppress err: attribute value type must be bool
+== exception:
+== stderr:
