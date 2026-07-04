@@ -92,6 +92,8 @@ func ds(s Stmt) string {
 		return "(continue)"
 	case *Del:
 		return dexprs("del", s.Targets)
+	case *Global:
+		return "(global " + strings.Join(s.Names, " ") + ")"
 	}
 	return "?stmt"
 }
@@ -574,6 +576,19 @@ func TestParse(t *testing.T) {
 		{"fstring concat mixed folds", `"a" f"b" "c"`, `(expr "abc")`},
 		{"fstring as assign value", `s = f"n={n}"`, `(= s (fstr "n=" (interp n)))`},
 		{"fstring in call", `log(f"{x}", 1)`, "(expr (call log (fstr (interp x)) 1))"},
+		{"global at module", "global x", "(global x)"},
+		{"global name list", "global a, b", "(global a b)"},
+		{"global then write", "def f():\n    global x\n    x = 1\n", "(def f () [(global x) (= x 1)])"},
+		{"global duplicate declaration", "def f():\n    global x\n    global x\n    x = 1\n",
+			"(def f () [(global x) (global x) (= x 1)])"},
+		{"global after lambda body use", "def f():\n    g = lambda: x\n    global x\n",
+			"(def f () [(= g (lambda () x)) (global x)])"},
+		{"global after comp element use", "def f():\n    r = [x for _ in ()]\n    global x\n",
+			"(def f () [(= r (listcomp x (for _ (tuple)))) (global x)])"},
+		{"global after comp target", "def f():\n    r = [0 for x in ()]\n    global x\n",
+			"(def f () [(= r (listcomp 0 (for x (tuple)))) (global x)])"},
+		{"global list other name assigned between", "def f():\n    global x, y\n    y = 1\n    global x\n",
+			"(def f () [(global x y) (= y 1) (global x)])"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -598,8 +613,37 @@ func TestParseErrors(t *testing.T) {
 		{"import", "import os", "import statements are not supported yet"},
 		{"from import", "from os import path", "from imports are not supported yet"},
 		{"with", "with open(f) as g: pass", "with statements are not supported yet"},
-		{"global", "global x", "global statements are not supported yet"},
 		{"nonlocal", "nonlocal x", "nonlocal statements are not supported yet"},
+		{"global param", "def f(x):\n    global x", "name 'x' is parameter and global"},
+		{"global kwonly param", "def f(*, x=1):\n    global x", "name 'x' is parameter and global"},
+		{"global after assign", "def f():\n    x = 1\n    global x",
+			"name 'x' is assigned to before global declaration"},
+		{"global after use", "def f():\n    print(x)\n    global x",
+			"name 'x' is used prior to global declaration"},
+		{"global use outranks assign", "def f():\n    x = 1\n    print(x)\n    global x",
+			"name 'x' is used prior to global declaration"},
+		{"global after del", "def f():\n    del x\n    global x",
+			"name 'x' is assigned to before global declaration"},
+		{"global after aug assign", "def f():\n    x += 1\n    global x",
+			"name 'x' is assigned to before global declaration"},
+		{"global after for target", "def f():\n    for x in ():\n        pass\n    global x",
+			"name 'x' is assigned to before global declaration"},
+		{"global redeclared after own write", "def f():\n    global x\n    x = 1\n    global x",
+			"name 'x' is assigned to before global declaration"},
+		{"global after assign in branch", "def f():\n    if c:\n        x = 1\n    else:\n        global x",
+			"name 'x' is assigned to before global declaration"},
+		{"global at module after assign", "x = 1\nglobal x",
+			"name 'x' is assigned to before global declaration"},
+		{"global at module after use", "x\nglobal x",
+			"name 'x' is used prior to global declaration"},
+		{"global after lambda default use", "def f():\n    g = lambda z=x: z\n    global x",
+			"name 'x' is used prior to global declaration"},
+		{"global after comp iterable use", "def f():\n    r = [0 for _ in x]\n    global x",
+			"name 'x' is used prior to global declaration"},
+		{"global after comp walrus", "def f():\n    r = [0 for _ in () if (x := 1)]\n    global x",
+			"name 'x' is assigned to before global declaration"},
+		{"global non-name", "global x.y", "invalid syntax"},
+		{"global bare", "global", "invalid syntax"},
 		{"async def", "async def f(): pass", "async is not supported yet"},
 		{"lambda duplicate param", "f = lambda x, x: x", "duplicate argument 'x' in function definition"},
 		{"lambda default order", "f = lambda x=1, y: x", "parameter without a default follows parameter with a default"},

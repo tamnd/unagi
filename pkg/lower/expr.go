@@ -64,7 +64,7 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		if t, ok := f.compVars[e.Id]; ok {
 			return ident(t), nil
 		}
-		if f.locals[e.Id] {
+		if f.locals[e.Id] || f.globals[e.Id] {
 			return f.loadName(e.Id), nil
 		}
 		// A free variable: the lambda's Go literal captures the enclosing
@@ -89,16 +89,31 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 			f.fallible(tmp, sel("runtime", fn), ident(mangle(e.Id)), strLit(e.Id))
 			return ident(tmp), nil
 		}
+		// A module-scope variable read from a def body or a lambda chain
+		// that ran dry. The read is always checked: the module may not have
+		// bound the name yet when this function runs, which is also what
+		// makes the reference late-binding. Rebound def names are module
+		// variables, so they take this path and see the current binding.
+		if f.e.moduleVars[e.Id] {
+			tmp := f.tmpVar()
+			f.fallible(tmp, sel("runtime", "LoadName"), ident(mangle(e.Id)), strLit(e.Id))
+			return ident(tmp), nil
+		}
 		if _, isDef := f.e.defs[e.Id]; isDef {
-			// Inside a function body the def name binds statically, which a
-			// module-scope rebinding would silently break, so refuse that.
-			if f.e.rebound[e.Id] {
-				return nil, f.e.errf(e.Span(), "function %q is rebound at module scope; using it inside another function is not supported yet", e.Id)
-			}
+			// A def name nothing rebinds keeps its static binding.
 			return ident(f.e.fnObjName(e.Id)), nil
 		}
 		if builtinNames[e.Id] {
 			return nil, f.e.errf(e.Span(), "using builtin %q as a value is not supported yet", e.Id)
+		}
+		if f.inFunc {
+			// Inside a function an unresolved name is a global lookup deferred
+			// to call time: CPython raises NameError then, not at compile
+			// time, so a def can reference a module name defined later or
+			// never. LoadName on a nil value produces exactly that error.
+			tmp := f.tmpVar()
+			f.fallible(tmp, sel("runtime", "LoadName"), ident("nil"), strLit(e.Id))
+			return ident(tmp), nil
 		}
 		return nil, f.e.errf(e.Span(), "name %q is not defined", e.Id)
 	case *frontend.ListLit:
@@ -217,8 +232,15 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 
 // loadName reads a bound local slot. Names a del statement can unbind go
 // through the runtime check that raises UnboundLocalError in a function and
-// NameError at module level; every other local is a plain slot read.
+// NameError at module level; every other local is a plain slot read. A name
+// declared global reads the package variable with the module check no
+// matter what: its binding state depends on call order, not this body.
 func (f *fnCtx) loadName(id string) ast.Expr {
+	if f.globals[id] {
+		tmp := f.tmpVar()
+		f.fallible(tmp, sel("runtime", "LoadName"), ident(mangle(id)), strLit(id))
+		return ident(tmp)
+	}
 	if !f.deleted[id] {
 		return ident(mangle(id))
 	}

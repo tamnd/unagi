@@ -45,7 +45,7 @@ func (e *Error) Error() string {
 // lines; nil skips the embedding and frames render bare, which is what
 // CPython prints when the source file is gone.
 func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
-	e := &emitter{file: file, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, rebound: map[string]bool{}}
+	e := &emitter{file: file, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}}
 
 	var body []frontend.Stmt
 	var defs []*frontend.FuncDef
@@ -71,18 +71,28 @@ func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
 		body = append(body, s)
 	}
 
-	// A def name assigned or deleted anywhere at module scope becomes an
-	// ordinary checked local: the def statement binds it to the function
-	// object, later statements can rebind it, and every read and call goes
-	// through the variable instead of the static fast path.
+	// A def name assigned or deleted anywhere at module scope, or declared
+	// global by some def, becomes an ordinary checked module variable: the
+	// def statement binds it to the function object, later statements can
+	// rebind it, and every read and call goes through the variable instead
+	// of the static fast path.
 	assigned := map[string]bool{}
 	collectAssigned(body, assigned)
+	for _, d := range defs {
+		collectGlobals(d.Body, e.globalDecl)
+	}
 	for n := range assigned {
+		e.moduleVars[n] = true
+	}
+	for n := range e.globalDecl {
+		e.moduleVars[n] = true
+	}
+	for n := range e.moduleVars {
 		if _, ok := e.defs[n]; ok {
 			e.rebound[n] = true
 		}
 	}
-	if len(defs) > 0 {
+	if len(defs) > 0 || len(e.moduleVars) > 0 {
 		e.usedObjects = true
 	}
 
@@ -131,6 +141,13 @@ func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
 		}
 		out.WriteString(")\n\n")
 	}
+	if len(e.moduleVars) > 0 {
+		out.WriteString("// Module-scope variables, at package level so def bodies reach them.\nvar (\n")
+		for _, n := range sortedNames(e.moduleVars) {
+			fmt.Fprintf(&out, "\t%s objects.Object\n", mangle(n))
+		}
+		out.WriteString(")\n\n")
+	}
 	if err := writeDecl(&out, mainDecl()); err != nil {
 		return nil, err
 	}
@@ -138,14 +155,14 @@ func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
 		return nil, err
 	}
 	for i, decl := range fnDecls {
-		fmt.Fprintf(&out, "// %s is Python def %s.\n", mangle(defs[i].Name), defs[i].Name)
+		fmt.Fprintf(&out, "// %s is Python def %s.\n", e.defName(defs[i].Name), defs[i].Name)
 		if err := writeDecl(&out, decl); err != nil {
 			return nil, err
 		}
 		// The adapter lives at package level so it sees the def's Go
 		// function even when a rebound def name shadows it in pymain.
 		fmt.Fprintf(&out, "// %s adapts %s to the function object calling convention.\n",
-			e.implName(defs[i].Name), mangle(defs[i].Name))
+			e.implName(defs[i].Name), e.defName(defs[i].Name))
 		if err := writeDecl(&out, e.implDecl(defs[i])); err != nil {
 			return nil, err
 		}
@@ -164,7 +181,9 @@ type emitter struct {
 	file        string
 	defs        map[string]*frontend.FuncDef
 	defOrd      map[string]int
-	rebound     map[string]bool // def names also assigned or deleted at module scope
+	rebound     map[string]bool // def names that are also module variables
+	globalDecl  map[string]bool // names some def declares global
+	moduleVars  map[string]bool // every module-scope variable, emitted at package level
 	slots       []string
 	usedObjects bool
 	usedTB      bool
@@ -189,6 +208,13 @@ func (e *emitter) implName(fname string) string {
 	return fmt.Sprintf("impl%d_%s", e.defOrd[fname], fname)
 }
 
+// defName is the Go function that carries one def's body. It has its own
+// namespace so a rebound def name, which also becomes a mangled module
+// variable, does not collide with the function implementing it.
+func (e *emitter) defName(fname string) string {
+	return fmt.Sprintf("def%d_%s", e.defOrd[fname], fname)
+}
+
 // implDecl builds one def's adapter: unpack the bound argument slice into
 // the def's Go parameters.
 func (e *emitter) implDecl(d *frontend.FuncDef) *ast.FuncDecl {
@@ -200,7 +226,7 @@ func (e *emitter) implDecl(d *frontend.FuncDef) *ast.FuncDecl {
 		Name: ident(e.implName(d.Name)),
 		Type: e.implType(),
 		Body: &ast.BlockStmt{List: []ast.Stmt{&ast.ReturnStmt{
-			Results: []ast.Expr{callExpr(ident(mangle(d.Name)), args...)},
+			Results: []ast.Expr{callExpr(ident(e.defName(d.Name)), args...)},
 		}}},
 	}
 }

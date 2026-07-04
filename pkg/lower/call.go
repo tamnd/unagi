@@ -53,10 +53,13 @@ func (f *fnCtx) call(e *frontend.Call) (ast.Expr, error) {
 			return f.dynCall(e)
 		}
 	}
+	// A module variable outranks defs and builtins alike: rebound def names
+	// and shadowed builtins bind at call time through the checked module
+	// read the Name lowering emits.
+	if f.globals[name.Id] || f.e.moduleVars[name.Id] {
+		return f.dynCall(e)
+	}
 	if d, isDef := f.e.defs[name.Id]; isDef {
-		if f.e.rebound[name.Id] {
-			return nil, f.e.errf(e.Span(), "function %q is rebound at module scope; calling it inside another function is not supported yet", name.Id)
-		}
 		return f.userCall(d, e)
 	}
 	if builtinNames[name.Id] {

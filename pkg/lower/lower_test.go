@@ -71,9 +71,9 @@ func TestFunctionLowering(t *testing.T) {
 	}
 	got := string(src)
 	for _, want := range []string{
-		"func u_add(u_a objects.Object, u_b objects.Object) (objects.Object, error) {",
+		"func def0_add(u_a objects.Object, u_b objects.Object) (objects.Object, error) {",
 		"objects.Add(u_a, u_b)",
-		"u_add(objects.NewInt(1), objects.NewInt(2))",
+		"def0_add(objects.NewInt(1), objects.NewInt(2))",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("emitted source missing %q:\n%s", want, got)

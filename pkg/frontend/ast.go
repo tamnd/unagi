@@ -182,7 +182,16 @@ type Del struct {
 	Targets []Expr
 }
 
+// Global is `global a, b`: inside a function the listed names read and
+// write module scope. At module scope the statement is legal and changes
+// nothing. The parser enforces the conflict rules after the parse.
+type Global struct {
+	Pos_  Pos
+	Names []string
+}
+
 func (s *Del) Span() Pos       { return s.Pos_ }
+func (s *Global) Span() Pos    { return s.Pos_ }
 func (s *Try) Span() Pos       { return s.Pos_ }
 func (s *Raise) Span() Pos     { return s.Pos_ }
 func (s *Assert) Span() Pos    { return s.Pos_ }
@@ -199,6 +208,7 @@ func (s *Break) Span() Pos     { return s.Pos_ }
 func (s *Continue) Span() Pos  { return s.Pos_ }
 
 func (*Del) stmt()       {}
+func (*Global) stmt()    {}
 func (*Try) stmt()       {}
 func (*Raise) stmt()     {}
 func (*Assert) stmt()    {}
