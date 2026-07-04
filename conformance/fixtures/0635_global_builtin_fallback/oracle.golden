@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+3
+5
+2
+set
+NameError: name 'tag' is not defined
+100
+7
+== exception:
+== stderr:
