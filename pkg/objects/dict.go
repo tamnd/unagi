@@ -86,6 +86,22 @@ func hashKey(o Object) (string, error) {
 		// frozenset({2,1}) hash the same. A plain set falls through to
 		// the unhashable error below.
 		return frozenKey(&x.setCore), nil
+	case *sliceObject:
+		// Slices are hashable on 3.14: key by the three parts under a distinct
+		// prefix so equal slices collide and a slice never shares a slot with a
+		// like-looking tuple.
+		var b strings.Builder
+		b.WriteString("S")
+		for _, part := range []Object{x.start, x.stop, x.step} {
+			k, err := hashKey(part)
+			if err != nil {
+				return "", err
+			}
+			b.WriteString(strconv.Itoa(len(k)))
+			b.WriteByte(':')
+			b.WriteString(k)
+		}
+		return b.String(), nil
 	case *funcObject, *functionObject, *Exception, *dictValuesObject,
 		*ellipsisObject, *notImplementedObject:
 		// Identity types: the same objects PyHash hashes by pointer key

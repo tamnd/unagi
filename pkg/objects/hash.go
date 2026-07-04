@@ -56,6 +56,8 @@ func PyHash(o Object) (int64, error) {
 		return pyHashFrozenset(x.elts)
 	case *rangeObject:
 		return pyHashRange(x)
+	case *sliceObject:
+		return pyHashSlice(x)
 	case *funcObject, *functionObject, *Exception, *dictValuesObject,
 		*ellipsisObject, *notImplementedObject:
 		return pyHashPointer(o), nil
@@ -318,6 +320,27 @@ func pyHashTuple(elts []Object) (int64, error) {
 		acc *= xxPrime1
 	}
 	acc += uint64(len(elts)) ^ (xxPrime5 ^ tupleEmptyFx)
+	r := int64(acc)
+	if r == -1 {
+		r = 1546275796
+	}
+	return r, nil
+}
+
+// pyHashSlice is sliceobject.c's slicehash: the same xxHash lane fold as a
+// tuple over the (start, stop, step) parts, but without the length dispersal
+// the tuple mixes in at the end, so hash(slice(a, b, c)) != hash((a, b, c)).
+func pyHashSlice(x *sliceObject) (int64, error) {
+	acc := xxPrime5
+	for _, part := range []Object{x.start, x.stop, x.step} {
+		h, err := PyHash(part)
+		if err != nil {
+			return 0, err
+		}
+		acc += uint64(h) * xxPrime2
+		acc = bits.RotateLeft64(acc, 31)
+		acc *= xxPrime1
+	}
 	r := int64(acc)
 	if r == -1 {
 		r = 1546275796

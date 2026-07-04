@@ -646,6 +646,18 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return NewFloat(x.im), nil
 		}
 		return nil, Raise(AttributeError, "'complex' object has no attribute '%s'", name)
+	case *sliceObject:
+		// The three parts are read-only attributes carrying whatever was
+		// stored, None included.
+		switch name {
+		case "start":
+			return x.start, nil
+		case "stop":
+			return x.stop, nil
+		case "step":
+			return x.step, nil
+		}
+		return nil, Raise(AttributeError, "'slice' object has no attribute '%s'", name)
 	case *funcObject:
 		// Builtin functions and the constructor-backed type objects carry a
 		// __name__/__qualname__, so type(5).__name__ and len.__name__ read back.

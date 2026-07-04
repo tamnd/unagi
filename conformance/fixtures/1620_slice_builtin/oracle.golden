@@ -1,0 +1,35 @@
+== exit: 0
+== stdout:
+slice(1, 10, 2) 1 10 2
+slice(None, 5, None) slice(1, 2, None)
+slice(None, None, -1)
+<class 'slice'>
+<class 'type'>
+slice
+True
+False
+True True
+True False
+False False
+a b
+1.5 'x' None
+(0, 5, 1)
+(1, 10, 2)
+(4, -1, -1)
+(9, 5, -1)
+[20, 30, 40] [10, 30, 50]
+(4, 3, 2, 1)
+ell
+[9, 9, 9, 2, 3, 4, 5]
+[9, 2, 4]
+slice(1, 10, 2)
+slice(None, None, -1)
+slice(None, None, None)
+slice other
+TypeError slice expected at least 1 argument, got 0
+TypeError slice expected at most 3 arguments, got 4
+ValueError length should not be negative
+TypeError 'str' object cannot be interpreted as an integer
+TypeError slice.indices() takes exactly one argument (2 given)
+== exception:
+== stderr:

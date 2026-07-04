@@ -242,6 +242,22 @@ func reprCore(o Object, strict bool) (string, error) {
 			return fmt.Sprintf("range(%d, %d)", x.start, x.stop), nil
 		}
 		return fmt.Sprintf("range(%d, %d, %d)", x.start, x.stop, x.step), nil
+	case *sliceObject:
+		// Probed on 3.14: repr(slice(1, 10, 2)) is "slice(1, 10, 2)" and an
+		// omitted part prints as None, so slice(5) is "slice(None, 5, None)".
+		start, err := reprCore(x.start, strict)
+		if err != nil {
+			return "", err
+		}
+		stop, err := reprCore(x.stop, strict)
+		if err != nil {
+			return "", err
+		}
+		step, err := reprCore(x.step, strict)
+		if err != nil {
+			return "", err
+		}
+		return "slice(" + start + ", " + stop + ", " + step + ")", nil
 	case *funcObject:
 		// A builtin passed around as a value reprs the way CPython does: the
 		// type constructors as classes, the plain builtins as built-in

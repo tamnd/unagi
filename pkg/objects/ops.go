@@ -766,6 +766,11 @@ func equals(a, b Object) bool {
 	case *rangeObject:
 		y, ok := b.(*rangeObject)
 		return ok && rangeEquals(x, y)
+	case *sliceObject:
+		// Probed on 3.14: two slices are equal when their start, stop and step
+		// each compare equal, so slice(1, 2) == slice(1, 2) but not slice(1, 3).
+		y, ok := b.(*sliceObject)
+		return ok && equals(x.start, y.start) && equals(x.stop, y.stop) && equals(x.step, y.step)
 	}
 	return a == b
 }
@@ -995,6 +1000,14 @@ func seqIndex(i int64, n int, msg string) (int, error) {
 
 // GetItem implements subscription: o[key].
 func GetItem(o, key Object) (Object, error) {
+	// A slice object handed to a builtin sequence reads the same span the
+	// start:stop:step notation does, so xs[slice(1, 4)] matches xs[1:4].
+	if sl, ok := key.(*sliceObject); ok {
+		switch o.(type) {
+		case *listObject, *tupleObject, *strObject, *bytesObject, *bytearrayObject:
+			return GetSlice(o, sl.start, sl.stop, sl.step)
+		}
+	}
 	switch x := o.(type) {
 	case *strObject:
 		i, ok := AsInt(key)
@@ -1104,6 +1117,14 @@ func GetItem(o, key Object) (Object, error) {
 
 // SetItem implements assignment: o[key] = val.
 func SetItem(o, key, val Object) error {
+	// A slice key routes to the span-assignment path, so xs[slice(0, 2)] = ys
+	// splices exactly like xs[0:2] = ys.
+	if sl, ok := key.(*sliceObject); ok {
+		switch o.(type) {
+		case *listObject, *tupleObject, *strObject, *bytesObject, *bytearrayObject:
+			return SetSlice(o, sl.start, sl.stop, sl.step, val)
+		}
+	}
 	switch x := o.(type) {
 	case *listObject:
 		i, ok := AsInt(key)
