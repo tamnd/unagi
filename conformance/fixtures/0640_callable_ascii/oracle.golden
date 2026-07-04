@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+True True True True
+False False False True
+called
+'h\xe9llo' 'a'
+['x', '\xfc'] {'k': 'caf\xe9'}
+123 '\n\t'
+'\u20ac' '\u0100'
+True '\xe9'
+== exception:
+== stderr:

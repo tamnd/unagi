@@ -120,6 +120,47 @@ func ReprE(o Object) (string, error) {
 	return reprCore(o, true)
 }
 
+// Ascii is ascii(): the repr with every non-ASCII rune replaced by its
+// backslash escape. CPython's ascii escapes only appear where the repr has a
+// non-ASCII rune (a string's contents, an identifier), and any backslash the
+// repr already produced for a control character is plain ASCII, so escaping
+// each rune >= 0x80 in the repr string reproduces ascii() exactly: \xHH up to
+// 0xff, \uHHHH up to 0xffff, else \UHHHHHHHH, lowercase hex like repr.
+func Ascii(o Object) (string, error) {
+	s, err := ReprE(o)
+	if err != nil {
+		return "", err
+	}
+	if isASCII(s) {
+		return s, nil
+	}
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r < 0x80:
+			b.WriteRune(r)
+		case r <= 0xff:
+			fmt.Fprintf(&b, "\\x%02x", r)
+		case r <= 0xffff:
+			fmt.Fprintf(&b, "\\u%04x", r)
+		default:
+			fmt.Fprintf(&b, "\\U%08x", r)
+		}
+	}
+	return b.String(), nil
+}
+
+// isASCII reports whether s is all ASCII, the common case that skips the
+// escape rebuild.
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
 func reprCore(o Object, strict bool) (string, error) {
 	switch x := o.(type) {
 	case *noneObject:

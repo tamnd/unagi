@@ -370,13 +370,15 @@ func init() {
 		"issubclass": objects.NewFunc("issubclass", 2, func(args []objects.Object) (objects.Object, error) {
 			return IsSubclass(args[0], args[1])
 		}),
-		"next":    objects.NewFunc("next", -1, objects.NextValue),
-		"any":     objects.NewFunc("any", 1, func(args []objects.Object) (objects.Object, error) { return Any(args[0]) }),
-		"all":     objects.NewFunc("all", 1, func(args []objects.Object) (objects.Object, error) { return All(args[0]) }),
-		"getattr": objects.NewFunc("getattr", -1, GetAttr),
-		"hasattr": objects.NewFunc("hasattr", -1, HasAttr),
-		"setattr": objects.NewFunc("setattr", -1, SetAttr),
-		"delattr": objects.NewFunc("delattr", -1, DelAttr),
+		"next":     objects.NewFunc("next", -1, objects.NextValue),
+		"any":      objects.NewFunc("any", 1, func(args []objects.Object) (objects.Object, error) { return Any(args[0]) }),
+		"all":      objects.NewFunc("all", 1, func(args []objects.Object) (objects.Object, error) { return All(args[0]) }),
+		"callable": objects.NewFunc("callable", 1, func(args []objects.Object) (objects.Object, error) { return Callable(args[0]) }),
+		"ascii":    objects.NewFunc("ascii", 1, func(args []objects.Object) (objects.Object, error) { return Ascii(args[0]) }),
+		"getattr":  objects.NewFunc("getattr", -1, GetAttr),
+		"hasattr":  objects.NewFunc("hasattr", -1, HasAttr),
+		"setattr":  objects.NewFunc("setattr", -1, SetAttr),
+		"delattr":  objects.NewFunc("delattr", -1, DelAttr),
 	})
 }
 

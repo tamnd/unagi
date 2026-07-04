@@ -54,3 +54,31 @@ func TestAnyAllNotIterable(t *testing.T) {
 	_, err = All(objects.NewInt(5))
 	checkErr(t, "all non-iterable", err, "TypeError: 'int' object is not iterable")
 }
+
+func TestCallable(t *testing.T) {
+	got, _ := Callable(BuiltinFn("len"))
+	if got != objects.True {
+		t.Errorf("callable(len) = %v, want True", got)
+	}
+	got, _ = Callable(objects.NewInt(1))
+	if got != objects.False {
+		t.Errorf("callable(1) = %v, want False", got)
+	}
+}
+
+func TestAscii(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"a", "'a'"},
+		{"héllo", "'h\\xe9llo'"},
+		{"€", "'\\u20ac'"},
+	}
+	for _, c := range cases {
+		got, err := Ascii(objects.NewStr(c.in))
+		if err != nil {
+			t.Fatalf("Ascii(%q) = %v", c.in, err)
+		}
+		if s, _ := objects.AsStr(got); s != c.want {
+			t.Errorf("Ascii(%q) = %s, want %s", c.in, s, c.want)
+		}
+	}
+}
