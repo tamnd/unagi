@@ -1,0 +1,10 @@
+== exit: 1
+== stdout:
+== exception:
+TypeError: from exit
+  main.py:12 <module>
+  main.py:9 __exit__
+context:
+ValueError: boom
+  main.py:13 <module>
+== stderr:
