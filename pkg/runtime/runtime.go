@@ -379,6 +379,9 @@ func init() {
 		"hasattr":  objects.NewFunc("hasattr", -1, HasAttr),
 		"setattr":  objects.NewFunc("setattr", -1, SetAttr),
 		"delattr":  objects.NewFunc("delattr", -1, DelAttr),
+		"iter":     objects.NewFunc("iter", -1, Iter),
+		"map":      objects.NewFunc("map", -1, Map),
+		"filter":   objects.NewFunc("filter", -1, Filter),
 	})
 }
 
