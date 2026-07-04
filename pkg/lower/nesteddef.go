@@ -45,6 +45,7 @@ func (f *fnCtx) nestedDef(s *frontend.FuncDef) error {
 	}
 
 	collectGlobals(s.Body, in.globals)
+	collectNonlocals(s.Body, in.nonlocals)
 	assigned := map[string]bool{}
 	collectAssigned(s.Body, assigned)
 	collectLocalDefs(s.Body, assigned)
@@ -53,7 +54,7 @@ func (f *fnCtx) nestedDef(s *frontend.FuncDef) error {
 	// then raises UnboundLocalError just like a name deleted and read back.
 	collectLocalDefs(s.Body, in.deleted)
 	for _, name := range sortedNames(assigned) {
-		if in.locals[name] || in.globals[name] {
+		if in.locals[name] || in.globals[name] || in.nonlocals[name] {
 			continue
 		}
 		in.locals[name] = true

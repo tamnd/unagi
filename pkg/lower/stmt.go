@@ -93,6 +93,11 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 		// The declaration itself does nothing at runtime; emitFunc collected
 		// the names up front and the name lowering routes them.
 		return nil
+	case *frontend.Nonlocal:
+		// Also a no-op at runtime: the names are excluded from this function's
+		// locals so reads and writes hit the enclosing variable the Go func
+		// literal already captured by reference.
+		return nil
 	case *frontend.Break:
 		if len(f.loops) == 0 {
 			return f.e.errf(s.Span(), "'break' outside loop")

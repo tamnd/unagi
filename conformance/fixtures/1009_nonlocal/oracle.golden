@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+99
+1 2 3 1
+42
+(11, 22)
+('c', 'a')
+set
+(6, 7)
+6
+== exception:
+== stderr:

@@ -1,24 +1,46 @@
 package frontend
 
-// This file enforces the global-declaration conflicts CPython's symtable
-// raises, all probed on 3.14. A scope walks its statements in textual
-// order accumulating three flags per name: parameter, used, and assigned.
-// Each global statement then checks its names with parameter outranking
-// used outranking assigned (probed: an assign followed by a read reports
-// "used prior", del and augmented assignment report "assigned to"). Flags
-// keep accumulating after a global statement, so declaring the same name
-// again after an assignment still errors even though the assignment
-// itself targeted module scope.
+// This file enforces the global- and nonlocal-declaration conflicts
+// CPython's symtable raises, all probed on 3.14. A scope walks its
+// statements in textual order accumulating three flags per name:
+// parameter, used, and assigned. Each global or nonlocal statement then
+// checks its names with parameter outranking used outranking assigned
+// (probed: an assign followed by a read reports "used prior", del and
+// augmented assignment report "assigned to"). Flags keep accumulating
+// after a declaration, so declaring the same name again after an
+// assignment still errors even though the assignment itself targeted an
+// outer scope.
+//
+// nonlocal adds two checks a global does not: it is illegal at module
+// level, and it must resolve to a binding in an enclosing function scope.
+// So each scope also carries the bound-name sets of its enclosing function
+// scopes, nearest first, and its own bound set to hand down. A class body
+// is a scope but not a function scope: it does not join the enclosing
+// chain, so a method resolves nonlocal against the class's own enclosing
+// functions, not the class.
 //
 // Lambda bodies and comprehension interiors are their own scopes and
 // leave the flags alone; lambda defaults and the outermost comprehension
 // iterable evaluate in this scope and count. A walrus anywhere in a
 // comprehension binds this scope and counts as assigned.
 
-// checkGlobals validates one scope: the module body, or one def body with
-// its parameters. Def bodies recurse from the FuncDef case.
-func (p *parser) checkGlobals(body []Stmt, params []Param) {
-	c := &globalScope{p: p, param: map[string]bool{}, used: map[string]bool{}, assigned: map[string]bool{}}
+// checkScopes validates one scope: the module body, one def body with its
+// parameters, or a class body. enclosing holds the bound-name sets of the
+// enclosing function scopes nearest first, atModule marks the module body,
+// and isFunc marks a function scope, the only kind that joins the chain a
+// nested nonlocal resolves against. Nested scopes recurse from the FuncDef
+// and ClassDef cases.
+func (p *parser) checkScopes(body []Stmt, params []Param, enclosing []map[string]bool, atModule, isFunc bool) {
+	c := &globalScope{
+		p:         p,
+		param:     map[string]bool{},
+		used:      map[string]bool{},
+		assigned:  map[string]bool{},
+		enclosing: enclosing,
+		atModule:  atModule,
+		isFunc:    isFunc,
+		selfBound: boundNames(body, params),
+	}
 	for _, pr := range params {
 		c.param[pr.Name] = true
 	}
@@ -30,6 +52,24 @@ type globalScope struct {
 	param    map[string]bool
 	used     map[string]bool
 	assigned map[string]bool
+	// enclosing is the bound-name set of each enclosing function scope,
+	// nearest first; selfBound is this scope's own bound set, prepended when
+	// descending into a function or class scope. atModule and isFunc classify
+	// this scope for the nonlocal rules.
+	enclosing []map[string]bool
+	selfBound map[string]bool
+	atModule  bool
+	isFunc    bool
+}
+
+// childEnclosing is the enclosing chain a nested scope sees: a function
+// scope prepends its own bound set, a class or module scope passes its
+// chain through unchanged because it is not a function scope.
+func (c *globalScope) childEnclosing() []map[string]bool {
+	if !c.isFunc {
+		return c.enclosing
+	}
+	return append([]map[string]bool{c.selfBound}, c.enclosing...)
 }
 
 func (c *globalScope) stmts(list []Stmt) {
@@ -90,13 +130,22 @@ func (c *globalScope) stmt(s Stmt) {
 		c.stmts(s.OrElse)
 		c.stmts(s.Final)
 	case *FuncDef:
-		// Defaults evaluate in this scope; the body is its own scope and
-		// gets its own checker seeded with the parameters.
+		// Defaults evaluate in this scope; the body is its own function scope
+		// and gets its own checker seeded with the parameters.
 		for _, pr := range s.Params {
 			c.use(pr.Default)
 		}
 		c.assigned[s.Name] = true
-		c.p.checkGlobals(s.Body, s.Params)
+		c.p.checkScopes(s.Body, s.Params, c.childEnclosing(), false, true)
+	case *ClassDef:
+		// Bases evaluate in this scope; the class name binds here. The body
+		// is a scope but not a function scope, so it does not join the chain a
+		// nested nonlocal resolves against.
+		for _, b := range s.Bases {
+			c.use(b)
+		}
+		c.assigned[s.Name] = true
+		c.p.checkScopes(s.Body, nil, c.childEnclosing(), false, false)
 	case *Global:
 		for _, n := range s.Names {
 			switch {
@@ -108,7 +157,221 @@ func (c *globalScope) stmt(s Stmt) {
 				c.p.errf(s.Pos_, "name '%s' is assigned to before global declaration", n)
 			}
 		}
+	case *Nonlocal:
+		if c.atModule {
+			c.p.errf(s.Pos_, "nonlocal declaration not allowed at module level")
+		}
+		for _, n := range s.Names {
+			switch {
+			case c.param[n]:
+				c.p.errf(s.Pos_, "name '%s' is parameter and nonlocal", n)
+			case c.used[n]:
+				c.p.errf(s.Pos_, "name '%s' is used prior to nonlocal declaration", n)
+			case c.assigned[n]:
+				c.p.errf(s.Pos_, "name '%s' is assigned to before nonlocal declaration", n)
+			default:
+				bound := false
+				for _, b := range c.enclosing {
+					if b[n] {
+						bound = true
+						break
+					}
+				}
+				if !bound {
+					c.p.errf(s.Pos_, "no binding for nonlocal '%s' found", n)
+				}
+			}
+		}
 	}
+}
+
+// boundNames gathers every name a scope binds directly: parameters, every
+// assignment, augmented-assignment, for, with, and except-as target, del
+// targets, walrus targets, and nested def and class names. It descends
+// compound statements but not into a nested def, lambda, or class body,
+// which are deeper scopes. Names the scope declares global or nonlocal are
+// removed at the end, since the scope does not own them, so a nested
+// nonlocal cannot resolve to them here. This is the set an inner nonlocal
+// checks the enclosing chain against.
+func boundNames(body []Stmt, params []Param) map[string]bool {
+	out := map[string]bool{}
+	for _, pr := range params {
+		out[pr.Name] = true
+	}
+	notLocal := map[string]bool{}
+
+	var bindTarget func(t Expr)
+	bindTarget = func(t Expr) {
+		switch t := t.(type) {
+		case *Name:
+			out[t.Id] = true
+		case *Starred:
+			bindTarget(t.X)
+		case *TupleLit:
+			for _, el := range t.Elts {
+				bindTarget(el)
+			}
+		}
+	}
+
+	// walrus targets bind the scope no matter how deep the expression, so
+	// every read position is scanned for them, including comprehension
+	// interiors where a walrus leaks to the enclosing scope.
+	var walrus func(e Expr)
+	walrusAll := func(list []Expr) {
+		for _, x := range list {
+			walrus(x)
+		}
+	}
+	walrus = func(e Expr) {
+		switch e := e.(type) {
+		case *NamedExpr:
+			out[e.Target] = true
+			walrus(e.Value)
+		case *ListLit:
+			walrusAll(e.Elts)
+		case *TupleLit:
+			walrusAll(e.Elts)
+		case *SetLit:
+			walrusAll(e.Elts)
+		case *DictLit:
+			walrusAll(e.Keys)
+			walrusAll(e.Vals)
+		case *BinOp:
+			walrus(e.Left)
+			walrus(e.Right)
+		case *UnaryOp:
+			walrus(e.X)
+		case *BoolOp:
+			walrusAll(e.Values)
+		case *Compare:
+			walrus(e.Left)
+			walrusAll(e.Rights)
+		case *Call:
+			walrus(e.Fn)
+			for _, a := range e.Args {
+				walrus(a.Value)
+			}
+		case *Attribute:
+			walrus(e.X)
+		case *Subscript:
+			walrus(e.X)
+			walrus(e.Index)
+		case *SliceExpr:
+			walrus(e.Lo)
+			walrus(e.Hi)
+			walrus(e.Step)
+		case *IfExp:
+			walrus(e.Cond)
+			walrus(e.Then)
+			walrus(e.Else)
+		case *Starred:
+			walrus(e.X)
+		case *Comp:
+			walrus(e.Elt)
+			walrus(e.Val)
+			for _, cl := range e.Clauses {
+				walrus(cl.Iter)
+				walrusAll(cl.Ifs)
+			}
+		case *Lambda:
+			// A lambda default evaluates here, so a walrus in it binds here.
+			for _, pr := range e.Params {
+				walrus(pr.Default)
+			}
+		case *FStr:
+			for _, part := range e.Parts {
+				if in, ok := part.(*FInterp); ok {
+					walrus(in.X)
+				}
+			}
+		}
+	}
+
+	var walk func(list []Stmt)
+	walk = func(list []Stmt) {
+		for _, s := range list {
+			switch s := s.(type) {
+			case *ExprStmt:
+				walrus(s.X)
+			case *Assign:
+				walrus(s.Value)
+				for _, t := range s.Targets {
+					bindTarget(t)
+					walrus(t)
+				}
+			case *AugAssign:
+				bindTarget(s.Target)
+				walrus(s.Value)
+			case *Del:
+				for _, t := range s.Targets {
+					bindTarget(t)
+				}
+			case *Return:
+				walrus(s.Value)
+			case *Raise:
+				walrus(s.Exc)
+				walrus(s.Cause)
+			case *Assert:
+				walrus(s.Test)
+				walrus(s.Msg)
+			case *If:
+				walrus(s.Cond)
+				walk(s.Body)
+				walk(s.Else)
+			case *While:
+				walrus(s.Cond)
+				walk(s.Body)
+				walk(s.Else)
+			case *For:
+				bindTarget(s.Target)
+				walrus(s.Iter)
+				walk(s.Body)
+				walk(s.Else)
+			case *With:
+				for _, it := range s.Items {
+					walrus(it.Context)
+					if it.Target != nil {
+						bindTarget(it.Target)
+					}
+				}
+				walk(s.Body)
+			case *Try:
+				walk(s.Body)
+				for _, h := range s.Handlers {
+					walrus(h.Type)
+					if h.Name != "" {
+						out[h.Name] = true
+					}
+					walk(h.Body)
+				}
+				walk(s.OrElse)
+				walk(s.Final)
+			case *FuncDef:
+				out[s.Name] = true
+				for _, pr := range s.Params {
+					walrus(pr.Default)
+				}
+			case *ClassDef:
+				out[s.Name] = true
+				walrusAll(s.Bases)
+			case *Global:
+				for _, n := range s.Names {
+					notLocal[n] = true
+				}
+			case *Nonlocal:
+				for _, n := range s.Names {
+					notLocal[n] = true
+				}
+			}
+		}
+	}
+	walk(body)
+
+	for n := range notLocal {
+		delete(out, n)
+	}
+	return out
 }
 
 // target flags a binding position. Names bind; subscript and slice targets
