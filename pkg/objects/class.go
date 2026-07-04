@@ -457,6 +457,13 @@ func LoadAttr(o Object, name string) (Object, error) {
 		if tok {
 			return instanceGet(x, name, tv)
 		}
+		// A class __getattr__ is the last resort: normal resolution missed, so it
+		// is called with the name and its own AttributeError propagates. The
+		// lookup here cannot re-enter this miss path, since __getattr__ is found
+		// on the class as a plain method.
+		if _, ok := x.cls.lookup("__getattr__"); ok {
+			return instanceCallMethod(x, "__getattr__", []Object{NewStr(name)})
+		}
 		return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", x.cls.name, name)
 	case *classObject:
 		// __name__, __qualname__, __bases__, __mro__, and __base__ are
