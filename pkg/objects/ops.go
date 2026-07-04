@@ -461,9 +461,17 @@ func Pow(a, b Object) (Object, error) {
 		a.TypeName(), b.TypeName())
 }
 
-// BitOr implements the | operator: int bitwise or, set union. Probed on
-// 3.14: True | False is bool True, but mixing bool with int gives int.
+// BitOr implements the | operator: int bitwise or, set union, dict union
+// (PEP 584). Probed on 3.14: True | False is bool True, but mixing bool with
+// int gives int; d1 | d2 needs both operands to be dicts.
 func BitOr(a, b Object) (Object, error) {
+	if da, ok := a.(*dictObject); ok {
+		db, ok := b.(*dictObject)
+		if !ok {
+			return binFallback("|", a, b)
+		}
+		return dictOr(da, db)
+	}
 	if ac, ok := asSetCore(a); ok {
 		bc, ok2 := asSetCore(b)
 		if !ok2 {

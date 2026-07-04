@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+{1: 'a', 2: 'x', 3: 'c'}
+{3: 1, 1: 9, 2: 3}
+{1: 'a', 2: 'b'} {1: 'a'} {2: 'b'}
+dict|: unsupported operand type(s) for |: 'dict' and 'list'
+dict|: unsupported operand type(s) for |: 'dict' and 'str'
+dict|: unsupported operand type(s) for |: 'dict' and 'int'
+list|dict: unsupported operand type(s) for |: 'list' and 'dict'
+{1: 'a', 2: 'b'} True
+{1: 'z', 3: 'c'}
+|=int: 'int' object is not iterable
+|=bad: object is not iterable
+== exception:
+== stderr:
