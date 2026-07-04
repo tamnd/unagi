@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+C.__init__() missing 1 required positional argument: 'a'
+C.__init__() takes 2 positional arguments but 3 were given
+E() takes no arguments
+C.m() missing 1 required positional argument: 'd'
+C.m() takes 2 positional arguments but 3 were given
+'C' object is not callable
+'C' object has no attribute 'missing'
+type object 'C' has no attribute 'nope'
+__init__() should return None, not 'int'
+'int' object has no attribute 'foo' and no __dict__ for setting new attributes
+== exception:
+== stderr:

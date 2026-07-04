@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+15
+17
+17
+counter counter
+primary
+tally tally
+25
+25
+25
+1 101
+<class '__main__.Counter'>
+<class '__main__.Point'>
+== exception:
+== stderr:
