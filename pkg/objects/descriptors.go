@@ -1,0 +1,184 @@
+package objects
+
+import "fmt"
+
+// staticmethodObject wraps a function so that accessing it through an instance
+// or a class yields the plain function, with no self or cls prepended. It is a
+// non-data descriptor: an instance-dict entry of the same name shadows it.
+type staticmethodObject struct{ fn Object }
+
+func (*staticmethodObject) TypeName() string { return "staticmethod" }
+
+// classmethodObject wraps a function so that accessing it binds the class it
+// was reached through as the first argument. Through an instance the bound
+// class is the instance's type, so a classmethod called on a subclass sees the
+// subclass. It is a non-data descriptor.
+type classmethodObject struct{ fn Object }
+
+func (*classmethodObject) TypeName() string { return "classmethod" }
+
+// propertyObject is a computed attribute: reading it calls fget with the
+// instance, writing calls fset, deleting calls fdel, and any of the three
+// absent raises the probed AttributeError. It is a data descriptor, so it wins
+// over an instance-dict entry of the same name. setter, getter, and deleter
+// return a fresh property carrying the replaced slot, which is what the
+// @prop.setter decorator idiom relies on.
+type propertyObject struct{ fget, fset, fdel Object }
+
+func (*propertyObject) TypeName() string { return "property" }
+
+// NewStaticMethod, NewClassMethod, and NewProperty build the descriptor
+// objects. The lowering reaches them through the builtin singletons below when
+// staticmethod, classmethod, or property is used as a decorator or called
+// directly.
+func NewStaticMethod(fn Object) Object { return &staticmethodObject{fn: fn} }
+func NewClassMethod(fn Object) Object  { return &classmethodObject{fn: fn} }
+func NewProperty(fget, fset, fdel Object) Object {
+	return &propertyObject{fget: fget, fset: fset, fdel: fdel}
+}
+
+// The builtin singletons for the three descriptor constructors. They are
+// funcObjects so a call site treats them like any other builtin; the arity
+// wordings are the ones CPython gives, which the generic funcObject check does
+// not match, so each does its own count.
+var (
+	StaticMethodBuiltin Object = NewFunc("staticmethod", -1, func(args []Object) (Object, error) {
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "staticmethod expected 1 argument, got %d", len(args))
+		}
+		return NewStaticMethod(args[0]), nil
+	})
+	ClassMethodBuiltin Object = NewFunc("classmethod", -1, func(args []Object) (Object, error) {
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "classmethod expected 1 argument, got %d", len(args))
+		}
+		return NewClassMethod(args[0]), nil
+	})
+	PropertyBuiltin Object = NewFunc("property", -1, func(args []Object) (Object, error) {
+		if len(args) > 4 {
+			return nil, Raise(TypeError, "property() takes at most 4 arguments (%d given)", len(args))
+		}
+		arg := func(i int) Object {
+			if i < len(args) {
+				return args[i]
+			}
+			return nil
+		}
+		// The fourth argument is the docstring, which this tier does not model.
+		return NewProperty(noneToNil(arg(0)), noneToNil(arg(1)), noneToNil(arg(2))), nil
+	})
+)
+
+// noneToNil folds a None argument to a nil slot so property(None, setter) reads
+// as "no getter" the way CPython treats it.
+func noneToNil(o Object) Object {
+	if o == nil {
+		return nil
+	}
+	if _, ok := o.(*noneObject); ok {
+		return nil
+	}
+	return o
+}
+
+// isDataDescriptor reports whether a class-dict value takes priority over an
+// instance dict on attribute read. Only property qualifies in this tier.
+func isDataDescriptor(v Object) bool {
+	_, ok := v.(*propertyObject)
+	return ok
+}
+
+// instanceGet applies the descriptor protocol to a class-dict value v resolved
+// for the attribute name on the instance x: a plain function binds x as self, a
+// staticmethod comes back bare, a classmethod binds x's type, and a property
+// calls its getter. name is only used to spell the no-getter error.
+func instanceGet(x *instanceObject, name string, v Object) (Object, error) {
+	switch d := v.(type) {
+	case *functionObject:
+		return &boundMethod{fn: d, self: x}, nil
+	case *staticmethodObject:
+		return d.fn, nil
+	case *classmethodObject:
+		return classmethodBind(d.fn, x.cls), nil
+	case *propertyObject:
+		if d.fget == nil {
+			return nil, Raise(AttributeError, "property '%s' of '%s' object has no getter", name, x.cls.name)
+		}
+		return Call(d.fget, []Object{x})
+	}
+	return v, nil
+}
+
+// classGet applies the descriptor protocol to a class-dict value v resolved for
+// the attribute name directly on the class c: a staticmethod comes back bare, a
+// classmethod binds c, a property returns the descriptor itself, and a plain
+// function stays unbound so an explicit-self call works.
+func classGet(c *classObject, v Object) (Object, error) {
+	switch d := v.(type) {
+	case *staticmethodObject:
+		return d.fn, nil
+	case *classmethodObject:
+		return classmethodBind(d.fn, c), nil
+	}
+	return v, nil
+}
+
+// classmethodBind binds cls as the first argument of a classmethod's function.
+// A plain function object becomes a bound method on the class; any other
+// callable is wrapped so the class is prepended at call time.
+func classmethodBind(fn Object, cls *classObject) Object {
+	if f, ok := fn.(*functionObject); ok {
+		return &boundMethod{fn: f, self: cls}
+	}
+	return NewFunc("classmethod", -1, func(args []Object) (Object, error) {
+		return Call(fn, append([]Object{cls}, args...))
+	})
+}
+
+// propertyGetAttr reads an attribute off a property object. setter, getter, and
+// deleter each return a fresh property with one slot replaced, so the
+// @prop.setter chain builds up the property; fget, fset, and fdel read the
+// stored callables back.
+func propertyGetAttr(p *propertyObject, name string) (Object, error) {
+	slotOrNone := func(o Object) Object {
+		if o == nil {
+			return None
+		}
+		return o
+	}
+	switch name {
+	case "getter":
+		return NewFunc("getter", 1, func(a []Object) (Object, error) {
+			return &propertyObject{fget: a[0], fset: p.fset, fdel: p.fdel}, nil
+		}), nil
+	case "setter":
+		return NewFunc("setter", 1, func(a []Object) (Object, error) {
+			return &propertyObject{fget: p.fget, fset: a[0], fdel: p.fdel}, nil
+		}), nil
+	case "deleter":
+		return NewFunc("deleter", 1, func(a []Object) (Object, error) {
+			return &propertyObject{fget: p.fget, fset: p.fset, fdel: a[0]}, nil
+		}), nil
+	case "fget":
+		return slotOrNone(p.fget), nil
+	case "fset":
+		return slotOrNone(p.fset), nil
+	case "fdel":
+		return slotOrNone(p.fdel), nil
+	}
+	return nil, Raise(AttributeError, "'property' object has no attribute '%s'", name)
+}
+
+// descriptorRepr spells the three descriptor objects deterministically, since
+// their addresses are not stable.
+func descriptorRepr(o Object) string {
+	switch o.(type) {
+	case *staticmethodObject:
+		return "<staticmethod object>"
+	case *classmethodObject:
+		return "<classmethod object>"
+	case *propertyObject:
+		return "<property object>"
+	}
+	return fmt.Sprintf("<%s object>", o.TypeName())
+}

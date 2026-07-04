@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+25
+77.0
+30
+86.0
+0
+0
+celsius
+celsius
+kelvin
+error: property 'fahrenheit' of 'Temperature' object has no setter
+None
+== exception:
+== stderr:

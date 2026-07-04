@@ -196,6 +196,8 @@ func reprCore(o Object, strict bool) (string, error) {
 	case *functionObject:
 		// Probed: repr spells __qualname__, g.<locals>.<lambda> and all.
 		return fmt.Sprintf("<function %s at %p>", x.qual, x), nil
+	case *staticmethodObject, *classmethodObject, *propertyObject:
+		return descriptorRepr(x), nil
 	case *dictKeysObject:
 		return reprSeqCore(x.d.keySlice(), "dict_keys([", "])", strict)
 	case *dictValuesObject:

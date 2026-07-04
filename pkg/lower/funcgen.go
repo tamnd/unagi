@@ -50,6 +50,13 @@ type fnCtx struct {
 	// temporary that carries it while its comprehension lowers, the PEP 709
 	// inlining rename. Name reads and walrus writes check it before locals.
 	compVars map[string]string
+	// classLocals maps a name the current class body has already bound to the
+	// Go temporary holding its value, set only while a class body lowers. A
+	// class-variable initializer or a method decorator (@x.setter) that names
+	// an earlier class-body binding reads it here, matching CPython where the
+	// class namespace is visible to later class-body code but not to method
+	// bodies, which lower with a fresh context that carries no classLocals.
+	classLocals map[string]ast.Expr
 	// globals holds the names a global statement declares in this def.
 	// They are excluded from locals, so reads and writes hit the package
 	// variable; every read is checked because the global may be unbound
