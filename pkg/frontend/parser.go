@@ -730,6 +730,11 @@ func (p *parser) parseDef() Stmt {
 	p.wantOp("(")
 	params := p.parseParams(")")
 	p.wantOp(")")
+	// A `-> annotation` return type is deferred (PEP 649) and never evaluated,
+	// so it is parsed and discarded like the parameter annotations.
+	if p.eatOp("->") {
+		p.parseTest()
+	}
 	return &FuncDef{Pos_: t.pos, Name: nt.text, Params: params, Body: p.parseSuite()}
 }
 
@@ -793,11 +798,15 @@ func (p *parser) parseParams(end string) []Param {
 		seen[pt.text] = true
 		params = append(params, Param{Pos_: pt.pos, Name: pt.text, Kind: k, Default: def})
 	}
-	// rejectAnnotation keeps annotations out ahead of the default probe so
-	// def f(a: int = 1) trips on the colon, not the equals.
-	rejectAnnotation := func() {
+	// parseAnnotation consumes and discards a `: annotation` on a parameter,
+	// ahead of the default probe so def f(a: int = 1) reads the annotation
+	// before the equals. Following PEP 649 the annotation is never evaluated,
+	// so it is dropped rather than stored. A lambda uses the colon as its list
+	// terminator, so annotations only apply to def.
+	parseAnnotation := func() {
 		if end != ":" && p.isOp(":") {
-			p.errf(p.cur().pos, "parameter annotations are not supported yet")
+			p.advance()
+			p.parseTest()
 		}
 	}
 	for !p.isOp(end) {
@@ -834,7 +843,7 @@ func (p *parser) parseParams(end string) []Param {
 			kind = ParamKwOnly
 			if nt := p.cur(); nt.kind == tName {
 				p.advance()
-				rejectAnnotation()
+				parseAnnotation()
 				if p.isOp("=") {
 					p.errf(p.cur().pos, "var-positional argument cannot have default value")
 				}
@@ -852,7 +861,7 @@ func (p *parser) parseParams(end string) []Param {
 				p.errf(nt.pos, "expected parameter name")
 			}
 			p.advance()
-			rejectAnnotation()
+			parseAnnotation()
 			if p.isOp("=") {
 				p.errf(p.cur().pos, "var-keyword argument cannot have default value")
 			}
@@ -860,7 +869,7 @@ func (p *parser) parseParams(end string) []Param {
 			starstarSeen = true
 		case pt.kind == tName:
 			p.advance()
-			rejectAnnotation()
+			parseAnnotation()
 			var def Expr
 			if p.eatOp("=") {
 				def = p.parseTest()

@@ -201,7 +201,6 @@ func TestLexErrors(t *testing.T) {
 		{"unmatched close", "x = 1)", "unmatched ')'"},
 		{"mismatched close", "x = (1]", "closing parenthesis ']' does not match opening parenthesis '('"},
 		{"junk after continuation", "x = 1 \\ + 2", "unexpected character after line continuation character"},
-		{"arrow", "x -> y", "return type annotations ('->') are not supported yet"},
 		{"invalid dollar", "x = $", "invalid character '$' (U+0024)"},
 		{"invalid backtick", "x = `y`", "invalid character '`' (U+0060)"},
 	}

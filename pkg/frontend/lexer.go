@@ -102,7 +102,7 @@ var opTable = []string{
 	"...",
 	"**=", "//=", "<<=", ">>=",
 	"**", "//", "==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "%=", ":=",
-	"<<", ">>", "&=", "|=", "^=", "@=",
+	"<<", ">>", "&=", "|=", "^=", "@=", "->",
 	"+", "-", "*", "/", "%", "=", "<", ">", "&", "|", "^", "~", "@",
 	"(", ")", "[", "]", "{", "}", ",", ":", ".", ";",
 }
@@ -634,9 +634,6 @@ func hexVal(c byte) int {
 }
 
 func (lx *lexer) lexOp(pos Pos) {
-	if lx.lookahead("->") {
-		lx.err(pos, "return type annotations ('->') are not supported yet")
-	}
 	switch c := lx.ch(); c {
 	case '!':
 		// A lone '!' below the top bracket level of an interpolation; the
