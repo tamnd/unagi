@@ -50,10 +50,15 @@ type fnCtx struct {
 	// temporary that carries it while its comprehension lowers, the PEP 709
 	// inlining rename. Name reads and walrus writes check it before locals.
 	compVars map[string]string
+	// globals holds the names a global statement declares in this def.
+	// They are excluded from locals, so reads and writes hit the package
+	// variable; every read is checked because the global may be unbound
+	// at call time no matter what this function did earlier.
+	globals map[string]bool
 }
 
 func newFnCtx(e *emitter, inFunc bool, fname string) *fnCtx {
-	return &fnCtx{e: e, stack: make([][]ast.Stmt, 1), locals: map[string]bool{}, deleted: map[string]bool{}, inFunc: inFunc, fname: fname}
+	return &fnCtx{e: e, stack: make([][]ast.Stmt, 1), locals: map[string]bool{}, deleted: map[string]bool{}, globals: map[string]bool{}, inFunc: inFunc, fname: fname}
 }
 
 // add appends a statement to the innermost open block.
@@ -139,6 +144,8 @@ func (f *fnCtx) declLocal(name string) {
 
 func (e *emitter) emitMain(body []frontend.Stmt) (*ast.FuncDecl, error) {
 	f := newFnCtx(e, false, "<module>")
+	// Module-scope variables live at package level (Module emits the var
+	// block) so def bodies can reach them; locals here only routes reads.
 	collectAssigned(body, f.locals)
 	collectDeleted(body, f.deleted)
 	// A rebound def name is nil until its def statement runs, so every read
@@ -146,8 +153,11 @@ func (e *emitter) emitMain(body []frontend.Stmt) (*ast.FuncDecl, error) {
 	for n := range e.rebound {
 		f.deleted[n] = true
 	}
-	for _, name := range sortedNames(f.locals) {
-		f.declLocal(name)
+	// A name a def declares global binds and unbinds on that def's schedule,
+	// so module-scope reads of it are always checked.
+	for n := range e.globalDecl {
+		f.locals[n] = true
+		f.deleted[n] = true
 	}
 	f.declPending(body)
 	if err := f.stmts(body); err != nil {
@@ -173,11 +183,12 @@ func (e *emitter) emitFunc(d *frontend.FuncDef) (*ast.FuncDecl, error) {
 		// One field per parameter so each name carries its own type.
 		params.List = append(params.List, field(e.obj("Object"), mangle(p.Name)))
 	}
+	collectGlobals(d.Body, f.globals)
 	assigned := map[string]bool{}
 	collectAssigned(d.Body, assigned)
 	collectDeleted(d.Body, f.deleted)
 	for _, name := range sortedNames(assigned) {
-		if f.locals[name] {
+		if f.locals[name] || f.globals[name] {
 			continue
 		}
 		f.locals[name] = true
@@ -189,7 +200,7 @@ func (e *emitter) emitFunc(d *frontend.FuncDef) (*ast.FuncDecl, error) {
 	}
 	f.add(&ast.ReturnStmt{Results: []ast.Expr{e.obj("None"), ident("nil")}})
 	return &ast.FuncDecl{
-		Name: ident(mangle(d.Name)),
+		Name: ident(e.defName(d.Name)),
 		Type: &ast.FuncType{
 			Params:  params,
 			Results: fieldList(field(e.obj("Object")), field(ident("error"))),
@@ -354,6 +365,41 @@ func collectAssigned(body []frontend.Stmt, out map[string]bool) {
 				for _, p := range s.Params {
 					walkExpr(p.Default)
 				}
+			}
+		}
+	}
+	walk(body)
+}
+
+// collectGlobals gathers every name a global statement declares in this
+// body. The declaration applies to the whole function no matter where it
+// sits, so the walk covers every nested block. It does not descend into
+// nested defs.
+func collectGlobals(body []frontend.Stmt, out map[string]bool) {
+	var walk func(list []frontend.Stmt)
+	walk = func(list []frontend.Stmt) {
+		for _, s := range list {
+			switch s := s.(type) {
+			case *frontend.Global:
+				for _, n := range s.Names {
+					out[n] = true
+				}
+			case *frontend.If:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.While:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.For:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.Try:
+				walk(s.Body)
+				for _, h := range s.Handlers {
+					walk(h.Body)
+				}
+				walk(s.OrElse)
+				walk(s.Final)
 			}
 		}
 	}

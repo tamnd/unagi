@@ -87,6 +87,10 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 		return nil
 	case *frontend.Pass:
 		return nil
+	case *frontend.Global:
+		// The declaration itself does nothing at runtime; emitFunc collected
+		// the names up front and the name lowering routes them.
+		return nil
 	case *frontend.Break:
 		if len(f.loops) == 0 {
 			return f.e.errf(s.Span(), "'break' outside loop")
@@ -255,8 +259,10 @@ func (f *fnCtx) delStmt(s *frontend.Del) error {
 	for _, t := range s.Targets {
 		switch t := t.(type) {
 		case *frontend.Name:
+			// del of a declared global unbinds the module variable with the
+			// NameError wording; everything else in a function is a local.
 			fn := "DelName"
-			if f.inFunc {
+			if f.inFunc && !f.globals[t.Id] {
 				fn = "DelLocal"
 			}
 			f.fallibleVoid(sel("runtime", fn), ident(mangle(t.Id)), strLit(t.Id))
