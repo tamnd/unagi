@@ -50,6 +50,12 @@ type fnCtx struct {
 	// temporary that carries it while its comprehension lowers, the PEP 709
 	// inlining rename. Name reads and walrus writes check it before locals.
 	compVars map[string]string
+	// genYielder is the Go identifier of the objects.Yielder handle passed to a
+	// generator body, set only while a generator function lowers. A yield
+	// expression lowers to a call on it; an empty value means the current
+	// context is not a generator, so a yield there is the "'yield' outside
+	// function" error CPython raises at module or class scope.
+	genYielder string
 	// classLocals maps a name the current class body has already bound to the
 	// Go temporary holding its value, set only while a class body lowers. A
 	// class-variable initializer or a method decorator (@x.setter) that names
@@ -223,6 +229,12 @@ func (e *emitter) emitMethodDecl(d *frontend.FuncDef, declName, coName, qual, cl
 }
 
 func (e *emitter) fillFuncDecl(f *fnCtx, d *frontend.FuncDef, declName string) (*ast.FuncDecl, error) {
+	if sc := scanYields(d.Body); sc.has {
+		if sc.inGuard {
+			return nil, e.errf(d.Span(), "yield inside try or with is not supported yet")
+		}
+		return e.fillGeneratorDecl(f, d, declName)
+	}
 	params := &ast.FieldList{}
 	for _, p := range d.Params {
 		f.locals[p.Name] = true

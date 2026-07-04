@@ -209,6 +209,8 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		}
 		f.add(set(ident(mangle(e.Target)), v))
 		return ident(mangle(e.Target)), nil
+	case *frontend.Yield:
+		return f.yield(e)
 	case *frontend.Lambda:
 		return f.lambda(e)
 	case *frontend.Comp:

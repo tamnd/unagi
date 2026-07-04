@@ -545,6 +545,19 @@ type Lambda struct {
 	Body   Expr
 }
 
+// Yield is a `yield` or `yield from` expression. Value is the yielded
+// expression, nil for a bare `yield`. From is true for `yield from`, whose
+// value is the iterable or awaitable being delegated to. A yield makes its
+// enclosing function a generator; the parser rejects one outside a function.
+type Yield struct {
+	Pos_  Pos
+	Value Expr
+	From  bool
+}
+
+func (e *Yield) Span() Pos { return e.Pos_ }
+func (*Yield) expr()       {}
+
 // FStr is an f-string after parsing: literal text runs interleaved with
 // interpolations, in source order. Adjacent string and f-string literals in
 // a concatenation are already merged into one FStr by the parser.

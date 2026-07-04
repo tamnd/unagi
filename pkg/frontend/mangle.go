@@ -215,6 +215,10 @@ func mangleExpr(e Expr, priv string) {
 		mangleExpr(e.Value, priv)
 	case *Starred:
 		mangleExpr(e.X, priv)
+	case *Yield:
+		if e.Value != nil {
+			mangleExpr(e.Value, priv)
+		}
 	case *Lambda:
 		mangleParams(e.Params, priv)
 		mangleExpr(e.Body, priv)

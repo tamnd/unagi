@@ -23,6 +23,8 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 		return classCallMethod(x, name, args)
 	case *superObject:
 		return superCallMethod(x, name, args)
+	case *generatorObject:
+		return genMethod(x, name, args)
 	}
 	return nil, noAttr(o, name)
 }
@@ -66,6 +68,25 @@ func excMethod(e *Exception, name string, args []Object) (Object, error) {
 	}
 	e.Notes = append(e.Notes, s.v)
 	return None, nil
+}
+
+// excLoadAttr reads an attribute off an exception instance. Every exception
+// carries args as a tuple; StopIteration and StopAsyncIteration add value, the
+// carried result a generator returns, which is args[0] or None. Any other name
+// is the probed 'Kind' object has no attribute wording.
+func excLoadAttr(e *Exception, name string) (Object, error) {
+	switch name {
+	case "args":
+		return NewTuple(append([]Object{}, e.Args...)), nil
+	case "value":
+		if e.Kind == "StopIteration" || e.Kind == "StopAsyncIteration" {
+			if len(e.Args) > 0 {
+				return e.Args[0], nil
+			}
+			return None, nil
+		}
+	}
+	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", e.Kind, name)
 }
 
 func noAttr(o Object, name string) error {

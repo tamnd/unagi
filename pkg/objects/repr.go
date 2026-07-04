@@ -221,6 +221,8 @@ func reprCore(o Object, strict bool) (string, error) {
 		return superRepr(x), nil
 	case *excTypeObject:
 		return excTypeRepr(x), nil
+	case *generatorObject:
+		return fmt.Sprintf("<generator object %s at %p>", x.qual, x), nil
 	}
 	return fmt.Sprintf("<%s object>", o.TypeName()), nil
 }

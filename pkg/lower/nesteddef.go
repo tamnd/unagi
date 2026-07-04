@@ -36,6 +36,17 @@ func (f *fnCtx) nestedDef(s *frontend.FuncDef) error {
 		in.add(set(ident("_"), ident(mangle(p.Name))))
 	}
 
+	// A nested def whose own scope yields is a generator: calling it returns a
+	// generator object, so the Python body lands in a yielder closure while the
+	// impl function keeps only the parameter binds and the constructor.
+	gen := scanYields(s.Body)
+	if gen.has {
+		if gen.inGuard {
+			return f.e.errf(s.Span(), "yield inside try or with is not supported yet")
+		}
+		in.genYielder = "gy"
+	}
+
 	collectGlobals(s.Body, in.globals)
 	collectNonlocals(s.Body, in.nonlocals)
 	assigned := map[string]bool{}
@@ -45,6 +56,13 @@ func (f *fnCtx) nestedDef(s *frontend.FuncDef) error {
 	// A def name is unbound until its own statement runs, so a read before
 	// then raises UnboundLocalError just like a name deleted and read back.
 	collectLocalDefs(s.Body, in.deleted)
+
+	// The generator's body statements land in the yielder closure so each call
+	// gets fresh locals; the parameter binds stay in the impl function that runs
+	// at call time.
+	if gen.has {
+		in.push()
+	}
 	for _, name := range sortedNames(assigned) {
 		if in.locals[name] || in.globals[name] || in.nonlocals[name] {
 			continue
@@ -57,6 +75,19 @@ func (f *fnCtx) nestedDef(s *frontend.FuncDef) error {
 		return err
 	}
 	in.add(&ast.ReturnStmt{Results: []ast.Expr{f.e.obj("None"), ident("nil")}})
+	if gen.has {
+		closure := &ast.FuncLit{
+			Type: &ast.FuncType{
+				Params:  fieldList(field(f.e.obj("Yielder"), in.genYielder)),
+				Results: fieldList(field(f.e.obj("Object")), field(ident("error"))),
+			},
+			Body: in.pop(),
+		}
+		in.add(&ast.ReturnStmt{Results: []ast.Expr{
+			callExpr(f.e.obj("NewGenerator"), strLit(qual), closure),
+			ident("nil"),
+		}})
+	}
 	impl := &ast.FuncLit{Type: f.e.implType(), Body: in.pop()}
 
 	// build evaluates the defaults at def time in the enclosing scope, into
