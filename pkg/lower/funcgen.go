@@ -160,6 +160,17 @@ func (f *fnCtx) fallibleVoid(fn ast.Expr, args ...ast.Expr) {
 	f.check(define(ident("err"), callExpr(fn, args...)))
 }
 
+// truthCond spills a boolean-context truth test to a Go bool temp so a user
+// __bool__/__len__ can raise. It emits `tN, err := objects.TruthOf(cond)` plus
+// the error check into the current block and returns the temp identifier, ready
+// to use as an if/for condition. The spill must land in the block that owns the
+// condition, so callers compute it while that block is active.
+func (f *fnCtx) truthCond(cond ast.Expr) ast.Expr {
+	tmp := f.tmpVar()
+	f.fallible(tmp, f.e.obj("TruthOf"), cond)
+	return ident(tmp)
+}
+
 // declLocal declares one mangled local as objects.Object plus the blank use
 // that keeps unreferenced Python variables from breaking the Go compile.
 func (f *fnCtx) declLocal(name string) {

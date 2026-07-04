@@ -316,7 +316,9 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		return callExpr(sel("runtime", "BoolOf"), args[0]), nil
+		tmp := f.tmpVar()
+		f.fallible(tmp, sel("runtime", "BoolOf"), args[0])
+		return ident(tmp), nil
 	case "abs":
 		if err := need1(); err != nil {
 			return nil, err

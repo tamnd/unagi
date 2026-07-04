@@ -521,6 +521,7 @@ func (f *fnCtx) assertStmt(s *frontend.Assert) error {
 	if err != nil {
 		return err
 	}
+	tcond := f.truthCond(cond)
 	f.push()
 	var args ast.Expr = ident("nil")
 	if s.Msg != nil {
@@ -535,6 +536,6 @@ func (f *fnCtx) assertStmt(s *frontend.Assert) error {
 	raised := callExpr(sel("runtime", "RaiseObj"),
 		callExpr(sel("runtime", "NewExc"), strLit("AssertionError"), args))
 	f.add(f.retErr(f.tb(raised)))
-	f.add(&ast.IfStmt{Cond: notExpr(callExpr(f.e.obj("Truth"), cond)), Body: f.pop()})
+	f.add(&ast.IfStmt{Cond: notExpr(tcond), Body: f.pop()})
 	return nil
 }

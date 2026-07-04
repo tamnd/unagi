@@ -99,11 +99,12 @@ func (f *fnCtx) matchCase(c frontend.MatchCase, subj ast.Expr, matched string, l
 		if err != nil {
 			return err
 		}
+		tg := f.truthCond(g)
 		f.push()
 		if err := emitBody(); err != nil {
 			return err
 		}
-		f.add(&ast.IfStmt{Cond: callExpr(f.e.obj("Truth"), g), Body: f.pop()})
+		f.add(&ast.IfStmt{Cond: tg, Body: f.pop()})
 		return nil
 	})
 }

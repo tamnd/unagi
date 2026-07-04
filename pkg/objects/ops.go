@@ -46,6 +46,51 @@ func Truth(o Object) bool {
 	return true
 }
 
+// TruthOf is the fallible truth test used in every boolean context: an if, a
+// while, the operands of and/or/not, an assertion, a comprehension filter and a
+// match guard. For a user instance it drives __bool__ then __len__ the way
+// CPython's PyObject_IsTrue does; a __bool__ must return an actual bool, a
+// __len__ result is truthy when it is nonzero, and a class with neither is
+// truthy. Every builtin defers to the non-fallible Truth, so this only ever
+// raises for a user dunder.
+func TruthOf(o Object) (bool, error) {
+	x, ok := o.(*instanceObject)
+	if !ok {
+		return Truth(o), nil
+	}
+	if _, has := x.cls.lookup("__bool__"); has {
+		res, _, err := instanceSpecial(x, "__bool__")
+		if err != nil {
+			return false, err
+		}
+		if b, isBool := res.(*boolObject); isBool {
+			return b.v, nil
+		}
+		return false, Raise(TypeError, "__bool__ should return bool, returned %s", res.TypeName())
+	}
+	if _, has := x.cls.lookup("__len__"); has {
+		res, _, err := instanceSpecial(x, "__len__")
+		if err != nil {
+			return false, err
+		}
+		n, err := lenFromResult(res)
+		if err != nil {
+			return false, err
+		}
+		return n != 0, nil
+	}
+	return true, nil
+}
+
+// NotOf is the fallible `not`, consulting the same truth protocol as TruthOf.
+func NotOf(o Object) (Object, error) {
+	t, err := TruthOf(o)
+	if err != nil {
+		return nil, err
+	}
+	return NewBool(!t), nil
+}
+
 // Not implements the `not` operator.
 func Not(o Object) Object { return NewBool(!Truth(o)) }
 
@@ -802,7 +847,13 @@ func Contains(container, item Object) (Object, error) {
 			if err != nil {
 				return nil, err
 			}
-			return NewBool(Truth(res)), nil
+			// CPython runs the __contains__ result through PyObject_IsTrue, so
+			// a returned object with a __bool__ decides membership.
+			t, terr := TruthOf(res)
+			if terr != nil {
+				return nil, terr
+			}
+			return NewBool(t), nil
 		}
 		return containsByIter(container, item)
 	}

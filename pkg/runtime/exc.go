@@ -212,7 +212,14 @@ func WithExit(exitFn objects.Object, exc error) (error, bool) {
 	if pe == nil {
 		return nil, false
 	}
-	if objects.Truth(res) {
+	// A truthy __exit__ return suppresses the exception; the truth test runs
+	// through the fallible protocol so a user __bool__ result can raise, which
+	// then replaces the in-flight exception.
+	suppress, terr := objects.TruthOf(res)
+	if terr != nil {
+		return ChainContext(terr, exc), true
+	}
+	if suppress {
 		return nil, false
 	}
 	return exc, false

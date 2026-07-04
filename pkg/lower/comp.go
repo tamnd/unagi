@@ -129,7 +129,7 @@ func (f *fnCtx) comp(e *frontend.Comp) (ast.Expr, error) {
 				return err
 			}
 			f.add(&ast.IfStmt{
-				Cond: notExpr(callExpr(f.e.obj("Truth"), c)),
+				Cond: notExpr(f.truthCond(c)),
 				Body: block(&ast.BranchStmt{Tok: token.CONTINUE}),
 			})
 		}
@@ -271,7 +271,7 @@ func (f *fnCtx) genexp(e *frontend.Comp) (ast.Expr, error) {
 				return err
 			}
 			f.add(&ast.IfStmt{
-				Cond: notExpr(callExpr(f.e.obj("Truth"), c)),
+				Cond: notExpr(f.truthCond(c)),
 				Body: block(&ast.BranchStmt{Tok: token.CONTINUE}),
 			})
 		}
