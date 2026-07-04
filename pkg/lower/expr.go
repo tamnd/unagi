@@ -24,6 +24,7 @@ var binFuncs = map[frontend.BinKind]string{
 	frontend.BinBitAnd:   "BitAnd",
 	frontend.BinLShift:   "LShift",
 	frontend.BinRShift:   "RShift",
+	frontend.BinMatMul:   "MatMul",
 }
 
 var cmpOps = map[frontend.CmpKind]string{
@@ -115,6 +116,12 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 			// calls; the descriptor protocol lives in pkg/objects.
 			f.e.usedObjects = true
 			return f.e.obj(sing), nil
+		}
+		if e.Id == "NotImplemented" {
+			// The NotImplemented singleton a binary-operator dunder returns to
+			// decline an operation; it reads as a value, unlike the callables.
+			f.e.usedObjects = true
+			return f.e.obj("NotImplemented"), nil
 		}
 		if builtinNames[e.Id] {
 			return nil, f.e.errf(e.Span(), "using builtin %q as a value is not supported yet", e.Id)

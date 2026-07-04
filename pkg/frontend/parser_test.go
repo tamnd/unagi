@@ -13,7 +13,7 @@ var binNames = map[BinKind]string{
 	BinAdd: "+", BinSub: "-", BinMul: "*", BinDiv: "/",
 	BinFloorDiv: "//", BinMod: "%", BinPow: "**",
 	BinBitOr: "|", BinBitXor: "^", BinBitAnd: "&",
-	BinLShift: "<<", BinRShift: ">>",
+	BinLShift: "<<", BinRShift: ">>", BinMatMul: "@",
 }
 
 var cmpNames = map[CmpKind]string{
@@ -393,6 +393,9 @@ func TestParse(t *testing.T) {
 		{"aug subscript", "a[i] -= 2", "(-= ([] a i) 2)"},
 		{"bitwise aug ops", "x |= 1; x ^= 2; x &= 3; x <<= 4; x >>= 5",
 			"(|= x 1) (^= x 2) (&= x 3) (<<= x 4) (>>= x 5)"},
+		{"matmul", "a @ b", "(expr (@ a b))"},
+		{"matmul precedence", "a @ b + c", "(expr (+ (@ a b) c))"},
+		{"matmul aug", "a @= b", "(@= a b)"},
 		{"mul binds tighter", "1 + 2 * 3", "(expr (+ 1 (* 2 3)))"},
 		{"parens override", "(1 + 2) * 3", "(expr (* (+ 1 2) 3))"},
 		{"add left assoc", "1 + 2 - 3", "(expr (- (+ 1 2) 3))"},
