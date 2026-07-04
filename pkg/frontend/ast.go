@@ -221,8 +221,17 @@ type Global struct {
 	Names []string
 }
 
+// Nonlocal is `nonlocal a, b`: inside a function the listed names read and
+// write the nearest enclosing function scope that binds them. The parser
+// enforces the conflict and binding rules after the parse.
+type Nonlocal struct {
+	Pos_  Pos
+	Names []string
+}
+
 func (s *Del) Span() Pos       { return s.Pos_ }
 func (s *Global) Span() Pos    { return s.Pos_ }
+func (s *Nonlocal) Span() Pos  { return s.Pos_ }
 func (s *Try) Span() Pos       { return s.Pos_ }
 func (s *Raise) Span() Pos     { return s.Pos_ }
 func (s *Assert) Span() Pos    { return s.Pos_ }
@@ -242,6 +251,7 @@ func (s *Continue) Span() Pos  { return s.Pos_ }
 
 func (*Del) stmt()       {}
 func (*Global) stmt()    {}
+func (*Nonlocal) stmt()  {}
 func (*Try) stmt()       {}
 func (*Raise) stmt()     {}
 func (*Assert) stmt()    {}

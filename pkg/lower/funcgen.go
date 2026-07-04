@@ -55,10 +55,15 @@ type fnCtx struct {
 	// variable; every read is checked because the global may be unbound
 	// at call time no matter what this function did earlier.
 	globals map[string]bool
+	// nonlocals holds the names a nonlocal statement declares in this def.
+	// They are excluded from locals too, so a read falls through to the
+	// enclosing-scope capture and a write assigns the mangled variable the
+	// Go func literal captured by reference, which is the enclosing binding.
+	nonlocals map[string]bool
 }
 
 func newFnCtx(e *emitter, inFunc bool, fname string) *fnCtx {
-	return &fnCtx{e: e, stack: make([][]ast.Stmt, 1), locals: map[string]bool{}, deleted: map[string]bool{}, globals: map[string]bool{}, inFunc: inFunc, fname: fname}
+	return &fnCtx{e: e, stack: make([][]ast.Stmt, 1), locals: map[string]bool{}, deleted: map[string]bool{}, globals: map[string]bool{}, nonlocals: map[string]bool{}, inFunc: inFunc, fname: fname}
 }
 
 // add appends a statement to the innermost open block.
@@ -193,6 +198,7 @@ func (e *emitter) emitFuncDecl(d *frontend.FuncDef, declName, coName, qual strin
 		params.List = append(params.List, field(e.obj("Object"), mangle(p.Name)))
 	}
 	collectGlobals(d.Body, f.globals)
+	collectNonlocals(d.Body, f.nonlocals)
 	assigned := map[string]bool{}
 	collectAssigned(d.Body, assigned)
 	collectLocalDefs(d.Body, assigned)
@@ -201,7 +207,7 @@ func (e *emitter) emitFuncDecl(d *frontend.FuncDef, declName, coName, qual strin
 	// then is checked just like a deleted local.
 	collectLocalDefs(d.Body, f.deleted)
 	for _, name := range sortedNames(assigned) {
-		if f.locals[name] || f.globals[name] {
+		if f.locals[name] || f.globals[name] || f.nonlocals[name] {
 			continue
 		}
 		f.locals[name] = true
@@ -409,6 +415,42 @@ func collectGlobals(body []frontend.Stmt, out map[string]bool) {
 		for _, s := range list {
 			switch s := s.(type) {
 			case *frontend.Global:
+				for _, n := range s.Names {
+					out[n] = true
+				}
+			case *frontend.If:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.While:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.For:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.Try:
+				walk(s.Body)
+				for _, h := range s.Handlers {
+					walk(h.Body)
+				}
+				walk(s.OrElse)
+				walk(s.Final)
+			case *frontend.With:
+				walk(s.Body)
+			}
+		}
+	}
+	walk(body)
+}
+
+// collectNonlocals gathers every name a nonlocal statement declares in this
+// body. Like a global declaration it applies to the whole function, so the
+// walk covers every nested block but does not descend into nested defs.
+func collectNonlocals(body []frontend.Stmt, out map[string]bool) {
+	var walk func(list []frontend.Stmt)
+	walk = func(list []frontend.Stmt) {
+		for _, s := range list {
+			switch s := s.(type) {
+			case *frontend.Nonlocal:
 				for _, n := range s.Names {
 					out[n] = true
 				}
