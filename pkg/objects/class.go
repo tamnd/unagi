@@ -6,13 +6,17 @@ import "fmt"
 // builds. dict holds the names the class body bound, methods and class
 // variables alike, in the order they were written so repr and iteration
 // stay deterministic. name is __name__ and qual is __qualname__ with the
-// module prefix, which is what repr spells. Single inheritance, the MRO,
-// and metaclasses land in a later slice; this slice is the flat class.
+// module prefix, which is what repr spells. bases are the direct base
+// classes in written order and mro is the C3 linearization starting with
+// the class itself; the implicit object root carries no user names, so it
+// is left off the chain. Metaclasses and descriptors land in a later slice.
 type classObject struct {
 	name  string
 	qual  string
 	dict  map[string]Object
 	order []string
+	bases []*classObject
+	mro   []*classObject
 }
 
 func (*classObject) TypeName() string { return "type" }
@@ -37,10 +41,13 @@ type boundMethod struct {
 
 func (*boundMethod) TypeName() string { return "method" }
 
-// NewClass builds a class object from the names its body bound and their
-// values, kept parallel and in body order. The lowering evaluates the
-// class body and hands the results here.
-func NewClass(name, qual string, names []string, vals []Object) Object {
+// NewClass builds a class object from its bases and the names its body
+// bound. bases are the values of the base expressions in written order,
+// with the implicit object base passed as nil so the lowering never has to
+// name it; each real base must be a class. The C3 linearization runs here,
+// so an inconsistent base order raises the same TypeError CPython does at
+// class-creation time.
+func NewClass(name, qual string, bases []Object, names []string, vals []Object) (Object, error) {
 	c := &classObject{name: name, qual: qual, dict: make(map[string]Object, len(names))}
 	for i, n := range names {
 		if _, seen := c.dict[n]; !seen {
@@ -48,14 +55,133 @@ func NewClass(name, qual string, names []string, vals []Object) Object {
 		}
 		c.dict[n] = vals[i]
 	}
-	return c
+	seen := map[*classObject]bool{}
+	for _, b := range bases {
+		if b == nil {
+			// The implicit object base contributes no user names.
+			continue
+		}
+		bc, ok := b.(*classObject)
+		if !ok {
+			return nil, Raise(TypeError, "bases must be types")
+		}
+		if seen[bc] {
+			return nil, Raise(TypeError, "duplicate base class %s", bc.name)
+		}
+		seen[bc] = true
+		c.bases = append(c.bases, bc)
+	}
+	mro, err := c3Linearize(c)
+	if err != nil {
+		return nil, err
+	}
+	c.mro = mro
+	return c, nil
 }
 
-// lookup finds a name on the class. Inheritance would widen this to the MRO;
-// for now it is the class's own dict.
+// c3Linearize computes the C3 method resolution order for c from its bases'
+// own linearizations. The result starts with c and lists every ancestor
+// once; the object root is omitted because it holds no user names. A set of
+// bases that cannot be ordered consistently raises CPython's exact
+// class-creation TypeError.
+func c3Linearize(c *classObject) ([]*classObject, error) {
+	if len(c.bases) == 0 {
+		return []*classObject{c}, nil
+	}
+	var seqs [][]*classObject
+	for _, b := range c.bases {
+		seqs = append(seqs, append([]*classObject(nil), b.mro...))
+	}
+	seqs = append(seqs, append([]*classObject(nil), c.bases...))
+	merged, err := c3Merge(seqs)
+	if err != nil {
+		return nil, err
+	}
+	return append([]*classObject{c}, merged...), nil
+}
+
+// c3Merge is the merge step of C3: repeatedly take a head that appears in no
+// sequence's tail and remove it from every head. When no such head exists
+// the order is inconsistent, and the blocked heads name the bases in the
+// error the way CPython lists them.
+func c3Merge(seqs [][]*classObject) ([]*classObject, error) {
+	var res []*classObject
+	for {
+		var live [][]*classObject
+		for _, s := range seqs {
+			if len(s) > 0 {
+				live = append(live, s)
+			}
+		}
+		if len(live) == 0 {
+			return res, nil
+		}
+		var cand *classObject
+		for _, s := range live {
+			head := s[0]
+			if !inSomeTail(head, live) {
+				cand = head
+				break
+			}
+		}
+		if cand == nil {
+			return nil, Raise(TypeError,
+				"Cannot create a consistent method resolution order (MRO) for bases %s",
+				blockedNames(live))
+		}
+		res = append(res, cand)
+		for i, s := range live {
+			if len(s) > 0 && s[0] == cand {
+				live[i] = s[1:]
+			}
+		}
+		seqs = live
+	}
+}
+
+// inSomeTail reports whether c appears past the head of any live sequence.
+func inSomeTail(c *classObject, seqs [][]*classObject) bool {
+	for _, s := range seqs {
+		for _, x := range s[1:] {
+			if x == c {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// blockedNames lists the distinct heads of the live sequences in first-seen
+// order, which is the set CPython names when it cannot build the MRO.
+func blockedNames(seqs [][]*classObject) string {
+	var names []string
+	seen := map[*classObject]bool{}
+	for _, s := range seqs {
+		h := s[0]
+		if !seen[h] {
+			seen[h] = true
+			names = append(names, h.name)
+		}
+	}
+	out := ""
+	for i, n := range names {
+		if i > 0 {
+			out += ", "
+		}
+		out += n
+	}
+	return out
+}
+
+// lookup finds a name on the class by walking the MRO, so an inherited
+// method or class variable resolves to the first class that defines it.
 func (c *classObject) lookup(name string) (Object, bool) {
-	v, ok := c.dict[name]
-	return v, ok
+	for _, k := range c.mro {
+		if v, ok := k.dict[name]; ok {
+			return v, ok
+		}
+	}
+	return nil, false
 }
 
 // setAttr stores a class attribute, tracking insertion order for names that
