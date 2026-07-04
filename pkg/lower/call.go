@@ -17,6 +17,7 @@ var builtinNames = map[string]bool{
 	"chr": true, "hash": true, "sorted": true, "reversed": true, "enumerate": true,
 	"zip": true, "list": true, "tuple": true, "dict": true, "set": true,
 	"frozenset": true, "format": true, "next": true,
+	"isinstance": true, "issubclass": true,
 }
 
 // descriptorBuiltins are the builtin names that resolve to a value: the three
@@ -352,6 +353,18 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 			return nil, f.e.errf(e.Span(), "round() takes at most 2 arguments (%d given)", argc)
 		}
 		return f.runtimeSliceCall("Round", e)
+	case "isinstance", "issubclass":
+		if argc != 2 {
+			return nil, f.e.errf(e.Span(), "%s expected 2 arguments, got %d", name, argc)
+		}
+		args, err := f.plainArgExprs(e.Args)
+		if err != nil {
+			return nil, err
+		}
+		fn := map[string]string{"isinstance": "IsInstance", "issubclass": "IsSubclass"}[name]
+		tmp := f.tmpVar()
+		f.fallible(tmp, sel("runtime", fn), args[0], args[1])
+		return ident(tmp), nil
 	case "divmod":
 		if argc != 2 {
 			return nil, f.e.errf(e.Span(), "divmod expected 2 arguments, got %d", argc)

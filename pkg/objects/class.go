@@ -1,6 +1,16 @@
 package objects
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
+
+// objectClass is the implicit root type every class linearizes to and every
+// value is an instance of. The lowering models the object base as a nil entry
+// and c3Linearize leaves it off the stored mro, so this singleton is
+// synthesized only where the class surface must name it: the __bases__,
+// __mro__, and __base__ reads and isinstance and issubclass over the root.
+var objectClass = &classObject{name: "object", qual: "object", dict: map[string]Object{}}
 
 // classObject is a user-defined class, the type object a class statement
 // builds. dict holds the names the class body bound, methods and class
@@ -173,6 +183,151 @@ func blockedNames(seqs [][]*classObject) string {
 	return out
 }
 
+// classIntrospect answers the type object's own read-only attributes. Each
+// value is computed from the class rather than stored, and the implicit object
+// root is materialized here so __bases__ and __mro__ spell it the way CPython
+// does. A name outside this set returns false so LoadAttr falls through to the
+// MRO lookup.
+func classIntrospect(c *classObject, name string) (Object, bool) {
+	switch name {
+	case "__name__":
+		return NewStr(c.name), true
+	case "__qualname__":
+		// The stored qual carries the module prefix repr wants; __qualname__ is
+		// that path without the module, which is the bare name for a top-level
+		// class and Outer.Inner for a nested one.
+		return NewStr(strings.TrimPrefix(c.qual, "__main__.")), true
+	case "__bases__":
+		return classBases(c), true
+	case "__mro__":
+		return NewTuple(classMroChain(c)), true
+	case "__base__":
+		return classBase(c), true
+	}
+	return nil, false
+}
+
+// classBases is the __bases__ tuple: the direct bases in written order, with
+// the implicit object root filled in for a class that names no base. object
+// itself has no bases.
+func classBases(c *classObject) Object {
+	if c == objectClass {
+		return NewTuple(nil)
+	}
+	if len(c.bases) == 0 {
+		return NewTuple([]Object{objectClass})
+	}
+	elts := make([]Object, len(c.bases))
+	for i, b := range c.bases {
+		elts[i] = b
+	}
+	return NewTuple(elts)
+}
+
+// classMroChain is the __mro__ tuple: the stored linearization with the object
+// root appended, since c3Linearize omits it. object's own chain is just itself.
+func classMroChain(c *classObject) []Object {
+	if c == objectClass {
+		return []Object{objectClass}
+	}
+	elts := make([]Object, 0, len(c.mro)+1)
+	for _, k := range c.mro {
+		elts = append(elts, k)
+	}
+	return append(elts, objectClass)
+}
+
+// classBase is __base__, the single primary base: object for a root class,
+// None for object itself, and the first written base otherwise. The
+// most-derived-base rule for multiple inheritance is a later slice.
+func classBase(c *classObject) Object {
+	if c == objectClass {
+		return None
+	}
+	if len(c.bases) == 0 {
+		return objectClass
+	}
+	return c.bases[0]
+}
+
+// IsInstance implements isinstance(obj, cls). cls is a class or a tuple of
+// classes; anything else raises the arg 2 TypeError probed on 3.14. A user
+// instance matches when cls is in its MRO or is the object root; a builtin
+// value is an instance of object alone.
+func IsInstance(obj, cls Object) (Object, error) {
+	if t, ok := cls.(*tupleObject); ok {
+		for _, e := range t.elts {
+			r, err := IsInstance(obj, e)
+			if err != nil {
+				return nil, err
+			}
+			if r == True {
+				return True, nil
+			}
+		}
+		return False, nil
+	}
+	c, ok := cls.(*classObject)
+	if !ok {
+		return nil, Raise(TypeError, "isinstance() arg 2 must be a type, a tuple of types, or a union")
+	}
+	if c == objectClass {
+		return True, nil
+	}
+	inst, ok := obj.(*instanceObject)
+	if !ok {
+		return False, nil
+	}
+	for _, k := range inst.cls.mro {
+		if k == c {
+			return True, nil
+		}
+	}
+	return False, nil
+}
+
+// IsSubclass implements issubclass(sub, cls). sub is validated as a class
+// first, matching CPython's arg 1 check that fires before arg 2; cls is a
+// class or a tuple of classes. Every class is a subclass of object.
+func IsSubclass(sub, cls Object) (Object, error) {
+	sc, ok := sub.(*classObject)
+	if !ok {
+		return nil, Raise(TypeError, "issubclass() arg 1 must be a class")
+	}
+	return subclassOf(sc, cls)
+}
+
+func subclassOf(sc *classObject, cls Object) (Object, error) {
+	if t, ok := cls.(*tupleObject); ok {
+		for _, e := range t.elts {
+			r, err := subclassOf(sc, e)
+			if err != nil {
+				return nil, err
+			}
+			if r == True {
+				return True, nil
+			}
+		}
+		return False, nil
+	}
+	c, ok := cls.(*classObject)
+	if !ok {
+		return nil, Raise(TypeError, "issubclass() arg 2 must be a class, a tuple of classes, or a union")
+	}
+	if c == objectClass {
+		return True, nil
+	}
+	if sc == objectClass {
+		return False, nil
+	}
+	for _, k := range sc.mro {
+		if k == c {
+			return True, nil
+		}
+	}
+	return False, nil
+}
+
 // lookup finds a name on the class by walking the MRO, so an inherited
 // method or class variable resolves to the first class that defines it.
 func (c *classObject) lookup(name string) (Object, bool) {
@@ -245,6 +400,12 @@ func LoadAttr(o Object, name string) (Object, error) {
 		}
 		return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", x.cls.name, name)
 	case *classObject:
+		// __name__, __qualname__, __bases__, __mro__, and __base__ are
+		// metaclass data descriptors, so they answer from the type object
+		// itself and outrank anything the class body bound under those names.
+		if v, ok := classIntrospect(x, name); ok {
+			return v, nil
+		}
 		if v, ok := x.lookup(name); ok {
 			return classGet(x, v)
 		}

@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+True
+True
+True
+False
+True
+True
+True
+True
+False
+False
+True
+isinstance() arg 2 must be a type, a tuple of types, or a union
+isinstance() arg 2 must be a type, a tuple of types, or a union
+issubclass() arg 1 must be a class
+issubclass() arg 2 must be a class, a tuple of classes, or a union
+== exception:
+== stderr:

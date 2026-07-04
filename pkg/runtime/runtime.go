@@ -281,6 +281,17 @@ func Abs(o objects.Object) (objects.Object, error) {
 	return nil, objects.Raise(objects.TypeError, "bad operand type for abs(): '%s'", o.TypeName())
 }
 
+// IsInstance implements isinstance(obj, cls); the class-membership walk lives
+// in pkg/objects next to the class object it inspects.
+func IsInstance(obj, cls objects.Object) (objects.Object, error) {
+	return objects.IsInstance(obj, cls)
+}
+
+// IsSubclass implements issubclass(sub, cls).
+func IsSubclass(sub, cls objects.Object) (objects.Object, error) {
+	return objects.IsSubclass(sub, cls)
+}
+
 // builtins maps names to function objects for the case where a builtin
 // is passed around as a value. Variadic ones use a negative arity so
 // Call skips the count check and they validate themselves. The map is
@@ -346,6 +357,12 @@ func init() {
 			return nil, objects.Raise(objects.TypeError, "bool expected at most 1 argument, got %d", len(args))
 		}),
 		"abs": exactlyOne("abs", Abs),
+		"isinstance": objects.NewFunc("isinstance", 2, func(args []objects.Object) (objects.Object, error) {
+			return IsInstance(args[0], args[1])
+		}),
+		"issubclass": objects.NewFunc("issubclass", 2, func(args []objects.Object) (objects.Object, error) {
+			return IsSubclass(args[0], args[1])
+		}),
 	})
 }
 
