@@ -130,17 +130,23 @@ func (c *globalScope) stmt(s Stmt) {
 		c.stmts(s.OrElse)
 		c.stmts(s.Final)
 	case *FuncDef:
-		// Defaults evaluate in this scope; the body is its own function scope
-		// and gets its own checker seeded with the parameters.
+		// Decorators and defaults evaluate in this scope; the body is its own
+		// function scope and gets its own checker seeded with the parameters.
+		for _, d := range s.Decorators {
+			c.use(d)
+		}
 		for _, pr := range s.Params {
 			c.use(pr.Default)
 		}
 		c.assigned[s.Name] = true
 		c.p.checkScopes(s.Body, s.Params, c.childEnclosing(), false, true)
 	case *ClassDef:
-		// Bases evaluate in this scope; the class name binds here. The body
-		// is a scope but not a function scope, so it does not join the chain a
-		// nested nonlocal resolves against.
+		// Decorators and bases evaluate in this scope; the class name binds
+		// here. The body is a scope but not a function scope, so it does not
+		// join the chain a nested nonlocal resolves against.
+		for _, d := range s.Decorators {
+			c.use(d)
+		}
 		for _, b := range s.Bases {
 			c.use(b)
 		}
@@ -349,11 +355,13 @@ func boundNames(body []Stmt, params []Param) map[string]bool {
 				walk(s.Final)
 			case *FuncDef:
 				out[s.Name] = true
+				walrusAll(s.Decorators)
 				for _, pr := range s.Params {
 					walrus(pr.Default)
 				}
 			case *ClassDef:
 				out[s.Name] = true
+				walrusAll(s.Decorators)
 				walrusAll(s.Bases)
 			case *Global:
 				for _, n := range s.Names {

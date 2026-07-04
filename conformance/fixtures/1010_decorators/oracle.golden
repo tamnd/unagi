@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+[('eval', 'a'), ('eval', 'b'), ('eval', 'c'), ('apply', 'c'), ('apply', 'b'), ('apply', 'a')]
+1
+42
+['default'] 0
+20
+True demo
+(7, ['noted'])
+5 4
+['b', 'a']
+== exception:
+== stderr:

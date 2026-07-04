@@ -95,6 +95,14 @@ func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
 	for n := range e.globalDecl {
 		e.moduleVars[n] = true
 	}
+	// A decorated def binds its name to whatever the decorators return, an
+	// arbitrary object, so the name becomes a checked module variable read and
+	// called dynamically rather than through the static function fast path.
+	for _, d := range defs {
+		if len(d.Decorators) > 0 {
+			e.moduleVars[d.Name] = true
+		}
+	}
 	for n := range e.moduleVars {
 		if _, ok := e.defs[n]; ok {
 			e.rebound[n] = true

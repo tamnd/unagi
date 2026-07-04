@@ -1,0 +1,8 @@
+== exit: 1
+== stdout:
+before
+== exception:
+ValueError: decorator failed
+  main.py:8 <module>
+  main.py:2 boom
+== stderr:

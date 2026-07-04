@@ -67,13 +67,13 @@ func ds(s Stmt) string {
 		}
 		return "(with (" + strings.Join(items, " ") + ") " + dbody(s.Body) + ")"
 	case *FuncDef:
-		return "(def " + s.Name + " (" + strings.Join(dparams(s.Params), " ") + ") " + dbody(s.Body) + ")"
+		return "(def " + ddecos(s.Decorators) + s.Name + " (" + strings.Join(dparams(s.Params), " ") + ") " + dbody(s.Body) + ")"
 	case *ClassDef:
 		bases := make([]string, len(s.Bases))
 		for i, b := range s.Bases {
 			bases[i] = de(b)
 		}
-		return "(class " + s.Name + " (" + strings.Join(bases, " ") + ") " + dbody(s.Body) + ")"
+		return "(class " + ddecos(s.Decorators) + s.Name + " (" + strings.Join(bases, " ") + ") " + dbody(s.Body) + ")"
 	case *Try:
 		kw := "try"
 		if s.IsStar {
@@ -116,6 +116,19 @@ func ds(s Stmt) string {
 		return "(global " + strings.Join(s.Names, " ") + ")"
 	}
 	return "?stmt"
+}
+
+// ddecos renders a decorator list as a bracketed prefix, empty when the def
+// or class carries none.
+func ddecos(decos []Expr) string {
+	if len(decos) == 0 {
+		return ""
+	}
+	parts := make([]string, len(decos))
+	for i, d := range decos {
+		parts[i] = de(d)
+	}
+	return "@[" + strings.Join(parts, " ") + "] "
 }
 
 // dparams renders a parameter list back into source-like pieces. The / and
@@ -426,6 +439,15 @@ func TestParse(t *testing.T) {
 		{"class trailing comma base", "class C(A,): pass", "(class C (A) [(pass)])"},
 		{"class body methods", "class C:\n    x = 1\n    def m(self):\n        return self.x\n",
 			"(class C () [(= x 1) (def m (self) [(return (. self x))])])"},
+		{"decorated def", "@deco\ndef f():\n    pass\n", "(def @[deco] f () [(pass)])"},
+		{"decorated def attribute", "@a.b.c\ndef f(): pass", "(def @[(. (. a b) c)] f () [(pass)])"},
+		{"decorated def call", "@reg(1)\ndef f(): pass", "(def @[(call reg 1)] f () [(pass)])"},
+		{"stacked decorators", "@a\n@b\n@c\ndef f(): pass", "(def @[a b c] f () [(pass)])"},
+		{"decorated class", "@tag\nclass C: pass", "(class @[tag] C () [(pass)])"},
+		{"decorated class with base", "@tag\nclass C(object): pass", "(class @[tag] C (object) [(pass)])"},
+		{"decorator walrus", "@(d := deco)\ndef f(): pass", "(def @[(:= d deco)] f () [(pass)])"},
+		{"decorated method", "class C:\n    @staticmethod\n    def m(): pass\n",
+			"(class C () [(def @[staticmethod] m () [(pass)])])"},
 		{"attribute target", "a.b = 1", "(= (. a b) 1)"},
 		{"attribute aug target", "a.b += 1", "(+= (. a b) 1)"},
 		{"call keyword", "f(a=1)", "(expr (call f a=1))"},
@@ -706,6 +728,13 @@ func TestParseErrors(t *testing.T) {
 			"name 'x' is assigned to before global declaration"},
 		{"global non-name", "global x.y", "invalid syntax"},
 		{"global bare", "global", "invalid syntax"},
+		{"decorator without target", "@deco\nx = 1", "invalid syntax"},
+		{"decorator at eof", "@deco", "invalid syntax"},
+		{"bare at sign", "@", "invalid syntax"},
+		{"decorator used prior to global", "def outer():\n    @x\n    def f(): pass\n    global x",
+			"name 'x' is used prior to global declaration"},
+		{"decorator walrus binds enclosing global", "def outer():\n    @(d := deco)\n    def f(): pass\n    global d",
+			"name 'd' is assigned to before global declaration"},
 		{"async def", "async def f(): pass", "async is not supported yet"},
 		{"lambda duplicate param", "f = lambda x, x: x", "duplicate argument 'x' in function definition"},
 		{"lambda default order", "f = lambda x=1, y: x", "parameter without a default follows parameter with a default"},

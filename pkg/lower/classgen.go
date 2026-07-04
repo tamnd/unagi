@@ -67,55 +67,84 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 		}
 	}
 
-	var names []string
-	var vals []ast.Expr
-	mi := 0
-	for _, st := range s.Body {
-		switch st := st.(type) {
-		case *frontend.FuncDef:
-			for _, p := range st.Params {
-				if p.Default != nil {
-					return f.e.errf(st.Span(), "method parameter defaults are not supported yet")
+	// build runs the class body top to bottom and folds the bound names into
+	// the type object. Decorators evaluate before the body runs, so the build
+	// runs inside the decorate helper.
+	build := func() (ast.Expr, error) {
+		var names []string
+		var vals []ast.Expr
+		mi := 0
+		for _, st := range s.Body {
+			switch st := st.(type) {
+			case *frontend.FuncDef:
+				for _, p := range st.Params {
+					if p.Default != nil {
+						return nil, f.e.errf(st.Span(), "method parameter defaults are not supported yet")
+					}
 				}
+				methodObj := callExpr(f.e.obj("NewFunction"),
+					strLit(s.Name+"."+st.Name),
+					f.e.paramSpecLit(st.Params),
+					ident("nil"),
+					ident(f.e.methodImplName(s.Name, st.Name, mi)))
+				mi++
+				names = append(names, st.Name)
+				if len(st.Decorators) == 0 {
+					vals = append(vals, methodObj)
+					break
+				}
+				// A decorated method builds its function object then hands it to
+				// the decorators, the same shape a decorated def uses.
+				obj, err := f.decorate(st.Decorators, func() (ast.Expr, error) { return methodObj, nil })
+				if err != nil {
+					return nil, err
+				}
+				vals = append(vals, obj)
+			case *frontend.Assign:
+				if len(st.Targets) != 1 {
+					return nil, f.e.errf(st.Span(), "chained assignment in a class body is not supported yet")
+				}
+				nm, ok := st.Targets[0].(*frontend.Name)
+				if !ok {
+					return nil, f.e.errf(st.Span(), "only simple name assignments are supported in a class body")
+				}
+				v, err := f.expr(st.Value)
+				if err != nil {
+					return nil, err
+				}
+				names = append(names, nm.Id)
+				vals = append(vals, v)
+			case *frontend.Pass:
+				// A pass just holds the block open.
+			case *frontend.ExprStmt:
+				// A leading string literal is the docstring; drop it. Anything
+				// else with a value in a class body is not modelled yet.
+				if _, ok := st.X.(*frontend.StrLit); !ok {
+					return nil, f.e.errf(st.Span(), "expression statements in a class body are not supported yet")
+				}
+			default:
+				return nil, f.e.errf(st.Span(), "statement not supported in a class body yet")
 			}
-			names = append(names, st.Name)
-			vals = append(vals, callExpr(f.e.obj("NewFunction"),
-				strLit(s.Name+"."+st.Name),
-				f.e.paramSpecLit(st.Params),
-				ident("nil"),
-				ident(f.e.methodImplName(s.Name, st.Name, mi))))
-			mi++
-		case *frontend.Assign:
-			if len(st.Targets) != 1 {
-				return f.e.errf(st.Span(), "chained assignment in a class body is not supported yet")
-			}
-			nm, ok := st.Targets[0].(*frontend.Name)
-			if !ok {
-				return f.e.errf(st.Span(), "only simple name assignments are supported in a class body")
-			}
-			v, err := f.expr(st.Value)
-			if err != nil {
-				return err
-			}
-			names = append(names, nm.Id)
-			vals = append(vals, v)
-		case *frontend.Pass:
-			// A pass just holds the block open.
-		case *frontend.ExprStmt:
-			// A leading string literal is the docstring; drop it. Anything
-			// else with a value in a class body is not modelled yet.
-			if _, ok := st.X.(*frontend.StrLit); !ok {
-				return f.e.errf(st.Span(), "expression statements in a class body are not supported yet")
-			}
-		default:
-			return f.e.errf(st.Span(), "statement not supported in a class body yet")
 		}
+		return callExpr(f.e.obj("NewClass"),
+			strLit(s.Name),
+			strLit("__main__."+s.Name),
+			strSliceLit(names),
+			f.objSlice(vals)), nil
 	}
 
-	f.add(set(ident(mangle(s.Name)), callExpr(f.e.obj("NewClass"),
-		strLit(s.Name),
-		strLit("__main__."+s.Name),
-		strSliceLit(names),
-		f.objSlice(vals))))
+	if len(s.Decorators) == 0 {
+		obj, err := build()
+		if err != nil {
+			return err
+		}
+		f.add(set(ident(mangle(s.Name)), obj))
+		return nil
+	}
+	obj, err := f.decorate(s.Decorators, build)
+	if err != nil {
+		return err
+	}
+	f.add(set(ident(mangle(s.Name)), obj))
 	return nil
 }

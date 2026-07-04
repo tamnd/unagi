@@ -138,33 +138,52 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 		}
 		// The def statement's runtime effects, in order: evaluate parameter
 		// defaults left to right into their module-level slots, then build
-		// the function object, which snapshots those defaults.
-		dflts := make([]ast.Expr, len(s.Params))
-		hasDflt := false
-		for i, p := range s.Params {
-			if p.Default == nil {
-				dflts[i] = ident("nil")
-				continue
+		// the function object, which snapshots those defaults. A decorated def
+		// evaluates its decorators before all of that, so the build runs inside
+		// the decorate helper.
+		build := func() (ast.Expr, error) {
+			dflts := make([]ast.Expr, len(s.Params))
+			hasDflt := false
+			for i, p := range s.Params {
+				if p.Default == nil {
+					dflts[i] = ident("nil")
+					continue
+				}
+				hasDflt = true
+				v, err := f.expr(p.Default)
+				if err != nil {
+					return nil, err
+				}
+				f.add(set(ident(f.e.slotName(s.Name, p.Name)), v))
+				dflts[i] = ident(f.e.slotName(s.Name, p.Name))
 			}
-			hasDflt = true
-			v, err := f.expr(p.Default)
-			if err != nil {
+			var dfltsExpr ast.Expr = ident("nil")
+			if hasDflt {
+				dfltsExpr = f.objSlice(dflts)
+			}
+			f.add(set(ident(f.e.fnObjName(s.Name)),
+				callExpr(f.e.obj("NewFunction"), strLit(s.Name), f.e.paramSpecLit(s.Params), dfltsExpr, ident(f.e.implName(s.Name)))))
+			return ident(f.e.fnObjName(s.Name)), nil
+		}
+		if len(s.Decorators) == 0 {
+			if _, err := build(); err != nil {
 				return err
 			}
-			f.add(set(ident(f.e.slotName(s.Name, p.Name)), v))
-			dflts[i] = ident(f.e.slotName(s.Name, p.Name))
+			// A rebound def name is an ordinary variable; the def statement is
+			// the assignment that first binds it.
+			if f.e.rebound[s.Name] {
+				f.add(set(ident(mangle(s.Name)), ident(f.e.fnObjName(s.Name))))
+			}
+			return nil
 		}
-		var dfltsExpr ast.Expr = ident("nil")
-		if hasDflt {
-			dfltsExpr = f.objSlice(dflts)
+		// A decorated def name always routes through the module variable: the
+		// name holds whatever the decorators return, not the known function, so
+		// its reads and calls go dynamic. lower marked it rebound for that.
+		obj, err := f.decorate(s.Decorators, build)
+		if err != nil {
+			return err
 		}
-		f.add(set(ident(f.e.fnObjName(s.Name)),
-			callExpr(f.e.obj("NewFunction"), strLit(s.Name), f.e.paramSpecLit(s.Params), dfltsExpr, ident(f.e.implName(s.Name)))))
-		// A rebound def name is an ordinary variable; the def statement is
-		// the assignment that first binds it.
-		if f.e.rebound[s.Name] {
-			f.add(set(ident(mangle(s.Name)), ident(f.e.fnObjName(s.Name))))
-		}
+		f.add(set(ident(mangle(s.Name)), obj))
 		return nil
 	case *frontend.ClassDef:
 		return f.classDef(s)

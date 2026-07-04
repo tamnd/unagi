@@ -139,6 +139,9 @@ func (p *parser) parseStatement() []Stmt {
 	if t.kind == tIndent {
 		p.errf(t.pos, "unexpected indent")
 	}
+	if t.kind == tOp && t.text == "@" {
+		return []Stmt{p.parseDecorated()}
+	}
 	if t.kind == tKeyword {
 		switch t.text {
 		case "if":
@@ -552,6 +555,40 @@ func (p *parser) parseForTargetAtom() Expr {
 		return &Starred{Pos_: t.pos, X: p.parseForTargetAtom()}
 	}
 	p.errf(t.pos, "for loop target must be a name or tuple of names")
+	return nil
+}
+
+// parseDecorated parses one or more `@ expr NEWLINE` lines followed by the
+// def or class they decorate, and attaches the decorators in written order.
+// PEP 614 allows any assignment expression after the at-sign, so the
+// decorator uses the same named-test parse as a call argument.
+func (p *parser) parseDecorated() Stmt {
+	var decos []Expr
+	for p.isOp("@") {
+		p.advance()
+		decos = append(decos, p.parseNamedTest())
+		switch p.cur().kind {
+		case tNewline:
+			p.advance()
+		case tEOF:
+		default:
+			p.errf(p.cur().pos, "invalid syntax")
+		}
+	}
+	t := p.cur()
+	if t.kind == tKeyword {
+		switch t.text {
+		case "def":
+			d := p.parseDef().(*FuncDef)
+			d.Decorators = decos
+			return d
+		case "class":
+			c := p.parseClass().(*ClassDef)
+			c.Decorators = decos
+			return c
+		}
+	}
+	p.errf(t.pos, "invalid syntax")
 	return nil
 }
 

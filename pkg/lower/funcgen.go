@@ -388,16 +388,18 @@ func collectAssigned(body []frontend.Stmt, out map[string]bool) {
 				}
 				walk(s.Body)
 			case *frontend.FuncDef:
-				// Defaults evaluate in the enclosing scope, so a walrus
-				// inside one binds here, not in the function body.
+				// Decorators and defaults evaluate in the enclosing scope, so a
+				// walrus inside one binds here, not in the function body.
+				walkExprs(s.Decorators)
 				for _, p := range s.Params {
 					walkExpr(p.Default)
 				}
 			case *frontend.ClassDef:
 				// The class statement binds the class name in this scope; the
-				// base expressions evaluate here, so a walrus in one binds here
-				// too. The body is its own namespace and does not.
+				// decorator and base expressions evaluate here, so a walrus in
+				// one binds here too. The body is its own namespace and does not.
 				out[s.Name] = true
+				walkExprs(s.Decorators)
 				walkExprs(s.Bases)
 			}
 		}
