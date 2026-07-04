@@ -151,6 +151,68 @@ type funcObject struct {
 
 func (*funcObject) TypeName() string { return "function" }
 
+// typeObject is a first-class type value for the object kinds that have no
+// constructor to double as their type: NoneType, ellipsis, the function and
+// method kinds, generators, and so on. The constructor-backed builtins (int,
+// str, list, ...) and user classes are their own type objects already, so
+// TypeOf hands those back directly and only reaches here for the rest. Its own
+// type is `type`, matching CPython where type(type(None)) is type.
+type typeObject struct{ name string }
+
+func (*typeObject) TypeName() string { return "type" }
+
+// typeSingletons caches one typeObject per name so identity is stable:
+// type(None) is type(None) holds because both return the same pointer.
+var typeSingletons = map[string]*typeObject{}
+
+// TypeSingleton returns the cached type value for a kind that has no
+// constructor, creating it on first use. Callers pass the CPython type name
+// (NoneType, ellipsis, function, builtin_function_or_method, ...).
+func TypeSingleton(name string) Object {
+	if t, ok := typeSingletons[name]; ok {
+		return t
+	}
+	t := &typeObject{name: name}
+	typeSingletons[name] = t
+	return t
+}
+
+// ClassOf returns the class of a user instance, the type object a user value's
+// type() reports. ok is false for every non-instance, which TypeOf resolves by
+// other means.
+func ClassOf(o Object) (Object, bool) {
+	if inst, ok := o.(*instanceObject); ok {
+		return inst.cls, true
+	}
+	return nil, false
+}
+
+// IsTypeValue reports whether o is itself a type object: a user class, one of
+// the typeObject singletons, or the internal exception-matcher type. type() of
+// any of these is the `type` metatype.
+func IsTypeValue(o Object) bool {
+	switch o.(type) {
+	case *classObject, *typeObject, *excTypeObject:
+		return true
+	}
+	return false
+}
+
+// BuiltinFuncName returns the name of a builtin function object, the funcObject
+// the runtime registers for names like int, len, and type. ok is false for
+// every other object, including user functions.
+func BuiltinFuncName(o Object) (string, bool) {
+	if f, ok := o.(*funcObject); ok {
+		return f.name, true
+	}
+	return "", false
+}
+
+// IsBuiltinTypeName reports whether name is a builtin whose constructor doubles
+// as a type object (int, str, list, ...), so TypeOf can hand back that
+// constructor as the value's type.
+func IsBuiltinTypeName(name string) bool { return builtinTypeReprs[name] }
+
 type rangeObject struct{ start, stop, step int64 }
 
 func (*rangeObject) TypeName() string { return "range" }
@@ -219,7 +281,7 @@ var builtinTypeReprs = map[string]bool{
 	"range": true, "str": true, "int": true, "float": true, "bool": true,
 	"complex": true, "reversed": true, "enumerate": true, "zip": true,
 	"list": true, "tuple": true, "dict": true, "set": true, "frozenset": true,
-	"bytes": true, "bytearray": true,
+	"bytes": true, "bytearray": true, "type": true,
 }
 
 var builtinFuncReprs = map[string]bool{

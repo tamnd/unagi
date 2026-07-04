@@ -1,0 +1,38 @@
+== exit: 0
+== stdout:
+<class 'int'> True
+<class 'bool'> True
+<class 'float'> True
+<class 'str'> True
+<class 'bytes'> True
+<class 'bytearray'> True
+<class 'list'> True
+<class 'tuple'> True
+<class 'set'> True
+<class 'frozenset'> True
+<class 'dict'> True
+<class 'range'> True
+<class 'complex'> True
+<class 'NoneType'> True
+<class 'ellipsis'> True
+True True True
+True True True
+True True True
+True True
+True True True
+<class 'type'> type
+True False
+True Dog
+<class '__main__.Dog'>
+int int
+NoneType ellipsis
+len
+42
+[1, 2, 3]
+100
+<class 'function'> <class 'builtin_function_or_method'>
+0 type() takes 1 or 3 arguments
+2 type() takes 1 or 3 arguments
+4 type() takes 1 or 3 arguments
+== exception:
+== stderr:
