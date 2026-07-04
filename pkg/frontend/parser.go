@@ -35,6 +35,7 @@ func Parse(src []byte, filename string) (mod *Module, err error) {
 		m.Body = append(m.Body, p.parseStatement()...)
 	}
 	p.checkGlobals(m.Body, nil)
+	p.checkExceptStar(m.Body)
 	return m, nil
 }
 
