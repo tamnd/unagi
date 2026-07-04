@@ -53,24 +53,35 @@ func (e *emitter) emitClassMethods(c *frontend.ClassDef) ([]methodEmit, error) {
 // classDef lowers a class statement to the runtime class build. The body
 // runs top to bottom: class-variable expressions evaluate in place and each
 // method becomes a function object, then objects.NewClass folds the bound
-// names into the type object and the class name binds to it. Inheritance,
-// the MRO, and metaclasses are a later slice, so the bases are restricted to
-// none or the implicit object base and the body to methods and simple
-// class-variable assignments.
+// names into the type object and the class name binds to it. Bases are the
+// written base classes; the C3 MRO is computed inside NewClass. Metaclasses,
+// descriptors, and super are a later slice, and the body is restricted to
+// methods and simple class-variable assignments.
 func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 	if f.inFunc {
 		return f.e.errf(s.Span(), "class definition inside a function is not supported yet")
 	}
-	for _, b := range s.Bases {
-		if n, ok := b.(*frontend.Name); !ok || n.Id != "object" {
-			return f.e.errf(s.Span(), "base classes are not supported yet")
-		}
-	}
 
 	// build runs the class body top to bottom and folds the bound names into
-	// the type object. Decorators evaluate before the body runs, so the build
-	// runs inside the decorate helper.
+	// the type object. Decorators evaluate first, then the bases, then the
+	// body, matching CPython's order, so the base and body work runs inside
+	// the decorate helper.
 	build := func() (ast.Expr, error) {
+		// The implicit object base carries no user names, so it lowers to a
+		// nil base; every other base is evaluated to its class value.
+		var baseArgs []ast.Expr
+		for _, b := range s.Bases {
+			if n, ok := b.(*frontend.Name); ok && n.Id == "object" {
+				baseArgs = append(baseArgs, ident("nil"))
+				continue
+			}
+			bv, err := f.expr(b)
+			if err != nil {
+				return nil, err
+			}
+			baseArgs = append(baseArgs, bv)
+		}
+
 		var names []string
 		var vals []ast.Expr
 		mi := 0
@@ -126,11 +137,16 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 				return nil, f.e.errf(st.Span(), "statement not supported in a class body yet")
 			}
 		}
-		return callExpr(f.e.obj("NewClass"),
+		// NewClass runs C3 linearization and can raise on an inconsistent or
+		// non-type base, so it lowers to a checked call spilled to a temp.
+		cls := f.tmpVar()
+		f.fallible(cls, f.e.obj("NewClass"),
 			strLit(s.Name),
 			strLit("__main__."+s.Name),
+			f.objSlice(baseArgs),
 			strSliceLit(names),
-			f.objSlice(vals)), nil
+			f.objSlice(vals))
+		return ident(cls), nil
 	}
 
 	if len(s.Decorators) == 0 {

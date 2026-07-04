@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+Thing the animal says ...
+4
+Rex the dog says woof
+dog 4
+Bo the dog says woof (tiny)
+True
+4
+dog dog
+4
+== exception:
+== stderr:
