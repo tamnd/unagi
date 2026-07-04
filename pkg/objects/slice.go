@@ -116,6 +116,8 @@ func pickSlice(elts []Object, start, step, n int) []Object {
 // slice is a new list; str and tuple slices keep their type.
 func GetSlice(o, lo, hi, step Object) (Object, error) {
 	switch x := o.(type) {
+	case *memoryviewObject:
+		return mvGetSlice(x, lo, hi, step)
 	case *instanceObject, *classObject:
 		// A user class handles slicing through __getitem__, which receives the
 		// bracket contents as a single slice object, exactly like CPython.
@@ -196,6 +198,9 @@ func collectAssigned(val Object) ([]Object, error) {
 // (step omitted or 1) splices the items of any iterable in, resizing
 // the list; an extended slice needs an exact length match like CPython.
 func SetSlice(o, lo, hi, step, val Object) error {
+	if mv, ok := o.(*memoryviewObject); ok {
+		return mvSetSlice(mv, lo, hi, step, val)
+	}
 	if ba, ok := o.(*bytearrayObject); ok {
 		return setByteArraySlice(ba, lo, hi, step, val)
 	}
@@ -287,11 +292,13 @@ func DelItem(o, key Object) error {
 	// A slice key deletes the span, so del xs[slice(0, 2)] matches del xs[0:2].
 	if sl, ok := key.(*sliceObject); ok {
 		switch o.(type) {
-		case *listObject, *tupleObject, *strObject, *bytesObject, *bytearrayObject:
+		case *listObject, *tupleObject, *strObject, *bytesObject, *bytearrayObject, *memoryviewObject:
 			return DelSlice(o, sl.start, sl.stop, sl.step)
 		}
 	}
 	switch x := o.(type) {
+	case *memoryviewObject:
+		return mvDelItem(x)
 	case *bytearrayObject:
 		i, ok := AsInt(key)
 		if !ok {
@@ -356,6 +363,9 @@ func DelItem(o, key Object) error {
 // DelSlice implements `del o[lo:hi:step]` for lists, extended steps
 // included.
 func DelSlice(o, lo, hi, step Object) error {
+	if mv, ok := o.(*memoryviewObject); ok {
+		return mvDelItem(mv)
+	}
 	if ba, ok := o.(*bytearrayObject); ok {
 		return delByteArraySlice(ba, lo, hi, step)
 	}

@@ -1,0 +1,36 @@
+== exit: 0
+== stdout:
+5 104 111
+B 1 1 (5,) (1,) 5 True
+True True True
+b'hello' [104, 101, 108, 108, 111] 68656c6c6f
+bytes
+b'ell' b'hlo' b'olleh'
+3 [101, 108, 108] 101
+True True True
+True False False False
+True
+[104, 101, 108, 108, 111] (104, 101, 108, 108, 111)
+True False False
+[104, 101, 108, 108, 111] bytes
+type memoryview True
+matched memoryview
+False
+b'XYZlo' b'XYZlo'
+b'.Y.l.' b'.Y.l.'
+TypeError: memoryview() missing required argument 'object' (pos 1)
+TypeError: memoryview() takes at most 1 argument (2 given)
+TypeError: memoryview: a bytes-like object is required, not 'int'
+TypeError: memoryview: a bytes-like object is required, not 'str'
+IndexError: index out of bounds on dimension 1
+IndexError: index out of bounds on dimension 1
+TypeError: memoryview: invalid slice key
+ValueError: cannot hash writable memoryview object
+TypeError: cannot modify read-only memory
+ValueError: memoryview: invalid value for format 'B'
+TypeError: memoryview: invalid type for format 'B'
+ValueError: memoryview assignment: lvalue and rvalue have different structures
+TypeError: cannot delete memory
+TypeError: cannot modify read-only memory
+== exception:
+== stderr:

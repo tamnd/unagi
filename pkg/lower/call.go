@@ -22,7 +22,7 @@ var builtinNames = map[string]bool{
 	"getattr": true, "hasattr": true, "setattr": true, "delattr": true,
 	"any": true, "all": true, "callable": true, "ascii": true,
 	"iter": true, "map": true, "filter": true, "vars": true,
-	"type": true, "object": true, "slice": true,
+	"type": true, "object": true, "slice": true, "memoryview": true,
 }
 
 // descriptorBuiltins are the builtin names that resolve to a value: the three
@@ -263,6 +263,16 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		// slice() takes one to three arguments; the runtime helper checks the
 		// bounds so the "expected at least/most" TypeErrors stay catchable.
 		return f.runtimeSliceCall("SliceOf", e)
+	case "memoryview":
+		// memoryview() takes exactly one argument; the objects helper owns the
+		// arity and bytes-like checks so their TypeErrors stay catchable.
+		args, err := f.plainArgExprs(e.Args)
+		if err != nil {
+			return nil, err
+		}
+		tmp := f.tmpVar()
+		f.fallible(tmp, f.e.obj("MemoryViewOf"), f.objSlice(args))
+		return ident(tmp), nil
 	case "str":
 		if argc == 0 {
 			return callExpr(f.e.obj("NewStr"), strLit("")), nil

@@ -674,6 +674,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return x.step, nil
 		}
 		return nil, Raise(AttributeError, "'slice' object has no attribute '%s'", name)
+	case *memoryviewObject:
+		return memoryviewLoadAttr(x, name)
 	case *funcObject:
 		// Builtin functions and the constructor-backed type objects carry a
 		// __name__/__qualname__, so type(5).__name__ and len.__name__ read back.

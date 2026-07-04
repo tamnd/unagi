@@ -744,11 +744,16 @@ func equals(a, b Object) bool {
 		y, ok := b.(*strObject)
 		return ok && x.v == y.v
 	case *bytesObject:
-		yv, ok := asBytesLike(b)
+		yv, ok := mvBytesLike(b)
 		return ok && string(x.v) == string(yv)
 	case *bytearrayObject:
-		yv, ok := asBytesLike(b)
+		yv, ok := mvBytesLike(b)
 		return ok && string(x.snapshot()) == string(yv)
+	case *memoryviewObject:
+		// A memoryview compares equal to any bytes-like object with the same
+		// bytes, another memoryview included; a non-buffer is simply unequal.
+		yv, ok := mvBytesLike(b)
+		return ok && string(mvSpan(x)) == string(yv)
 	case *listObject:
 		y, ok := b.(*listObject)
 		return ok && seqEquals(x.elts, y.elts)
@@ -904,6 +909,13 @@ func Compare(op CmpOp, a, b Object) (Object, error) {
 // Contains implements the `in` operator.
 func Contains(container, item Object) (Object, error) {
 	switch x := container.(type) {
+	case *memoryviewObject:
+		span := mvSpan(x)
+		elts := make([]Object, len(span))
+		for i, c := range span {
+			elts[i] = NewInt(int64(c))
+		}
+		return seqContains(elts, item), nil
 	case *strObject:
 		sub, ok := item.(*strObject)
 		if !ok {
@@ -1004,11 +1016,13 @@ func GetItem(o, key Object) (Object, error) {
 	// start:stop:step notation does, so xs[slice(1, 4)] matches xs[1:4].
 	if sl, ok := key.(*sliceObject); ok {
 		switch o.(type) {
-		case *listObject, *tupleObject, *strObject, *bytesObject, *bytearrayObject:
+		case *listObject, *tupleObject, *strObject, *bytesObject, *bytearrayObject, *memoryviewObject:
 			return GetSlice(o, sl.start, sl.stop, sl.step)
 		}
 	}
 	switch x := o.(type) {
+	case *memoryviewObject:
+		return mvGetItem(x, key)
 	case *strObject:
 		i, ok := AsInt(key)
 		if !ok {
@@ -1121,11 +1135,13 @@ func SetItem(o, key, val Object) error {
 	// splices exactly like xs[0:2] = ys.
 	if sl, ok := key.(*sliceObject); ok {
 		switch o.(type) {
-		case *listObject, *tupleObject, *strObject, *bytesObject, *bytearrayObject:
+		case *listObject, *tupleObject, *strObject, *bytesObject, *bytearrayObject, *memoryviewObject:
 			return SetSlice(o, sl.start, sl.stop, sl.step, val)
 		}
 	}
 	switch x := o.(type) {
+	case *memoryviewObject:
+		return mvSetItem(x, key, val)
 	case *listObject:
 		i, ok := AsInt(key)
 		if !ok {
@@ -1178,6 +1194,8 @@ func SetItem(o, key, val Object) error {
 // Len returns the length of a sized object.
 func Len(o Object) (int, error) {
 	switch x := o.(type) {
+	case *memoryviewObject:
+		return x.length, nil
 	case *strObject:
 		return runeCount(x.v), nil
 	case *bytesObject:
@@ -1259,6 +1277,13 @@ func (it *rangeIter) Next() (Object, bool, error) {
 // Iter returns an iterator over an iterable object.
 func Iter(o Object) (Iterator, error) {
 	switch x := o.(type) {
+	case *memoryviewObject:
+		span := mvSpan(x)
+		elts := make([]Object, len(span))
+		for i, c := range span {
+			elts[i] = NewInt(int64(c))
+		}
+		return &sliceIter{elts: elts}, nil
 	case *strObject:
 		elts := make([]Object, 0, len(x.v))
 		for _, r := range x.v {

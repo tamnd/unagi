@@ -400,7 +400,8 @@ func init() {
 		"range": objects.NewFunc("range", -1, func(args []objects.Object) (objects.Object, error) {
 			return Range(args...)
 		}),
-		"slice": objects.NewFunc("slice", -1, objects.SliceOf),
+		"slice":      objects.NewFunc("slice", -1, objects.SliceOf),
+		"memoryview": objects.NewFunc("memoryview", -1, objects.MemoryViewOf),
 		"str": objects.NewFunc("str", -1, func(args []objects.Object) (objects.Object, error) {
 			switch len(args) {
 			case 0:

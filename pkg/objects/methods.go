@@ -33,6 +33,8 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 		return complexMethod(x, name, args)
 	case *sliceObject:
 		return sliceMethod(x, name, args)
+	case *memoryviewObject:
+		return memoryviewMethod(x, name, args)
 	}
 	return nil, noAttr(o, name)
 }
