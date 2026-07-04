@@ -279,6 +279,19 @@ func NextValue(args []Object) (Object, error) {
 	default:
 		return nil, Raise(TypeError, "next expected at most 2 arguments, got %d", len(args))
 	}
+	if inst, iok := args[0].(*instanceObject); iok {
+		if _, has := inst.cls.lookup("__next__"); has {
+			res, _, err := instanceSpecial(inst, "__next__")
+			if err != nil {
+				if ex, exok := err.(*Exception); exok && ex.Kind == "StopIteration" && len(args) == 2 {
+					return args[1], nil
+				}
+				return nil, err
+			}
+			return res, nil
+		}
+		return nil, Raise(TypeError, "'%s' object is not an iterator", args[0].TypeName())
+	}
 	it, ok := args[0].(Iterator)
 	if !ok {
 		return nil, Raise(TypeError, "'%s' object is not an iterator", args[0].TypeName())

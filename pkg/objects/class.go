@@ -615,6 +615,22 @@ func instanceSpecial(x *instanceObject, name string, args ...Object) (res Object
 	return res, true, err
 }
 
+// instanceLookupBound resolves a special method on the instance's type and binds
+// self through the descriptor protocol without calling it, so a caller that has
+// keyword arguments can forward them to the bound callable's own binder. defined
+// is false when the type holds no such method.
+func instanceLookupBound(x *instanceObject, name string) (bound Object, defined bool, err error) {
+	tv, ok := x.cls.lookup(name)
+	if !ok {
+		return nil, false, nil
+	}
+	bound, err = instanceGet(x, name, tv)
+	if err != nil {
+		return nil, true, err
+	}
+	return bound, true, nil
+}
+
 // classCallMethod dispatches Cls.name(args): the name resolves on the class
 // through the descriptor protocol (a plain function stays unbound so self is
 // explicit, a classmethod binds the class, a staticmethod is bare), then the

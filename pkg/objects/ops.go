@@ -796,6 +796,15 @@ func Contains(container, item Object) (Object, error) {
 		return seqContains(x.d.valSlice(), item), nil
 	case *dictItemsObject:
 		return seqContains(x.d.itemSlice(), item), nil
+	case *instanceObject:
+		if _, ok := x.cls.lookup("__contains__"); ok {
+			res, _, err := instanceSpecial(x, "__contains__", item)
+			if err != nil {
+				return nil, err
+			}
+			return NewBool(Truth(res)), nil
+		}
+		return containsByIter(container, item)
 	}
 	return nil, Raise(TypeError, "argument of type '%s' is not iterable", container.TypeName())
 }
@@ -895,6 +904,14 @@ func GetItem(o, key Object) (Object, error) {
 		return NewInt(x.start + i*x.step), nil
 	case *classObject:
 		return classSubscript(x, key)
+	case *instanceObject:
+		res, defined, err := instanceSpecial(x, "__getitem__", key)
+		if err != nil {
+			return nil, err
+		}
+		if defined {
+			return res, nil
+		}
 	}
 	return nil, Raise(TypeError, "'%s' object is not subscriptable", o.TypeName())
 }
@@ -919,6 +936,14 @@ func SetItem(o, key, val Object) error {
 		return nil
 	case *dictObject:
 		return x.set(key, val)
+	case *instanceObject:
+		_, defined, err := instanceSpecial(x, "__setitem__", key, val)
+		if err != nil {
+			return err
+		}
+		if defined {
+			return nil
+		}
 	}
 	return Raise(TypeError, "'%s' object does not support item assignment", o.TypeName())
 }
@@ -946,6 +971,14 @@ func Len(o Object) (int, error) {
 		return len(x.d.entries), nil
 	case *dictItemsObject:
 		return len(x.d.entries), nil
+	case *instanceObject:
+		res, defined, err := instanceSpecial(x, "__len__")
+		if err != nil {
+			return 0, err
+		}
+		if defined {
+			return lenFromResult(res)
+		}
 	}
 	return 0, Raise(TypeError, "object of type '%s' has no len()", o.TypeName())
 }
@@ -1021,6 +1054,8 @@ func Iter(o Object) (Iterator, error) {
 		return &sliceIter{elts: x.d.itemSlice()}, nil
 	case Iterable:
 		return x.Iterate()
+	case *instanceObject:
+		return iterInstance(x)
 	}
 	return nil, Raise(TypeError, "'%s' object is not iterable", o.TypeName())
 }

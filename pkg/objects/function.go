@@ -66,6 +66,15 @@ func CallKw(f Object, pos []Object, kwNames []string, kwVals []Object) (Object, 
 			return nil, Raise(TypeError, "%s() takes no keyword arguments", fn.name)
 		}
 		return Call(f, pos)
+	case *instanceObject:
+		bound, defined, err := instanceLookupBound(fn, "__call__")
+		if err != nil || !defined {
+			if err != nil {
+				return nil, err
+			}
+			return nil, Raise(TypeError, "'%s' object is not callable", f.TypeName())
+		}
+		return CallKw(bound, pos, kwNames, kwVals)
 	}
 	return nil, Raise(TypeError, "'%s' object is not callable", f.TypeName())
 }
