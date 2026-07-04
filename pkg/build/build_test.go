@@ -34,9 +34,9 @@ func golden(t *testing.T, pyPath string) string {
 
 // goldenErr returns the golden stderr for fixtures that die on an uncaught
 // exception, and "" for fixtures that exit cleanly. The .err goldens hold the
-// traceback without source excerpt or caret lines, because compiled binaries
-// do not embed source; filterTraceback reduces CPython's stderr to the same
-// shape for the oracle comparison.
+// traceback with source excerpts but without caret lines, because compiled
+// binaries embed their source but do not track columns; filterTraceback
+// reduces CPython's stderr to the same shape for the oracle comparison.
 func goldenErr(t *testing.T, pyPath string) (string, bool) {
 	t.Helper()
 	out, err := os.ReadFile(strings.TrimSuffix(pyPath, ".py") + ".err")
@@ -101,12 +101,12 @@ func TestFixtures(t *testing.T) {
 	}
 }
 
-// filterTraceback reduces CPython stderr to the lines a compiled binary
-// prints: the traceback headers, the File lines, the chain connectives, the
-// blank lines between chained tracebacks, and the final message line. Source
-// excerpts and caret anchors are indented and get dropped, and the cwd prefix
-// CPython adds to the script path comes off so both sides cite the path as
-// given on the command line.
+// filterTraceback reduces CPython stderr to what a compiled binary prints.
+// Only two normalizations apply: caret anchor lines drop entirely because
+// compiled code does not track columns, and the cwd prefix CPython adds to
+// the script path comes off so both sides cite the path as given on the
+// command line. Everything else, source excerpts and exception group boxes
+// included, must match byte for byte.
 func filterTraceback(t *testing.T, s string) string {
 	t.Helper()
 	cwd, err := os.Getwd()
@@ -115,14 +115,29 @@ func filterTraceback(t *testing.T, s string) string {
 	}
 	var b strings.Builder
 	for line := range strings.Lines(s) {
-		switch {
-		case strings.HasPrefix(line, "  File "):
-			b.WriteString(strings.Replace(line, cwd+string(filepath.Separator), "", 1))
-		case strings.TrimRight(line, "\n") == "" || !strings.HasPrefix(line, " "):
-			b.WriteString(line)
+		if caretOnly(line) {
+			continue
 		}
+		b.WriteString(strings.Replace(line, cwd+string(filepath.Separator), "", 1))
 	}
 	return b.String()
+}
+
+// caretOnly reports whether line is a PEP 657 column-marker line: nothing
+// but ~ and ^ once the indentation and any exception-group box margin are
+// stripped.
+func caretOnly(line string) bool {
+	s := strings.TrimLeft(strings.TrimRight(line, "\n"), " ")
+	s = strings.TrimLeft(strings.TrimPrefix(s, "| "), " ")
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r != '~' && r != '^' {
+			return false
+		}
+	}
+	return true
 }
 
 // TestOracle replays every fixture under real CPython and checks the goldens

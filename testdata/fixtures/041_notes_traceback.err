@@ -1,0 +1,17 @@
+Traceback (most recent call last):
+  File "../../testdata/fixtures/041_notes_traceback.py", line 7, in <module>
+    parse()
+  File "../../testdata/fixtures/041_notes_traceback.py", line 4, in parse
+    raise ValueError("bad literal")
+ValueError: bad literal
+while reading config
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "../../testdata/fixtures/041_notes_traceback.py", line 13, in <module>
+    raise wrapped from e
+RuntimeError: config failed
+first note
+second
+note
