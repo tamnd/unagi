@@ -158,9 +158,13 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 			case *frontend.Pass:
 				// A pass just holds the block open.
 			case *frontend.ExprStmt:
-				// A leading string literal is the docstring; drop it. Anything
-				// else with a value in a class body is not modelled yet.
-				if _, ok := st.X.(*frontend.StrLit); !ok {
+				// A leading string literal is the docstring and a bare `...` is
+				// the common stub body; both evaluate to a value the class
+				// namespace discards, so drop them. Anything else with a value
+				// in a class body is not modelled yet.
+				switch st.X.(type) {
+				case *frontend.StrLit, *frontend.EllipsisLit:
+				default:
 					return nil, f.e.errf(st.Span(), "expression statements in a class body are not supported yet")
 				}
 			default:

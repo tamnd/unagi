@@ -58,6 +58,8 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		return f.e.obj("False"), nil
 	case *frontend.NoneLit:
 		return f.e.obj("None"), nil
+	case *frontend.EllipsisLit:
+		return f.e.obj("Ellipsis"), nil
 	case *frontend.Name:
 		// A comprehension iteration variable outranks a like-named local
 		// while its comprehension lowers; the loop assigns the temporary

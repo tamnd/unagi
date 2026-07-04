@@ -125,7 +125,7 @@ func startsExpr(t token) bool {
 		}
 	case tOp:
 		switch t.text {
-		case "(", "[", "{", "+", "-", "~", "*", "**":
+		case "(", "[", "{", "+", "-", "~", "*", "**", "...":
 			return true
 		}
 	}
@@ -1499,6 +1499,9 @@ func (p *parser) parseAtom() Expr {
 			return p.parseList()
 		case "{":
 			return p.parseBraces()
+		case "...":
+			p.advance()
+			return &EllipsisLit{Pos_: t.pos}
 		case "*":
 			p.errf(t.pos, "starred expressions are not supported yet")
 		}

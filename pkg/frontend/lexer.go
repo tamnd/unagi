@@ -99,6 +99,7 @@ var keywords = map[string]bool{
 // opTable holds every operator and delimiter the frontend accepts, longest
 // first so the matcher never splits **= into ** and =.
 var opTable = []string{
+	"...",
 	"**=", "//=", "<<=", ">>=",
 	"**", "//", "==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "%=", ":=",
 	"<<", ">>", "&=", "|=", "^=", "@=",

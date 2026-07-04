@@ -255,6 +255,8 @@ func de(e Expr) string {
 		return "False"
 	case *NoneLit:
 		return "None"
+	case *EllipsisLit:
+		return "..."
 	case *ListLit:
 		return dexprs("list", e.Elts)
 	case *TupleLit:
@@ -396,6 +398,9 @@ func TestParse(t *testing.T) {
 		{"matmul", "a @ b", "(expr (@ a b))"},
 		{"matmul precedence", "a @ b + c", "(expr (+ (@ a b) c))"},
 		{"matmul aug", "a @= b", "(@= a b)"},
+		{"ellipsis literal", "x = ...", "(= x ...)"},
+		{"ellipsis stub body", "def f():\n    ...", "(def f () [(expr ...)])"},
+		{"ellipsis in list", "[..., 1]", "(expr (list ... 1))"},
 		{"mul binds tighter", "1 + 2 * 3", "(expr (+ 1 (* 2 3)))"},
 		{"parens override", "(1 + 2) * 3", "(expr (* (+ 1 2) 3))"},
 		{"add left assoc", "1 + 2 - 3", "(expr (- (+ 1 2) 3))"},

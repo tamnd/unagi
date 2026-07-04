@@ -82,10 +82,12 @@ func hashKey(o Object) (string, error) {
 		// frozenset({2,1}) hash the same. A plain set falls through to
 		// the unhashable error below.
 		return frozenKey(&x.setCore), nil
-	case *funcObject, *functionObject, *Exception, *dictValuesObject:
+	case *funcObject, *functionObject, *Exception, *dictValuesObject,
+		*ellipsisObject, *notImplementedObject:
 		// Identity types: the same objects PyHash hashes by pointer key
 		// dict slots by pointer, so two equal-by-identity reads collide
-		// and everything else stays distinct.
+		// and everything else stays distinct. The Ellipsis and NotImplemented
+		// singletons key stably because each is a unique pointer.
 		return fmt.Sprintf("p%p", x), nil
 	}
 	return "", Raise(TypeError, "unhashable type: '%s'", o.TypeName())
