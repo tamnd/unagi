@@ -139,6 +139,21 @@ func excLoadAttr(e *Exception, name string) (Object, error) {
 			}
 			return None, nil
 		}
+	case "code":
+		// SystemExit carries a code slot alongside args: no argument reads
+		// None, one reads that argument, and several read the args tuple. Only
+		// SystemExit exposes it, so every other exception falls through to the
+		// AttributeError below.
+		if e.Kind == "SystemExit" {
+			switch len(e.Args) {
+			case 0:
+				return None, nil
+			case 1:
+				return e.Args[0], nil
+			default:
+				return NewTuple(append([]Object{}, e.Args...)), nil
+			}
+		}
 	}
 	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", e.Kind, name)
 }

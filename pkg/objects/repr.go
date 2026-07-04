@@ -191,6 +191,10 @@ func reprCore(o Object, strict bool) (string, error) {
 		return bytearrayRepr(x.snapshot()), nil
 	case *memoryviewObject:
 		return memoryviewRepr(x), nil
+	case *quitterObject:
+		return fmt.Sprintf("Use %s() or Ctrl-D (i.e. EOF) to exit", x.name), nil
+	case *printerObject:
+		return x.reprText, nil
 	case *listObject:
 		return reprSeqCore(x.elts, "[", "]", strict)
 	case *tupleObject:

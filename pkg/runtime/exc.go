@@ -284,6 +284,22 @@ func srcLine(n int) string {
 	return strings.TrimSpace(srcLines[n-1])
 }
 
+// ReportExit turns an uncaught error from pymain into a process exit status.
+// An uncaught SystemExit maps to its code with no traceback, the way CPython's
+// interpreter shutdown does: None or no code exits 0, an integer code exits
+// with that value, and any other code prints str(code) to stderr before
+// exiting 1. Every other exception prints the CPython-shaped traceback and
+// exits 1.
+func ReportExit(err error) int {
+	if e, ok := err.(*objects.Exception); ok {
+		if code, isExit := objects.SystemExitCode(e, func(s string) { _, _ = io.WriteString(Stderr, s) }); isExit {
+			return code
+		}
+	}
+	PrintUncaught(err)
+	return 1
+}
+
 // PrintUncaught writes the CPython-3.14-shaped report for an uncaught
 // exception to Stderr. Causes and contexts render first, depth first,
 // with CPython's connective lines. Frame lines carry a source excerpt

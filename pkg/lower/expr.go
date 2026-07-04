@@ -151,10 +151,12 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 			f.e.usedObjects = true
 			return f.e.obj("NotImplemented"), nil
 		}
-		if builtinNames[e.Id] {
+		if builtinNames[e.Id] || siteBuiltins[e.Id] {
 			// An unshadowed builtin read as a value resolves to its function
-			// object, so it can be passed around and called later. Shadowing by
-			// a local or module variable is handled above, before this point.
+			// object, so it can be passed around and called later. The site
+			// builtins (exit, copyright, ...) take the same path: they are
+			// value-only, so reading and calling both go through the registered
+			// object. Shadowing by a local or module variable is handled above.
 			return callExpr(sel("runtime", "BuiltinFn"), strLit(e.Id)), nil
 		}
 		if f.inFunc {
