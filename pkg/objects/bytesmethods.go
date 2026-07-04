@@ -34,6 +34,9 @@ func bytesReadMethod(v []byte, typeName, name string, args []Object) (Object, er
 	case "hex":
 		return byteHex(v, args)
 	}
+	if res, handled, err := bytesTransformMethod(v, typeName, name, args); handled {
+		return res, err
+	}
 	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", typeName, name)
 }
 
