@@ -1,0 +1,41 @@
+== exit: 0
+== stdout:
+[b'a', b'b', b'c']
+[b'a', b'b', b'c']
+[b'a', b'b', b'', b'c']
+[b'a', b'b,c']
+[b'a', b'b  c  ']
+[]
+[b'']
+[b'a,b', b'c']
+[b'  a  b', b'c']
+[b'a', b'b', b'c']
+[b'a', b'b', b'c', b'd']
+[b'a', b'b']
+[b'a\n', b'b\n']
+[b'', b'']
+[b'\x0b\x0c\x1c']
+b'a,b,c'
+b'x-y'
+b''
+(b'A', b'x', b'BxC')
+(b'AxB', b'x', b'C')
+(b'ABC', b'', b'')
+(b'', b'', b'ABC')
+b'ABcABc'
+b'acac'
+b'ABAB'
+b'abc'
+[bytearray(b'a'), bytearray(b'b'), bytearray(b'c')]
+(bytearray(b'A'), bytearray(b'x'), bytearray(b'B'))
+bytearray(b'p-q')
+splitempty empty separator
+splitint a bytes-like object is required, not 'int'
+splitmax 'str' object cannot be interpreted as an integer
+partempty empty separator
+partstr a bytes-like object is required, not 'str'
+joinstr sequence item 1: expected a bytes-like object, str found
+joinnoniter can only join an iterable
+transshort translation table must be 256 characters long
+== exception:
+== stderr:
