@@ -339,9 +339,17 @@ func (f *fnCtx) delStmt(s *frontend.Del) error {
 }
 
 func (f *fnCtx) augAssign(s *frontend.AugAssign) error {
-	op, ok := binFuncs[s.Op]
+	sym, ok := augSyms[s.Op]
 	if !ok {
 		return f.e.errf(s.Span(), "augmented operator not supported in M0")
+	}
+	// inPlace emits res := objects.InPlace("op=", cur, value), which tries the
+	// in-place dunder and the mutable-builtin path before the binary fallback,
+	// so a list or set target mutates through aliases instead of rebinding.
+	inPlace := func(cur, v ast.Expr) ast.Expr {
+		res := f.tmpVar()
+		f.fallible(res, f.e.obj("InPlace"), strLit(sym), cur, v)
+		return ident(res)
 	}
 	switch t := s.Target.(type) {
 	case *frontend.Name:
@@ -352,9 +360,7 @@ func (f *fnCtx) augAssign(s *frontend.AugAssign) error {
 		if err != nil {
 			return err
 		}
-		tmp := f.tmpVar()
-		f.fallible(tmp, f.e.obj(op), cur, v)
-		f.add(set(ident(mangle(t.Id)), ident(tmp)))
+		f.add(set(ident(mangle(t.Id)), inPlace(cur, v)))
 		return nil
 	case *frontend.Subscript:
 		x, err := f.expr(t.X)
@@ -372,9 +378,8 @@ func (f *fnCtx) augAssign(s *frontend.AugAssign) error {
 			if err != nil {
 				return err
 			}
-			res := f.tmpVar()
-			f.fallible(res, f.e.obj(op), ident(cur), v)
-			f.fallibleVoid(f.e.obj("SetSlice"), x, lo, hi, step, ident(res))
+			res := inPlace(ident(cur), v)
+			f.fallibleVoid(f.e.obj("SetSlice"), x, lo, hi, step, res)
 			return nil
 		}
 		idx, err := f.expr(t.Index)
@@ -387,9 +392,8 @@ func (f *fnCtx) augAssign(s *frontend.AugAssign) error {
 		if err != nil {
 			return err
 		}
-		res := f.tmpVar()
-		f.fallible(res, f.e.obj(op), ident(cur), v)
-		f.fallibleVoid(f.e.obj("SetItem"), x, idx, ident(res))
+		res := inPlace(ident(cur), v)
+		f.fallibleVoid(f.e.obj("SetItem"), x, idx, res)
 		return nil
 	case *frontend.Attribute:
 		// The receiver evaluates once; the read and the write share it, so
@@ -404,9 +408,8 @@ func (f *fnCtx) augAssign(s *frontend.AugAssign) error {
 		if err != nil {
 			return err
 		}
-		res := f.tmpVar()
-		f.fallible(res, f.e.obj(op), ident(cur), v)
-		f.fallibleVoid(f.e.obj("StoreAttr"), x, strLit(t.Name), ident(res))
+		res := inPlace(ident(cur), v)
+		f.fallibleVoid(f.e.obj("StoreAttr"), x, strLit(t.Name), res)
 		return nil
 	default:
 		return f.e.errf(s.Span(), "augmented assignment target must be a name or subscript")
