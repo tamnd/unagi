@@ -246,6 +246,63 @@ func (f *fnCtx) handlerChain(hs []*frontend.ExceptHandler, i int, tExc string) (
 	return out, nil
 }
 
+// starDispatch lowers the except* clauses of one try. Each clause splits the
+// in-flight exception into the part it matches and the remainder, runs its
+// body once over the matched subgroup with that subgroup on the handled
+// stack so a raise inside chains its context, and threads the remainder to
+// the next clause. Exceptions the handlers raise accumulate, and after the
+// last clause the remainder and the raised set fold back into the exception
+// that leaves the try. Unlike plain except, every matching clause runs.
+func (f *fnCtx) starDispatch(hs []*frontend.ExceptHandler, tExc string) (ast.Stmt, error) {
+	f.push()
+	f.add(&ast.DeclStmt{Decl: &ast.GenDecl{Tok: token.VAR, Specs: []ast.Spec{
+		&ast.ValueSpec{Names: []*ast.Ident{ident("raised")}, Type: &ast.ArrayType{Elt: ident("error")}},
+	}}})
+	for _, h := range hs {
+		classes, err := f.matcherClasses(h.Type)
+		if err != nil {
+			f.pop()
+			return nil, err
+		}
+		m, r := f.tmpVar(), f.tmpVar()
+		args := []ast.Expr{ident(tExc)}
+		for _, c := range classes {
+			args = append(args, strLit(c))
+		}
+		f.add(&ast.AssignStmt{
+			Lhs: []ast.Expr{ident(m), ident(r)},
+			Tok: token.DEFINE,
+			Rhs: []ast.Expr{callExpr(sel("runtime", "ExcStarSplit"), args...)},
+		})
+		f.add(set(ident(tExc), ident(r)))
+
+		f.push()
+		if h.Name != "" {
+			f.add(set(ident(mangle(h.Name)), callExpr(sel("runtime", "ExcObj"), ident(m))))
+		}
+		f.add(exprStmt(callExpr(sel("runtime", "PushHandled"), ident(m))))
+		call, err := f.closureCall(h.Body)
+		if err != nil {
+			f.pop()
+			f.pop()
+			return nil, err
+		}
+		tH := f.tmpVar()
+		f.add(define(ident(tH), call))
+		f.add(exprStmt(callExpr(sel("runtime", "PopHandled"))))
+		if h.Name != "" {
+			f.add(set(ident(mangle(h.Name)), ident("nil")))
+		}
+		f.add(&ast.IfStmt{
+			Cond: neqNil(ident(tH)),
+			Body: block(set(ident("raised"), callExpr(ident("append"), ident("raised"), ident(tH)))),
+		})
+		f.add(&ast.IfStmt{Cond: neqNil(ident(m)), Body: f.pop()})
+	}
+	f.add(set(ident(tExc), callExpr(sel("runtime", "ExcStarCombine"), ident(tExc), ident("raised"))))
+	return f.pop(), nil
+}
+
 func (f *fnCtx) tryStmt(s *frontend.Try) error {
 	fr := &tryFrame{depth: f.closure}
 	f.frames = append(f.frames, fr)
@@ -258,7 +315,13 @@ func (f *fnCtx) tryStmt(s *frontend.Try) error {
 	f.add(define(ident(tExc), bodyCall))
 
 	if len(s.Handlers) > 0 {
-		chain, err := f.handlerChain(s.Handlers, 0, tExc)
+		var chain ast.Stmt
+		var err error
+		if s.IsStar {
+			chain, err = f.starDispatch(s.Handlers, tExc)
+		} else {
+			chain, err = f.handlerChain(s.Handlers, 0, tExc)
+		}
 		if err != nil {
 			return err
 		}

@@ -123,6 +123,10 @@ type Try struct {
 	Handlers []*ExceptHandler
 	OrElse   []Stmt
 	Final    []Stmt
+	// IsStar marks a try whose handlers are except* (PEP 654). The parser
+	// enforces that every clause on one try agrees, so the flag is set once
+	// from the first handler and describes all of them.
+	IsStar bool
 }
 
 // ExceptHandler is one except clause. Type is nil for the bare `except:`

@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+VE
+TE
+after full handle
+TE first
+VE second
+caught solo
+KE
+done
+== exception:
+== stderr:
