@@ -676,6 +676,29 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return nil, Raise(AttributeError, "'slice' object has no attribute '%s'", name)
 	case *memoryviewObject:
 		return memoryviewLoadAttr(x, name)
+	case *functionObject:
+		// A Python function carries __name__ and __qualname__; the bare name is
+		// the last qualname segment, so C.m.__name__ is "m" and __qualname__ is
+		// "C.m".
+		switch name {
+		case "__name__":
+			return NewStr(funcName(x.qual)), nil
+		case "__qualname__":
+			return NewStr(x.qual), nil
+		}
+		return nil, Raise(AttributeError, "'function' object has no attribute '%s'", name)
+	case *boundMethod:
+		// A bound method exposes the function and the instance it is bound to as
+		// __func__/__self__, and proxies every other attribute to the underlying
+		// function, so __name__/__qualname__ read through and a miss reports the
+		// function's own AttributeError, matching CPython's method getattr.
+		switch name {
+		case "__func__":
+			return x.fn, nil
+		case "__self__":
+			return x.self, nil
+		}
+		return LoadAttr(x.fn, name)
 	case *funcObject:
 		// Builtin functions and the constructor-backed type objects carry a
 		// __name__/__qualname__, so type(5).__name__ and len.__name__ read back.

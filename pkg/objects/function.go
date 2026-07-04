@@ -44,6 +44,15 @@ type functionObject struct {
 
 func (*functionObject) TypeName() string { return "function" }
 
+// funcName is the bare __name__ carved from a __qualname__: the segment after
+// the last dot, so "C.m" reads back as "m" and a module-level "f" as "f".
+func funcName(qual string) string {
+	if i := strings.LastIndex(qual, "."); i >= 0 {
+		return qual[i+1:]
+	}
+	return qual
+}
+
 // NewFunction builds a function object. defaults must be nil or aligned
 // one to one with params.
 func NewFunction(qual string, params []Param, defaults []Object, impl func(args []Object) (Object, error)) Object {

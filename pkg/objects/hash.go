@@ -60,6 +60,19 @@ func PyHash(o Object) (int64, error) {
 		return pyHashSlice(x)
 	case *memoryviewObject:
 		return memoryviewHash(x)
+	case *boundMethod:
+		// A bound method hashes by its function pointer folded with its
+		// instance, so two reads of the same bound method hash alike and key the
+		// same dict slot, matching CPython's method_hash.
+		sh, err := PyHash(x.self)
+		if err != nil {
+			return 0, err
+		}
+		r := int64(uint64(pyHashPointer(x.fn)) ^ uint64(sh))
+		if r == -1 {
+			r = -2
+		}
+		return r, nil
 	case *funcObject, *functionObject, *Exception, *dictValuesObject,
 		*ellipsisObject, *notImplementedObject:
 		return pyHashPointer(o), nil
