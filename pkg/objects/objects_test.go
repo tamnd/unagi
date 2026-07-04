@@ -232,6 +232,7 @@ func TestTruth(t *testing.T) {
 		{"dict", mustDict(NewInt(1), NewInt(2)), true},
 		{"range", rng, true},
 		{"empty-range", empty, false},
+		{"ellipsis", Ellipsis, true},
 	}
 	for _, tt := range tests {
 		if got := Truth(tt.o); got != tt.want {
@@ -240,6 +241,25 @@ func TestTruth(t *testing.T) {
 		if got := Not(tt.o); got != NewBool(!tt.want) {
 			t.Errorf("Not(%s) = %s", tt.name, Repr(got))
 		}
+	}
+}
+
+func TestEllipsisSingleton(t *testing.T) {
+	if got := Repr(Ellipsis); got != "Ellipsis" {
+		t.Errorf("Repr(Ellipsis) = %q, want Ellipsis", got)
+	}
+	if got := Ellipsis.TypeName(); got != "ellipsis" {
+		t.Errorf("TypeName = %q, want ellipsis", got)
+	}
+	// The singleton is unique, so `... is ...` is true.
+	if Is(Ellipsis, Ellipsis) != True {
+		t.Error("Ellipsis is not identical to itself")
+	}
+	// It is hashable and keys a dict stably against itself.
+	d := mustDict(Ellipsis, NewStr("e"))
+	got, err := d.(*dictObject).get(Ellipsis)
+	if err != nil || Repr(got) != "'e'" {
+		t.Errorf("dict[Ellipsis] = %v err=%v, want 'e'", got, err)
 	}
 }
 

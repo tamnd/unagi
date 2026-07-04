@@ -342,6 +342,11 @@ type NoneLit struct {
 	Pos_ Pos
 }
 
+// EllipsisLit is the `...` literal, the Ellipsis singleton.
+type EllipsisLit struct {
+	Pos_ Pos
+}
+
 // ListLit is `[a, b, c]`.
 type ListLit struct {
 	Pos_ Pos
@@ -607,55 +612,57 @@ type FInterp struct {
 func (*FText) fpart()   {}
 func (*FInterp) fpart() {}
 
-func (e *Name) Span() Pos      { return e.Pos_ }
-func (e *IntLit) Span() Pos    { return e.Pos_ }
-func (e *FloatLit) Span() Pos  { return e.Pos_ }
-func (e *StrLit) Span() Pos    { return e.Pos_ }
-func (e *BoolLit) Span() Pos   { return e.Pos_ }
-func (e *NoneLit) Span() Pos   { return e.Pos_ }
-func (e *ListLit) Span() Pos   { return e.Pos_ }
-func (e *TupleLit) Span() Pos  { return e.Pos_ }
-func (e *DictLit) Span() Pos   { return e.Pos_ }
-func (e *SetLit) Span() Pos    { return e.Pos_ }
-func (e *Comp) Span() Pos      { return e.Pos_ }
-func (e *BinOp) Span() Pos     { return e.Pos_ }
-func (e *UnaryOp) Span() Pos   { return e.Pos_ }
-func (e *BoolOp) Span() Pos    { return e.Pos_ }
-func (e *Compare) Span() Pos   { return e.Pos_ }
-func (e *Call) Span() Pos      { return e.Pos_ }
-func (e *Attribute) Span() Pos { return e.Pos_ }
-func (e *Subscript) Span() Pos { return e.Pos_ }
-func (e *SliceExpr) Span() Pos { return e.Pos_ }
-func (e *IfExp) Span() Pos     { return e.Pos_ }
-func (e *NamedExpr) Span() Pos { return e.Pos_ }
-func (e *Starred) Span() Pos   { return e.Pos_ }
-func (e *Lambda) Span() Pos    { return e.Pos_ }
-func (e *FStr) Span() Pos      { return e.Pos_ }
+func (e *Name) Span() Pos        { return e.Pos_ }
+func (e *IntLit) Span() Pos      { return e.Pos_ }
+func (e *FloatLit) Span() Pos    { return e.Pos_ }
+func (e *StrLit) Span() Pos      { return e.Pos_ }
+func (e *BoolLit) Span() Pos     { return e.Pos_ }
+func (e *NoneLit) Span() Pos     { return e.Pos_ }
+func (e *EllipsisLit) Span() Pos { return e.Pos_ }
+func (e *ListLit) Span() Pos     { return e.Pos_ }
+func (e *TupleLit) Span() Pos    { return e.Pos_ }
+func (e *DictLit) Span() Pos     { return e.Pos_ }
+func (e *SetLit) Span() Pos      { return e.Pos_ }
+func (e *Comp) Span() Pos        { return e.Pos_ }
+func (e *BinOp) Span() Pos       { return e.Pos_ }
+func (e *UnaryOp) Span() Pos     { return e.Pos_ }
+func (e *BoolOp) Span() Pos      { return e.Pos_ }
+func (e *Compare) Span() Pos     { return e.Pos_ }
+func (e *Call) Span() Pos        { return e.Pos_ }
+func (e *Attribute) Span() Pos   { return e.Pos_ }
+func (e *Subscript) Span() Pos   { return e.Pos_ }
+func (e *SliceExpr) Span() Pos   { return e.Pos_ }
+func (e *IfExp) Span() Pos       { return e.Pos_ }
+func (e *NamedExpr) Span() Pos   { return e.Pos_ }
+func (e *Starred) Span() Pos     { return e.Pos_ }
+func (e *Lambda) Span() Pos      { return e.Pos_ }
+func (e *FStr) Span() Pos        { return e.Pos_ }
 
-func (*Name) expr()      {}
-func (*IntLit) expr()    {}
-func (*FloatLit) expr()  {}
-func (*StrLit) expr()    {}
-func (*BoolLit) expr()   {}
-func (*NoneLit) expr()   {}
-func (*ListLit) expr()   {}
-func (*TupleLit) expr()  {}
-func (*DictLit) expr()   {}
-func (*SetLit) expr()    {}
-func (*Comp) expr()      {}
-func (*BinOp) expr()     {}
-func (*UnaryOp) expr()   {}
-func (*BoolOp) expr()    {}
-func (*Compare) expr()   {}
-func (*Call) expr()      {}
-func (*Attribute) expr() {}
-func (*Subscript) expr() {}
-func (*SliceExpr) expr() {}
-func (*IfExp) expr()     {}
-func (*NamedExpr) expr() {}
-func (*Starred) expr()   {}
-func (*Lambda) expr()    {}
-func (*FStr) expr()      {}
+func (*Name) expr()        {}
+func (*IntLit) expr()      {}
+func (*FloatLit) expr()    {}
+func (*StrLit) expr()      {}
+func (*BoolLit) expr()     {}
+func (*NoneLit) expr()     {}
+func (*EllipsisLit) expr() {}
+func (*ListLit) expr()     {}
+func (*TupleLit) expr()    {}
+func (*DictLit) expr()     {}
+func (*SetLit) expr()      {}
+func (*Comp) expr()        {}
+func (*BinOp) expr()       {}
+func (*UnaryOp) expr()     {}
+func (*BoolOp) expr()      {}
+func (*Compare) expr()     {}
+func (*Call) expr()        {}
+func (*Attribute) expr()   {}
+func (*Subscript) expr()   {}
+func (*SliceExpr) expr()   {}
+func (*IfExp) expr()       {}
+func (*NamedExpr) expr()   {}
+func (*Starred) expr()     {}
+func (*Lambda) expr()      {}
+func (*FStr) expr()        {}
 
 // --- patterns ---
 

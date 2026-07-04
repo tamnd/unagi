@@ -109,6 +109,10 @@ type noneObject struct{}
 
 func (*noneObject) TypeName() string { return "NoneType" }
 
+type ellipsisObject struct{}
+
+func (*ellipsisObject) TypeName() string { return "ellipsis" }
+
 type boolObject struct{ v bool }
 
 func (*boolObject) TypeName() string { return "bool" }
@@ -152,9 +156,10 @@ func (*rangeObject) TypeName() string { return "range" }
 
 // The singletons. Identity checks (Is) rely on these being unique pointers.
 var (
-	None  Object = &noneObject{}
-	True  Object = &boolObject{v: true}
-	False Object = &boolObject{v: false}
+	None     Object = &noneObject{}
+	True     Object = &boolObject{v: true}
+	False    Object = &boolObject{v: false}
+	Ellipsis Object = &ellipsisObject{}
 )
 
 // Small ints -5..256 are cached so `is` behaves like CPython for them.

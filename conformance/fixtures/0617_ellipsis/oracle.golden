@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+None
+Ellipsis
+True
+False
+True
+ell
+2
+[Ellipsis, 1, Ellipsis]
+(Ellipsis,)
+True
+default
+2
+2
+== exception:
+== stderr:

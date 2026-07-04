@@ -124,6 +124,8 @@ func reprCore(o Object, strict bool) (string, error) {
 	switch x := o.(type) {
 	case *noneObject:
 		return "None", nil
+	case *ellipsisObject:
+		return "Ellipsis", nil
 	case *notImplementedObject:
 		return "NotImplemented", nil
 	case *boolObject:

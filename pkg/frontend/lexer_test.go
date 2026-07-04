@@ -95,6 +95,8 @@ func TestLexTokens(t *testing.T) {
 		{"bitwise augmented", "a |= 1; b ^= 2; c &= 3", "a |= int:1 ; b ^= int:2 ; c &= int:3 NL EOF"},
 		{"comparisons", "a < b <= c > d >= e == f != g", "a < b <= c > d >= e == f != g NL EOF"},
 		{"delimiters", "a.b, c: d; e", "a . b , c : d ; e NL EOF"},
+		{"ellipsis one token", "x = ...", "x = ... NL EOF"},
+		{"ellipsis not three dots", "a.b...c", "a . b ... c NL EOF"},
 		{"keywords", "if elif else while for def return pass break continue and or not in is None True False",
 			"kw:if kw:elif kw:else kw:while kw:for kw:def kw:return kw:pass kw:break kw:continue kw:and kw:or kw:not kw:in kw:is kw:None kw:True kw:False NL EOF"},
 		{"soft keyword match is a name", "match = 1", "match = int:1 NL EOF"},
