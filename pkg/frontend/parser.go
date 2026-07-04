@@ -529,26 +529,83 @@ func (p *parser) parseFor() Stmt {
 // parseWith parses `with item, ...: suite`. Each item is a context-manager
 // expression with an optional `as` target. Commas separate items, and the
 // target stops at the comma because it is parsed as a single test, so
-// `with A as a, B as b:` reads as two items rather than a tuple target. The
-// parenthesized form that puts `as` inside the parentheses is not parsed yet;
-// a lone pair of grouping parentheses around one manager still works.
+// `with A as a, B as b:` reads as two items rather than a tuple target.
+//
+// The parenthesized form `with (A as a, B as b):` groups the items in
+// parentheses, which also lets them span lines and carry a trailing comma.
+// Mirroring CPython's grammar, the parenthesized production wins only when the
+// parentheses hold at least one item and close right before the colon, so
+// `with (A, B):` is two managers while `with (A, B) as x:` is a single tuple
+// manager and `with ():` is a single empty-tuple manager, both parsed through
+// the ordinary grouped-expression path.
 func (p *parser) parseWith() Stmt {
 	t := p.advance() // with
 	node := &With{Pos_: t.pos}
-	for {
-		item := WithItem{Context: p.parseTest()}
-		if p.eatKw("as") {
-			target := p.parseTest()
-			p.checkAssignTarget(target)
-			item.Target = target
+	if p.isOp("(") && p.parenthesizedWith() {
+		p.advance() // (
+		for {
+			node.Items = append(node.Items, p.parseWithItem())
+			if !p.eatOp(",") || p.isOp(")") {
+				break
+			}
 		}
-		node.Items = append(node.Items, item)
-		if !p.eatOp(",") {
-			break
+		p.wantOp(")")
+	} else {
+		for {
+			node.Items = append(node.Items, p.parseWithItem())
+			if !p.eatOp(",") {
+				break
+			}
 		}
 	}
 	node.Body = p.parseSuite()
 	return node
+}
+
+// parseWithItem parses one context manager and its optional `as` target.
+func (p *parser) parseWithItem() WithItem {
+	item := WithItem{Context: p.parseTest()}
+	if p.eatKw("as") {
+		target := p.parseTest()
+		p.checkAssignTarget(target)
+		item.Target = target
+	}
+	return item
+}
+
+// parenthesizedWith reports whether the `(` at the cursor opens a parenthesized
+// list of context managers rather than a single grouped expression. It applies
+// when the parentheses hold at least one token and their matching `)` sits
+// right before the colon; an empty `()` or a `)` followed by `as`, an operator,
+// or anything else is a grouped expression instead.
+func (p *parser) parenthesizedWith() bool {
+	close := p.matchParen(p.i)
+	if close <= p.i+1 { // unbalanced, or an empty ()
+		return false
+	}
+	after := close + 1
+	return after < len(p.toks) && p.toks[after].kind == tOp && p.toks[after].text == ":"
+}
+
+// matchParen returns the index of the `)` that closes the `(` at index open,
+// tracking nested brackets, or -1 when the parentheses are unbalanced.
+func (p *parser) matchParen(open int) int {
+	depth := 0
+	for i := open; i < len(p.toks); i++ {
+		if p.toks[i].kind != tOp {
+			continue
+		}
+		switch p.toks[i].text {
+		case "(", "[", "{":
+			depth++
+		case ")", "]", "}":
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
 }
 
 // parseForTarget parses the loop target, which M1 limits to a name, a

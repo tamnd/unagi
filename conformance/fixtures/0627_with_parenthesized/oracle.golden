@@ -1,0 +1,39 @@
+== exit: 0
+== stdout:
+enter a
+enter b
+body 1 2
+exit b
+exit a
+enter c
+enter d
+body2
+exit d
+exit c
+enter e
+enter f
+body3 11
+exit f
+exit e
+enter solo
+solo 7
+exit solo
+enter t
+trail 8
+exit t
+enter g
+group 9
+exit g
+enter h
+enter i
+plain 10 11
+exit i
+exit h
+enter quiet
+enter j
+before raise 12
+exit j
+exit quiet True
+after block
+== exception:
+== stderr:
