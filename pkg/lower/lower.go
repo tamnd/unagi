@@ -45,6 +45,11 @@ func (e *Error) Error() string {
 // lines; nil skips the embedding and frames render bare, which is what
 // CPython prints when the source file is gone.
 func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
+	// Rewrite class-private __names to their mangled _Class__name form before
+	// any name analysis runs, so scope collection and lowering see the same
+	// identifiers CPython would after mangling.
+	frontend.MangleClassPrivates(mod)
+
 	e := &emitter{file: file, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}, classOrd: map[string]int{}}
 
 	var body []frontend.Stmt
