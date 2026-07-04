@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+<class 'object'>
+object object
+() None
+<class 'type'> <class 'object'>
+True True True
+True True
+True True True
+False
+True
+True True
+obj-arg object() takes no arguments
+3 True True
+<class 'object'>
+['C', 'object']
+['E', 'B', 'A', 'object']
+mro Cannot create a consistent method resolution order (MRO) for bases object, B
+obj obj obj obj
+== exception:
+== stderr:

@@ -62,14 +62,12 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 	// body, matching CPython's order, so the base and body work runs inside
 	// the decorate helper.
 	build := func() (ast.Expr, error) {
-		// The implicit object base carries no user names, so it lowers to a
-		// nil base; every other base is evaluated to its class value.
+		// Every written base evaluates to its class value, object included: it
+		// resolves to the object type singleton, so its position in the base
+		// list still constrains the C3 order and an inconsistent order like
+		// (object, B) raises the same conflict CPython reports.
 		var baseArgs []ast.Expr
 		for _, b := range s.Bases {
-			if n, ok := b.(*frontend.Name); ok && n.Id == "object" {
-				baseArgs = append(baseArgs, ident("nil"))
-				continue
-			}
 			bv, err := f.expr(b)
 			if err != nil {
 				return nil, err
