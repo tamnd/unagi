@@ -64,6 +64,12 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		if t, ok := f.compVars[e.Id]; ok {
 			return ident(t), nil
 		}
+		// A name the current class body already bound is visible to a later
+		// class-variable initializer or method decorator, the same class
+		// namespace CPython exposes; it outranks a like-named module variable.
+		if t, ok := f.classLocals[e.Id]; ok {
+			return t, nil
+		}
 		if f.locals[e.Id] || f.globals[e.Id] {
 			return f.loadName(e.Id), nil
 		}
@@ -102,6 +108,13 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		if _, isDef := f.e.defs[e.Id]; isDef {
 			// A def name nothing rebinds keeps its static binding.
 			return ident(f.e.fnObjName(e.Id)), nil
+		}
+		if sing, ok := descriptorBuiltins[e.Id]; ok {
+			// staticmethod, classmethod, and property resolve to their builtin
+			// constructor objects, so they work as decorators and as direct
+			// calls; the descriptor protocol lives in pkg/objects.
+			f.e.usedObjects = true
+			return f.e.obj(sing), nil
 		}
 		if builtinNames[e.Id] {
 			return nil, f.e.errf(e.Span(), "using builtin %q as a value is not supported yet", e.Id)

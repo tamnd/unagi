@@ -230,21 +230,27 @@ func Instantiate(c *classObject, pos []Object, kwNames []string, kwVals []Object
 func LoadAttr(o Object, name string) (Object, error) {
 	switch x := o.(type) {
 	case *instanceObject:
+		// CPython precedence: a data descriptor on the type outranks the
+		// instance dict, then the instance dict, then a non-data descriptor or
+		// plain class value, then AttributeError.
+		tv, tok := x.cls.lookup(name)
+		if tok && isDataDescriptor(tv) {
+			return instanceGet(x, name, tv)
+		}
 		if v, ok := x.dict[name]; ok {
 			return v, nil
 		}
-		if v, ok := x.cls.lookup(name); ok {
-			if fn, ok := v.(*functionObject); ok {
-				return &boundMethod{fn: fn, self: x}, nil
-			}
-			return v, nil
+		if tok {
+			return instanceGet(x, name, tv)
 		}
 		return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", x.cls.name, name)
 	case *classObject:
 		if v, ok := x.lookup(name); ok {
-			return v, nil
+			return classGet(x, v)
 		}
 		return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
+	case *propertyObject:
+		return propertyGetAttr(x, name)
 	case *superObject:
 		return superLoadAttr(x, name)
 	}
@@ -256,6 +262,17 @@ func LoadAttr(o Object, name string) (Object, error) {
 func StoreAttr(o Object, name string, val Object) error {
 	switch x := o.(type) {
 	case *instanceObject:
+		// A data descriptor on the type intercepts the write: a property calls
+		// its setter, or raises the probed no-setter error when it has none.
+		if tv, ok := x.cls.lookup(name); ok {
+			if p, ok := tv.(*propertyObject); ok {
+				if p.fset == nil {
+					return Raise(AttributeError, "property '%s' of '%s' object has no setter", name, x.cls.name)
+				}
+				_, err := Call(p.fset, []Object{x, val})
+				return err
+			}
+		}
 		x.dict[name] = val
 		return nil
 	case *classObject:
@@ -267,56 +284,50 @@ func StoreAttr(o Object, name string, val Object) error {
 		o.TypeName(), name)
 }
 
-// instanceCallMethod dispatches inst.name(args). An instance-dict entry is
-// called as a plain value; a class function binds self; a class value that
-// is callable is called without self.
+// instanceCallMethod dispatches inst.name(args). It resolves the attribute
+// through the same descriptor protocol LoadAttr uses, so a plain method binds
+// self, a staticmethod is called bare, a classmethod binds the type, and a
+// property's value is called; then the resolved callable takes the arguments.
 func instanceCallMethod(x *instanceObject, name string, args []Object) (Object, error) {
-	if v, ok := x.dict[name]; ok {
-		return Call(v, args)
+	v, err := LoadAttr(x, name)
+	if err != nil {
+		return nil, err
 	}
-	if v, ok := x.cls.lookup(name); ok {
-		if fn, ok := v.(*functionObject); ok {
-			return fn.bind(append([]Object{x}, args...), nil, nil)
-		}
-		return Call(v, args)
-	}
-	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", x.cls.name, name)
+	return Call(v, args)
 }
 
 // classCallMethod dispatches Cls.name(args): the name resolves on the class
-// and is called with the arguments as given, so a method reached this way
-// takes its self explicitly.
+// through the descriptor protocol (a plain function stays unbound so self is
+// explicit, a classmethod binds the class, a staticmethod is bare), then the
+// callable takes the arguments.
 func classCallMethod(x *classObject, name string, args []Object) (Object, error) {
-	if v, ok := x.lookup(name); ok {
-		return Call(v, args)
+	v, err := LoadAttr(x, name)
+	if err != nil {
+		return nil, err
 	}
-	return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
+	return Call(v, args)
 }
 
-// instanceCallMethodKw is instanceCallMethod with keyword arguments: an
-// instance-dict entry is called through CallKw and a class function binds
-// self before the keywords reach its binder.
+// instanceCallMethodKw is instanceCallMethod with keyword arguments: the
+// attribute resolves through the descriptor protocol, then the keywords reach
+// the resolved callable's binder.
 func instanceCallMethodKw(x *instanceObject, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
-	if v, ok := x.dict[name]; ok {
-		return CallKw(v, pos, kwNames, kwVals)
+	v, err := LoadAttr(x, name)
+	if err != nil {
+		return nil, err
 	}
-	if v, ok := x.cls.lookup(name); ok {
-		if fn, ok := v.(*functionObject); ok {
-			return fn.bind(append([]Object{x}, pos...), kwNames, kwVals)
-		}
-		return CallKw(v, pos, kwNames, kwVals)
-	}
-	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", x.cls.name, name)
+	return CallKw(v, pos, kwNames, kwVals)
 }
 
-// classCallMethodKw is classCallMethod with keyword arguments, so a method
-// reached through the class passes its self explicitly and the keywords land
-// on the function's own binder.
+// classCallMethodKw is classCallMethod with keyword arguments, so the class
+// attribute resolves through the descriptor protocol and the keywords land on
+// the resolved callable's own binder.
 func classCallMethodKw(x *classObject, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
-	if v, ok := x.lookup(name); ok {
-		return CallKw(v, pos, kwNames, kwVals)
+	v, err := LoadAttr(x, name)
+	if err != nil {
+		return nil, err
 	}
-	return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
+	return CallKw(v, pos, kwNames, kwVals)
 }
 
 // classRepr and instanceRepr match 3.14: a class prints its qualified name,

@@ -79,6 +79,21 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 
 		var names []string
 		var vals []ast.Expr
+		// bind spills a class-body value to a temp, records it under name so a
+		// later class-var initializer or method decorator can read it, and
+		// tracks name and the temp for the NewClass call. A name written twice
+		// keeps its last value, the plain dict overwrite a class body performs.
+		bind := func(name string, v ast.Expr) {
+			t := f.tmpVar()
+			f.add(define(ident(t), v))
+			names = append(names, name)
+			vals = append(vals, ident(t))
+			f.classLocals[name] = ident(t)
+		}
+		// The class namespace is visible to later class-body code but not to
+		// method bodies, so it lives only for this build and is cleared after.
+		f.classLocals = map[string]ast.Expr{}
+		defer func() { f.classLocals = nil }()
 		mi := 0
 		for _, st := range s.Body {
 			switch st := st.(type) {
@@ -97,18 +112,19 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 					dflts,
 					ident(f.e.methodImplName(s.Name, st.Name, mi)))
 				mi++
-				names = append(names, st.Name)
 				if len(st.Decorators) == 0 {
-					vals = append(vals, methodObj)
+					bind(st.Name, methodObj)
 					break
 				}
 				// A decorated method builds its function object then hands it to
-				// the decorators, the same shape a decorated def uses.
+				// the decorators, the same shape a decorated def uses. The
+				// decorators lower with classLocals live, so @x.setter reads the
+				// property x this body bound earlier.
 				obj, err := f.decorate(st.Decorators, func() (ast.Expr, error) { return methodObj, nil })
 				if err != nil {
 					return nil, err
 				}
-				vals = append(vals, obj)
+				bind(st.Name, obj)
 			case *frontend.Assign:
 				if len(st.Targets) != 1 {
 					return nil, f.e.errf(st.Span(), "chained assignment in a class body is not supported yet")
@@ -121,8 +137,7 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 				if err != nil {
 					return nil, err
 				}
-				names = append(names, nm.Id)
-				vals = append(vals, v)
+				bind(nm.Id, v)
 			case *frontend.Pass:
 				// A pass just holds the block open.
 			case *frontend.ExprStmt:

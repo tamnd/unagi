@@ -19,6 +19,16 @@ var builtinNames = map[string]bool{
 	"frozenset": true, "format": true,
 }
 
+// descriptorBuiltins are the builtin names that resolve to a value: the three
+// descriptor constructors, each a singleton callable object in pkg/objects.
+// Unlike the builtins above they are legal as decorators and as values, so a
+// name lookup maps them to their objects.* singleton.
+var descriptorBuiltins = map[string]string{
+	"staticmethod": "StaticMethodBuiltin",
+	"classmethod":  "ClassMethodBuiltin",
+	"property":     "PropertyBuiltin",
+}
+
 // call lowers a call expression. A name bound by a module-level def keeps
 // its static fast path: keyword matching and arity checks happen at compile
 // time and the callee is a direct Go call. An unshadowed builtin becomes its
