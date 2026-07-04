@@ -733,6 +733,11 @@ func seqOrder(op CmpOp, a, b []Object) (bool, error) {
 
 // Compare implements the six rich comparison operators.
 func Compare(op CmpOp, a, b Object) (Object, error) {
+	// A user instance on either side runs the full do_richcompare protocol so
+	// its comparison dunders decide; two builtins keep the fast path below.
+	if isInstance(a) || isInstance(b) {
+		return richCompare(op, a, b)
+	}
 	switch op {
 	case OpEq:
 		return NewBool(equals(a, b)), nil

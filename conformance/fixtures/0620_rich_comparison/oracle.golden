@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+True False
+False True
+True False
+False False True
+True True
+True False
+True True False False True
+[Ver(1), Ver(2), Ver(3)]
+True False True
+TypeError: '<' not supported between instances of 'Bare' and 'Bare'
+Sub.__eq__ ran
+True
+True True
+ValueError: no order
+== exception:
+== stderr:
