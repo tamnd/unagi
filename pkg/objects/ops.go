@@ -885,6 +885,8 @@ func GetItem(o, key Object) (Object, error) {
 			return nil, Raise(IndexError, "range object index out of range")
 		}
 		return NewInt(x.start + i*x.step), nil
+	case *classObject:
+		return classSubscript(x, key)
 	}
 	return nil, Raise(TypeError, "'%s' object is not subscriptable", o.TypeName())
 }
