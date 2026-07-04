@@ -1,0 +1,31 @@
+== exit: 1
+== stdout:
+== exception:
+== stderr:
+  + Exception Group Traceback (most recent call last):
+  |   File "main.py", line 8, in <module>
+  |     t5()
+  | ExceptionGroup:  (2 sub-exceptions)
+  +-+---------------- 1 ----------------
+    | Exception Group Traceback (most recent call last):
+    |   File "main.py", line 5, in t5
+    |     raise ExceptionGroup("g", [ValueError("v"), KeyError("k")])
+    | ExceptionGroup: g (1 sub-exception)
+    +-+---------------- 1 ----------------
+      | ValueError: v
+      +------------------------------------
+    | 
+    | During handling of the above exception, another exception occurred:
+    | 
+    | Traceback (most recent call last):
+    |   File "main.py", line 7, in t5
+    |     raise RuntimeError("boom")
+    | RuntimeError: boom
+    +---------------- 2 ----------------
+    | Exception Group Traceback (most recent call last):
+    |   File "main.py", line 5, in t5
+    |     raise ExceptionGroup("g", [ValueError("v"), KeyError("k")])
+    | ExceptionGroup: g (1 sub-exception)
+    +-+---------------- 1 ----------------
+      | KeyError: 'k'
+      +------------------------------------
