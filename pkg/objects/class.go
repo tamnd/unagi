@@ -513,6 +513,17 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return NewFloat(x.im), nil
 		}
 		return nil, Raise(AttributeError, "'complex' object has no attribute '%s'", name)
+	case *funcObject:
+		// Builtin functions and the constructor-backed type objects carry a
+		// __name__/__qualname__, so type(5).__name__ and len.__name__ read back.
+		if name == "__name__" || name == "__qualname__" {
+			return NewStr(x.name), nil
+		}
+	case *typeObject:
+		if name == "__name__" || name == "__qualname__" {
+			return NewStr(x.name), nil
+		}
+		return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
 	}
 	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", o.TypeName(), name)
 }

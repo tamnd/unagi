@@ -273,6 +273,9 @@ func reprCore(o Object, strict bool) (string, error) {
 		return x.Kind + s, nil
 	case *classObject:
 		return classRepr(x), nil
+	case *typeObject:
+		// A type value for a constructor-less kind, spelled the same as a class.
+		return fmt.Sprintf("<class '%s'>", x.name), nil
 	case *instanceObject:
 		res, defined, err := instanceSpecial(x, "__repr__")
 		if err != nil {

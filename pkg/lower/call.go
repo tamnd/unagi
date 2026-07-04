@@ -22,6 +22,7 @@ var builtinNames = map[string]bool{
 	"getattr": true, "hasattr": true, "setattr": true, "delattr": true,
 	"any": true, "all": true, "callable": true, "ascii": true,
 	"iter": true, "map": true, "filter": true, "vars": true,
+	"type": true,
 }
 
 // descriptorBuiltins are the builtin names that resolve to a value: the three
@@ -478,6 +479,11 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		// arguments" messages stay catchable, like getattr above.
 		fn := map[string]string{"iter": "Iter", "map": "Map", "filter": "Filter"}[name]
 		return f.runtimeSliceCall(fn, e)
+	case "type":
+		// type() checks its own 1-or-3 argument count in the runtime helper so
+		// the arity TypeError stays catchable and the three-argument form can
+		// grow later without a lowering change.
+		return f.runtimeSliceCall("TypeCall", e)
 	case "list", "tuple", "dict", "set", "frozenset":
 		if argc > 1 {
 			return nil, f.e.errf(e.Span(), "%s expected at most 1 argument, got %d", name, argc)

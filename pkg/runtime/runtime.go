@@ -325,6 +325,49 @@ func IsSubclass(sub, cls objects.Object) (objects.Object, error) {
 	return objects.IsSubclass(sub, cls)
 }
 
+// TypeOf implements the one-argument type(o): the type object of a value. A
+// user instance reports its class; a constructor-backed builtin value (int,
+// str, list, ...) reports that constructor, so type(5) is int holds by pointer;
+// a type value or a builtin function reports the `type` metatype or the plain
+// function type; every other kind reports a cached type singleton. The metatype
+// is the registered `type` builtin itself, so type(int) is type.
+func TypeOf(o objects.Object) objects.Object {
+	if cls, ok := objects.ClassOf(o); ok {
+		return cls
+	}
+	if name, ok := objects.BuiltinFuncName(o); ok {
+		// int/str/... and type itself are type constructors, so their type is
+		// the metatype; every other builtin function is built-in-function typed.
+		if objects.IsBuiltinTypeName(name) {
+			return BuiltinFn("type")
+		}
+		return objects.TypeSingleton("builtin_function_or_method")
+	}
+	if objects.IsTypeValue(o) {
+		return BuiltinFn("type")
+	}
+	name := o.TypeName()
+	if objects.IsBuiltinTypeName(name) {
+		return BuiltinFn(name)
+	}
+	return objects.TypeSingleton(name)
+}
+
+// TypeCall implements the type() builtin. The one-argument form returns a
+// value's type; the three-argument dynamic-class form is not built yet, so it
+// raises rather than silently misbehaving; any other count is the arity
+// TypeError CPython gives.
+func TypeCall(args []objects.Object) (objects.Object, error) {
+	switch len(args) {
+	case 1:
+		return TypeOf(args[0]), nil
+	case 3:
+		return nil, objects.Raise(objects.TypeError, "type() with 3 arguments (dynamic class creation) is not supported yet")
+	default:
+		return nil, objects.Raise(objects.TypeError, "type() takes 1 or 3 arguments")
+	}
+}
+
 // builtins maps names to function objects for the case where a builtin
 // is passed around as a value. Variadic ones use a negative arity so
 // Call skips the count check and they validate themselves. The map is
@@ -405,6 +448,7 @@ func init() {
 		"callable": objects.NewFunc("callable", 1, func(args []objects.Object) (objects.Object, error) { return Callable(args[0]) }),
 		"ascii":    objects.NewFunc("ascii", 1, func(args []objects.Object) (objects.Object, error) { return Ascii(args[0]) }),
 		"vars":     objects.NewFunc("vars", 1, func(args []objects.Object) (objects.Object, error) { return Vars(args[0]) }),
+		"type":     objects.NewFunc("type", -1, TypeCall),
 		"getattr":  objects.NewFunc("getattr", -1, GetAttr),
 		"hasattr":  objects.NewFunc("hasattr", -1, HasAttr),
 		"setattr":  objects.NewFunc("setattr", -1, SetAttr),
