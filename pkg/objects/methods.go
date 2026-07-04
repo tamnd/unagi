@@ -29,6 +29,8 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 		return superCallMethod(x, name, args)
 	case *generatorObject:
 		return genMethod(x, name, args)
+	case *complexObject:
+		return complexMethod(x, name, args)
 	}
 	return nil, noAttr(o, name)
 }

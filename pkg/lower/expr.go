@@ -68,6 +68,8 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		return callExpr(f.e.obj("NewIntText"), strLit(e.Text)), nil
 	case *frontend.FloatLit:
 		return callExpr(f.e.obj("NewFloat"), floatLit(e.Val)), nil
+	case *frontend.ImagLit:
+		return callExpr(f.e.obj("NewComplex"), floatLit(0), floatLit(e.Val)), nil
 	case *frontend.StrLit:
 		return callExpr(f.e.obj("NewStr"), strLit(e.Val)), nil
 	case *frontend.BytesLit:

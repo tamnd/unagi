@@ -253,6 +253,29 @@ func FloatOf(o objects.Object) (objects.Object, error) {
 		"float() argument must be a string or a real number, not '%s'", o.TypeName())
 }
 
+// ComplexOf implements the positional complex() constructor. It checks arity
+// here so the "at most 2 arguments" message stays catchable, then hands the
+// parts to the shared constructor.
+func ComplexOf(args []objects.Object) (objects.Object, error) {
+	if len(args) > 2 {
+		return nil, objects.Raise(objects.TypeError, "complex() takes at most 2 arguments (%d given)", len(args))
+	}
+	var real, imag objects.Object
+	if len(args) >= 1 {
+		real = args[0]
+	}
+	if len(args) == 2 {
+		imag = args[1]
+	}
+	return objects.ComplexNew(real, imag)
+}
+
+// ComplexKw implements the keyword complex() constructor. A nil real or imag
+// marks an omitted argument, which the shared constructor treats as absent.
+func ComplexKw(real, imag objects.Object) (objects.Object, error) {
+	return objects.ComplexNew(real, imag)
+}
+
 // BoolOf implements bool(o), consulting a user __bool__/__len__ through the
 // fallible truth protocol.
 func BoolOf(o objects.Object) (objects.Object, error) {
@@ -284,6 +307,9 @@ func Abs(o objects.Object) (objects.Object, error) {
 	}
 	if f, ok := objects.AsFloat(o); ok {
 		return objects.NewFloat(math.Abs(f)), nil
+	}
+	if re, im, ok := objects.ComplexParts(o); ok {
+		return objects.NewFloat(math.Hypot(re, im)), nil
 	}
 	return nil, objects.Raise(objects.TypeError, "bad operand type for abs(): '%s'", o.TypeName())
 }
@@ -364,6 +390,9 @@ func init() {
 			return nil, objects.Raise(objects.TypeError, "bool expected at most 1 argument, got %d", len(args))
 		}),
 		"abs": exactlyOne("abs", Abs),
+		"complex": objects.NewFunc("complex", -1, func(args []objects.Object) (objects.Object, error) {
+			return ComplexOf(args)
+		}),
 		"isinstance": objects.NewFunc("isinstance", 2, func(args []objects.Object) (objects.Object, error) {
 			return IsInstance(args[0], args[1])
 		}),

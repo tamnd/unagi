@@ -181,6 +181,8 @@ func reprCore(o Object, strict bool) (string, error) {
 		return intDecimalLoose(x), nil
 	case *floatObject:
 		return floatRepr(x.v), nil
+	case *complexObject:
+		return complexRepr(x.re, x.im), nil
 	case *strObject:
 		return strRepr(x.v), nil
 	case *bytesObject:

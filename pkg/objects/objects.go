@@ -217,8 +217,8 @@ func NewFunc(name string, arity int, fn func(args []Object) (Object, error)) Obj
 // an internal helper and keeps the generic function repr.
 var builtinTypeReprs = map[string]bool{
 	"range": true, "str": true, "int": true, "float": true, "bool": true,
-	"reversed": true, "enumerate": true, "zip": true, "list": true,
-	"tuple": true, "dict": true, "set": true, "frozenset": true,
+	"complex": true, "reversed": true, "enumerate": true, "zip": true,
+	"list": true, "tuple": true, "dict": true, "set": true, "frozenset": true,
 	"bytes": true, "bytearray": true,
 }
 

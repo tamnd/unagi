@@ -44,6 +44,8 @@ func PyHash(o Object) (int64, error) {
 		return pyHashSmall(x.v), nil
 	case *floatObject:
 		return pyHashFloat(x.v), nil
+	case *complexObject:
+		return pyHashComplex(x.re, x.im), nil
 	case *strObject:
 		return pyHashStr(x.v), nil
 	case *bytesObject:
@@ -186,6 +188,18 @@ func pyHashFloat(f float64) int64 {
 	}
 	x = ((x << e) & hashModulus) | x>>(hashBits-e)
 	r := int64(x) * sign
+	if r == -1 {
+		r = -2
+	}
+	return r
+}
+
+// pyHashComplex folds the two part hashes with the _PyHASH_IMAG multiplier
+// complexobject.c uses, so 1+0j hashes equal to 1. The part hashes already map
+// -1 to -2 through pyHashFloat, and the combined value repeats that guard.
+func pyHashComplex(re, im float64) int64 {
+	h := uint64(pyHashFloat(re)) + 1000003*uint64(pyHashFloat(im))
+	r := int64(h)
 	if r == -1 {
 		r = -2
 	}

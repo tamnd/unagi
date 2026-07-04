@@ -43,6 +43,8 @@ func Truth(o Object) bool {
 		return len(x.d.entries) > 0
 	case *dictItemsObject:
 		return len(x.d.entries) > 0
+	case *complexObject:
+		return x.re != 0 || x.im != 0
 	case *Exception:
 		// Exception instances are always truthy, whatever their args.
 		return true
@@ -112,6 +114,9 @@ func Neg(o Object) (Object, error) {
 	if f, ok := o.(*floatObject); ok {
 		return NewFloat(-f.v), nil
 	}
+	if c, ok := o.(*complexObject); ok {
+		return NewComplex(-c.re, -c.im), nil
+	}
 	return nil, Raise(TypeError, "bad operand type for unary -: '%s'", o.TypeName())
 }
 
@@ -125,6 +130,9 @@ func Pos(o Object) (Object, error) {
 	}
 	if f, ok := o.(*floatObject); ok {
 		return NewFloat(f.v), nil
+	}
+	if c, ok := o.(*complexObject); ok {
+		return NewComplex(c.re, c.im), nil
 	}
 	return nil, Raise(TypeError, "bad operand type for unary +: '%s'", o.TypeName())
 }
@@ -217,6 +225,11 @@ func Add(a, b Object) (Object, error) {
 		}
 		return NewFloat(af + bf), nil
 	}
+	if eitherComplex(a, b) {
+		if r, ok, err := complexArith('+', a, b); ok || err != nil {
+			return r, err
+		}
+	}
 	return binFallback("+", a, b)
 }
 
@@ -245,6 +258,11 @@ func Sub(a, b Object) (Object, error) {
 			return nil, err
 		}
 		return NewFloat(af - bf), nil
+	}
+	if eitherComplex(a, b) {
+		if r, ok, err := complexArith('-', a, b); ok || err != nil {
+			return r, err
+		}
 	}
 	return binFallback("-", a, b)
 }
@@ -327,6 +345,11 @@ func Mul(a, b Object) (Object, error) {
 		}
 		return NewFloat(af * bf), nil
 	}
+	if eitherComplex(a, b) {
+		if r, ok, err := complexArith('*', a, b); ok || err != nil {
+			return r, err
+		}
+	}
 	return binFallback("*", a, b)
 }
 
@@ -354,6 +377,11 @@ func TrueDiv(a, b Object) (Object, error) {
 	}
 	af, bf, ok, err := bothFloat(a, b)
 	if !ok {
+		if eitherComplex(a, b) {
+			if r, cok, cerr := complexArith('/', a, b); cok || cerr != nil {
+				return r, cerr
+			}
+		}
 		return binFallback("/", a, b)
 	}
 	if err != nil {
@@ -465,6 +493,13 @@ func ipow(base, exp int64) int64 {
 // 0 ** -1 and 0.0 ** -1 both say "zero to a negative power", and a
 // float result past the double range is errno-flavored OverflowError.
 func Pow(a, b Object) (Object, error) {
+	if eitherComplex(a, b) {
+		if ar, ai, ok1 := asComplex(a); ok1 {
+			if br, bi, ok2 := asComplex(b); ok2 {
+				return complexPow(ar, ai, br, bi)
+			}
+		}
+	}
 	if isIntish(a) && isIntish(b) {
 		x, _ := AsBigInt(a)
 		y, _ := AsBigInt(b)
@@ -687,6 +722,15 @@ var cmpSym = map[CmpOp]string{
 func equals(a, b Object) bool {
 	if c, unordered, ok := numCmp(a, b); ok {
 		return !unordered && c == 0
+	}
+	// A complex compares equal to another complex or a real number with the
+	// same parts; against anything else it is simply unequal.
+	if ar, ai, ok := asComplex(a); ok {
+		br, bi, ok2 := asComplex(b)
+		return ok2 && ar == br && ai == bi
+	}
+	if _, _, ok := asComplex(b); ok {
+		return false
 	}
 	// One side numeric, the other not: unequal, never an error.
 	if isNumeric(a) != isNumeric(b) {
