@@ -215,6 +215,8 @@ func reprCore(o Object, strict bool) (string, error) {
 		return instanceRepr(x), nil
 	case *boundMethod:
 		return boundMethodRepr(x), nil
+	case *superObject:
+		return superRepr(x), nil
 	case *excTypeObject:
 		return excTypeRepr(x), nil
 	}

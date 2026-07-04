@@ -62,6 +62,9 @@ func (f *fnCtx) call(e *frontend.Call) (ast.Expr, error) {
 	if d, isDef := f.e.defs[name.Id]; isDef {
 		return f.userCall(d, e)
 	}
+	if name.Id == "super" {
+		return f.superCall(e)
+	}
 	if builtinNames[name.Id] {
 		return f.builtinCall(name.Id, e)
 	}
@@ -72,6 +75,40 @@ func (f *fnCtx) call(e *frontend.Call) (ast.Expr, error) {
 	}
 	// The Name lowering owns the not-defined rejection.
 	return f.dynCall(e)
+}
+
+// superCall lowers super(). The zero-argument form reads the method's
+// __class__ cell and self, which the method lowering threaded in; used
+// outside a method it has nothing to find and lowers to the RuntimeError
+// CPython raises. The explicit two-argument form passes both through. The
+// one-argument unbound form and keyword arguments are a later slice.
+func (f *fnCtx) superCall(e *frontend.Call) (ast.Expr, error) {
+	for _, a := range e.Args {
+		if a.Name != "" {
+			return nil, f.e.errf(e.Span(), "keyword arguments to super() are not supported yet")
+		}
+	}
+	switch len(e.Args) {
+	case 0:
+		if f.superClass == "" {
+			f.check(define(ident("err"), callExpr(f.e.obj("Raise"),
+				f.e.obj("RuntimeError"), strLit("super(): no arguments"))))
+			return f.e.obj("None"), nil
+		}
+		tmp := f.tmpVar()
+		f.fallible(tmp, f.e.obj("NewSuper"), ident(f.superClass), ident(f.superSelf))
+		return ident(tmp), nil
+	case 2:
+		args, err := f.plainArgExprs(e.Args)
+		if err != nil {
+			return nil, err
+		}
+		tmp := f.tmpVar()
+		f.fallible(tmp, f.e.obj("NewSuper"), args[0], args[1])
+		return ident(tmp), nil
+	default:
+		return nil, f.e.errf(e.Span(), "super() with %d arguments is not supported yet", len(e.Args))
+	}
 }
 
 // dynCall lowers a call whose callee is a runtime value. The callee

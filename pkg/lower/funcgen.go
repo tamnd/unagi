@@ -60,6 +60,13 @@ type fnCtx struct {
 	// enclosing-scope capture and a write assigns the mangled variable the
 	// Go func literal captured by reference, which is the enclosing binding.
 	nonlocals map[string]bool
+	// superClass and superSelf are set only inside a method body: superClass
+	// is the Go identifier of the defining class value (its __class__ cell)
+	// and superSelf is the mangled first parameter. A zero-argument super()
+	// lowers to super(superClass, superSelf); both empty means super() has no
+	// arguments to find, the RuntimeError CPython raises.
+	superClass string
+	superSelf  string
 }
 
 func newFnCtx(e *emitter, inFunc bool, fname string) *fnCtx {
@@ -191,6 +198,24 @@ func (e *emitter) emitFunc(d *frontend.FuncDef) (*ast.FuncDecl, error) {
 func (e *emitter) emitFuncDecl(d *frontend.FuncDef, declName, coName, qual string) (*ast.FuncDecl, error) {
 	f := newFnCtx(e, true, coName)
 	f.qual = qual
+	return e.fillFuncDecl(f, d, declName)
+}
+
+// emitMethodDecl lowers a class method like a plain function but with the
+// super context wired in: the defining class is the __class__ cell and the
+// first parameter is self, so a zero-argument super() inside the body can
+// find both.
+func (e *emitter) emitMethodDecl(d *frontend.FuncDef, declName, coName, qual, className string) (*ast.FuncDecl, error) {
+	f := newFnCtx(e, true, coName)
+	f.qual = qual
+	if len(d.Params) > 0 {
+		f.superClass = mangle(className)
+		f.superSelf = mangle(d.Params[0].Name)
+	}
+	return e.fillFuncDecl(f, d, declName)
+}
+
+func (e *emitter) fillFuncDecl(f *fnCtx, d *frontend.FuncDef, declName string) (*ast.FuncDecl, error) {
 	params := &ast.FieldList{}
 	for _, p := range d.Params {
 		f.locals[p.Name] = true
