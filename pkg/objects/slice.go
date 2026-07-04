@@ -52,11 +52,12 @@ func clampSliceIndex(v, n, step int64) int64 {
 	return v
 }
 
-// sliceIndices resolves lo:hi:step against a sequence of length n and
-// returns the first index, the step and the number of selected elements.
-// Omitted parts default by step direction, like CPython.
-func sliceIndices(lo, hi, step Object, n int) (int, int, int, error) {
-	st := int64(1)
+// sliceBounds resolves lo:hi:step against a sequence of length n into the
+// first index, the last-excluded bound and the step, the (start, stop, step)
+// triple PySlice_GetIndicesEx returns. Omitted parts default by step
+// direction and explicit bounds clamp, like CPython.
+func sliceBounds(lo, hi, step Object, n int64) (start, stop, st int64, err error) {
+	st = 1
 	if v, ok, err := slicePart(step); err != nil {
 		return 0, 0, 0, err
 	} else if ok {
@@ -67,19 +68,30 @@ func sliceIndices(lo, hi, step Object, n int) (int, int, int, error) {
 		}
 		st = v
 	}
-	start, stop := int64(0), int64(n)
+	start, stop = 0, n
 	if st < 0 {
-		start, stop = int64(n)-1, -1
+		start, stop = n-1, -1
 	}
 	if v, ok, err := slicePart(lo); err != nil {
 		return 0, 0, 0, err
 	} else if ok {
-		start = clampSliceIndex(v, int64(n), st)
+		start = clampSliceIndex(v, n, st)
 	}
 	if v, ok, err := slicePart(hi); err != nil {
 		return 0, 0, 0, err
 	} else if ok {
-		stop = clampSliceIndex(v, int64(n), st)
+		stop = clampSliceIndex(v, n, st)
+	}
+	return start, stop, st, nil
+}
+
+// sliceIndices resolves lo:hi:step against a sequence of length n and
+// returns the first index, the step and the number of selected elements.
+// Omitted parts default by step direction, like CPython.
+func sliceIndices(lo, hi, step Object, n int) (int, int, int, error) {
+	start, stop, st, err := sliceBounds(lo, hi, step, int64(n))
+	if err != nil {
+		return 0, 0, 0, err
 	}
 	length := int64(0)
 	if st > 0 && start < stop {
@@ -104,6 +116,10 @@ func pickSlice(elts []Object, start, step, n int) []Object {
 // slice is a new list; str and tuple slices keep their type.
 func GetSlice(o, lo, hi, step Object) (Object, error) {
 	switch x := o.(type) {
+	case *instanceObject, *classObject:
+		// A user class handles slicing through __getitem__, which receives the
+		// bracket contents as a single slice object, exactly like CPython.
+		return GetItem(o, NewSlice(lo, hi, step))
 	case *listObject:
 		start, st, n, err := sliceIndices(lo, hi, step, len(x.elts))
 		if err != nil {
@@ -182,6 +198,11 @@ func collectAssigned(val Object) ([]Object, error) {
 func SetSlice(o, lo, hi, step, val Object) error {
 	if ba, ok := o.(*bytearrayObject); ok {
 		return setByteArraySlice(ba, lo, hi, step, val)
+	}
+	if _, ok := o.(*instanceObject); ok {
+		// A user class routes slice assignment through __setitem__ with the
+		// bracket contents boxed into a slice object.
+		return SetItem(o, NewSlice(lo, hi, step), val)
 	}
 	x, ok := o.(*listObject)
 	if !ok {
@@ -263,6 +284,13 @@ func byteArrayAssignBytes(val Object) ([]byte, error) {
 
 // DelItem implements `del o[key]` for dict keys and list indices.
 func DelItem(o, key Object) error {
+	// A slice key deletes the span, so del xs[slice(0, 2)] matches del xs[0:2].
+	if sl, ok := key.(*sliceObject); ok {
+		switch o.(type) {
+		case *listObject, *tupleObject, *strObject, *bytesObject, *bytearrayObject:
+			return DelSlice(o, sl.start, sl.stop, sl.step)
+		}
+	}
 	switch x := o.(type) {
 	case *bytearrayObject:
 		i, ok := AsInt(key)
@@ -330,6 +358,11 @@ func DelItem(o, key Object) error {
 func DelSlice(o, lo, hi, step Object) error {
 	if ba, ok := o.(*bytearrayObject); ok {
 		return delByteArraySlice(ba, lo, hi, step)
+	}
+	if _, ok := o.(*instanceObject); ok {
+		// A user class routes slice deletion through __delitem__ with the
+		// bracket contents boxed into a slice object.
+		return DelItem(o, NewSlice(lo, hi, step))
 	}
 	x, ok := o.(*listObject)
 	if !ok {

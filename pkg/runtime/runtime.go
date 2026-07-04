@@ -134,6 +134,13 @@ func Range(args ...objects.Object) (objects.Object, error) {
 	return objects.NewRange(start, stop, step), nil
 }
 
+// SliceOf implements the slice() builtin, boxing one to three arguments into a
+// slice value. The arity check lives in objects so the TypeError stays
+// catchable, matching the other variadic constructors.
+func SliceOf(args []objects.Object) (objects.Object, error) {
+	return objects.SliceOf(args)
+}
+
 // StrOf implements str(o). It can raise: str(2**20000) exceeds the
 // 4300-digit int conversion limit.
 func StrOf(o objects.Object) (objects.Object, error) {
@@ -393,6 +400,7 @@ func init() {
 		"range": objects.NewFunc("range", -1, func(args []objects.Object) (objects.Object, error) {
 			return Range(args...)
 		}),
+		"slice": objects.NewFunc("slice", -1, objects.SliceOf),
 		"str": objects.NewFunc("str", -1, func(args []objects.Object) (objects.Object, error) {
 			switch len(args) {
 			case 0:
