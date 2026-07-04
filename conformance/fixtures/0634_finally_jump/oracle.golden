@@ -1,0 +1,24 @@
+== exit: 0
+== stdout:
+finally
+swallowed
+after-loop
+[('body', 0), ('body', 2)]
+loop-broke
+outer-finally
+== exception:
+== stderr:
+main.py:5: SyntaxWarning: 'return' in a 'finally' block
+  return "finally"
+main.py:12: SyntaxWarning: 'return' in a 'finally' block
+  return "swallowed"
+main.py:20: SyntaxWarning: 'break' in a 'finally' block
+  break
+main.py:32: SyntaxWarning: 'continue' in a 'finally' block
+  continue
+main.py:42: SyntaxWarning: 'break' in a 'finally' block
+  break
+main.py:51: SyntaxWarning: 'return' in a 'finally' block
+  return "inner-finally"
+main.py:53: SyntaxWarning: 'return' in a 'finally' block
+  return "outer-finally"

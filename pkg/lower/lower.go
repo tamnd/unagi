@@ -21,7 +21,9 @@ import (
 	"fmt"
 	"go/ast"
 	"go/format"
+	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/tamnd/unagi/pkg/frontend"
 )
@@ -50,7 +52,7 @@ func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
 	// identifiers CPython would after mangling.
 	frontend.MangleClassPrivates(mod)
 
-	e := &emitter{file: file, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}, classOrd: map[string]int{}}
+	e := &emitter{file: file, source: source, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}, classOrd: map[string]int{}}
 
 	var body []frontend.Stmt
 	var defs []*frontend.FuncDef
@@ -137,6 +139,7 @@ func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	e.prependFinallyWarnings(pymain)
 
 	// The assembly seam: the one place nodes become text. The header comment,
 	// package clause, and import block are plain lines, each declaration
@@ -218,6 +221,7 @@ func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
 
 type emitter struct {
 	file        string
+	source      []byte
 	defs        map[string]*frontend.FuncDef
 	defOrd      map[string]int
 	rebound     map[string]bool // def names that are also module variables
@@ -225,8 +229,60 @@ type emitter struct {
 	moduleVars  map[string]bool // every module-scope variable, emitted at package level
 	slots       []string
 	classOrd    map[string]int // top-level class name to its emission ordinal
+	finWarns    []finWarn      // PEP 765 finally-jump SyntaxWarnings, in discovery order
 	usedObjects bool
 	usedTB      bool
+}
+
+// finWarn records one return/break/continue that exits a finally block. CPython
+// 3.14 prints a PEP 765 SyntaxWarning for each at compile time; the generated
+// program replays them to stderr before the module body runs.
+type finWarn struct {
+	line int
+	kind string // "return", "break", or "continue"
+}
+
+// warnFinallyJump records a finally-exiting jump for the PEP 765 warning, once
+// per source line so a line visited twice cannot double-print.
+func (e *emitter) warnFinallyJump(line int, kind string) {
+	for _, w := range e.finWarns {
+		if w.line == line {
+			return
+		}
+	}
+	e.finWarns = append(e.finWarns, finWarn{line: line, kind: kind})
+}
+
+// sourceLine returns the 1-indexed source line with leading whitespace removed,
+// the text CPython quotes under a SyntaxWarning. An out-of-range line gives "".
+func (e *emitter) sourceLine(n int) string {
+	if n < 1 {
+		return ""
+	}
+	lines := strings.Split(string(e.source), "\n")
+	if n > len(lines) {
+		return ""
+	}
+	return strings.TrimLeft(lines[n-1], " \t")
+}
+
+// prependFinallyWarnings injects one runtime.SyntaxWarn call per recorded
+// finally-jump at the top of pymain, sorted by source line so the program
+// replays them in the order CPython's compiler emitted them. Each call carries
+// the fully formatted message, so the runtime helper only writes it to stderr.
+func (e *emitter) prependFinallyWarnings(pymain *ast.FuncDecl) {
+	if len(e.finWarns) == 0 {
+		return
+	}
+	warns := append([]finWarn(nil), e.finWarns...)
+	sort.Slice(warns, func(i, j int) bool { return warns[i].line < warns[j].line })
+	var stmts []ast.Stmt
+	for _, w := range warns {
+		msg := fmt.Sprintf("%s:%d: SyntaxWarning: '%s' in a 'finally' block\n  %s\n",
+			e.file, w.line, w.kind, e.sourceLine(w.line))
+		stmts = append(stmts, exprStmt(callExpr(sel("runtime", "SyntaxWarn"), strLit(msg))))
+	}
+	pymain.Body.List = append(stmts, pymain.Body.List...)
 }
 
 // methodDefName is the Go function carrying one method's body. The class and

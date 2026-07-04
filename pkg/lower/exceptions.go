@@ -119,14 +119,67 @@ func (f *fnCtx) declPending(body []frontend.Stmt) {
 	}
 }
 
-// checkFinallyJump rejects a break or continue written inside a finally block
-// whose target loop lives outside it. CPython runs these (with a warning
-// since 3.14); this slice does not lower them yet.
-func (f *fnCtx) checkFinallyJump(pos frontend.Pos, kind string) error {
-	if len(f.finallyBase) > 0 && len(f.loops) <= f.finallyBase[len(f.finallyBase)-1] {
-		return f.e.errf(pos, "'%s' inside 'finally' is not supported yet", kind)
+// inFinallyExit reports whether the current break or continue sits inside a
+// finally block and targets a loop outside it, so it exits the finally. Such a
+// jump swallows the pending action and gets a PEP 765 warning; a break bound to
+// a loop nested inside the finally is ordinary and returns false.
+func (f *fnCtx) inFinallyExit() bool {
+	return len(f.finallyBase) > 0 && len(f.loops) <= f.finallyBase[len(f.finallyBase)-1]
+}
+
+// finallyExits reports whether a finally block can leave through a return,
+// break, or continue, so the enclosing try must swallow any pending action and
+// in-flight exception when the finally runs. A break or continue bound to a
+// loop written inside the finally does not count; it never leaves. The scan
+// mirrors the emission-time decision and over-approximating is harmless, since
+// the swallow guard keys on the pending state the finally actually leaves.
+func finallyExits(body []frontend.Stmt) bool {
+	var walk func(list []frontend.Stmt, loopDepth int) bool
+	walk = func(list []frontend.Stmt, loopDepth int) bool {
+		for _, s := range list {
+			switch s := s.(type) {
+			case *frontend.Return:
+				return true
+			case *frontend.Break, *frontend.Continue:
+				if loopDepth == 0 {
+					return true
+				}
+			case *frontend.If:
+				if walk(s.Body, loopDepth) || walk(s.Else, loopDepth) {
+					return true
+				}
+			case *frontend.While:
+				if walk(s.Body, loopDepth+1) || walk(s.Else, loopDepth) {
+					return true
+				}
+			case *frontend.For:
+				if walk(s.Body, loopDepth+1) || walk(s.Else, loopDepth) {
+					return true
+				}
+			case *frontend.With:
+				if walk(s.Body, loopDepth) {
+					return true
+				}
+			case *frontend.Try:
+				if walk(s.Body, loopDepth) || walk(s.OrElse, loopDepth) || walk(s.Final, loopDepth) {
+					return true
+				}
+				for _, h := range s.Handlers {
+					if walk(h.Body, loopDepth) {
+						return true
+					}
+				}
+			case *frontend.Match:
+				for _, c := range s.Cases {
+					if walk(c.Body, loopDepth) {
+						return true
+					}
+				}
+			}
+		}
+		return false
 	}
-	return nil
+	return walk(body, 0)
 }
 
 // pendingJump parks a break (code 2) or continue (code 3) that must unwind
@@ -370,6 +423,24 @@ func (f *fnCtx) tryStmt(s *frontend.Try) error {
 	}
 
 	if len(s.Final) > 0 {
+		// When the finally block can itself return/break/continue, its jump wins
+		// over both the body's pending action and any in-flight exception. The
+		// body's pending action is saved and pend reset to zero before the
+		// finally runs, so afterwards a non-zero pend means the finally jumped:
+		// swallow the exception and keep the finally's action. A finally that
+		// falls through restores the body's saved action.
+		swallow := f.pendAct && finallyExits(s.Final)
+		var savedPend, savedVal string
+		if swallow {
+			savedPend = f.tmpVar()
+			f.add(define(ident(savedPend), ident("pend")))
+			if f.pendRet {
+				savedVal = f.tmpVar()
+				f.add(define(ident(savedVal), ident("pendVal")))
+			}
+			f.add(set(ident("pend"), intLit("0")))
+		}
+
 		f.finallyBase = append(f.finallyBase, len(f.loops))
 		finCall, err := f.closureCall(s.Final)
 		f.finallyBase = f.finallyBase[:len(f.finallyBase)-1]
@@ -385,7 +456,21 @@ func (f *fnCtx) tryStmt(s *frontend.Try) error {
 			body = append(body, set(ident("pend"), intLit("0")))
 		}
 		body = append(body, set(ident(tExc), callExpr(sel("runtime", "ChainContext"), ident(tF), ident(tExc))))
-		f.add(&ast.IfStmt{Cond: neqNil(ident(tF)), Body: block(body...)})
+		raiseIf := &ast.IfStmt{Cond: neqNil(ident(tF)), Body: block(body...)}
+		if swallow {
+			// Finally jumped: drop the in-flight exception, keep pend as the
+			// finally set it. Otherwise restore the body's pending action.
+			restore := []ast.Stmt{set(ident("pend"), ident(savedPend))}
+			if f.pendRet {
+				restore = append(restore, set(ident("pendVal"), ident(savedVal)))
+			}
+			raiseIf.Else = &ast.IfStmt{
+				Cond: &ast.BinaryExpr{X: ident("pend"), Op: token.NEQ, Y: intLit("0")},
+				Body: block(set(ident(tExc), ident("nil"))),
+				Else: block(restore...),
+			}
+		}
+		f.add(raiseIf)
 	}
 
 	f.frames = f.frames[:len(f.frames)-1]
