@@ -226,6 +226,16 @@ func Call(f Object, args []Object) (Object, error) {
 	if c, ok := f.(*classObject); ok {
 		return Instantiate(c, args, nil, nil)
 	}
+	if inst, ok := f.(*instanceObject); ok {
+		res, defined, err := instanceSpecial(inst, "__call__", args...)
+		if err != nil {
+			return nil, err
+		}
+		if defined {
+			return res, nil
+		}
+		return nil, Raise(TypeError, "'%s' object is not callable", f.TypeName())
+	}
 	fn, ok := f.(*funcObject)
 	if !ok {
 		return nil, Raise(TypeError, "'%s' object is not callable", f.TypeName())

@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+3
+10 30
+99
+[99, 30]
+False True
+7
+[1, 2, 3]
+10
+[1, 2]
+1 2 done
+[0, 10, 20]
+True False
+TypeError: object of type 'Bare' has no len()
+TypeError: 'Bare' object is not subscriptable
+TypeError: 'Bare' object is not callable
+ValueError: __len__() should return >= 0
+TypeError: 'str' object cannot be interpreted as an integer
+== exception:
+== stderr:

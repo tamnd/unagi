@@ -226,6 +226,14 @@ func DelItem(o, key Object) error {
 			return NewException(KeyError, []Object{key})
 		}
 		return nil
+	case *instanceObject:
+		_, defined, err := instanceSpecial(x, "__delitem__", key)
+		if err != nil {
+			return err
+		}
+		if defined {
+			return nil
+		}
 	}
 	// Probed on 3.14: del (1, 2)[0] -> TypeError: 'tuple' object doesn't
 	// support item deletion. Note "doesn't"; slices say "does not".
