@@ -1,0 +1,8 @@
+== exit: 0
+== stdout:
+('Alpha', 'a', [])
+('Beta', 'b', [('extra', 1)])
+('Gamma', 'plain', [])
+Orphan.__init_subclass__() takes no keyword arguments
+== exception:
+== stderr:

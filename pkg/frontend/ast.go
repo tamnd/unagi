@@ -152,14 +152,24 @@ type FuncDef struct {
 
 // ClassDef is `class Name(bases): body`. Bases holds the base-class
 // expressions in written order; an empty slice is the bare `class Name:`
-// form. The body carries method defs and class-variable assignments.
-// Decorators holds the decorator expressions in written order.
+// form. Keywords holds the class keyword arguments (`metaclass=M`, and the
+// names passed on to __init_subclass__) in written order. The body carries
+// method defs and class-variable assignments. Decorators holds the decorator
+// expressions in written order.
 type ClassDef struct {
 	Pos_       Pos
 	Name       string
 	Bases      []Expr
+	Keywords   []ClassKeyword
 	Body       []Stmt
 	Decorators []Expr
+}
+
+// ClassKeyword is one `name=value` in a class header, such as the metaclass
+// argument or a name handed to __init_subclass__.
+type ClassKeyword struct {
+	Name  string
+	Value Expr
 }
 
 // Try is the full try/except/else/finally statement. A try with no handlers

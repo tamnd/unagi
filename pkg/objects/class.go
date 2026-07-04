@@ -57,7 +57,7 @@ func (*boundMethod) TypeName() string { return "method" }
 // name it; each real base must be a class. The C3 linearization runs here,
 // so an inconsistent base order raises the same TypeError CPython does at
 // class-creation time.
-func NewClass(name, qual string, bases []Object, names []string, vals []Object) (Object, error) {
+func NewClass(name, qual string, bases []Object, names []string, vals []Object, kwNames []string, kwVals []Object) (Object, error) {
 	c := &classObject{name: name, qual: qual, dict: make(map[string]Object, len(names))}
 	for i, n := range names {
 		if _, seen := c.dict[n]; !seen {
@@ -89,7 +89,40 @@ func NewClass(name, qual string, bases []Object, names []string, vals []Object) 
 	if err := c.runSetNameHooks(); err != nil {
 		return nil, err
 	}
+	if err := c.runInitSubclass(kwNames, kwVals); err != nil {
+		return nil, err
+	}
 	return c, nil
+}
+
+// runInitSubclass fires the nearest base's __init_subclass__ on the new class,
+// after __set_name__, the order type.__new__ uses. __init_subclass__ is an
+// implicit classmethod, so the new class is passed as the leading argument and
+// the class keyword arguments follow. The lookup skips the class itself and
+// scans its ancestors; a class defines the hook for its subclasses, not for
+// itself. When only object's default is left, keyword arguments are the
+// no-keyword-arguments TypeError and an empty call is a no-op.
+//
+// A user hook that chains with super().__init_subclass__() needs the
+// classmethod super(type, subtype) form, which is a later slice; a self
+// contained hook that consumes its keywords works today.
+func (c *classObject) runInitSubclass(kwNames []string, kwVals []Object) error {
+	for _, base := range c.mro[1:] {
+		v, ok := base.dict["__init_subclass__"]
+		if !ok {
+			continue
+		}
+		fn, ok := v.(*functionObject)
+		if !ok {
+			return Raise(TypeError, "__init_subclass__ must be a plain function in this tier")
+		}
+		_, err := fn.bind([]Object{c}, kwNames, kwVals)
+		return err
+	}
+	if len(kwNames) > 0 {
+		return Raise(TypeError, "%s.__init_subclass__() takes no keyword arguments", c.name)
+	}
+	return nil
 }
 
 // runSetNameHooks fires __set_name__(owner, name) on every value the class body

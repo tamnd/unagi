@@ -77,6 +77,23 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 			baseArgs = append(baseArgs, bv)
 		}
 
+		// Class keyword arguments evaluate after the bases. metaclass= needs the
+		// metaclass-determination path that is a later slice; every other name is
+		// threaded to NewClass, which hands them to __init_subclass__.
+		var kwNames []string
+		var kwVals []ast.Expr
+		for _, kw := range s.Keywords {
+			if kw.Name == "metaclass" {
+				return nil, f.e.errf(s.Span(), "the metaclass= class argument is not supported yet")
+			}
+			kv, err := f.expr(kw.Value)
+			if err != nil {
+				return nil, err
+			}
+			kwNames = append(kwNames, kw.Name)
+			kwVals = append(kwVals, kv)
+		}
+
 		var names []string
 		var vals []ast.Expr
 		// bind spills a class-body value to a temp, records it under name so a
@@ -158,7 +175,9 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 			strLit("__main__."+s.Name),
 			f.objSlice(baseArgs),
 			strSliceLit(names),
-			f.objSlice(vals))
+			f.objSlice(vals),
+			strSliceLit(kwNames),
+			f.objSlice(kwVals))
 		return ident(cls), nil
 	}
 
