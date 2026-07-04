@@ -1,0 +1,34 @@
+== exit: 0
+== stdout:
+enter a
+body a
+exit a None
+enter outer
+enter inner
+body outer inner
+exit inner None
+exit outer None
+pair 1 2
+swallow <class 'ValueError'>
+survived
+'NoExit' object does not support the context manager protocol (missed __exit__ method)
+'NoEnter' object does not support the context manager protocol (missed __enter__ method)
+enter f
+enter loop
+n 0
+exit loop None
+enter loop
+exit loop None
+exit f None
+early
+enter g
+exit g None
+enter g
+exit g None
+enter g
+exit g None
+1
+clean body
+caught from exit
+== exception:
+== stderr:

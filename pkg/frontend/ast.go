@@ -84,6 +84,23 @@ type For struct {
 	Else   []Stmt
 }
 
+// WithItem is one `context as target` clause of a with statement. Target is
+// nil when the clause has no `as` binding, and otherwise is an assignment
+// target (Name, TupleLit, Attribute, or Subscript) like any other.
+type WithItem struct {
+	Context Expr
+	Target  Expr
+}
+
+// With is `with item, ...: body`. Multiple items behave exactly like nested
+// single-item with statements: earlier managers enter first and exit last,
+// and a later manager failing to enter still exits the earlier ones.
+type With struct {
+	Pos_  Pos
+	Items []WithItem
+	Body  []Stmt
+}
+
 // ParamKind classifies a formal parameter.
 type ParamKind int
 
@@ -215,6 +232,7 @@ func (s *AugAssign) Span() Pos { return s.Pos_ }
 func (s *If) Span() Pos        { return s.Pos_ }
 func (s *While) Span() Pos     { return s.Pos_ }
 func (s *For) Span() Pos       { return s.Pos_ }
+func (s *With) Span() Pos      { return s.Pos_ }
 func (s *FuncDef) Span() Pos   { return s.Pos_ }
 func (s *ClassDef) Span() Pos  { return s.Pos_ }
 func (s *Return) Span() Pos    { return s.Pos_ }
@@ -233,6 +251,7 @@ func (*AugAssign) stmt() {}
 func (*If) stmt()        {}
 func (*While) stmt()     {}
 func (*For) stmt()       {}
+func (*With) stmt()      {}
 func (*FuncDef) stmt()   {}
 func (*ClassDef) stmt()  {}
 func (*Return) stmt()    {}

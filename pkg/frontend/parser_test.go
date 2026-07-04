@@ -56,6 +56,16 @@ func ds(s Stmt) string {
 		return "(while " + de(s.Cond) + " " + dbody(s.Body) + " " + dbody(s.Else) + ")"
 	case *For:
 		return "(for " + de(s.Target) + " " + de(s.Iter) + " " + dbody(s.Body) + " " + dbody(s.Else) + ")"
+	case *With:
+		items := make([]string, len(s.Items))
+		for i, it := range s.Items {
+			if it.Target == nil {
+				items[i] = de(it.Context)
+			} else {
+				items[i] = "(as " + de(it.Context) + " " + de(it.Target) + ")"
+			}
+		}
+		return "(with (" + strings.Join(items, " ") + ") " + dbody(s.Body) + ")"
 	case *FuncDef:
 		return "(def " + s.Name + " (" + strings.Join(dparams(s.Params), " ") + ") " + dbody(s.Body) + ")"
 	case *ClassDef:
@@ -445,6 +455,13 @@ func TestParse(t *testing.T) {
 			"(for (tuple a b) pairs [(+= total a)] [(pass)])"},
 		{"for paren target", "for (a, b) in pairs: pass", "(for (tuple a b) pairs [(pass)] [])"},
 		{"for bare tuple iter", "for x in 1, 2: pass", "(for x (tuple 1 2) [(pass)] [])"},
+		{"with no as", "with m(): pass", "(with ((call m)) [(pass)])"},
+		{"with as name", "with m() as g: pass", "(with ((as (call m) g)) [(pass)])"},
+		{"with two items", "with a() as x, b() as y: pass",
+			"(with ((as (call a) x) (as (call b) y)) [(pass)])"},
+		{"with mixed as", "with a(), b() as y: pass", "(with ((call a) (as (call b) y)) [(pass)])"},
+		{"with tuple target", "with m() as (a, b): pass", "(with ((as (call m) (tuple a b))) [(pass)])"},
+		{"with attr target", "with m() as o.x: pass", "(with ((as (call m) (. o x))) [(pass)])"},
 		{"one line suite", "if x: a = 1; b = 2", "(if x [(= a 1) (= b 2)] [])"},
 		{"nested compound", "def f(n):\n    while n:\n        if n % 2 == 0:\n            n = n // 2\n        else:\n            n = 3 * n + 1\n    return n\n",
 			"(def f (n) [(while n [(if (cmp (% n 2) == 0) [(= n (// n 2))] [(= n (+ (* 3 n) 1))])] []) (return n)])"},
@@ -644,7 +661,7 @@ func TestParseErrors(t *testing.T) {
 	}{
 		{"import", "import os", "import statements are not supported yet"},
 		{"from import", "from os import path", "from imports are not supported yet"},
-		{"with", "with open(f) as g: pass", "with statements are not supported yet"},
+		{"with literal target", "with m() as 1: pass", "cannot assign to literal"},
 		{"nonlocal", "nonlocal x", "nonlocal statements are not supported yet"},
 		{"global param", "def f(x):\n    global x", "name 'x' is parameter and global"},
 		{"global kwonly param", "def f(*, x=1):\n    global x", "name 'x' is parameter and global"},
