@@ -324,20 +324,6 @@ func TestCompileErrors(t *testing.T) {
 			}},
 			"except matcher must be an exception class name or a tuple of them",
 		},
-		{
-			"class pattern in match",
-			&frontend.Module{Body: []frontend.Stmt{
-				&frontend.Assign{Targets: []frontend.Expr{&frontend.Name{Id: "C"}}, Value: &frontend.IntLit{Text: "1"}},
-				&frontend.Match{
-					Subject: &frontend.IntLit{Text: "0"},
-					Cases: []frontend.MatchCase{{
-						Pattern: &frontend.PatClass{Cls: &frontend.Name{Id: "C"}},
-						Body:    []frontend.Stmt{&frontend.Pass{}},
-					}},
-				},
-			}},
-			"class patterns are not supported yet",
-		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

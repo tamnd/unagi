@@ -1,0 +1,29 @@
+== exit: 0
+== stdout:
+origin
+on x-axis at 5
+on y-axis at 7
+point 3,4
+not a point
+kw origin
+mixed 9 8
+3d 1 2 3
+2d 4 5
+from origin to 2,3
+from 1,1 to 2,2
+diagonal
+off-diagonal
+empty-ish
+empty-ish
+any point 6
+other
+box 10
+no attr
+has 99
+nonclass: called match pattern must be a class
+toomany: Empty() accepts 0 positional sub-patterns (1 given)
+nontuple: BadTuple.__match_args__ must be a tuple (got list)
+nonstring: __match_args__ elements must be strings (got int)
+dupattr: Point() got multiple sub-patterns for attribute 'x'
+== exception:
+== stderr:
