@@ -31,10 +31,17 @@ func LoadLocal(v objects.Object, name string) (objects.Object, error) {
 	return nil, unboundLocal(name)
 }
 
-// LoadName is the module-scope variant of LoadLocal, raising NameError.
+// LoadName is the module-scope variant of LoadLocal. An unbound global
+// falls back to builtins the way CPython's LOAD_GLOBAL does (so a name
+// that shadows a builtin at module scope reverts to the builtin once it is
+// deleted or was never bound), and raises NameError only when neither a
+// global binding nor a builtin exists.
 func LoadName(v objects.Object, name string) (objects.Object, error) {
 	if v != nil {
 		return v, nil
+	}
+	if f, ok := Builtin(name); ok {
+		return f, nil
 	}
 	return nil, nameNotDefined(name)
 }

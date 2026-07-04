@@ -38,6 +38,16 @@ func TestLoadName(t *testing.T) {
 	}
 	_, err = LoadName(nil, "nosuchname")
 	checkErr(t, "undefined name", err, "NameError: name 'nosuchname' is not defined")
+
+	// Probed on 3.14: an unbound global that names a builtin reverts to the
+	// builtin (len assigned at module scope then deleted still calls len).
+	got, err = LoadName(nil, "len")
+	if err != nil {
+		t.Errorf("LoadName(unbound builtin) = %v, %v", got, err)
+	}
+	if want, _ := Builtin("len"); got != want {
+		t.Errorf("LoadName(nil, len) = %v, want the builtin len", got)
+	}
 }
 
 func TestDelLocalAndDelName(t *testing.T) {
