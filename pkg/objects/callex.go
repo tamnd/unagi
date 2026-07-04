@@ -173,17 +173,103 @@ func CallStarEx(f Object, star Object, kw Object) (Object, error) {
 }
 
 // CallMethodStar invokes a method whose whole positional pack is one
-// deferred *iterable. The wording spells the receiver type the way a bound
-// method qualname does.
+// deferred *iterable. The wording spells the bound method the way CPython's
+// _PyObject_FunctionStr does.
 func CallMethodStar(recv Object, name string, star Object) (Object, error) {
 	iter, err := Iter(star)
 	if err != nil {
-		return nil, Raise(TypeError, "%s.%s() argument after * must be an iterable, not %s",
-			recv.TypeName(), name, star.TypeName())
+		return nil, Raise(TypeError, "%s argument after * must be an iterable, not %s",
+			methodFuncStr(recv, name), star.TypeName())
 	}
 	args, err := drainInto(nil, iter)
 	if err != nil {
 		return nil, err
 	}
 	return CallMethod(recv, name, args)
+}
+
+// methodFuncStr spells a bound method for the unpacking error messages the way
+// CPython's _PyObject_FunctionStr does. A builtin-typed receiver reads as
+// str.join() or dict.update(), the type then the method; a user instance reads
+// as __main__.C.m(), the module-qualified class qualname then the method, since
+// its bound method carries a __module__ that the builtin types suppress.
+func methodFuncStr(recv Object, name string) string {
+	if inst, ok := recv.(*instanceObject); ok {
+		return inst.cls.qual + "." + name + "()"
+	}
+	return recv.TypeName() + "." + name + "()"
+}
+
+// KwSetM is KwSet for a method call: it adds one literal name=value keyword and
+// spells a duplicate against the receiver-qualified method name.
+func KwSetM(recv Object, name string, kw Object, key string, v Object) (Object, error) {
+	d := kwAccum(kw)
+	k := NewStr(key)
+	if _, exists, err := d.lookup(k); err != nil {
+		return nil, err
+	} else if exists {
+		return nil, Raise(TypeError, "%s got multiple values for keyword argument '%s'",
+			methodFuncStr(recv, name), key)
+	}
+	if err := d.set(k, v); err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+// KwMergeM is KwMerge for a method call: it folds a **mapping into the keyword
+// dict, spelling the mapping and duplicate errors against the method name.
+func KwMergeM(recv Object, name string, kw Object, m Object) (Object, error) {
+	src, ok := m.(*dictObject)
+	if !ok {
+		return nil, Raise(TypeError, "%s argument after ** must be a mapping, not %s",
+			methodFuncStr(recv, name), m.TypeName())
+	}
+	d := kwAccum(kw)
+	for _, k := range src.keySlice() {
+		if _, exists, err := d.lookup(k); err != nil {
+			return nil, err
+		} else if exists {
+			return nil, Raise(TypeError, "%s got multiple values for keyword argument '%s'",
+				methodFuncStr(recv, name), Str(k))
+		}
+		v, err := src.get(k)
+		if err != nil {
+			return nil, err
+		}
+		if err := d.set(k, v); err != nil {
+			return nil, err
+		}
+	}
+	return d, nil
+}
+
+// CallMethodEx invokes a method with a merged positional slice and keyword
+// dict. An empty keyword dict falls through to the plain method dispatch so the
+// no-keyword path stays identical.
+func CallMethodEx(recv Object, name string, pos []Object, kw Object) (Object, error) {
+	names, vals, err := kwSplit(kw)
+	if err != nil {
+		return nil, err
+	}
+	if len(names) == 0 {
+		return CallMethod(recv, name, pos)
+	}
+	return CallMethodKw(recv, name, pos, names, vals)
+}
+
+// CallMethodStarEx invokes a method whose whole positional pack is a deferred
+// *iterable and that also carries keyword parts. The star conversion error
+// spells the receiver type the same way CallMethodStar does.
+func CallMethodStarEx(recv Object, name string, star Object, kw Object) (Object, error) {
+	iter, err := Iter(star)
+	if err != nil {
+		return nil, Raise(TypeError, "%s argument after * must be an iterable, not %s",
+			methodFuncStr(recv, name), star.TypeName())
+	}
+	args, err := drainInto(nil, iter)
+	if err != nil {
+		return nil, err
+	}
+	return CallMethodEx(recv, name, args, kw)
 }
