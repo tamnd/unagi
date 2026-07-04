@@ -98,6 +98,32 @@ func TestWrongArityLowersToRaise(t *testing.T) {
 	}
 }
 
+// A decorated def builds its function object then applies the decorator
+// through objects.Call, and binds the name to the result through the module
+// variable rather than the static function fast path.
+func TestDecoratedDefLowering(t *testing.T) {
+	mod := &frontend.Module{Body: []frontend.Stmt{
+		&frontend.FuncDef{Name: "deco", Params: params("f"), Body: []frontend.Stmt{
+			&frontend.Return{Value: &frontend.Name{Id: "f"}},
+		}},
+		&frontend.FuncDef{Name: "target", Body: []frontend.Stmt{&frontend.Pass{}},
+			Decorators: []frontend.Expr{&frontend.Name{Id: "deco"}}},
+	}}
+	src, err := Module(mod, "dec.py", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(src)
+	for _, want := range []string{
+		"objects.Call(",
+		"u_target =",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("emitted source missing %q:\n%s", want, got)
+		}
+	}
+}
+
 // A literal past int64 lowers to a NewIntText call so the emitted program
 // parses it into a big int at startup.
 func TestHugeIntLiteralLowersToText(t *testing.T) {

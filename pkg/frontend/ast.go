@@ -123,22 +123,26 @@ type Param struct {
 	Default Expr
 }
 
-// FuncDef is `def name(params):`.
+// FuncDef is `def name(params):`. Decorators holds the decorator expressions
+// in written (top to bottom) order, empty for an undecorated def.
 type FuncDef struct {
-	Pos_   Pos
-	Name   string
-	Params []Param
-	Body   []Stmt
+	Pos_       Pos
+	Name       string
+	Params     []Param
+	Body       []Stmt
+	Decorators []Expr
 }
 
 // ClassDef is `class Name(bases): body`. Bases holds the base-class
 // expressions in written order; an empty slice is the bare `class Name:`
 // form. The body carries method defs and class-variable assignments.
+// Decorators holds the decorator expressions in written order.
 type ClassDef struct {
-	Pos_  Pos
-	Name  string
-	Bases []Expr
-	Body  []Stmt
+	Pos_       Pos
+	Name       string
+	Bases      []Expr
+	Body       []Stmt
+	Decorators []Expr
 }
 
 // Try is the full try/except/else/finally statement. A try with no handlers

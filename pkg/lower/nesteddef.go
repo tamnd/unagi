@@ -14,14 +14,6 @@ import (
 // closure read. Unlike a lambda it has a full statement body and its own
 // locals, globals, and deletes.
 func (f *fnCtx) nestedDef(s *frontend.FuncDef) error {
-	// Defaults evaluate at def time in the enclosing scope, into temporaries,
-	// the same shape a lambda uses. A nested def has no module slot to hold
-	// them.
-	dfltsExpr, err := f.lambdaDefaults(s.Params)
-	if err != nil {
-		return err
-	}
-
 	// Probed on 3.14: __qualname__ is enclosing.<locals>.name while traceback
 	// frames keep the bare co_name.
 	qual := s.Name
@@ -67,10 +59,33 @@ func (f *fnCtx) nestedDef(s *frontend.FuncDef) error {
 	in.add(&ast.ReturnStmt{Results: []ast.Expr{f.e.obj("None"), ident("nil")}})
 	impl := &ast.FuncLit{Type: f.e.implType(), Body: in.pop()}
 
+	// build evaluates the defaults at def time in the enclosing scope, into
+	// temporaries the same shape a lambda uses, then the function object. A
+	// nested def has no module slot to hold them. Decorators evaluate first,
+	// so the build runs inside the decorate helper.
+	build := func() (ast.Expr, error) {
+		dfltsExpr, err := f.lambdaDefaults(s.Params)
+		if err != nil {
+			return nil, err
+		}
+		return callExpr(f.e.obj("NewFunction"), strLit(qual), f.e.paramSpecLit(s.Params), dfltsExpr, impl), nil
+	}
+
 	// The def statement binds the name in the enclosing scope; the enclosing
 	// context declared and checked the slot through collectLocalDefs.
-	f.add(set(ident(mangle(s.Name)),
-		callExpr(f.e.obj("NewFunction"), strLit(qual), f.e.paramSpecLit(s.Params), dfltsExpr, impl)))
+	if len(s.Decorators) == 0 {
+		obj, err := build()
+		if err != nil {
+			return err
+		}
+		f.add(set(ident(mangle(s.Name)), obj))
+		return nil
+	}
+	obj, err := f.decorate(s.Decorators, build)
+	if err != nil {
+		return err
+	}
+	f.add(set(ident(mangle(s.Name)), obj))
 	return nil
 }
 

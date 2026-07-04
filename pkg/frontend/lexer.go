@@ -102,7 +102,7 @@ var opTable = []string{
 	"**=", "//=", "<<=", ">>=",
 	"**", "//", "==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "%=", ":=",
 	"<<", ">>", "&=", "|=", "^=",
-	"+", "-", "*", "/", "%", "=", "<", ">", "&", "|", "^", "~",
+	"+", "-", "*", "/", "%", "=", "<", ">", "&", "|", "^", "~", "@",
 	"(", ")", "[", "]", "{", "}", ",", ":", ".", ";",
 }
 
@@ -647,10 +647,12 @@ func (lx *lexer) lexOp(pos Pos) {
 			lx.err(pos, "f-string: expecting '=', or '!', or ':', or '}'")
 		}
 	case '@':
-		if len(lx.toks) == lx.lineStart {
-			lx.err(pos, "decorators are not supported yet")
+		// A '@' at the start of a logical line opens a decorator; it emits as
+		// an operator token the parser consumes. Anywhere else it is the matrix
+		// multiplication operator, which is not supported yet.
+		if len(lx.toks) != lx.lineStart {
+			lx.err(pos, "the matrix multiplication operator '@' is not supported yet")
 		}
-		lx.err(pos, "the matrix multiplication operator '@' is not supported yet")
 	}
 	for _, op := range opTable {
 		if !lx.lookahead(op) {
