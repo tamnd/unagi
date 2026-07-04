@@ -412,6 +412,14 @@ func collectAssigned(body []frontend.Stmt, out map[string]bool) {
 				walkTarget(s.Target)
 				walkExpr(s.Target)
 				walkExpr(s.Value)
+			case *frontend.AnnAssign:
+				// Only a valued annotation binds its target; a bare `y: int`
+				// leaves y unbound, so it is not collected as a local here.
+				if s.Value != nil {
+					walkTarget(s.Target)
+				}
+				walkExpr(s.Target)
+				walkExpr(s.Value)
 			case *frontend.Del:
 				for _, t := range s.Targets {
 					if n, ok := t.(*frontend.Name); ok {

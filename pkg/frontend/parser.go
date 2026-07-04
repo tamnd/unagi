@@ -280,7 +280,7 @@ func (p *parser) parseSimpleStmt() Stmt {
 	}
 	first := p.parseStarTestlist()
 	if p.isOp(":") {
-		p.errf(p.cur().pos, "variable annotations are not supported yet")
+		return p.parseAnnAssign(first)
 	}
 	if p.cur().kind == tOp {
 		if op, ok := augOps[p.cur().text]; ok {
@@ -305,6 +305,32 @@ func (p *parser) parseSimpleStmt() Stmt {
 	}
 	p.rejectStarred(first)
 	return &ExprStmt{Pos_: first.Span(), X: first}
+}
+
+// parseAnnAssign parses the `: annotation` tail of a variable annotation and
+// an optional `= value` (PEP 526). The cursor sits on the colon. Only a single
+// Name, Attribute, or Subscript may be annotated; a tuple or list target is a
+// syntax error with CPython's exact wording. Following PEP 649 the annotation
+// expression is never evaluated, so it is parsed and discarded rather than
+// stored on the node.
+func (p *parser) parseAnnAssign(target Expr) Stmt {
+	switch target.(type) {
+	case *Name, *Attribute, *Subscript:
+	case *TupleLit:
+		p.errf(target.Span(), "only single target (not tuple) can be annotated")
+	case *ListLit:
+		p.errf(target.Span(), "only single target (not list) can be annotated")
+	default:
+		p.checkAssignTarget(target)
+	}
+	p.wantOp(":")
+	p.parseTest()
+	var value Expr
+	if p.eatOp("=") {
+		value = p.parseAssignRHS()
+		p.rejectStarred(value)
+	}
+	return &AnnAssign{Pos_: target.Span(), Target: target, Value: value}
 }
 
 // addDelTargets flattens one del target list into d.Targets; a parenthesized

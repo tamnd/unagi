@@ -50,6 +50,11 @@ func ds(s Stmt) string {
 		return "(= " + strings.Join(parts, " ") + ")"
 	case *AugAssign:
 		return "(" + binNames[s.Op] + "= " + de(s.Target) + " " + de(s.Value) + ")"
+	case *AnnAssign:
+		if s.Value == nil {
+			return "(ann " + de(s.Target) + ")"
+		}
+		return "(ann " + de(s.Target) + " " + de(s.Value) + ")"
 	case *If:
 		return "(if " + de(s.Cond) + " " + dbody(s.Body) + " " + dbody(s.Else) + ")"
 	case *While:
@@ -728,6 +733,12 @@ func TestParse(t *testing.T) {
 		{"star in paren tuple target", "(a, *b) = c", "(= (tuple a (* b)) c)"},
 		{"fstring star in tuple", `f"{*a, b}"`, `(expr (fstr (interp (tuple (* a) b))))`},
 		{"star last target", "a, *b = c", "(= (tuple a (* b)) c)"},
+		{"annotated assign", "x: int = 1", "(ann x 1)"},
+		{"bare annotation", "x: int", "(ann x)"},
+		{"annotated attribute", "obj.x: int = 1", "(ann (. obj x) 1)"},
+		{"annotated subscript", "d[k]: int = 1", "(ann ([] d k) 1)"},
+		{"annotation deferred name", "x: Undefined = 1", "(ann x 1)"},
+		{"annotated assign tuple value", "x: int = 1, 2", "(ann x (tuple 1 2))"},
 		{"star for target", "for a, *b in x: pass", "(for (tuple a (* b)) x [(pass)] [])"},
 		{"star for target first", "for *a, b in x: pass", "(for (tuple (* a) b) x [(pass)] [])"},
 		{"for subscript target", "for a[0] in x: pass", "(for ([] a 0) x [(pass)] [])"},
@@ -980,7 +991,8 @@ func TestParseErrors(t *testing.T) {
 		{"bare star then kwargs after param", "def f(a, *, **k): pass", "named arguments must follow bare *"},
 		{"star args default", "def f(*args=1): pass", "var-positional argument cannot have default value"},
 		{"kwargs default", "def f(**k=1): pass", "var-keyword argument cannot have default value"},
-		{"variable annotation", "x: int = 1", "variable annotations are not supported yet"},
+		{"tuple annotation target", "a, b: int = (1, 2)", "only single target (not tuple) can be annotated"},
+		{"list annotation target", "[a]: int = [1]", "only single target (not list) can be annotated"},
 		{"assign to int", "1 = x", "cannot assign to literal"},
 		{"assign to string", "'s' = x", "cannot assign to literal"},
 		{"assign to True", "True = 1", "cannot assign to True"},

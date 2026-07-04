@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+module valued 5
+bare annotation is a no-op
+bare then assigned 7
+annotation deferred 42
+tuple rhs (1, 2)
+attr annotated 3 4 0
+class bare not bound
+subscript annotated {'k': 99}
+func locals 30
+bare subscript no store {}
+== exception:
+== stderr:

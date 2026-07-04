@@ -58,6 +58,16 @@ type AugAssign struct {
 	Value  Expr
 }
 
+// AnnAssign is `target: annotation` and `target: annotation = value` (PEP
+// 526). Only a single Name, Attribute, or Subscript may be annotated. Value
+// is nil for a bare annotation. Following PEP 649 the annotation expression is
+// never evaluated, so the parser discards it and this node does not carry it.
+type AnnAssign struct {
+	Pos_   Pos
+	Target Expr
+	Value  Expr
+}
+
 // If is the full if/elif/else chain; elif nests as another If in Else.
 type If struct {
 	Pos_ Pos
@@ -269,6 +279,7 @@ func (s *Assert) Span() Pos    { return s.Pos_ }
 func (s *ExprStmt) Span() Pos  { return s.Pos_ }
 func (s *Assign) Span() Pos    { return s.Pos_ }
 func (s *AugAssign) Span() Pos { return s.Pos_ }
+func (s *AnnAssign) Span() Pos { return s.Pos_ }
 func (s *If) Span() Pos        { return s.Pos_ }
 func (s *While) Span() Pos     { return s.Pos_ }
 func (s *For) Span() Pos       { return s.Pos_ }
@@ -290,6 +301,7 @@ func (*Assert) stmt()    {}
 func (*ExprStmt) stmt()  {}
 func (*Assign) stmt()    {}
 func (*AugAssign) stmt() {}
+func (*AnnAssign) stmt() {}
 func (*If) stmt()        {}
 func (*While) stmt()     {}
 func (*For) stmt()       {}
