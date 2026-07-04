@@ -172,3 +172,68 @@ func TestCallMethodStar(t *testing.T) {
 	checkErr(t, "method star non-iterable", err,
 		"TypeError: list.append() argument after * must be an iterable, not int")
 }
+
+func TestKwSetAndMergeMethod(t *testing.T) {
+	recv := NewStr("x")
+
+	kw, err := KwSetM(recv, "join", nil, "a", NewInt(1))
+	if err != nil {
+		t.Fatalf("first set: %v", err)
+	}
+	// A builtin-typed receiver spells the merge error as type.method().
+	_, err = KwSetM(recv, "join", kw, "a", NewInt(2))
+	checkErr(t, "method literal collision", err,
+		"TypeError: str.join() got multiple values for keyword argument 'a'")
+
+	m, err2 := NewDict([]Object{NewStr("a")}, []Object{NewInt(3)})
+	if err2 != nil {
+		t.Fatal(err2)
+	}
+	_, err = KwMergeM(recv, "join", kw, m)
+	checkErr(t, "method merge collision", err,
+		"TypeError: str.join() got multiple values for keyword argument 'a'")
+
+	_, err = KwMergeM(recv, "join", nil, NewList(nil))
+	checkErr(t, "method merge non-mapping", err,
+		"TypeError: str.join() argument after ** must be a mapping, not list")
+}
+
+func TestCallMethodEx(t *testing.T) {
+	// An empty keyword dict falls through to the plain method dispatch.
+	lst := NewList([]Object{NewInt(1)})
+	if _, err := CallMethodEx(lst, "append", []Object{NewInt(2)}, nil); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if s := Repr(lst); s != "[1, 2]" {
+		t.Errorf("list after append %s", s)
+	}
+
+	// A non-str key survives the merge and is only rejected at call time.
+	m, err := NewDict([]Object{NewInt(1)}, []Object{NewInt(2)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kw, err := KwMergeM(lst, "append", nil, m)
+	if err != nil {
+		t.Fatalf("merge int key: %v", err)
+	}
+	_, err = CallMethodEx(lst, "append", nil, kw)
+	checkErr(t, "int key at call", err, "TypeError: keywords must be strings")
+}
+
+func TestCallMethodStarEx(t *testing.T) {
+	// The star conversion error names the receiver method, and outranks the
+	// keyword str check the same way CallStarEx does.
+	lst := NewList(nil)
+	m, err := NewDict([]Object{NewInt(1)}, []Object{NewInt(2)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kw, err := KwMergeM(lst, "append", nil, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = CallMethodStarEx(lst, "append", NewInt(3), kw)
+	checkErr(t, "method star error before key check", err,
+		"TypeError: list.append() argument after * must be an iterable, not int")
+}

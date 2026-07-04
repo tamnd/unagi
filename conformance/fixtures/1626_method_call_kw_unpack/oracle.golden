@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+((1, 2), [('k', 3)])
+((), [('a', 1), ('b', 2)])
+((1, 2), [('x', 9), ('y', 10)])
+((7,), [('p', 1), ('q', 2)])
+((0, 1, 2, 3), [('key', 'v')])
+dup -> __main__.C.m() got multiple values for keyword argument 'a'
+badmap -> __main__.C.m() argument after ** must be a mapping, not list
+starnoniter -> __main__.C.m() argument after * must be an iterable, not int
+builtin-dup -> str.join() got multiple values for keyword argument 'a'
+builtin-badmap -> str.join() argument after ** must be a mapping, not list
+builtin-starnoniter -> str.join() argument after * must be an iterable, not int
+builtin-nokw -> str.join() takes no keyword arguments
+== exception:
+== stderr:
