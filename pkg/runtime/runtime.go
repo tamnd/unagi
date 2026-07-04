@@ -449,6 +449,7 @@ func init() {
 		"ascii":    objects.NewFunc("ascii", 1, func(args []objects.Object) (objects.Object, error) { return Ascii(args[0]) }),
 		"vars":     objects.NewFunc("vars", 1, func(args []objects.Object) (objects.Object, error) { return Vars(args[0]) }),
 		"type":     objects.NewFunc("type", -1, TypeCall),
+		"object":   objects.ObjectType(),
 		"getattr":  objects.NewFunc("getattr", -1, GetAttr),
 		"hasattr":  objects.NewFunc("hasattr", -1, HasAttr),
 		"setattr":  objects.NewFunc("setattr", -1, SetAttr),

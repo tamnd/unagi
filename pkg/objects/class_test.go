@@ -98,6 +98,67 @@ func TestNonTypeBase(t *testing.T) {
 	}
 }
 
+// ObjectType is the root every class linearizes to and the value the object
+// builtin resolves to, so a class carries it at the tail of its MRO and every
+// value is an instance of it.
+func TestObjectTypeRoot(t *testing.T) {
+	obj := ObjectType()
+	if obj != Object(objectClass) {
+		t.Fatal("ObjectType is not the object root singleton")
+	}
+	if r := Repr(obj); r != "<class 'object'>" {
+		t.Errorf("repr(object) = %s, want <class 'object'>", r)
+	}
+	c := mkclass(t, "C", objectClass)
+	if got := mroNames(c); got != "C" {
+		t.Errorf("MRO = %s, want C (object omitted from the stored chain)", got)
+	}
+	for _, v := range []Object{NewInt(5), NewStr("x"), None, obj} {
+		r, err := IsInstance(v, obj)
+		if err != nil || r != True {
+			t.Errorf("isinstance(%s, object) = %v, %v", v.TypeName(), r, err)
+		}
+	}
+	r, err := IsSubclass(c, obj)
+	if err != nil || r != True {
+		t.Errorf("issubclass(C, object) = %v, %v", r, err)
+	}
+	r, err = IsSubclass(obj, NewFunc("int", -1, nil))
+	if err != nil || r != False {
+		t.Errorf("issubclass(object, int) = %v, %v", r, err)
+	}
+}
+
+// A bare object() instance reprs with the object type name and an address.
+func TestObjectInstanceRepr(t *testing.T) {
+	inst, err := Instantiate(objectClass, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("object(): %v", err)
+	}
+	if r := Repr(inst); !strings.HasPrefix(r, "<object object at 0x") {
+		t.Errorf("repr(object()) = %s, want <object object at 0x...>", r)
+	}
+	if _, err := Instantiate(objectClass, []Object{NewInt(1)}, nil, nil); err == nil ||
+		!strings.Contains(err.Error(), "object() takes no arguments") {
+		t.Errorf("object(1) error = %v, want takes-no-arguments", err)
+	}
+}
+
+// object listed before another base is an inconsistent order, since it must
+// also come last as the shared root.
+func TestC3ObjectOrderConflict(t *testing.T) {
+	a := mkclass(t, "A")
+	b := mkclass(t, "B", a)
+	_, err := NewClass("Z", "Z", []Object{objectClass, b}, nil, nil, nil, nil)
+	if err == nil {
+		t.Fatal("want an inconsistent-MRO error for (object, B)")
+	}
+	want := "Cannot create a consistent method resolution order (MRO) for bases object, B"
+	if got := err.Error(); !strings.Contains(got, want) {
+		t.Errorf("error = %q, want substring %q", got, want)
+	}
+}
+
 // A method defined only on a base resolves through the MRO when read off a
 // derived instance and binds that instance as self.
 func TestInheritedMethodBinds(t *testing.T) {

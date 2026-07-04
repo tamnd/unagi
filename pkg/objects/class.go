@@ -13,6 +13,12 @@ import (
 // __mro__, and __base__ reads and isinstance and issubclass over the root.
 var objectClass = &classObject{name: "object", qual: "object", dict: map[string]Object{}}
 
+// ObjectType is the object builtin, the root type every class derives from. It
+// is the same singleton the MRO, __bases__, and isinstance/issubclass roots
+// already resolve to, so the runtime can register it as the `object` name and
+// object() constructs a bare instance through the ordinary class-call path.
+func ObjectType() Object { return objectClass }
+
 // classObject is a user-defined class, the type object a class statement
 // builds. dict holds the names the class body bound, methods and class
 // variables alike, in the order they were written so repr and iteration
@@ -163,16 +169,53 @@ func c3Linearize(c *classObject) ([]*classObject, error) {
 	if len(c.bases) == 0 {
 		return []*classObject{c}, nil
 	}
+	// object participates in the merge as the shared root so an explicit base
+	// order that puts it before another base is caught as the conflict CPython
+	// reports; it is stripped from the stored mro afterward since it holds no
+	// user names and is re-synthesized where the surface needs it.
 	var seqs [][]*classObject
 	for _, b := range c.bases {
-		seqs = append(seqs, append([]*classObject(nil), b.mro...))
+		seqs = append(seqs, fullMRO(b))
 	}
-	seqs = append(seqs, append([]*classObject(nil), c.bases...))
+	baseSeq := append([]*classObject(nil), c.bases...)
+	if !containsClass(c.bases, objectClass) {
+		baseSeq = append(baseSeq, objectClass)
+	}
+	seqs = append(seqs, baseSeq)
 	merged, err := c3Merge(seqs)
 	if err != nil {
 		return nil, err
 	}
-	return append([]*classObject{c}, merged...), nil
+	full := append([]*classObject{c}, merged...)
+	return dropClass(full, objectClass), nil
+}
+
+// fullMRO is a base's linearization with object restored at the tail, the form
+// C3 merges over. object's own chain is just itself.
+func fullMRO(b *classObject) []*classObject {
+	if b == objectClass {
+		return []*classObject{objectClass}
+	}
+	return append(append([]*classObject(nil), b.mro...), objectClass)
+}
+
+func containsClass(cs []*classObject, want *classObject) bool {
+	for _, c := range cs {
+		if c == want {
+			return true
+		}
+	}
+	return false
+}
+
+func dropClass(cs []*classObject, drop *classObject) []*classObject {
+	out := cs[:0:0]
+	for _, c := range cs {
+		if c != drop {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // c3Merge is the merge step of C3: repeatedly take a head that appears in no

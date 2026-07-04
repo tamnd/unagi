@@ -22,7 +22,7 @@ var builtinNames = map[string]bool{
 	"getattr": true, "hasattr": true, "setattr": true, "delattr": true,
 	"any": true, "all": true, "callable": true, "ascii": true,
 	"iter": true, "map": true, "filter": true, "vars": true,
-	"type": true,
+	"type": true, "object": true,
 }
 
 // descriptorBuiltins are the builtin names that resolve to a value: the three
@@ -197,6 +197,12 @@ func (f *fnCtx) methodCallKw(attr *frontend.Attribute, recv ast.Expr, e *fronten
 }
 
 func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
+	if name == "object" {
+		// object() builds a bare instance through the ordinary class-call path,
+		// which owns the takes-no-arguments check, so it needs no dedicated
+		// helper; the name resolves to the object type as a value.
+		return f.dynCall(e)
+	}
 	for _, a := range e.Args {
 		if a.Name != "" {
 			return f.builtinKwCall(name, e)
