@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+C (<class 'object'>,) 1
+1 hi C True
+base 2 True
+(<class '__main__.D'>, <class '__main__.Base'>, <class 'object'>)
+True True
+(<class 'object'>,) <class '__main__.E'>
+<class 'mymod.F'> 9
+20 G=20
+base 2 3 ['H', 'D', 'Base', 'object']
+type.__new__() argument 3 must be dict, not list
+type.__new__() argument 2 must be tuple, not list
+type.__new__() argument 1 must be str, not int
+Cannot create a consistent method resolution order (MRO) for bases A, B
+== exception:
+== stderr:

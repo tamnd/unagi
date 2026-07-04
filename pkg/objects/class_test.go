@@ -270,3 +270,59 @@ func TestInstanceDictNonInstance(t *testing.T) {
 		t.Fatalf("error = %v, want vars() __dict__ TypeError", err)
 	}
 }
+
+// TestNewType3 covers the three-argument type() dynamic-class path: a valid
+// build carries name, bases, namespace values and MRO, and each argument-type
+// slot raises the probed type.__new__ wording.
+func TestNewType3(t *testing.T) {
+	emptyDict := func() Object {
+		d, err := NewDict(nil, nil)
+		if err != nil {
+			t.Fatalf("NewDict: %v", err)
+		}
+		return d
+	}
+	ns, err := NewDict([]Object{NewStr("x")}, []Object{NewInt(7)})
+	if err != nil {
+		t.Fatalf("NewDict: %v", err)
+	}
+	c, err := NewType3(NewStr("C"), NewTuple(nil), ns)
+	if err != nil {
+		t.Fatalf("NewType3: %v", err)
+	}
+	cls := c.(*classObject)
+	if cls.name != "C" || cls.qual != "__main__.C" {
+		t.Errorf("name/qual = %q/%q, want C/__main__.C", cls.name, cls.qual)
+	}
+	if v, err := LoadAttr(c, "x"); err != nil || Repr(v) != "7" {
+		t.Errorf("C.x = %v (err %v), want 7", v, err)
+	}
+	if got := mroNames(cls); got != "C" {
+		t.Errorf("MRO = %s, want C", got)
+	}
+
+	base := mkclass(t, "Base")
+	d, err := NewType3(NewStr("D"), NewTuple([]Object{base}), emptyDict())
+	if err != nil {
+		t.Fatalf("NewType3 with base: %v", err)
+	}
+	if got := mroNames(d.(*classObject)); got != "D/Base" {
+		t.Errorf("MRO = %s, want D/Base", got)
+	}
+
+	for _, tt := range []struct {
+		name             string
+		nameA, bases, ns Object
+		want             string
+	}{
+		{"name", NewInt(5), NewTuple(nil), emptyDict(),
+			"TypeError: type.__new__() argument 1 must be str, not int"},
+		{"bases", NewStr("X"), NewList(nil), emptyDict(),
+			"TypeError: type.__new__() argument 2 must be tuple, not list"},
+		{"ns", NewStr("X"), NewTuple(nil), NewList(nil),
+			"TypeError: type.__new__() argument 3 must be dict, not list"},
+	} {
+		_, err := NewType3(tt.nameA, tt.bases, tt.ns)
+		checkErr(t, tt.name, err, tt.want)
+	}
+}
