@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+27 1 1
+'\x07\x08\x0c\x0b'
+[7, 8, 12, 11]
+ABC 7 32 255
+'\x008' 65
+AB 8364 128512
+café 中文
+1 '\u20ac'
+== exception:
+== stderr:
