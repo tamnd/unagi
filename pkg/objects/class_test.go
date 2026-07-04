@@ -160,3 +160,52 @@ func TestCallMethodKwBuiltinRejects(t *testing.T) {
 		t.Fatalf("error = %v, want takes-no-keyword message", err)
 	}
 }
+
+// InstanceDict reports an instance's own attributes in insertion order and
+// tracks deletes, backing vars() and __dict__.
+func TestInstanceDictOrder(t *testing.T) {
+	c := mkclass(t, "C")
+	inst := &instanceObject{cls: c, dict: map[string]Object{}}
+	for _, kv := range []struct {
+		k string
+		v int64
+	}{{"b", 1}, {"a", 2}, {"c", 3}} {
+		if err := StoreAttr(inst, kv.k, NewInt(kv.v)); err != nil {
+			t.Fatalf("StoreAttr(%s): %v", kv.k, err)
+		}
+	}
+	d, err := InstanceDict(inst)
+	if err != nil {
+		t.Fatalf("InstanceDict: %v", err)
+	}
+	if got := Repr(d); got != "{'b': 1, 'a': 2, 'c': 3}" {
+		t.Errorf("InstanceDict = %s, want insertion order", got)
+	}
+	// A delete removes the key; a later re-add appends at the end.
+	if err := DelAttr(inst, "a"); err != nil {
+		t.Fatalf("DelAttr: %v", err)
+	}
+	if err := StoreAttr(inst, "a", NewInt(9)); err != nil {
+		t.Fatalf("StoreAttr re-add: %v", err)
+	}
+	d, _ = InstanceDict(inst)
+	if got := Repr(d); got != "{'b': 1, 'c': 3, 'a': 9}" {
+		t.Errorf("InstanceDict after del+readd = %s, want 'a' last", got)
+	}
+	// Overwriting an existing key keeps its original position.
+	if err := StoreAttr(inst, "b", NewInt(7)); err != nil {
+		t.Fatalf("StoreAttr overwrite: %v", err)
+	}
+	d, _ = InstanceDict(inst)
+	if got := Repr(d); got != "{'b': 7, 'c': 3, 'a': 9}" {
+		t.Errorf("InstanceDict after overwrite = %s, want 'b' first", got)
+	}
+}
+
+// InstanceDict on a non-instance raises the vars() __dict__ TypeError.
+func TestInstanceDictNonInstance(t *testing.T) {
+	_, err := InstanceDict(NewInt(5))
+	if err == nil || !strings.Contains(err.Error(), "vars() argument must have __dict__ attribute") {
+		t.Fatalf("error = %v, want vars() __dict__ TypeError", err)
+	}
+}

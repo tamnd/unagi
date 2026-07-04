@@ -1,0 +1,20 @@
+== exit: 0
+== stdout:
+{'x': 1, 'y': 2}
+{'x': 1, 'y': 2}
+True
+True
+{'x': 1, 'y': 2, 'color': 'red'}
+{'y': 2, 'color': 'red'}
+{'y': 2, 'color': 'red', 'x': 99}
+['color', 'x', 'y']
+False False False
+{}
+{}
+{'only': 7}
+TypeError: vars() argument must have __dict__ attribute
+TypeError: vars() argument must have __dict__ attribute
+TypeError: vars() argument must have __dict__ attribute
+TypeError: vars() argument must have __dict__ attribute
+== exception:
+== stderr:

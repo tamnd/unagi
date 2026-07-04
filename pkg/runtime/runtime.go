@@ -404,6 +404,7 @@ func init() {
 		"all":      objects.NewFunc("all", 1, func(args []objects.Object) (objects.Object, error) { return All(args[0]) }),
 		"callable": objects.NewFunc("callable", 1, func(args []objects.Object) (objects.Object, error) { return Callable(args[0]) }),
 		"ascii":    objects.NewFunc("ascii", 1, func(args []objects.Object) (objects.Object, error) { return Ascii(args[0]) }),
+		"vars":     objects.NewFunc("vars", 1, func(args []objects.Object) (objects.Object, error) { return Vars(args[0]) }),
 		"getattr":  objects.NewFunc("getattr", -1, GetAttr),
 		"hasattr":  objects.NewFunc("hasattr", -1, HasAttr),
 		"setattr":  objects.NewFunc("setattr", -1, SetAttr),

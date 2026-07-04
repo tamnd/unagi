@@ -2,6 +2,7 @@ package objects
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -36,6 +37,11 @@ func (*classObject) TypeName() string { return "type" }
 type instanceObject struct {
 	cls  *classObject
 	dict map[string]Object
+	// order records the insertion order of the instance's own attributes, so
+	// __dict__ and vars() report them the way CPython's ordered instance dict
+	// does. It holds every live key in dict; StoreAttr appends a new key and
+	// DelAttr removes it.
+	order []string
 }
 
 func (o *instanceObject) TypeName() string { return o.cls.name }
@@ -456,6 +462,11 @@ func Instantiate(c *classObject, pos []Object, kwNames []string, kwVals []Object
 func LoadAttr(o Object, name string) (Object, error) {
 	switch x := o.(type) {
 	case *instanceObject:
+		// __dict__ is a data descriptor on the type, so it answers from the
+		// instance itself and outranks anything in the instance dict.
+		if name == "__dict__" {
+			return instanceDict(x)
+		}
 		// CPython precedence: a data descriptor on the type outranks the
 		// instance dict, then the instance dict, then a non-data descriptor or
 		// plain class value, then AttributeError.
@@ -529,6 +540,9 @@ func StoreAttr(o Object, name string, val Object) error {
 				}
 			}
 		}
+		if _, seen := x.dict[name]; !seen {
+			x.order = append(x.order, name)
+		}
 		x.dict[name] = val
 		return nil
 	case *classObject:
@@ -571,6 +585,12 @@ func DelAttr(o Object, name string) error {
 			return Raise(AttributeError, "'%s' object has no attribute '%s'", x.cls.name, name)
 		}
 		delete(x.dict, name)
+		for i, k := range x.order {
+			if k == name {
+				x.order = append(x.order[:i], x.order[i+1:]...)
+				break
+			}
+		}
 		return nil
 	case *classObject:
 		if _, ok := x.dict[name]; !ok {
@@ -580,6 +600,52 @@ func DelAttr(o Object, name string) error {
 		return nil
 	}
 	return Raise(AttributeError, "'%s' object has no attribute '%s'", o.TypeName(), name)
+}
+
+// instanceDict builds a fresh dict of an instance's own attributes in insertion
+// order, backing `inst.__dict__` and `vars(inst)`. CPython hands back a live
+// mapping; this is a snapshot, so writing through the returned dict does not
+// reach the instance. Keys missing from the order slice (only possible for
+// whitebox-constructed instances that bypass StoreAttr) are appended in sorted
+// order so the result stays deterministic.
+func instanceDict(x *instanceObject) (Object, error) {
+	keys := make([]Object, 0, len(x.dict))
+	vals := make([]Object, 0, len(x.dict))
+	seen := make(map[string]bool, len(x.dict))
+	for _, k := range x.order {
+		v, ok := x.dict[k]
+		if !ok || seen[k] {
+			continue
+		}
+		seen[k] = true
+		keys = append(keys, NewStr(k))
+		vals = append(vals, v)
+	}
+	if len(seen) < len(x.dict) {
+		rest := make([]string, 0, len(x.dict)-len(seen))
+		for k := range x.dict {
+			if !seen[k] {
+				rest = append(rest, k)
+			}
+		}
+		sort.Strings(rest)
+		for _, k := range rest {
+			keys = append(keys, NewStr(k))
+			vals = append(vals, x.dict[k])
+		}
+	}
+	return NewDict(keys, vals)
+}
+
+// InstanceDict exposes an instance's own attributes as an ordered dict for the
+// vars() builtin. A non-instance has no __dict__, which is the TypeError vars()
+// gives on 3.14.
+func InstanceDict(o Object) (Object, error) {
+	x, ok := o.(*instanceObject)
+	if !ok {
+		return nil, Raise(TypeError, "vars() argument must have __dict__ attribute")
+	}
+	return instanceDict(x)
 }
 
 // classSubscript implements C[item] on a class. Subscription looks for a
