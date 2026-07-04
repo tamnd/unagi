@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+A
+B>A
+C>B>A
+['Diamond', 'Left', 'Right', 'Base']
+3 p
+<super: <class 'Repr'>, <Repr object>>
+attr: 'super' object has no attribute 'nope'
+noargs: super(): no arguments
+== exception:
+== stderr:

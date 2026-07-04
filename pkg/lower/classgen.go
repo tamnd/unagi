@@ -35,7 +35,7 @@ func (e *emitter) emitClassMethods(c *frontend.ClassDef) ([]methodEmit, error) {
 		}
 		declName := e.methodDefName(c.Name, m.Name, mi)
 		implName := e.methodImplName(c.Name, m.Name, mi)
-		decl, err := e.emitFuncDecl(m, declName, m.Name, c.Name+"."+m.Name)
+		decl, err := e.emitMethodDecl(m, declName, m.Name, c.Name+"."+m.Name, c.Name)
 		if err != nil {
 			return nil, err
 		}

@@ -245,6 +245,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return v, nil
 		}
 		return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
+	case *superObject:
+		return superLoadAttr(x, name)
 	}
 	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", o.TypeName(), name)
 }

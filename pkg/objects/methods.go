@@ -21,6 +21,8 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 		return instanceCallMethod(x, name, args)
 	case *classObject:
 		return classCallMethod(x, name, args)
+	case *superObject:
+		return superCallMethod(x, name, args)
 	}
 	return nil, noAttr(o, name)
 }
