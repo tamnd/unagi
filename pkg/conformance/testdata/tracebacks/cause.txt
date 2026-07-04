@@ -1,0 +1,14 @@
+Traceback (most recent call last):
+  File "/private/tmp/tbsamples/cause.py", line 3, in parse
+    return int(s)
+ValueError: invalid literal for int() with base 10: 'x'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/private/tmp/tbsamples/cause.py", line 6, in <module>
+    parse("x")
+    ~~~~~^^^^^
+  File "/private/tmp/tbsamples/cause.py", line 5, in parse
+    raise RuntimeError("bad record") from e
+RuntimeError: bad record

@@ -1,0 +1,10 @@
+== exit: 1
+== stdout:
+== exception:
+TypeError: bad input
+  main.py:6 <module>
+  main.py:5 convert
+cause:
+ValueError: invalid literal for int() with base 10: 'x12'
+  main.py:3 convert
+== stderr:

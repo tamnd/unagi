@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/private/tmp/tbsamples/fromnone.py", line 4, in <module>
+    raise ValueError("clean") from None
+ValueError: clean

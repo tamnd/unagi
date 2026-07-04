@@ -1,0 +1,239 @@
+# The divergence ledger: every way a compiled program can observably differ
+# from CPython 3.14, each with an id the conformance harness validates
+# against. The founding entries CL-01 through CL-16 come from the compat
+# model's section 4; entries from CL-17 on were observed and accepted during
+# implementation. The rendered human page comes later via unagi report.
+
+- id: CL-01
+  title: Finalization timing
+  category: memory-model
+  cpython: __del__ runs at refcount zero, deterministically and promptly.
+  unagi: __del__ runs when the Go collector finds the object unreachable, or best-effort at exit.
+  why: Go's GC replaces refcounting; there is no refcount to hit zero.
+  observable-as:
+    - order of finalizer prints relative to subsequent statements
+    - files flushed by __del__ losing data if the process exits first
+  workaround: with-statements or explicit close()
+  status: permanent
+
+- id: CL-02
+  title: Weakref and finalizer callback timing
+  category: memory-model
+  cpython: weakref callbacks fire promptly at refcount zero.
+  unagi: callbacks fire when the collector clears the referent.
+  why: same physics as CL-01.
+  observable-as:
+    - callback ordering relative to program statements
+  workaround: explicit lifecycle management
+  status: permanent
+
+- id: CL-03
+  title: id() and object identity
+  category: introspection
+  cpython: id() is the object's address.
+  unagi: id() is an opaque stable integer, not an address.
+  why: Go objects move conceptually out of reach; addresses are not part of the contract.
+  observable-as:
+    - programs asserting on id() magnitudes or arithmetic
+  workaround: compare identity with `is`, never id() arithmetic
+  status: permanent
+
+- id: CL-04
+  title: sys.getrefcount and refcount introspection
+  category: introspection
+  cpython: sys.getrefcount returns live refcounts.
+  unagi: absent; sys.getallocatedblocks returns 0.
+  why: no refcounts exist.
+  observable-as:
+    - AttributeError on sys.getrefcount
+  workaround: none
+  status: permanent
+
+- id: CL-05
+  title: sys.getsizeof
+  category: introspection
+  cpython: reports CPython allocation sizes.
+  unagi: absent.
+  why: Go layouts are different objects entirely.
+  observable-as:
+    - AttributeError on sys.getsizeof
+  workaround: none
+  status: permanent
+
+- id: CL-06
+  title: Implementation identity
+  category: introspection
+  cpython: sys.implementation.name is "cpython".
+  unagi: sys.implementation.name is "unagi".
+  why: honest self-identification, PEP 421.
+  observable-as:
+    - implementation checks branching
+  workaround: feature-detect instead of name-matching
+  status: permanent
+
+- id: CL-07
+  title: No bytecode, no live code objects
+  category: introspection
+  cpython: __code__.co_code holds bytecode; dis works.
+  unagi: co_code is empty; dis has nothing to disassemble.
+  why: both tiers compile to Go; no bytecode exists.
+  observable-as:
+    - dis output, bytecode hacks
+  workaround: none
+  status: permanent
+
+- id: CL-08
+  title: Frame introspection limits on the static tier
+  category: introspection
+  cpython: frames are live objects with full local visibility.
+  unagi: static-tier frames are synthetic reconstructions.
+  why: unboxed locals have no boxed frame to live in.
+  observable-as:
+    - sys._getframe().f_locals depth and mutability
+  workaround: taint forces the boxed tier where introspection is real
+  status: permanent
+
+- id: CL-09
+  title: Tracing, profiling, and sys.monitoring
+  category: introspection
+  cpython: sys.settrace and sys.monitoring observe every event.
+  unagi: absent; compiled code emits no interpreter events.
+  why: there is no interpreter loop to hook.
+  observable-as:
+    - debuggers and coverage tools built on tracing
+  workaround: Go-side profiling
+  status: permanent
+
+- id: CL-10
+  title: Visibility of GIL removal
+  category: concurrency
+  cpython: the GIL serializes bytecode steps; some races are unobservable.
+  unagi: threads are goroutines with no GIL; racing code can observe interleavings CPython hides.
+  why: D5; the atomicity contract covers what stays atomic.
+  observable-as:
+    - torn check-then-act sequences racing across threads
+  workaround: locks, queue, the documented atomic operations
+  status: permanent
+
+- id: CL-11
+  title: The gc module surface
+  category: introspection
+  cpython: gc exposes the object graph.
+  unagi: gc.collect works as a hint; graph spelunking functions are absent.
+  why: Go's collector owns the graph.
+  observable-as:
+    - gc.get_referrers/get_referents AttributeError
+  workaround: none
+  status: permanent
+
+- id: CL-12
+  title: Signal delivery timing
+  category: platform
+  cpython: signals deliver between bytecodes on the main thread.
+  unagi: signals deliver at runtime check points, not between every operation.
+  why: no bytecode boundaries exist.
+  observable-as:
+    - KeyboardInterrupt landing later than a bytecode boundary would
+  workaround: none needed for typical handlers
+  status: permanent
+
+- id: CL-13
+  title: sys internals odds and ends
+  category: introspection
+  cpython: switch intervals, type-cache clears, malloc stats.
+  unagi: absent or no-ops.
+  why: interpreter bookkeeping without an interpreter.
+  observable-as:
+    - AttributeError on the listed sys functions
+  workaround: none
+  status: permanent
+
+- id: CL-14
+  title: Module files and import machinery introspection
+  category: introspection
+  cpython: modules carry __file__ pointing at real .py files and live loaders.
+  unagi: compiled-in modules report synthetic origins.
+  why: sources are compiled into the binary.
+  observable-as:
+    - path manipulation around __file__
+  workaround: importlib.resources patterns
+  status: permanent
+
+- id: CL-15
+  title: Process model, fork, and multiprocessing start methods
+  category: platform
+  cpython: fork is the default start method on Linux.
+  unagi: spawn only; fork of a goroutine-threaded process is unsound.
+  why: Go runtime cannot survive fork-without-exec.
+  observable-as:
+    - multiprocessing.set_start_method("fork") failing
+  workaround: spawn, which CPython also moved toward
+  status: permanent
+
+- id: CL-16
+  title: asyncio loop internals
+  category: introspection
+  cpython: the loop is pure Python with visible internals.
+  unagi: the loop is Go; only the documented asyncio API surface exists.
+  why: D16 lowers await onto goroutine channels.
+  observable-as:
+    - monkeypatching loop internals
+  workaround: the public asyncio API
+  status: permanent
+
+- id: CL-17
+  title: set and frozenset iteration order
+  category: semantics
+  cpython: iteration follows the open-addressing table layout.
+  unagi: iteration follows insertion order.
+  why: the set core is the ordered dict core with a canonical-key twist; mimicking table order would mean reimplementing CPython's probe sequence for no semantic gain.
+  observable-as:
+    - print(a_set) element order
+    - iteration order over sets with more than one element
+  workaround: sorted() for order-sensitive output, as CPython programs already do
+  status: under-review
+
+- id: CL-18
+  title: chr() on lone surrogates
+  category: semantics
+  cpython: chr(0xD800) returns a lone-surrogate str.
+  unagi: chr in the surrogate range raises ValueError.
+  why: str is a Go string; UTF-8 cannot hold an unpaired surrogate.
+  observable-as:
+    - chr(0xD800) raising instead of returning
+  workaround: none; surrogate-carrying text is outside the contract
+  status: permanent
+
+- id: CL-19
+  title: ssize_t overflow for big-int arguments to range and enumerate
+  category: semantics
+  cpython: range(2**100) iterates; enumerate(it, 2**100) counts through big ints.
+  unagi: both raise OverflowError (Python int too large to convert to C ssize_t).
+  why: the M1 range and enumerate cores index with int64; big support there is unscheduled work.
+  observable-as:
+    - OverflowError where CPython iterates
+  workaround: bound the argument below 2**63
+  status: under-review
+
+- id: CL-20
+  title: round() with a huge negative ndigits
+  category: semantics
+  cpython: round(x, -(2**100)) tries to build 10**(2**100) and effectively hangs.
+  unagi: returns 0 immediately once ndigits exceeds the value's digit count.
+  why: refusing the pathological allocation is the only useful behavior; matching the hang would be matching a bug.
+  observable-as:
+    - a prompt 0 where CPython never answers
+  workaround: none needed
+  status: permanent
+
+- id: CL-21
+  title: hash(nan) and identity-based hashes
+  category: semantics
+  cpython: hash(nan) derives from the object id; functions and exceptions hash from id.
+  unagi: hash(nan) is 0; identity-hashed objects rotate a per-run Go pointer.
+  why: no stable id exists (CL-03); per-run identity hashes match CPython in kind, not value.
+  observable-as:
+    - hash(float("nan")) constant across objects
+    - identity-hash values differing run to run, as CPython's also do
+  workaround: none; only self-consistency is promised
+  status: under-review

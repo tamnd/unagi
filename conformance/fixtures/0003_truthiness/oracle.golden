@@ -1,0 +1,28 @@
+== exit: 0
+== stdout:
+nonempty string
+nonempty list
+nonzero
+nonempty dict
+yes
+False
+fallback
+first
+True
+False
+False
+True
+last
+3
+43
+3
+-3
+2.5
+7.0
+3.0
+None
+[1, 'a', None, True]
+(1,)
+{'k': [1, 2]}
+== exception:
+== stderr:

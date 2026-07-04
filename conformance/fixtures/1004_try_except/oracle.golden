@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+caught zero division
+index: list index out of range
+arithmetic base catches
+tuple: invalid literal for int() with base 10: 'nope'
+exception base: 'k'
+no error here
+else runs
+handled
+bare except
+== exception:
+== stderr:
