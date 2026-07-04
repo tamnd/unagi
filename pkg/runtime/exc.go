@@ -267,6 +267,13 @@ func SetSource(src string) {
 	srcLines = strings.Split(src, "\n")
 }
 
+// SyntaxWarn writes one preformatted SyntaxWarning to Stderr. The generated
+// main calls it once per PEP 765 finally-jump before the module body runs, so
+// the compile-time warnings CPython prints land on stderr in the same order.
+func SyntaxWarn(msg string) {
+	_, _ = io.WriteString(Stderr, msg)
+}
+
 // srcLine returns the stripped text of a 1-based source line, or ""
 // when the line is out of range or blank. Blank excerpts print nothing,
 // CPython's `if line:` guard in traceback.py.

@@ -224,6 +224,36 @@ func TestShadowedBuiltinReadsLocal(t *testing.T) {
 	}
 }
 
+// A return inside a finally block lowers without error, parks its value, and
+// emits the PEP 765 SyntaxWarning replay at the top of pymain.
+func TestFinallyReturnLowersAndWarns(t *testing.T) {
+	got, err := lowerSrc(t, "def f():\n    try:\n        return 1\n    finally:\n        return 2\nprint(f())\n")
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	for _, want := range []string{
+		`runtime.SyntaxWarn("gen.py:5: SyntaxWarning: 'return' in a 'finally' block\n`,
+		"pend = 1",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("emitted source missing %q:\n%s", want, got)
+		}
+	}
+}
+
+// A break inside a finally targeting the enclosing loop parks and warns; a
+// finally with no exiting jump keeps the plain single-branch shape.
+func TestFinallyBreakWarns(t *testing.T) {
+	got, err := lowerSrc(t, "for i in range(2):\n    try:\n        pass\n    finally:\n        break\n")
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	want := `runtime.SyntaxWarn("gen.py:5: SyntaxWarning: 'break' in a 'finally' block\n`
+	if !strings.Contains(got, want) {
+		t.Errorf("emitted source missing %q:\n%s", want, got)
+	}
+}
+
 func TestCompileErrors(t *testing.T) {
 	cases := []struct {
 		name string
@@ -253,30 +283,6 @@ func TestCompileErrors(t *testing.T) {
 				}},
 			}},
 			"conditional module-level def",
-		},
-		{
-			"return inside finally",
-			&frontend.Module{Body: []frontend.Stmt{
-				&frontend.FuncDef{Name: "f", Body: []frontend.Stmt{
-					&frontend.Try{
-						Body:  []frontend.Stmt{&frontend.Pass{}},
-						Final: []frontend.Stmt{&frontend.Return{}},
-					},
-				}},
-			}},
-			"'return' inside 'finally' is not supported yet",
-		},
-		{
-			"break inside finally",
-			&frontend.Module{Body: []frontend.Stmt{
-				&frontend.While{Cond: &frontend.BoolLit{Val: true}, Body: []frontend.Stmt{
-					&frontend.Try{
-						Body:  []frontend.Stmt{&frontend.Pass{}},
-						Final: []frontend.Stmt{&frontend.Break{}},
-					},
-				}},
-			}},
-			"'break' inside 'finally' is not supported yet",
 		},
 		{
 			"except matcher is a variable",

@@ -62,7 +62,10 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 			return f.e.errf(s.Span(), "'return' outside function")
 		}
 		if len(f.finallyBase) > 0 {
-			return f.e.errf(s.Span(), "'return' inside 'finally' is not supported yet")
+			// A return inside a finally block swallows any pending action and
+			// exception; 3.14 warns per PEP 765. It parks like any other return
+			// and the enclosing try's dispatch performs the swallow.
+			f.e.warnFinallyJump(s.Span().Line, "return")
 		}
 		v := f.e.obj("None")
 		if s.Value != nil {
@@ -105,8 +108,8 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 			return f.e.errf(s.Span(), "'break' outside loop")
 		}
 		loop := f.loops[len(f.loops)-1]
-		if err := f.checkFinallyJump(s.Span(), "break"); err != nil {
-			return err
+		if f.inFinallyExit() {
+			f.e.warnFinallyJump(s.Span().Line, "break")
 		}
 		if loop.flag != "" {
 			f.add(set(ident(loop.flag), ident("true")))
@@ -122,8 +125,8 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 			return f.e.errf(s.Span(), "'continue' not properly in loop")
 		}
 		loop := f.loops[len(f.loops)-1]
-		if err := f.checkFinallyJump(s.Span(), "continue"); err != nil {
-			return err
+		if f.inFinallyExit() {
+			f.e.warnFinallyJump(s.Span().Line, "continue")
 		}
 		if loop.depth == f.closure {
 			f.add(&ast.BranchStmt{Tok: token.CONTINUE})
