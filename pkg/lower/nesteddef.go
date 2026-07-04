@@ -118,6 +118,10 @@ func collectLocalDefs(body []frontend.Stmt, out map[string]bool) {
 				walk(s.Final)
 			case *frontend.With:
 				walk(s.Body)
+			case *frontend.Match:
+				for _, c := range s.Cases {
+					walk(c.Body)
+				}
 			}
 		}
 	}

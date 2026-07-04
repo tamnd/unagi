@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+-5 negative
+0 zero
+3 small
+100 big
+guard leak: 5
+no leak on partial: old
+nested no leak: old old
+[1, 2]
+2
+None
+== exception:
+== stderr:

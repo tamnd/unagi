@@ -129,6 +129,16 @@ func (c *globalScope) stmt(s Stmt) {
 		}
 		c.stmts(s.OrElse)
 		c.stmts(s.Final)
+	case *Match:
+		c.use(s.Subject)
+		for _, cs := range s.Cases {
+			c.usePattern(cs.Pattern)
+			for _, name := range PatternNames(cs.Pattern) {
+				c.assigned[name] = true
+			}
+			c.use(cs.Guard)
+			c.stmts(cs.Body)
+		}
 	case *FuncDef:
 		// Decorators and defaults evaluate in this scope; the body is its own
 		// function scope and gets its own checker seeded with the parameters.
@@ -359,6 +369,15 @@ func boundNames(body []Stmt, params []Param) map[string]bool {
 				for _, pr := range s.Params {
 					walrus(pr.Default)
 				}
+			case *Match:
+				walrus(s.Subject)
+				for _, cs := range s.Cases {
+					for _, name := range PatternNames(cs.Pattern) {
+						out[name] = true
+					}
+					walrus(cs.Guard)
+					walk(cs.Body)
+				}
 			case *ClassDef:
 				out[s.Name] = true
 				walrusAll(s.Decorators)
@@ -480,6 +499,43 @@ func (c *globalScope) use(e Expr) {
 func (c *globalScope) useAll(list []Expr) {
 	for _, x := range list {
 		c.use(x)
+	}
+}
+
+// usePattern flags the names a pattern reads: a value lookup's dotted name, a
+// class pattern's class, and mapping keys. Capture names bind rather than read
+// and are handled by the caller through PatternNames.
+func (c *globalScope) usePattern(pat Pattern) {
+	switch pat := pat.(type) {
+	case *PatValue:
+		c.use(pat.Value)
+	case *PatLiteral:
+		c.use(pat.Value)
+	case *PatSequence:
+		for _, e := range pat.Elts {
+			c.usePattern(e)
+		}
+	case *PatMapping:
+		c.useAll(pat.Keys)
+		for _, v := range pat.Vals {
+			c.usePattern(v)
+		}
+	case *PatClass:
+		c.use(pat.Cls)
+		for _, sp := range pat.Pos {
+			c.usePattern(sp)
+		}
+		for _, sp := range pat.KwValues {
+			c.usePattern(sp)
+		}
+	case *PatOr:
+		for _, a := range pat.Alts {
+			c.usePattern(a)
+		}
+	case *PatAs:
+		if pat.Pattern != nil {
+			c.usePattern(pat.Pattern)
+		}
 	}
 }
 

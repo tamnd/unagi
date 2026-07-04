@@ -187,6 +187,8 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 		return nil
 	case *frontend.ClassDef:
 		return f.classDef(s)
+	case *frontend.Match:
+		return f.matchStmt(s)
 	default:
 		return f.e.errf(s.Span(), "statement not supported in M0")
 	}
@@ -529,6 +531,12 @@ func hasBreak(body []frontend.Stmt) bool {
 		case *frontend.With:
 			if hasBreak(s.Body) {
 				return true
+			}
+		case *frontend.Match:
+			for _, c := range s.Cases {
+				if hasBreak(c.Body) {
+					return true
+				}
 			}
 		}
 	}
