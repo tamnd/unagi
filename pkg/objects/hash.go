@@ -58,6 +58,8 @@ func PyHash(o Object) (int64, error) {
 		return pyHashRange(x)
 	case *sliceObject:
 		return pyHashSlice(x)
+	case *memoryviewObject:
+		return memoryviewHash(x)
 	case *funcObject, *functionObject, *Exception, *dictValuesObject,
 		*ellipsisObject, *notImplementedObject:
 		return pyHashPointer(o), nil
