@@ -130,18 +130,41 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		}
 		return nil, f.e.errf(e.Span(), "name %q is not defined", e.Id)
 	case *frontend.ListLit:
+		if hasStarElt(e.Elts) {
+			slice, err := f.displayElts(e.Elts)
+			if err != nil {
+				return nil, err
+			}
+			return callExpr(f.e.obj("NewList"), slice), nil
+		}
 		elts, err := f.exprList(e.Elts)
 		if err != nil {
 			return nil, err
 		}
 		return callExpr(f.e.obj("NewList"), f.objSlice(elts)), nil
 	case *frontend.TupleLit:
+		if hasStarElt(e.Elts) {
+			slice, err := f.displayElts(e.Elts)
+			if err != nil {
+				return nil, err
+			}
+			return callExpr(f.e.obj("NewTuple"), slice), nil
+		}
 		elts, err := f.exprList(e.Elts)
 		if err != nil {
 			return nil, err
 		}
 		return callExpr(f.e.obj("NewTuple"), f.objSlice(elts)), nil
 	case *frontend.SetLit:
+		if hasStarElt(e.Elts) {
+			slice, err := f.displayElts(e.Elts)
+			if err != nil {
+				return nil, err
+			}
+			tmp := f.tmpVar()
+			f.fallible(tmp, f.e.obj("NewSet"), slice)
+			return ident(tmp), nil
+		}
 		elts, err := f.exprList(e.Elts)
 		if err != nil {
 			return nil, err
@@ -353,6 +376,59 @@ func (f *fnCtx) exprList(list []frontend.Expr) ([]ast.Expr, error) {
 // literal.
 func (f *fnCtx) objSlice(elts []ast.Expr) ast.Expr {
 	return &ast.CompositeLit{Type: &ast.ArrayType{Elt: f.e.obj("Object")}, Elts: elts}
+}
+
+// hasStarElt reports whether any display element is a `*iterable` unpacking,
+// the case a list, tuple, or set display must build its backing slice at
+// runtime rather than as a plain composite literal.
+func hasStarElt(elts []frontend.Expr) bool {
+	for _, el := range elts {
+		if _, ok := el.(*frontend.Starred); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// displayElts builds the element slice for a list, tuple, or set display that
+// contains at least one starred element. Leading plain elements land in a
+// composite literal, then each remaining element extends the slice: a
+// *iterable merges through objects.ExtendStar with the probed "Value after *
+// must be an iterable" wording, a plain element appends. Elements evaluate left
+// to right. This mirrors the call-site star merge in unpackArgs.
+func (f *fnCtx) displayElts(elts []frontend.Expr) (ast.Expr, error) {
+	var lead []ast.Expr
+	i := 0
+	for ; i < len(elts); i++ {
+		if _, ok := elts[i].(*frontend.Starred); ok {
+			break
+		}
+		v, err := f.expr(elts[i])
+		if err != nil {
+			return nil, err
+		}
+		lead = append(lead, v)
+	}
+	cur := f.tmpVar()
+	f.add(define(ident(cur), f.objSlice(lead)))
+	for ; i < len(elts); i++ {
+		next := f.tmpVar()
+		if s, ok := elts[i].(*frontend.Starred); ok {
+			v, err := f.expr(s.X)
+			if err != nil {
+				return nil, err
+			}
+			f.fallible(next, f.e.obj("ExtendStar"), ident(cur), v)
+		} else {
+			v, err := f.expr(elts[i])
+			if err != nil {
+				return nil, err
+			}
+			f.add(define(ident(next), callExpr(ident("append"), ident(cur), v)))
+		}
+		cur = next
+	}
+	return ident(cur), nil
 }
 
 // boolOp lowers and/or with Python's short-circuit and value-passing

@@ -199,7 +199,9 @@ func (p *parser) parseSimpleStmt() Stmt {
 			p.advance()
 			r := &Return{Pos_: t.pos}
 			if startsExpr(p.cur()) {
-				r.Value = p.parseTestlist()
+				v := p.parseStarTestlist()
+				p.rejectStarred(v)
+				r.Value = v
 			}
 			return r
 		case "pass":
@@ -515,7 +517,8 @@ func (p *parser) parseFor() Stmt {
 		p.errf(s.Span(), "starred assignment target must be in a list or tuple")
 	}
 	p.wantKw("in")
-	iter := p.parseTestlist()
+	iter := p.parseStarTestlist()
+	p.rejectStarred(iter)
 	node := &For{Pos_: t.pos, Target: target, Iter: iter, Body: p.parseSuite()}
 	if p.eatKw("else") {
 		node.Else = p.parseSuite()
@@ -923,23 +926,6 @@ func (p *parser) parseExceptName() string {
 
 // --- expressions ---
 
-// parseTestlist parses a comma-separated expression list; a comma makes it a
-// tuple, and a trailing comma is allowed.
-func (p *parser) parseTestlist() Expr {
-	first := p.parseTest()
-	if !p.isOp(",") {
-		return first
-	}
-	elts := []Expr{first}
-	for p.eatOp(",") {
-		if !startsExpr(p.cur()) {
-			break
-		}
-		elts = append(elts, p.parseTest())
-	}
-	return &TupleLit{Pos_: first.Span(), Elts: elts}
-}
-
 // parseAssignRHS parses the right-hand side of an assignment or augmented
 // assignment, which CPython lets be a yield expression (`x = yield v`) as
 // well as an ordinary testlist. A yield can only be the whole right-hand
@@ -963,7 +949,9 @@ func (p *parser) parseYield() Expr {
 		return y
 	}
 	if startsExpr(p.cur()) {
-		y.Value = p.parseTestlist()
+		v := p.parseStarTestlist()
+		p.rejectStarred(v)
+		y.Value = v
 	}
 	return y
 }
@@ -995,20 +983,13 @@ func (p *parser) parseStarTest() Expr {
 	return p.parseTest()
 }
 
-// rejectStarred errors when a star survived into value position. A bare star
-// gets CPython's message; a star inside a tuple would be iterable unpacking,
-// which the emitter cannot lower yet. Stars nest no deeper than one tuple
-// level because only parseStarTestlist produces them.
+// rejectStarred errors when a lone star survived into value position, which
+// CPython forbids: `x = *a` and a bare `*a` are both the starred-here error. A
+// star inside a tuple, `x = *a, b`, is legal iterable unpacking and lowers as a
+// starred display, so only the bare Starred is rejected here.
 func (p *parser) rejectStarred(e Expr) {
-	switch e := e.(type) {
-	case *Starred:
-		p.errf(e.Span(), "can't use starred expression here")
-	case *TupleLit:
-		for _, elt := range e.Elts {
-			if s, ok := elt.(*Starred); ok {
-				p.errf(s.Span(), "iterable unpacking is not supported yet")
-			}
-		}
+	if s, ok := e.(*Starred); ok {
+		p.errf(s.Span(), "can't use starred expression here")
 	}
 }
 
@@ -1618,14 +1599,22 @@ func (p *parser) parseParen() Expr {
 		p.wantOp(")")
 		return y
 	}
-	first := p.parseNamedTest()
+	first := p.parseStarElement()
 	if p.isKw("for") || p.isAsyncFor() {
+		if s, ok := first.(*Starred); ok {
+			p.errf(s.Span(), "iterable unpacking cannot be used in comprehension")
+		}
 		comp := &Comp{Pos_: lp.pos, Kind: CompGen, Elt: first, Clauses: p.parseCompClauses(lp)}
 		p.wantCompClose(")")
 		p.validateComp(comp)
 		return comp
 	}
 	if p.eatOp(")") {
+		// A lone starred value in parentheses, `(*a)`, is not a tuple: a
+		// one-element tuple needs the trailing comma, so CPython rejects this.
+		if s, ok := first.(*Starred); ok {
+			p.errf(s.Span(), "cannot use starred expression here")
+		}
 		return first
 	}
 	elts := []Expr{first}
@@ -1633,10 +1622,22 @@ func (p *parser) parseParen() Expr {
 		if p.isOp(")") {
 			break
 		}
-		elts = append(elts, p.parseNamedTest())
+		elts = append(elts, p.parseStarElement())
 	}
 	p.wantOp(")")
 	return &TupleLit{Pos_: lp.pos, Elts: elts}
+}
+
+// parseStarElement parses one element of a list, tuple, or set display,
+// allowing a leading `*` for iterable unpacking. A starred element wraps its
+// operand, a disjunction per the grammar, in a Starred node; a plain element is
+// an ordinary named test, so a walrus is still legal in the unstarred position.
+func (p *parser) parseStarElement() Expr {
+	if p.isOp("*") {
+		star := p.advance()
+		return &Starred{Pos_: star.pos, X: p.parseOr()}
+	}
+	return p.parseNamedTest()
 }
 
 func (p *parser) parseList() Expr {
@@ -1645,26 +1646,22 @@ func (p *parser) parseList() Expr {
 	if p.eatOp("]") {
 		return node
 	}
-	if p.isOp("*") {
-		star := p.advance()
-		p.parseOr()
-		if p.isKw("for") || p.isAsyncFor() {
-			p.errf(star.pos, "iterable unpacking cannot be used in comprehension")
-		}
-		p.errf(star.pos, "starred expressions are not supported yet")
-	}
-	node.Elts = append(node.Elts, p.parseNamedTest())
+	first := p.parseStarElement()
 	if p.isKw("for") || p.isAsyncFor() {
-		comp := &Comp{Pos_: lb.pos, Kind: CompList, Elt: node.Elts[0], Clauses: p.parseCompClauses(lb)}
+		if s, ok := first.(*Starred); ok {
+			p.errf(s.Span(), "iterable unpacking cannot be used in comprehension")
+		}
+		comp := &Comp{Pos_: lb.pos, Kind: CompList, Elt: first, Clauses: p.parseCompClauses(lb)}
 		p.wantCompClose("]")
 		p.validateComp(comp)
 		return comp
 	}
+	node.Elts = append(node.Elts, first)
 	for p.eatOp(",") {
 		if p.isOp("]") {
 			break
 		}
-		node.Elts = append(node.Elts, p.parseNamedTest())
+		node.Elts = append(node.Elts, p.parseStarElement())
 	}
 	p.wantOp("]")
 	return node
@@ -1845,12 +1842,14 @@ func (p *parser) parseBraces() Expr {
 		p.errf(dstar.pos, "dict unpacking is not supported yet")
 	}
 	if p.isOp("*") {
+		// A starred first element can only be a set: a dict key is never
+		// starred, so this commits to the set-literal tail right away.
 		star := p.advance()
-		p.parseOr()
+		elt := &Starred{Pos_: star.pos, X: p.parseOr()}
 		if p.isKw("for") || p.isAsyncFor() {
 			p.errf(star.pos, "iterable unpacking cannot be used in comprehension")
 		}
-		p.errf(star.pos, "starred expressions are not supported yet")
+		return p.parseSetTail(lb, elt)
 	}
 	key := p.parseNamedTest()
 	if p.isKw("for") || p.isAsyncFor() {
@@ -1903,11 +1902,16 @@ func (p *parser) parseBraces() Expr {
 // element is always present.
 func (p *parser) parseSetTail(lb token, first Expr) Expr {
 	node := &SetLit{Pos_: lb.pos, Elts: []Expr{first}}
+	if p.isOp(":") {
+		// A colon after a set element, as in {*a: 1} or {1: 2} reached through
+		// the set tail, is a dict entry where a set is being built: invalid.
+		p.errf(p.cur().pos, "invalid syntax")
+	}
 	for p.eatOp(",") {
 		if p.isOp("}") {
 			break
 		}
-		elt := p.parseNamedTest()
+		elt := p.parseStarElement()
 		if p.isOp(":") {
 			// A dict entry after set elements, as in {1, 2: 3}; CPython
 			// reports plain invalid syntax at the colon.
