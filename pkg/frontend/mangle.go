@@ -223,10 +223,8 @@ func mangleExpr(e Expr, priv string) {
 		mangleParams(e.Params, priv)
 		mangleExpr(e.Body, priv)
 	case *FStr:
-		for _, p := range e.Parts {
-			if fi, ok := p.(*FInterp); ok {
-				mangleExpr(fi.X, priv)
-			}
+		for _, fi := range FInterps(e.Parts) {
+			mangleExpr(fi.X, priv)
 		}
 	}
 }

@@ -117,6 +117,11 @@ func TestLexTokens(t *testing.T) {
 		{"fstring empty spec still a token", `f"{x:}"`, `fstart:f" f{ x fmid:"" f} fend:" NL EOF`},
 		{"fstring nested brackets", `f"{a[0]}"`, `fstart:f" f{ a [ int:0 ] f} fend:" NL EOF`},
 		{"fstring multiline expression", "f\"{1 +\n2}\"", `fstart:f" f{ int:1 + int:2 f} fend:" NL EOF`},
+		{"fstring nested same quote", `f"{f"{x}"}"`, `fstart:f" f{ fstart:f" f{ x f} fend:" f} fend:" NL EOF`},
+		{"fstring nested different quote", `f"{f'{x}'}"`, `fstart:f" f{ fstart:f' f{ x f} fend:' f} fend:" NL EOF`},
+		{"fstring spec with field", `f"{x:{w}}"`, `fstart:f" f{ x fmid:"" f{ w f} fmid:"" f} fend:" NL EOF`},
+		{"fstring spec text and field", `f"{x:>{w}}"`, `fstart:f" f{ x fmid:">" f{ w f} fmid:"" f} fend:" NL EOF`},
+		{"fstring spec field then text", `f"{v:.{p}f}"`, `fstart:f" f{ v fmid:"." f{ p f} fmid:"f" f} fend:" NL EOF`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -158,7 +163,6 @@ func TestLexErrors(t *testing.T) {
 		{"fstring raw", `fr"a"`, `string prefix "fr" is not supported yet`},
 		{"tstring", `t"x"`, "t-strings are not supported yet"},
 		{"raw tstring", `rt'y'`, "t-strings are not supported yet"},
-		{"nested fstring", `f"{f"{x}"}"`, "nested f-strings are not supported yet"},
 		{"fstring lone closing brace", `f"}"`, "f-string: single '}' is not allowed"},
 		{"fstring lone brace after doubled", `f"{{}"`, "f-string: single '}' is not allowed"},
 		{"fstring empty expression", `f"{}"`, "f-string: valid expression required before '}'"},
@@ -180,7 +184,6 @@ func TestLexErrors(t *testing.T) {
 		{"fstring newline in spec", "f\"{x:\n}\"", "f-string: newlines are not allowed in format specifiers for single quoted f-strings"},
 		{"fstring eof in spec", `f"{x:>5`, "f-string: newlines are not allowed in format specifiers for single quoted f-strings"},
 		{"fstring quote ends spec", `f"{x:>5"`, "f-string: expecting '}', or format specs"},
-		{"fstring nested spec expression", `f"{x:{w}}"`, "f-string: expressions in format specifiers are not supported yet"},
 		{"unterminated fstring", `f"abc`, "unterminated f-string literal (detected at line 1)"},
 		{"newline in fstring", "f\"abc\nd\"", "unterminated f-string literal (detected at line 1)"},
 		{"unterminated triple fstring", "f\"\"\"ab\ncd", "unterminated triple-quoted f-string literal (detected at line 2)"},

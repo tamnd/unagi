@@ -397,9 +397,9 @@ func (lx *lexer) lexName(pos Pos) {
 		case strings.Contains(low, "t"):
 			lx.err(pos, "t-strings are not supported yet")
 		case low == "f":
-			if len(lx.fbase) > 0 {
-				lx.err(pos, "nested f-strings are not supported yet")
-			}
+			// PEP 701 allows an f-string inside an interpolation, at any depth
+			// and reusing the same quote. The bracket-depth floor stack (fbase)
+			// already tracks nesting, so the inner f-string just recurses.
 			lx.lexFString(pos, name)
 			return
 		case strings.Contains(low, "b"):
@@ -954,9 +954,11 @@ func (lx *lexer) lexFConv(openPos Pos) {
 	lx.emitAt(pos, tFStrConv, name)
 }
 
-// lexFSpec reads the literal format spec after ':' up to the closing brace,
-// with the same escape processing as the text runs. A '{' here would start a
-// nested expression, which the lowering cannot take yet.
+// lexFSpec reads the format spec after ':' up to the closing brace, with the
+// same escape processing as the text runs. A '{' starts a nested replacement
+// field (PEP 701, `f"{x:{width}}"`): the text run so far is flushed as a
+// tFStrMid, the field is lexed like any interpolation, and the spec resumes
+// after it. The leading tFStrMid, empty or not, marks the spec as present.
 func (lx *lexer) lexFSpec(openPos Pos, q byte, triple bool) {
 	pos := lx.pos()
 	closing := strings.Repeat(string(q), 3)
@@ -968,7 +970,10 @@ func (lx *lexer) lexFSpec(openPos Pos, q byte, triple bool) {
 			lx.emitAt(pos, tFStrMid, sb.String())
 			return
 		case c == '{':
-			lx.err(lx.pos(), "f-string: expressions in format specifiers are not supported yet")
+			lx.emitAt(pos, tFStrMid, sb.String())
+			sb.Reset()
+			lx.lexFInterp(q, triple)
+			pos = lx.pos()
 		case c == 0 && triple:
 			lx.err(openPos, "unterminated triple-quoted f-string literal (detected at line %d)", lx.line)
 		case c == 0 || ((c == '\n' || c == '\r') && !triple):

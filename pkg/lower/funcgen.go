@@ -360,10 +360,8 @@ func collectAssigned(body []frontend.Stmt, out map[string]bool) {
 				walkExprs(cl.Ifs)
 			}
 		case *frontend.FStr:
-			for _, p := range e.Parts {
-				if in, ok := p.(*frontend.FInterp); ok {
-					walkExpr(in.X)
-				}
+			for _, in := range frontend.FInterps(e.Parts) {
+				walkExpr(in.X)
 			}
 		}
 	}
