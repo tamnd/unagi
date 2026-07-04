@@ -19,6 +19,42 @@ var objectClass = &classObject{name: "object", qual: "object", dict: map[string]
 // object() constructs a bare instance through the ordinary class-call path.
 func ObjectType() Object { return objectClass }
 
+// typeClass is the `type` metatype modelled as a class, so a user metaclass can
+// name it as a base and super() inside a metaclass method can reach its
+// __new__ and __init__. Its mro starts with itself the way every class's does;
+// the object root is appended where the surface needs it. The two slots hold
+// the type-object construction and no-op initialization a metaclass inherits.
+var typeClass = &classObject{name: "type", qual: "type", dict: map[string]Object{}, isMeta: true}
+
+func init() {
+	typeClass.mro = []*classObject{typeClass}
+	typeClass.dict["__new__"] = NewFunc("__new__", -1, typeNew)
+	typeClass.dict["__init__"] = NewFunc("__init__", -1, func([]Object) (Object, error) { return None, nil })
+}
+
+// metaOf reports a class's metaclass, defaulting to the `type` metatype for a
+// class that was not built through a user metaclass.
+func metaOf(c *classObject) *classObject {
+	if c.meta != nil {
+		return c.meta
+	}
+	return typeClass
+}
+
+// UserMetaOf returns the user metaclass of a class value so type() can report
+// it. ok is false for a class on the default `type` metatype, which the runtime
+// spells with the `type` builtin, and for every non-class object.
+func UserMetaOf(o Object) (Object, bool) {
+	c, ok := o.(*classObject)
+	if !ok {
+		return nil, false
+	}
+	if c.meta != nil && c.meta != typeClass {
+		return c.meta, true
+	}
+	return nil, false
+}
+
 // classObject is a user-defined class, the type object a class statement
 // builds. dict holds the names the class body bound, methods and class
 // variables alike, in the order they were written so repr and iteration
@@ -34,6 +70,12 @@ type classObject struct {
 	order []string
 	bases []*classObject
 	mro   []*classObject
+	// meta is the class's metaclass, the type object type() reports for the
+	// class. A nil meta means the default `type` metatype; a user class
+	// created through a metaclass carries that metaclass here. isMeta marks a
+	// class that derives from type, whose instances are themselves classes.
+	meta   *classObject
+	isMeta bool
 }
 
 func (*classObject) TypeName() string { return "type" }
@@ -70,7 +112,17 @@ func (*boundMethod) TypeName() string { return "method" }
 // so an inconsistent base order raises the same TypeError CPython does at
 // class-creation time.
 func NewClass(name, qual string, bases []Object, names []string, vals []Object, kwNames []string, kwVals []Object) (Object, error) {
-	c := &classObject{name: name, qual: qual, dict: make(map[string]Object, len(names))}
+	return newClassCore(nil, name, qual, bases, names, vals, kwNames, kwVals)
+}
+
+// newClassCore builds a class object on a given metaclass, the shared body of
+// the class statement, type(name, bases, ns), and a metaclass's default
+// __new__. meta is the metaclass to record; a nil meta leaves the class on the
+// default `type` metatype. The `type` metatype is accepted as a base so a user
+// metaclass can derive from it, which marks the new class isMeta; a base that is
+// itself a metaclass propagates the mark the same way.
+func newClassCore(meta *classObject, name, qual string, bases []Object, names []string, vals []Object, kwNames []string, kwVals []Object) (Object, error) {
+	c := &classObject{name: name, qual: qual, dict: make(map[string]Object, len(names)), meta: meta}
 	for i, n := range names {
 		if _, seen := c.dict[n]; !seen {
 			c.order = append(c.order, n)
@@ -83,7 +135,7 @@ func NewClass(name, qual string, bases []Object, names []string, vals []Object, 
 			// The implicit object base contributes no user names.
 			continue
 		}
-		bc, ok := b.(*classObject)
+		bc, ok := asBaseClass(b)
 		if !ok {
 			return nil, Raise(TypeError, "bases must be types")
 		}
@@ -91,6 +143,9 @@ func NewClass(name, qual string, bases []Object, names []string, vals []Object, 
 			return nil, Raise(TypeError, "duplicate base class %s", bc.name)
 		}
 		seen[bc] = true
+		if bc.isMeta {
+			c.isMeta = true
+		}
 		c.bases = append(c.bases, bc)
 	}
 	mro, err := c3Linearize(c)
@@ -107,6 +162,19 @@ func NewClass(name, qual string, bases []Object, names []string, vals []Object, 
 	return c, nil
 }
 
+// asBaseClass resolves a base expression to the class object it names. A user
+// class is itself; the `type` builtin, however it was spelled, resolves to the
+// type metatype so `class Meta(type)` derives a metaclass.
+func asBaseClass(b Object) (*classObject, bool) {
+	if c, ok := b.(*classObject); ok {
+		return c, true
+	}
+	if name, ok := BuiltinFuncName(b); ok && name == "type" {
+		return typeClass, true
+	}
+	return nil, false
+}
+
 // NewType3 builds a class from the three-argument type(name, bases, namespace)
 // form: the dynamic-class path type.__new__ runs. It validates the argument
 // types with the probed type.__new__ wording, unpacks the namespace dict into
@@ -115,6 +183,32 @@ func NewClass(name, qual string, bases []Object, names []string, vals []Object, 
 // same way a class statement would. A namespace __module__ sets the qualified
 // name so repr reads <class 'module.Name'>, defaulting to __main__ like CPython.
 func NewType3(nameArg, basesArg, nsArg Object) (Object, error) {
+	return typeNewCore(nil, nameArg, basesArg, nsArg)
+}
+
+// typeNew is type.__new__, the metatype constructor a metaclass inherits and
+// reaches through super().__new__(mcs, name, bases, ns). The leading argument
+// is the metaclass the resulting class is created on; the rest are the same
+// (name, bases, namespace) triple type(name, bases, ns) takes.
+func typeNew(args []Object) (Object, error) {
+	if len(args) != 4 {
+		return nil, Raise(TypeError, "type.__new__() takes exactly 4 arguments")
+	}
+	meta, ok := args[0].(*classObject)
+	if !ok {
+		return nil, Raise(TypeError, "type.__new__(X): X is not a type object (%s)", args[0].TypeName())
+	}
+	return typeNewCore(meta, args[1], args[2], args[3])
+}
+
+// typeNewCore builds a class from the (name, bases, namespace) triple on the
+// given metaclass. It validates the argument types with the probed type.__new__
+// wording, unpacks the namespace dict into the ordered name/value pairs a class
+// body would produce, and hands the rest to newClassCore so C3 linearization,
+// __set_name__ and __init_subclass__ fire the way a class statement would. A
+// namespace __module__ sets the qualified name so repr reads <class
+// 'module.Name'>, defaulting to __main__ like CPython.
+func typeNewCore(meta *classObject, nameArg, basesArg, nsArg Object) (Object, error) {
 	name, ok := nameArg.(*strObject)
 	if !ok {
 		return nil, Raise(TypeError, "type.__new__() argument 1 must be str, not %s", nameArg.TypeName())
@@ -145,7 +239,7 @@ func NewType3(nameArg, basesArg, nsArg Object) (Object, error) {
 		names = append(names, key.v)
 		vals = append(vals, e.val)
 	}
-	return NewClass(name.v, module+"."+name.v, bases.elts, names, vals, nil, nil)
+	return newClassCore(meta, name.v, module+"."+name.v, bases.elts, names, vals, nil, nil)
 }
 
 // runInitSubclass fires the nearest base's __init_subclass__ on the new class,
@@ -468,14 +562,23 @@ func IsInstance(obj, cls Object) (Object, error) {
 		if c == objectClass {
 			return True, nil
 		}
-		inst, ok := obj.(*instanceObject)
-		if !ok {
+		if inst, ok := obj.(*instanceObject); ok {
+			for _, k := range inst.cls.mro {
+				if k == c {
+					return True, nil
+				}
+			}
 			return False, nil
 		}
-		for _, k := range inst.cls.mro {
-			if k == c {
-				return True, nil
+		// A class is an instance of its metaclass and of every metaclass that
+		// metaclass derives from, so isinstance(C, Meta) walks the metaclass MRO.
+		if oc, ok := obj.(*classObject); ok {
+			for _, k := range metaOf(oc).mro {
+				if k == c {
+					return True, nil
+				}
 			}
+			return False, nil
 		}
 		return False, nil
 	}

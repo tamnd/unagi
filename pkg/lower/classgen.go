@@ -75,18 +75,21 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 			baseArgs = append(baseArgs, bv)
 		}
 
-		// Class keyword arguments evaluate after the bases. metaclass= needs the
-		// metaclass-determination path that is a later slice; every other name is
-		// threaded to NewClass, which hands them to __init_subclass__.
+		// Class keyword arguments evaluate after the bases in source order. A
+		// metaclass= argument is pulled out to drive metaclass determination; every
+		// other name is threaded to BuildClass, which hands them to a metaclass
+		// hook or __init_subclass__.
+		metaArg := ast.Expr(ident("nil"))
 		var kwNames []string
 		var kwVals []ast.Expr
 		for _, kw := range s.Keywords {
-			if kw.Name == "metaclass" {
-				return nil, f.e.errf(s.Span(), "the metaclass= class argument is not supported yet")
-			}
 			kv, err := f.expr(kw.Value)
 			if err != nil {
 				return nil, err
+			}
+			if kw.Name == "metaclass" {
+				metaArg = kv
+				continue
 			}
 			kwNames = append(kwNames, kw.Name)
 			kwVals = append(kwVals, kv)
@@ -189,7 +192,8 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 		// NewClass runs C3 linearization and can raise on an inconsistent or
 		// non-type base, so it lowers to a checked call spilled to a temp.
 		cls := f.tmpVar()
-		f.fallible(cls, f.e.obj("NewClass"),
+		f.fallible(cls, f.e.obj("BuildClass"),
+			metaArg,
 			strLit(s.Name),
 			strLit("__main__."+s.Name),
 			f.objSlice(baseArgs),
