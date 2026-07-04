@@ -53,13 +53,20 @@ func (f *fnCtx) fInterp(p *frontend.FInterp) ([]ast.Expr, error) {
 		// says otherwise, per PEP 501's rules as CPython implements them.
 		conv = 'r'
 	}
+	// The conversions can raise now that str and repr enforce the
+	// 4300-digit int limit, so each goes through a fallible temp.
+	fallibleConv := func(fn string) {
+		tmp := f.tmpVar()
+		f.fallible(tmp, sel("runtime", fn), v)
+		v = ident(tmp)
+	}
 	switch conv {
 	case 's':
-		v = callExpr(sel("runtime", "StrOf"), v)
+		fallibleConv("StrOf")
 	case 'r':
-		v = callExpr(sel("runtime", "ReprOf"), v)
+		fallibleConv("ReprOf")
 	case 'a':
-		v = callExpr(sel("runtime", "AsciiOf"), v)
+		fallibleConv("AsciiOf")
 	}
 	if p.HasSpec {
 		// A conversion feeds the spec as a plain string, so str formatting
@@ -70,7 +77,7 @@ func (f *fnCtx) fInterp(p *frontend.FInterp) ([]ast.Expr, error) {
 		return out, nil
 	}
 	if conv == 0 {
-		v = callExpr(sel("runtime", "StrOf"), v)
+		fallibleConv("StrOf")
 	}
 	out = append(out, v)
 	return out, nil

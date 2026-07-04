@@ -154,7 +154,11 @@ func TestOracle(t *testing.T) {
 			if dies {
 				wantCode = 1
 			}
-			stdout, stderr, code := run(t, exec.Command("python3", py))
+			cmd := exec.Command("python3", py)
+			// Compiled programs hash like PYTHONHASHSEED=0, so the oracle
+			// must run under the same seed for the hash fixture.
+			cmd.Env = append(os.Environ(), "PYTHONHASHSEED=0")
+			stdout, stderr, code := run(t, cmd)
 			if code != wantCode {
 				t.Errorf("python3 exit code = %d, want %d\nstderr:\n%s", code, wantCode, stderr)
 			}

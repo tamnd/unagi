@@ -39,7 +39,12 @@ func TestAsciiOf(t *testing.T) {
 		{"float", objects.NewFloat(3.5), "3.5"},
 	}
 	for _, tt := range tests {
-		got, ok := objects.AsStr(AsciiOf(tt.o))
+		res, err := AsciiOf(tt.o)
+		if err != nil {
+			t.Errorf("%s: AsciiOf error: %v", tt.name, err)
+			continue
+		}
+		got, ok := objects.AsStr(res)
 		if !ok {
 			t.Errorf("%s: AsciiOf did not return a str", tt.name)
 			continue
@@ -58,7 +63,11 @@ func TestAsciiOfDict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDict: %v", err)
 	}
-	got, _ := objects.AsStr(AsciiOf(d))
+	res, err := AsciiOf(d)
+	if err != nil {
+		t.Fatalf("AsciiOf: %v", err)
+	}
+	got, _ := objects.AsStr(res)
 	if want := `{'k': '\u65e5'}`; got != want {
 		t.Errorf("AsciiOf dict = %q, want %q", got, want)
 	}

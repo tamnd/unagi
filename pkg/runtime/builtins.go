@@ -3,7 +3,6 @@ package runtime
 import (
 	"math"
 	"math/big"
-	"math/bits"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,10 +12,15 @@ import (
 
 // asIndex extracts an int the way CPython __index__ consumers do,
 // accepting int and bool and rejecting everything else with the probed
-// "cannot be interpreted as an integer" message.
+// "cannot be interpreted as an integer" message. A spilled int reports
+// the ssize_t overflow; callers with their own big-int behavior (round,
+// chr, the base reprs) check before calling.
 func asIndex(o objects.Object) (int64, error) {
 	if i, ok := objects.AsInt(o); ok {
 		return i, nil
+	}
+	if objects.IsBigInt(o) {
+		return 0, objects.Raise(objects.OverflowError, "Python int too large to convert to C ssize_t")
 	}
 	return 0, objects.Raise(objects.TypeError,
 		"'%s' object cannot be interpreted as an integer", o.TypeName())
@@ -129,19 +133,20 @@ func Round(args []objects.Object) (objects.Object, error) {
 		return nil, objects.Raise(objects.TypeError, "round() takes at most 2 arguments (%d given)", len(args))
 	}
 	x := args[0]
-	if i, ok := objects.AsInt(x); ok {
+	if bx, ok := objects.AsBigInt(x); ok {
 		if len(args) == 1 {
-			// round(True) is 1, an int, so always rebox.
-			return objects.NewInt(i), nil
+			// round(True) is 1, an int, so always rebox; a plain int
+			// comes back unchanged whatever its size.
+			return objects.NewIntFromBig(bx), nil
 		}
-		nd, err := asIndex(args[1])
+		nd, err := roundDigits(args[1])
 		if err != nil {
 			return nil, err
 		}
 		if nd >= 0 {
-			return objects.NewInt(i), nil
+			return objects.NewIntFromBig(bx), nil
 		}
-		return objects.NewInt(roundIntNeg(i, -nd)), nil
+		return objects.NewIntFromBig(roundIntNeg(bx, -nd)), nil
 	}
 	if f, ok := objects.AsFloat(x); ok {
 		if len(args) == 1 {
@@ -151,11 +156,15 @@ func Round(args []objects.Object) (objects.Object, error) {
 			if math.IsNaN(f) {
 				return nil, objects.Raise(objects.ValueError, "cannot convert float NaN to integer")
 			}
-			// The int64 conversion shares IntOf's overflow stance: values
-			// beyond int64 (round(1e308)) are a known limitation.
-			return objects.NewInt(int64(math.RoundToEven(f))), nil
+			r := math.RoundToEven(f)
+			if r >= -9.2e18 && r <= 9.2e18 {
+				return objects.NewInt(int64(r)), nil
+			}
+			// Probed: round(1e308) is the exact integer, like int().
+			b, _ := new(big.Float).SetFloat64(r).Int(nil)
+			return objects.NewIntFromBig(b), nil
 		}
-		nd, err := asIndex(args[1])
+		nd, err := roundDigits(args[1])
 		if err != nil {
 			return nil, err
 		}
@@ -165,31 +174,45 @@ func Round(args []objects.Object) (objects.Object, error) {
 	return nil, objects.Raise(objects.TypeError, "type %s doesn't define __round__ method", x.TypeName())
 }
 
+// roundDigits reads the ndigits argument, which unlike an index accepts
+// any int size: round(1, 2**100) is 1. Spilled values clamp to sentinels
+// the shortcut paths absorb.
+func roundDigits(o objects.Object) (int64, error) {
+	if objects.IsBigInt(o) {
+		b, _ := objects.AsBigInt(o)
+		if b.Sign() > 0 {
+			return 1 << 62, nil
+		}
+		return -(1 << 62), nil
+	}
+	return asIndex(o)
+}
+
 // roundIntNeg rounds an int to a multiple of 10**digits, half to even,
 // via floor division so ties land like round(150, -2) == round(250, -2)
-// == 200 and round(-25, -1) == -20, all probed.
-func roundIntNeg(i, digits int64) int64 {
-	if digits > 18 {
-		// 10**19 overflows int64. Anything below 5e18 rounds to 0 here;
-		// larger magnitudes would need a bigint, a known limitation.
-		return 0
+// == 200 and round(-25, -1) == -20, all probed. A digits count at or
+// past the bit length makes the quotient vanish, so the result is 0
+// without materializing the power; CPython instead tries to build
+// 10**digits and effectively hangs, a documented divergence for
+// pathological ndigits.
+func roundIntNeg(b *big.Int, digits int64) *big.Int {
+	if digits >= int64(b.BitLen()) {
+		return big.NewInt(0)
 	}
-	p := int64(1)
-	for k := int64(0); k < digits; k++ {
-		p *= 10
+	p := new(big.Int).Exp(big.NewInt(10), big.NewInt(digits), nil)
+	q, r := new(big.Int).DivMod(b, p, new(big.Int))
+	// DivMod is Euclidean with a positive divisor: 0 <= r < p, which is
+	// exactly the floor split the tie rules below want.
+	r.Lsh(r, 1)
+	switch r.Cmp(p) {
+	case 1:
+		q.Add(q, big.NewInt(1))
+	case 0:
+		if q.Bit(0) == 1 {
+			q.Add(q, big.NewInt(1))
+		}
 	}
-	q := i / p
-	if i%p != 0 && i < 0 {
-		q--
-	}
-	r := i - q*p
-	switch {
-	case 2*r > p:
-		q++
-	case 2*r == p && q&1 != 0:
-		q++
-	}
-	return q * p
+	return q.Mul(q, p)
 }
 
 // roundFloat rounds a float to nd decimal digits through exact decimal
@@ -275,11 +298,14 @@ func divmodUnsupported(a, b objects.Object) error {
 }
 
 // Pow3 implements three-argument pow, integers only. A negative exponent
-// takes the modular inverse route pow supports since 3.8.
+// takes the modular inverse route pow supports since 3.8. Probed:
+// pow(2**100, 2, 7) is 4, pow(2, -3, 7919) is 990, pow(2**100, -1, 9)
+// is 4, and pow(2, 3, -5) is -2 because the result follows the sign of
+// the modulus, floor style.
 func Pow3(base, exp, mod objects.Object) (objects.Object, error) {
-	bi, bok := objects.AsInt(base)
-	ei, eok := objects.AsInt(exp)
-	mi, mok := objects.AsInt(mod)
+	bb, bok := objects.AsBigInt(base)
+	eb, eok := objects.AsBigInt(exp)
+	mb, mok := objects.AsBigInt(mod)
 	if !bok || !eok || !mok {
 		// Probed: a float anywhere gives the integers-only message, while
 		// types with no pow slot at all list all three type names.
@@ -291,73 +317,20 @@ func Pow3(base, exp, mod objects.Object) (objects.Object, error) {
 			"unsupported operand type(s) for ** or pow(): '%s', '%s', '%s'",
 			base.TypeName(), exp.TypeName(), mod.TypeName())
 	}
-	if mi == 0 {
+	if mb.Sign() == 0 {
 		return nil, objects.Raise(objects.ValueError, "pow() 3rd argument cannot be 0")
 	}
-	am := mi
-	if am < 0 {
-		am = -am
+	am := new(big.Int).Abs(mb)
+	// Exp with a negative exponent goes through the modular inverse and
+	// reports a missing one as nil.
+	r := new(big.Int).Exp(bb, eb, am)
+	if r == nil {
+		return nil, objects.Raise(objects.ValueError, "base is not invertible for the given modulus")
 	}
-	b := floorModInt64(bi, am)
-	if ei < 0 {
-		g, x := extGCD(b, am)
-		if g != 1 {
-			return nil, objects.Raise(objects.ValueError, "base is not invertible for the given modulus")
-		}
-		b = floorModInt64(x, am)
-		ei = -ei
+	if mb.Sign() < 0 && r.Sign() != 0 {
+		r.Sub(r, am)
 	}
-	r := powMod(b, ei, am)
-	// The result carries the sign of the modulus, floor style, so
-	// pow(2, 3, -5) is -2.
-	if mi < 0 && r != 0 {
-		r -= am
-	}
-	return objects.NewInt(r), nil
-}
-
-func floorModInt64(a, m int64) int64 {
-	r := a % m
-	if r < 0 {
-		r += m
-	}
-	return r
-}
-
-// extGCD returns gcd(a, m) and x with a*x congruent to the gcd mod m.
-func extGCD(a, m int64) (g, x int64) {
-	oldR, r := a, m
-	oldS, s := int64(1), int64(0)
-	for r != 0 {
-		q := oldR / r
-		oldR, r = r, oldR-q*r
-		oldS, s = s, oldS-q*s
-	}
-	return oldR, oldS
-}
-
-// powMod computes b**e mod m for m >= 1 with a 128-bit intermediate
-// product, so no modulus in int64 range overflows.
-func powMod(b, e, m int64) int64 {
-	if m == 1 {
-		return 0
-	}
-	um := uint64(m)
-	r := uint64(1)
-	ub := uint64(b)
-	for e > 0 {
-		if e&1 == 1 {
-			r = mulMod(r, ub, um)
-		}
-		ub = mulMod(ub, ub, um)
-		e >>= 1
-	}
-	return int64(r)
-}
-
-func mulMod(a, b, m uint64) uint64 {
-	hi, lo := bits.Mul64(a, b)
-	return bits.Rem64(hi, lo, m)
+	return objects.NewIntFromBig(r), nil
 }
 
 // Bin implements bin(o).
@@ -370,8 +343,17 @@ func Oct(o objects.Object) (objects.Object, error) { return baseRepr(o, 8, "0o")
 func Hex(o objects.Object) (objects.Object, error) { return baseRepr(o, 16, "0x") }
 
 // baseRepr formats an int in a base with the prefix after the sign, so
-// bin(-5) is "-0b101". Bools count as ints: bin(True) is "0b1".
+// bin(-5) is "-0b101". Bools count as ints: bin(True) is "0b1". The
+// power-of-two bases are exempt from the 4300-digit limit, so
+// bin(2**100000) works.
 func baseRepr(o objects.Object, base int, prefix string) (objects.Object, error) {
+	if b, ok := objects.AsBigInt(o); ok && objects.IsBigInt(o) {
+		s := new(big.Int).Abs(b).Text(base)
+		if b.Sign() < 0 {
+			return objects.NewStr("-" + prefix + s), nil
+		}
+		return objects.NewStr(prefix + s), nil
+	}
 	i, err := asIndex(o)
 	if err != nil {
 		return nil, err
@@ -402,6 +384,10 @@ func Ord(o objects.Object) (objects.Object, error) {
 // surrogates, but a Go string cannot hold one as valid UTF-8, so those
 // are refused honestly instead of silently encoding U+FFFD.
 func Chr(o objects.Object) (objects.Object, error) {
+	if objects.IsBigInt(o) {
+		// Probed: chr(2**100) is the range ValueError, not an overflow.
+		return nil, objects.Raise(objects.ValueError, "chr() arg not in range(0x110000)")
+	}
 	i, err := asIndex(o)
 	if err != nil {
 		return nil, err
@@ -578,6 +564,15 @@ func DictOf(args []objects.Object) (objects.Object, error) {
 	return objects.NewDict(keys, vals)
 }
 
+// HashOf implements hash(o) with CPython's PYTHONHASHSEED=0 values.
+func HashOf(o objects.Object) (objects.Object, error) {
+	h, err := objects.PyHash(o)
+	if err != nil {
+		return nil, err
+	}
+	return objects.NewInt(h), nil
+}
+
 // Format implements the format builtin over the objects format engine.
 func Format(args []objects.Object) (objects.Object, error) {
 	if len(args) == 0 {
@@ -629,6 +624,9 @@ func init() {
 		}),
 		"chr": objects.NewFunc("chr", 1, func(args []objects.Object) (objects.Object, error) {
 			return Chr(args[0])
+		}),
+		"hash": objects.NewFunc("hash", 1, func(args []objects.Object) (objects.Object, error) {
+			return HashOf(args[0])
 		}),
 		"sorted": objects.NewFunc("sorted", 1, func(args []objects.Object) (objects.Object, error) {
 			return Sorted(args[0])

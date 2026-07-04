@@ -14,7 +14,7 @@ var builtinNames = map[string]bool{
 	"int": true, "float": true, "bool": true, "abs": true,
 	"min": true, "max": true, "sum": true, "round": true, "divmod": true,
 	"pow": true, "bin": true, "oct": true, "hex": true, "ord": true,
-	"chr": true, "sorted": true, "reversed": true, "enumerate": true,
+	"chr": true, "hash": true, "sorted": true, "reversed": true, "enumerate": true,
 	"zip": true, "list": true, "tuple": true, "dict": true, "set": true,
 	"frozenset": true, "format": true,
 }
@@ -111,7 +111,9 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		return callExpr(sel("runtime", "StrOf"), args[0]), nil
+		tmp := f.tmpVar()
+		f.fallible(tmp, sel("runtime", "StrOf"), args[0])
+		return ident(tmp), nil
 	case "repr":
 		if err := need1(); err != nil {
 			return nil, err
@@ -120,20 +122,26 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		return callExpr(sel("runtime", "ReprOf"), args[0]), nil
+		tmp := f.tmpVar()
+		f.fallible(tmp, sel("runtime", "ReprOf"), args[0])
+		return ident(tmp), nil
 	case "int":
 		if argc == 0 {
 			return callExpr(f.e.obj("NewInt"), intLit("0")), nil
 		}
-		if err := need1(); err != nil {
-			return nil, err
+		if argc > 2 {
+			return nil, f.e.errf(e.Span(), "int() takes at most 2 arguments (%d given)", argc)
 		}
 		args, err := f.plainArgExprs(e.Args)
 		if err != nil {
 			return nil, err
 		}
 		tmp := f.tmpVar()
-		f.fallible(tmp, sel("runtime", "IntOf"), args[0])
+		if argc == 2 {
+			f.fallible(tmp, sel("runtime", "IntOfBase"), args[0], args[1])
+		} else {
+			f.fallible(tmp, sel("runtime", "IntOf"), args[0])
+		}
 		return ident(tmp), nil
 	case "float":
 		if argc == 0 {
@@ -237,7 +245,7 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 			f.fallible(tmp, sel("runtime", "Pow3"), args[0], args[1], args[2])
 		}
 		return ident(tmp), nil
-	case "bin", "oct", "hex", "ord", "chr":
+	case "bin", "oct", "hex", "ord", "chr", "hash":
 		if err := need1(); err != nil {
 			return nil, err
 		}
@@ -245,7 +253,7 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		fn := map[string]string{"bin": "Bin", "oct": "Oct", "hex": "Hex", "ord": "Ord", "chr": "Chr"}[name]
+		fn := map[string]string{"bin": "Bin", "oct": "Oct", "hex": "Hex", "ord": "Ord", "chr": "Chr", "hash": "HashOf"}[name]
 		tmp := f.tmpVar()
 		f.fallible(tmp, sel("runtime", fn), args[0])
 		return ident(tmp), nil

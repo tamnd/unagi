@@ -11,8 +11,11 @@ import (
 // escaped. Latin-1 gets \xhh, the rest of the BMP \uhhhh and anything
 // above \Uhhhhhhhh. Probed on 3.14: ascii('héllo') is "'h\xe9llo'",
 // ascii('日') is "'\\u65e5'" and ascii('😀') is "'\U0001f600'".
-func AsciiOf(o objects.Object) objects.Object {
-	r := objects.Repr(o)
+func AsciiOf(o objects.Object) (objects.Object, error) {
+	r, err := objects.ReprE(o)
+	if err != nil {
+		return nil, err
+	}
 	var b strings.Builder
 	for _, c := range r {
 		switch {
@@ -26,7 +29,7 @@ func AsciiOf(o objects.Object) objects.Object {
 			fmt.Fprintf(&b, `\U%08x`, c)
 		}
 	}
-	return objects.NewStr(b.String())
+	return objects.NewStr(b.String()), nil
 }
 
 // JoinStrs concatenates already-stringified f-string parts into one str

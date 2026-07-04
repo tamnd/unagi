@@ -9,6 +9,7 @@ package objects
 
 import (
 	"math"
+	"math/big"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -160,15 +161,20 @@ func parseFmtSpec(spec, typeName string, defaultVerb rune) (fmtSpec, error) {
 // Format implements format(o, spec), the __format__ dispatch.
 func Format(o Object, spec string) (Object, error) {
 	// An empty spec is str(o) for every type. Probed on 3.14:
-	// format(True, '') is 'True' and format(None, '') is 'None'.
+	// format(True, '') is 'True' and format(None, '') is 'None'. The
+	// strict form keeps the 4300-digit int limit in play.
 	if spec == "" {
-		return NewStr(Str(o)), nil
+		s, err := StrE(o)
+		if err != nil {
+			return nil, err
+		}
+		return NewStr(s), nil
 	}
 	switch x := o.(type) {
 	case *strObject:
 		return formatStr(x.v, spec)
 	case *intObject:
-		return formatInt(x.v, "int", spec)
+		return formatInt(x, "int", spec)
 	case *boolObject:
 		// bool has no __format__ of its own, so a non-empty spec falls
 		// to int's, keeping 'bool' in error texts. Probed on 3.14:
@@ -177,7 +183,7 @@ func Format(o Object, spec string) (Object, error) {
 		if x.v {
 			v = 1
 		}
-		return formatInt(v, "bool", spec)
+		return formatInt(&intObject{v: v}, "bool", spec)
 	case *floatObject:
 		return formatFloat(x.v, "float", spec)
 	}
@@ -368,7 +374,7 @@ func signStr(neg bool, sign rune) string {
 // formatInt handles the integer presentations d b o x X c n and none,
 // and hands the float codes off with the value widened. typeName rides
 // along so bool errors say 'bool'.
-func formatInt(v int64, typeName, spec string) (Object, error) {
+func formatInt(x *intObject, typeName, spec string) (Object, error) {
 	sp, err := parseFmtSpec(spec, typeName, 0)
 	if err != nil {
 		return nil, err
@@ -377,7 +383,12 @@ func formatInt(v int64, typeName, spec string) (Object, error) {
 	case 'e', 'E', 'f', 'F', 'g', 'G', '%':
 		// Probed on 3.14: format(42, '.2f') is '42.00' and the float
 		// rules apply wholesale, format(42, 'z=+#,.2f') is '+42.00'.
-		return formatFloatSpec(float64(v), sp)
+		// Probed: f"{2**11000:.2f}" overflows the widening itself.
+		f, _, ferr := asFloatChecked(x)
+		if ferr != nil {
+			return nil, ferr
+		}
+		return formatFloatSpec(f, sp)
 	case 0, 'd', 'n', 'b', 'o', 'x', 'X', 'c':
 	default:
 		// Probed on 3.14: format(42, 'q') and format(42, 's').
@@ -400,16 +411,11 @@ func formatInt(v int64, typeName, spec string) (Object, error) {
 			// Probed on 3.14: format(42, '#c').
 			return nil, Raise(ValueError, "Alternate form (#) not allowed with integer format specifier 'c'")
 		}
-		if v < 0 || v > 0x10FFFF {
+		if x.big != nil || x.v < 0 || x.v > 0x10FFFF {
 			// Probed on 3.14: format(-1, 'c') and format(0x110000, 'c').
 			return nil, Raise(OverflowError, "%%c arg not in range(0x110000)")
 		}
-		return NewStr(buildNumber(sp, "", "", "", string(rune(v)), 3)), nil
-	}
-	neg := v < 0
-	u := uint64(v)
-	if neg {
-		u = -u
+		return NewStr(buildNumber(sp, "", "", "", string(rune(x.v)), 3)), nil
 	}
 	base := 10
 	groupSize := 3
@@ -421,7 +427,26 @@ func formatInt(v int64, typeName, spec string) (Object, error) {
 	case 'x', 'X':
 		base, groupSize = 16, 4
 	}
-	digits := strconv.FormatUint(u, base)
+	var neg bool
+	var digits string
+	if x.big != nil {
+		// Probed: format(2**20000, 'd') hits the 4300-digit limit while
+		// the binary-power bases stay exempt.
+		if base == 10 {
+			if _, derr := intDecimal(x); derr != nil {
+				return nil, derr
+			}
+		}
+		neg = x.big.Sign() < 0
+		digits = new(big.Int).Abs(x.big).Text(base)
+	} else {
+		neg = x.v < 0
+		u := uint64(x.v)
+		if neg {
+			u = -u
+		}
+		digits = strconv.FormatUint(u, base)
+	}
 	if sp.verb == 'X' {
 		digits = strings.ToUpper(digits)
 	}

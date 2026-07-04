@@ -128,7 +128,7 @@ func TestBitwiseInt(t *testing.T) {
 		{"rshift", RShift, NewInt(8), NewInt(2), "2", "int", ""},
 		{"rshift neg value", RShift, NewInt(-1), NewInt(10), "-1", "int", ""},
 		{"rshift big count", RShift, NewInt(-8), NewInt(200), "-1", "int", ""},
-		{"lshift big count", LShift, NewInt(1), NewInt(200), "0", "int", ""},
+		{"lshift big count", LShift, NewInt(1), NewInt(200), "1606938044258990275541962092341162602522202993782792835301376", "int", ""},
 		{"lshift neg count", LShift, NewInt(1), NewInt(-1), "", "", "ValueError: negative shift count"},
 		{"rshift neg count", RShift, NewInt(1), NewInt(-1), "", "", "ValueError: negative shift count"},
 		{"int|str", BitOr, NewInt(1), NewStr("a"), "", "", "TypeError: unsupported operand type(s) for |: 'int' and 'str'"},

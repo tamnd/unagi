@@ -14,17 +14,25 @@ func listMethod(x *listObject, name string, args []Object) (Object, error) {
 		if len(args) > 1 {
 			return nil, Raise(TypeError, "pop expected at most 1 argument, got %d", len(args))
 		}
-		if len(x.elts) == 0 {
-			return nil, Raise(IndexError, "pop from empty list")
-		}
+		// Probed: the index converts before the emptiness check, so
+		// [].pop(2**100) overflows rather than reporting the empty list.
 		i := int64(len(x.elts) - 1)
 		if len(args) == 1 {
 			v, ok := AsInt(args[0])
 			if !ok {
+				if IsBigInt(args[0]) {
+					// Probed: pop takes its index through a C ssize_t.
+					return nil, Raise(OverflowError, "Python int too large to convert to C ssize_t")
+				}
 				return nil, Raise(TypeError, "'%s' object cannot be interpreted as an integer",
 					args[0].TypeName())
 			}
 			i = v
+		}
+		if len(x.elts) == 0 {
+			return nil, Raise(IndexError, "pop from empty list")
+		}
+		if len(args) == 1 {
 			if i < 0 {
 				i += int64(len(x.elts))
 			}
@@ -41,6 +49,9 @@ func listMethod(x *listObject, name string, args []Object) (Object, error) {
 		}
 		v, ok := AsInt(args[0])
 		if !ok {
+			if IsBigInt(args[0]) {
+				return nil, Raise(OverflowError, "Python int too large to convert to C ssize_t")
+			}
 			return nil, Raise(TypeError, "'%s' object cannot be interpreted as an integer",
 				args[0].TypeName())
 		}

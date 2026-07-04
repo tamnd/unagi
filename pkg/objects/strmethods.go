@@ -306,6 +306,10 @@ func strNoArgs(name string, args []Object) error {
 func strIntArg(o Object) (int64, error) {
 	v, ok := AsInt(o)
 	if !ok {
+		// Probed: "12".zfill(2**100) overflows the ssize_t converter.
+		if IsBigInt(o) {
+			return 0, Raise(OverflowError, "Python int too large to convert to C ssize_t")
+		}
 		return 0, Raise(TypeError, "'%s' object cannot be interpreted as an integer", o.TypeName())
 	}
 	return v, nil
@@ -320,6 +324,13 @@ func strSliceArg(args []Object, i int, def int64) (int64, error) {
 	}
 	v, ok := AsInt(args[i])
 	if !ok {
+		// Probed: "abc".find("b", -2**100, 2**100) clamps like a slice.
+		if b, isBig := args[i].(*intObject); isBig && b.big != nil {
+			if b.big.Sign() > 0 {
+				return 1 << 62, nil
+			}
+			return -(1 << 62), nil
+		}
 		return 0, Raise(TypeError, "slice indices must be integers or None or have an __index__ method")
 	}
 	return v, nil
