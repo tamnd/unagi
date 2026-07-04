@@ -55,8 +55,65 @@ func PyHash(o Object) (int64, error) {
 	case *funcObject, *functionObject, *Exception, *dictValuesObject,
 		*ellipsisObject, *notImplementedObject:
 		return pyHashPointer(o), nil
+	case *instanceObject:
+		val, hasVal, _, err := instanceHashInfo(x)
+		if err != nil {
+			return 0, err
+		}
+		if hasVal {
+			return val, nil
+		}
+		return pyHashPointer(o), nil
 	}
 	return 0, Raise(TypeError, "unhashable type: '%s'", o.TypeName())
+}
+
+// instanceHashInfo resolves how a user instance hashes, following CPython's
+// contract. It walks the MRO most-derived first: the first class that defines
+// __hash__ decides (an explicit None is unhashable, a method is called), and a
+// class that defines __eq__ without __hash__ is unhashable because the class
+// machinery sets its __hash__ to None. A class that overrides neither hashes by
+// identity. hasVal reports whether __hash__ ran, letting the caller fall back to
+// the identity hash; eqDefined reports whether __eq__ is user-defined, which
+// decides between value and identity keying in the dict.
+func instanceHashInfo(x *instanceObject) (val int64, hasVal, eqDefined bool, err error) {
+	_, eqDefined = x.cls.lookup("__eq__")
+	for _, c := range x.cls.mro {
+		if hv, ok := c.dict["__hash__"]; ok {
+			if _, isNone := hv.(*noneObject); isNone {
+				return 0, false, eqDefined, Raise(TypeError, "unhashable type: '%s'", x.cls.name)
+			}
+			res, _, cerr := instanceSpecial(x, "__hash__")
+			if cerr != nil {
+				return 0, false, eqDefined, cerr
+			}
+			v, cerr := coerceHashResult(res)
+			return v, true, eqDefined, cerr
+		}
+		if _, ok := c.dict["__eq__"]; ok {
+			// __eq__ without a __hash__ in this or a more-derived class means the
+			// implicit __hash__ = None, so the instance is unhashable.
+			return 0, false, eqDefined, Raise(TypeError, "unhashable type: '%s'", x.cls.name)
+		}
+	}
+	return 0, false, eqDefined, nil
+}
+
+// coerceHashResult reduces the value a user __hash__ returned to a Py_hash_t the
+// way CPython does. A result inside the ssize_t range is used directly with -1
+// mapped to -2; a spilled int folds through the same modulus as int hashing; any
+// non-integer raises the probed 3.14 message.
+func coerceHashResult(res Object) (int64, error) {
+	if i, ok := AsInt(res); ok {
+		if i == -1 {
+			return -2, nil
+		}
+		return i, nil
+	}
+	if b, ok := AsBigInt(res); ok {
+		return pyHashBig(b), nil
+	}
+	return 0, Raise(TypeError, "__hash__ method should return an integer")
 }
 
 // pyHashSmall is the int hash: the value mod 2**61-1 keeping the sign,

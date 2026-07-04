@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+True
+2
+1 2
+42
+-2
+1 2
+True
+unhashable type: 'EqOnly'
+cannot use 'EqOnly' as a dict key (unhashable type: 'EqOnly')
+cannot use 'EqOnly' as a set element (unhashable type: 'EqOnly')
+unhashable type: 'NoneHash'
+__hash__ method should return an integer
+== exception:
+== stderr:

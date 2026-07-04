@@ -89,6 +89,21 @@ func hashKey(o Object) (string, error) {
 		// and everything else stays distinct. The Ellipsis and NotImplemented
 		// singletons key stably because each is a unique pointer.
 		return fmt.Sprintf("p%p", x), nil
+	case *instanceObject:
+		val, hasVal, eqDefined, err := instanceHashInfo(x)
+		if err != nil {
+			return "", err
+		}
+		// A class that overrides __eq__ keys by its __hash__ value so equal
+		// instances collide; without a user __eq__ the identity is the key,
+		// matching object.__eq__. Distinct instances that share a __hash__ but
+		// are unequal still collide here, the one divergence the string-key
+		// dict cannot resolve without real hash buckets and an __eq__ retry
+		// (deferred to the M4 object-model rewrite).
+		if eqDefined && hasVal {
+			return "H" + strconv.FormatInt(val, 10), nil
+		}
+		return fmt.Sprintf("p%p", x), nil
 	}
 	return "", Raise(TypeError, "unhashable type: '%s'", o.TypeName())
 }
