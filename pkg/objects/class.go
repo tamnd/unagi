@@ -485,14 +485,21 @@ func StoreAttr(o Object, name string, val Object) error {
 	switch x := o.(type) {
 	case *instanceObject:
 		// A data descriptor on the type intercepts the write: a property calls
-		// its setter, or raises the probed no-setter error when it has none.
+		// its setter, or raises the probed no-setter error when it has none, and
+		// a user descriptor with __set__ runs __set__(descr, instance, value).
 		if tv, ok := x.cls.lookup(name); ok {
-			if p, ok := tv.(*propertyObject); ok {
-				if p.fset == nil {
+			switch d := tv.(type) {
+			case *propertyObject:
+				if d.fset == nil {
 					return Raise(AttributeError, "property '%s' of '%s' object has no setter", name, x.cls.name)
 				}
-				_, err := Call(p.fset, []Object{x, val})
+				_, err := Call(d.fset, []Object{x, val})
 				return err
+			case *instanceObject:
+				if _, ok := d.cls.lookup("__set__"); ok {
+					_, err := instanceCallMethod(d, "__set__", []Object{x, val})
+					return err
+				}
 			}
 		}
 		x.dict[name] = val
