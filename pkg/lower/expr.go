@@ -61,11 +61,31 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		if f.locals[e.Id] {
 			return f.loadName(e.Id), nil
 		}
+		// A free variable: the lambda's Go literal captures the enclosing
+		// mangled variable by reference, which gives Python's late-binding
+		// read; the checked load supplies the probed unbound-read error.
+		for o := f.outer; o != nil; o = o.outer {
+			if !o.locals[e.Id] {
+				continue
+			}
+			fn := "LoadName"
+			if o.inFunc {
+				fn = "LoadFree"
+			}
+			tmp := f.tmpVar()
+			f.fallible(tmp, sel("runtime", fn), ident(mangle(e.Id)), strLit(e.Id))
+			return ident(tmp), nil
+		}
 		if _, isDef := f.e.defs[e.Id]; isDef {
-			return nil, f.e.errf(e.Span(), "using function %q as a value is not supported in M0", e.Id)
+			// Inside a function body the def name binds statically, which a
+			// module-scope rebinding would silently break, so refuse that.
+			if f.e.rebound[e.Id] {
+				return nil, f.e.errf(e.Span(), "function %q is rebound at module scope; using it inside another function is not supported yet", e.Id)
+			}
+			return ident(f.e.fnObjName(e.Id)), nil
 		}
 		if builtinNames[e.Id] {
-			return nil, f.e.errf(e.Span(), "using builtin %q as a value is not supported in M0", e.Id)
+			return nil, f.e.errf(e.Span(), "using builtin %q as a value is not supported yet", e.Id)
 		}
 		return nil, f.e.errf(e.Span(), "name %q is not defined", e.Id)
 	case *frontend.ListLit:
@@ -148,6 +168,8 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		}
 		f.add(set(ident(mangle(e.Target)), v))
 		return ident(mangle(e.Target)), nil
+	case *frontend.Lambda:
+		return f.lambda(e)
 	case *frontend.Call:
 		return f.call(e)
 	case *frontend.Subscript:

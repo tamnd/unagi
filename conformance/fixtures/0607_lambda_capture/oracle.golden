@@ -1,0 +1,16 @@
+== exit: 1
+== stdout:
+2
+name 'x' is not defined
+3
+11
+cannot access free variable 'z' where it is not associated with a value in enclosing scope
+name 'q' is not defined
+40
+6
+1
+== exception:
+ZeroDivisionError: division by zero
+  main.py:50 <module>
+  main.py:48 <lambda>
+== stderr:

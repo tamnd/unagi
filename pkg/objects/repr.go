@@ -193,6 +193,9 @@ func reprCore(o Object, strict bool) (string, error) {
 		return fmt.Sprintf("range(%d, %d, %d)", x.start, x.stop, x.step), nil
 	case *funcObject:
 		return fmt.Sprintf("<function %s at %p>", x.name, x), nil
+	case *functionObject:
+		// Probed: repr spells __qualname__, g.<locals>.<lambda> and all.
+		return fmt.Sprintf("<function %s at %p>", x.qual, x), nil
 	case *dictKeysObject:
 		return reprSeqCore(x.d.keySlice(), "dict_keys([", "])", strict)
 	case *dictValuesObject:

@@ -19,9 +19,11 @@ var builtinNames = map[string]bool{
 	"frozenset": true, "format": true,
 }
 
-// call lowers a call expression. M0 resolves callees statically: a name bound
-// by a module-level def becomes a direct Go call, an unshadowed builtin
-// becomes its runtime helper, and a method call goes through CallMethod.
+// call lowers a call expression. A name bound by a module-level def keeps
+// its static fast path: keyword matching and arity checks happen at compile
+// time and the callee is a direct Go call. An unshadowed builtin becomes its
+// runtime helper and a method call goes through CallMethod. Everything else,
+// a variable, a lambda, any expression, is a dynamic call bound at runtime.
 func (f *fnCtx) call(e *frontend.Call) (ast.Expr, error) {
 	if attr, ok := e.Fn.(*frontend.Attribute); ok {
 		recv, err := f.expr(attr.X)
@@ -38,12 +40,20 @@ func (f *fnCtx) call(e *frontend.Call) (ast.Expr, error) {
 	}
 	name, ok := e.Fn.(*frontend.Name)
 	if !ok {
-		return nil, f.e.errf(e.Span(), "only named functions, builtins, and methods are callable in M0")
+		return f.dynCall(e)
 	}
 	if f.locals[name.Id] {
-		return nil, f.e.errf(e.Span(), "calling a variable is not supported in M0")
+		return f.dynCall(e)
+	}
+	for o := f.outer; o != nil; o = o.outer {
+		if o.locals[name.Id] {
+			return f.dynCall(e)
+		}
 	}
 	if d, isDef := f.e.defs[name.Id]; isDef {
+		if f.e.rebound[name.Id] {
+			return nil, f.e.errf(e.Span(), "function %q is rebound at module scope; calling it inside another function is not supported yet", name.Id)
+		}
 		return f.userCall(d, e)
 	}
 	if builtinNames[name.Id] {
@@ -54,7 +64,38 @@ func (f *fnCtx) call(e *frontend.Call) (ast.Expr, error) {
 	if x, ok, err := f.excClassNew(e); ok || err != nil {
 		return x, err
 	}
-	return nil, f.e.errf(e.Span(), "name %q is not defined", name.Id)
+	// The Name lowering owns the not-defined rejection.
+	return f.dynCall(e)
+}
+
+// dynCall lowers a call whose callee is a runtime value. The callee
+// evaluates before the arguments, matching CPython, and the runtime binder
+// in pkg/objects resolves keywords and defaults against the signature the
+// function object carries.
+func (f *fnCtx) dynCall(e *frontend.Call) (ast.Expr, error) {
+	fv, err := f.expr(e.Fn)
+	if err != nil {
+		return nil, err
+	}
+	ct := f.tmpVar()
+	f.add(define(ident(ct), fv))
+	pos, kws, _, err := f.evalArgs(e)
+	if err != nil {
+		return nil, err
+	}
+	tmp := f.tmpVar()
+	if len(kws) == 0 {
+		f.fallible(tmp, f.e.obj("Call"), ident(ct), f.objSlice(pos))
+		return ident(tmp), nil
+	}
+	names := make([]string, len(kws))
+	vals := make([]ast.Expr, len(kws))
+	for i, kw := range kws {
+		names[i] = kw.name
+		vals[i] = kw.val
+	}
+	f.fallible(tmp, f.e.obj("CallKw"), ident(ct), f.objSlice(pos), strSliceLit(names), f.objSlice(vals))
+	return ident(tmp), nil
 }
 
 func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {

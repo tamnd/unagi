@@ -430,6 +430,15 @@ type Starred struct {
 	X    Expr
 }
 
+// Lambda is `lambda params: body`. The parameter grammar is the def one
+// without annotations or parentheses; the body is a single expression, so
+// the node needs no statement list.
+type Lambda struct {
+	Pos_   Pos
+	Params []Param
+	Body   Expr
+}
+
 // FStr is an f-string after parsing: literal text runs interleaved with
 // interpolations, in source order. Adjacent string and f-string literals in
 // a concatenation are already merged into one FStr by the parser.
@@ -487,6 +496,7 @@ func (e *SliceExpr) Span() Pos { return e.Pos_ }
 func (e *IfExp) Span() Pos     { return e.Pos_ }
 func (e *NamedExpr) Span() Pos { return e.Pos_ }
 func (e *Starred) Span() Pos   { return e.Pos_ }
+func (e *Lambda) Span() Pos    { return e.Pos_ }
 func (e *FStr) Span() Pos      { return e.Pos_ }
 
 func (*Name) expr()      {}
@@ -510,4 +520,5 @@ func (*SliceExpr) expr() {}
 func (*IfExp) expr()     {}
 func (*NamedExpr) expr() {}
 func (*Starred) expr()   {}
+func (*Lambda) expr()    {}
 func (*FStr) expr()      {}

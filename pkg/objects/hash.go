@@ -52,7 +52,7 @@ func PyHash(o Object) (int64, error) {
 		return pyHashFrozenset(x.elts)
 	case *rangeObject:
 		return pyHashRange(x)
-	case *funcObject, *Exception, *dictValuesObject:
+	case *funcObject, *functionObject, *Exception, *dictValuesObject:
 		return pyHashPointer(o), nil
 	}
 	return 0, Raise(TypeError, "unhashable type: '%s'", o.TypeName())

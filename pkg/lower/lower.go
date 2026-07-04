@@ -45,16 +45,16 @@ func (e *Error) Error() string {
 // lines; nil skips the embedding and frames render bare, which is what
 // CPython prints when the source file is gone.
 func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
-	e := &emitter{file: file, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}}
+	e := &emitter{file: file, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, rebound: map[string]bool{}}
 
 	var body []frontend.Stmt
 	var defs []*frontend.FuncDef
 	for _, s := range mod.Body {
 		if d, ok := s.(*frontend.FuncDef); ok {
 			if _, dup := e.defs[d.Name]; dup {
-				// Redefinition is legal Python; M0 hoists defs, so the second
-				// binding cannot take effect and we refuse it instead.
-				return nil, e.errf(d.Span(), "redefining function %q is not supported in M0", d.Name)
+				// Redefinition is legal Python; the lowering hoists defs, so
+				// the second binding cannot take effect and we refuse it.
+				return nil, e.errf(d.Span(), "redefining function %q is not supported yet", d.Name)
 			}
 			e.defOrd[d.Name] = len(defs)
 			for _, p := range d.Params {
@@ -69,6 +69,21 @@ func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
 		// Defs stay in the body: the def statement evaluates its parameter
 		// defaults when it executes, so the slot fills at that point.
 		body = append(body, s)
+	}
+
+	// A def name assigned or deleted anywhere at module scope becomes an
+	// ordinary checked local: the def statement binds it to the function
+	// object, later statements can rebind it, and every read and call goes
+	// through the variable instead of the static fast path.
+	assigned := map[string]bool{}
+	collectAssigned(body, assigned)
+	for n := range assigned {
+		if _, ok := e.defs[n]; ok {
+			e.rebound[n] = true
+		}
+	}
+	if len(defs) > 0 {
+		e.usedObjects = true
 	}
 
 	var fnDecls []*ast.FuncDecl
@@ -109,6 +124,13 @@ func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
 		}
 		out.WriteString(")\n\n")
 	}
+	if len(defs) > 0 {
+		out.WriteString("// Function objects, built when each def statement runs.\nvar (\n")
+		for _, d := range defs {
+			fmt.Fprintf(&out, "\t%s objects.Object\n", e.fnObjName(d.Name))
+		}
+		out.WriteString(")\n\n")
+	}
 	if err := writeDecl(&out, mainDecl()); err != nil {
 		return nil, err
 	}
@@ -118,6 +140,13 @@ func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
 	for i, decl := range fnDecls {
 		fmt.Fprintf(&out, "// %s is Python def %s.\n", mangle(defs[i].Name), defs[i].Name)
 		if err := writeDecl(&out, decl); err != nil {
+			return nil, err
+		}
+		// The adapter lives at package level so it sees the def's Go
+		// function even when a rebound def name shadows it in pymain.
+		fmt.Fprintf(&out, "// %s adapts %s to the function object calling convention.\n",
+			e.implName(defs[i].Name), mangle(defs[i].Name))
+		if err := writeDecl(&out, e.implDecl(defs[i])); err != nil {
 			return nil, err
 		}
 	}
@@ -135,6 +164,7 @@ type emitter struct {
 	file        string
 	defs        map[string]*frontend.FuncDef
 	defOrd      map[string]int
+	rebound     map[string]bool // def names also assigned or deleted at module scope
 	slots       []string
 	usedObjects bool
 	usedTB      bool
@@ -145,6 +175,34 @@ type emitter struct {
 // without leaning on the mangled namespace.
 func (e *emitter) slotName(fname, pname string) string {
 	return fmt.Sprintf("dflt%d_%s", e.defOrd[fname], pname)
+}
+
+// fnObjName is the module-level variable holding one def's function object,
+// built when the def statement runs.
+func (e *emitter) fnObjName(fname string) string {
+	return fmt.Sprintf("fn%d_%s", e.defOrd[fname], fname)
+}
+
+// implName is the package-level adapter turning one def's Go function into
+// the slice-taking implementation a function object carries.
+func (e *emitter) implName(fname string) string {
+	return fmt.Sprintf("impl%d_%s", e.defOrd[fname], fname)
+}
+
+// implDecl builds one def's adapter: unpack the bound argument slice into
+// the def's Go parameters.
+func (e *emitter) implDecl(d *frontend.FuncDef) *ast.FuncDecl {
+	args := make([]ast.Expr, len(d.Params))
+	for i := range d.Params {
+		args[i] = &ast.IndexExpr{X: ident("args"), Index: intLit(strconv.Itoa(i))}
+	}
+	return &ast.FuncDecl{
+		Name: ident(e.implName(d.Name)),
+		Type: e.implType(),
+		Body: &ast.BlockStmt{List: []ast.Stmt{&ast.ReturnStmt{
+			Results: []ast.Expr{callExpr(ident(mangle(d.Name)), args...)},
+		}}},
+	}
 }
 
 func (e *emitter) errf(pos frontend.Pos, format string, args ...any) error {
