@@ -325,6 +325,12 @@ func (f *fnCtx) delStmt(s *frontend.Del) error {
 				return err
 			}
 			f.fallibleVoid(f.e.obj("DelItem"), x, idx)
+		case *frontend.Attribute:
+			x, err := f.expr(t.X)
+			if err != nil {
+				return err
+			}
+			f.fallibleVoid(f.e.obj("DelAttr"), x, strLit(t.Name))
 		default:
 			return f.e.errf(t.Span(), "cannot delete this expression")
 		}

@@ -407,6 +407,18 @@ func (c *classObject) setAttr(name string, v Object) {
 	c.dict[name] = v
 }
 
+// delAttr removes a class attribute and drops it from the insertion order, so
+// a later re-add appends fresh rather than reusing the old slot.
+func (c *classObject) delAttr(name string) {
+	delete(c.dict, name)
+	for i, n := range c.order {
+		if n == name {
+			c.order = append(c.order[:i], c.order[i+1:]...)
+			break
+		}
+	}
+}
+
 // Instantiate builds an instance of a class and runs __init__. The binding
 // errors come from the __init__ function object, so they spell C.__init__()
 // exactly as a direct call would; a class with no __init__ rejects any
@@ -518,6 +530,44 @@ func StoreAttr(o Object, name string, val Object) error {
 	return Raise(AttributeError,
 		"'%s' object has no attribute '%s' and no __dict__ for setting new attributes",
 		o.TypeName(), name)
+}
+
+// DelAttr implements del o.name. On an instance a data descriptor with
+// __delete__ intercepts the delete, a property runs its deleter or raises the
+// no-deleter error, and otherwise the instance-dict entry is removed, missing
+// name being the same AttributeError a read gives. On a class the class-dict
+// entry is removed, missing name spelling the type-object wording.
+func DelAttr(o Object, name string) error {
+	switch x := o.(type) {
+	case *instanceObject:
+		if tv, ok := x.cls.lookup(name); ok {
+			switch d := tv.(type) {
+			case *propertyObject:
+				if d.fdel == nil {
+					return Raise(AttributeError, "property '%s' of '%s' object has no deleter", name, x.cls.name)
+				}
+				_, err := Call(d.fdel, []Object{x})
+				return err
+			case *instanceObject:
+				if _, ok := d.cls.lookup("__delete__"); ok {
+					_, err := instanceCallMethod(d, "__delete__", []Object{x})
+					return err
+				}
+			}
+		}
+		if _, ok := x.dict[name]; !ok {
+			return Raise(AttributeError, "'%s' object has no attribute '%s'", x.cls.name, name)
+		}
+		delete(x.dict, name)
+		return nil
+	case *classObject:
+		if _, ok := x.dict[name]; !ok {
+			return Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
+		}
+		x.delAttr(name)
+		return nil
+	}
+	return Raise(AttributeError, "'%s' object has no attribute '%s'", o.TypeName(), name)
 }
 
 // classSubscript implements C[item] on a class. Subscription looks for a

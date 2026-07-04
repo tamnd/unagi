@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+'Box' object has no attribute 'a'
+delete called
+deleter ran
+property 'y' of 'NoDel' object has no deleter
+'Bare' object has no attribute 'nope'
+type object 'K' has no attribute 'z'
+== exception:
+== stderr:
