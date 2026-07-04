@@ -61,11 +61,11 @@ func TestLenAndConversions(t *testing.T) {
 		t.Errorf("ReprOf = %q", got)
 	}
 
-	if got := BoolOf(objects.NewStr("")); got != objects.False {
-		t.Errorf("BoolOf('') = %s", objects.Repr(got))
+	if got, err := BoolOf(objects.NewStr("")); err != nil || got != objects.False {
+		t.Errorf("BoolOf('') = %s, %v", objects.Repr(got), err)
 	}
-	if got := BoolOf(objects.NewList([]objects.Object{objects.None})); got != objects.True {
-		t.Errorf("BoolOf([None]) = %s", objects.Repr(got))
+	if got, err := BoolOf(objects.NewList([]objects.Object{objects.None})); err != nil || got != objects.True {
+		t.Errorf("BoolOf([None]) = %s, %v", objects.Repr(got), err)
 	}
 }
 

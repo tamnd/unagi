@@ -92,7 +92,13 @@ func richSlot(x Object, op CmpOp, other Object) (res Object, ok bool, err error)
 			if _, ni := eq.(*notImplementedObject); ni {
 				return nil, false, nil
 			}
-			return NewBool(!Truth(eq)), true, nil
+			// object.__ne__ runs PyObject_IsTrue on the __eq__ result, so a
+			// user object with its own __bool__ decides the negation.
+			t, terr := TruthOf(eq)
+			if terr != nil {
+				return nil, false, terr
+			}
+			return NewBool(!t), true, nil
 		}
 	}
 	return nil, false, nil

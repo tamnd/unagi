@@ -151,7 +151,11 @@ func Zip(args []objects.Object) (objects.Object, error) {
 // ValueError from the iterator after the common rows were yielded,
 // matching CPython's lazy check.
 func ZipStrict(args []objects.Object, strict objects.Object) (objects.Object, error) {
-	if !objects.Truth(strict) {
+	t, err := objects.TruthOf(strict)
+	if err != nil {
+		return nil, err
+	}
+	if !t {
 		return Zip(args)
 	}
 	cols := make([][]objects.Object, len(args))

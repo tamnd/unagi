@@ -127,7 +127,14 @@ func strMethod(x *strObject, name string, args []Object) (Object, error) {
 		if len(args) > 1 {
 			return nil, Raise(TypeError, "splitlines() takes at most 1 argument (%d given)", len(args))
 		}
-		keepends := len(args) == 1 && Truth(args[0])
+		keepends := false
+		if len(args) == 1 {
+			t, err := TruthOf(args[0])
+			if err != nil {
+				return nil, err
+			}
+			keepends = t
+		}
 		return strSplitLines(s, keepends), nil
 	case "join":
 		if len(args) != 1 {

@@ -212,7 +212,9 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		}
 		switch e.Op {
 		case frontend.UnaryNot:
-			return callExpr(f.e.obj("Not"), x), nil
+			tmp := f.tmpVar()
+			f.fallible(tmp, f.e.obj("NotOf"), x)
+			return ident(tmp), nil
 		case frontend.UnaryNeg:
 			tmp := f.tmpVar()
 			f.fallible(tmp, f.e.obj("Neg"), x)
@@ -314,6 +316,8 @@ func (f *fnCtx) ifExp(e *frontend.IfExp) (ast.Expr, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The condition truth is tested first, before either arm evaluates.
+	tcond := f.truthCond(cond)
 	res := f.tmpVar()
 	f.add(varDecl(res, f.e.obj("Object")))
 	f.push()
@@ -329,7 +333,7 @@ func (f *fnCtx) ifExp(e *frontend.IfExp) (ast.Expr, error) {
 		return nil, err
 	}
 	f.add(set(ident(res), elseV))
-	f.add(&ast.IfStmt{Cond: callExpr(f.e.obj("Truth"), cond), Body: body, Else: f.pop()})
+	f.add(&ast.IfStmt{Cond: tcond, Body: body, Else: f.pop()})
 	return ident(res), nil
 }
 
@@ -468,11 +472,14 @@ func (f *fnCtx) boolOpRest(e *frontend.BoolOp, i int, res string) error {
 	if err := f.boolOpRest(e, i+1, res); err != nil {
 		return err
 	}
-	var cond ast.Expr = callExpr(f.e.obj("Truth"), ident(res))
+	// The short-circuit test runs in the parent block, on the operand just
+	// stored, so a user __bool__ decides whether the next operand evaluates.
+	body := f.pop()
+	cond := f.truthCond(ident(res))
 	if e.Kind != frontend.BoolAnd {
 		cond = notExpr(cond)
 	}
-	f.add(&ast.IfStmt{Cond: cond, Body: f.pop()})
+	f.add(&ast.IfStmt{Cond: cond, Body: body})
 	return nil
 }
 

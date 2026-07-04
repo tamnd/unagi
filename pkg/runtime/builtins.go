@@ -441,7 +441,10 @@ func SortedKw(o, key, reverse objects.Object) (objects.Object, error) {
 	if key != objects.None && len(items) > 0 {
 		return nil, objects.Raise(objects.TypeError, "'%s' object is not callable", key.TypeName())
 	}
-	desc := objects.Truth(reverse)
+	desc, err := objects.TruthOf(reverse)
+	if err != nil {
+		return nil, err
+	}
 	var sortErr error
 	sort.SliceStable(items, func(i, j int) bool {
 		if sortErr != nil {

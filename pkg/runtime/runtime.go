@@ -253,8 +253,15 @@ func FloatOf(o objects.Object) (objects.Object, error) {
 		"float() argument must be a string or a real number, not '%s'", o.TypeName())
 }
 
-// BoolOf implements bool(o).
-func BoolOf(o objects.Object) objects.Object { return objects.NewBool(objects.Truth(o)) }
+// BoolOf implements bool(o), consulting a user __bool__/__len__ through the
+// fallible truth protocol.
+func BoolOf(o objects.Object) (objects.Object, error) {
+	t, err := objects.TruthOf(o)
+	if err != nil {
+		return nil, err
+	}
+	return objects.NewBool(t), nil
+}
 
 // Abs implements abs(o) for int, bool and float arguments.
 func Abs(o objects.Object) (objects.Object, error) {
@@ -352,7 +359,7 @@ func init() {
 			case 0:
 				return objects.False, nil
 			case 1:
-				return BoolOf(args[0]), nil
+				return BoolOf(args[0])
 			}
 			return nil, objects.Raise(objects.TypeError, "bool expected at most 1 argument, got %d", len(args))
 		}),

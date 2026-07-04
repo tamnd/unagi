@@ -418,11 +418,12 @@ func (f *fnCtx) ifStmt(s *frontend.If) error {
 	if err != nil {
 		return err
 	}
+	tcond := f.truthCond(cond)
 	f.push()
 	if err := f.stmts(s.Body); err != nil {
 		return err
 	}
-	out := &ast.IfStmt{Cond: callExpr(f.e.obj("Truth"), cond), Body: f.pop()}
+	out := &ast.IfStmt{Cond: tcond, Body: f.pop()}
 	if len(s.Else) > 0 {
 		f.push()
 		if err := f.stmts(s.Else); err != nil {
@@ -448,7 +449,7 @@ func (f *fnCtx) whileStmt(s *frontend.While) error {
 		return err
 	}
 	f.add(&ast.IfStmt{
-		Cond: notExpr(callExpr(f.e.obj("Truth"), cond)),
+		Cond: notExpr(f.truthCond(cond)),
 		Body: block(&ast.BranchStmt{Tok: token.BREAK}),
 	})
 	f.loops = append(f.loops, loop)

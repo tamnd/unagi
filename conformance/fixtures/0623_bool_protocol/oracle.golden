@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+yes
+no
+f
+t
+False True
+True False
+True False False True
+Flag(True)
+Flag(False)
+Sized(3)
+if-taken
+else-taken
+[3, 2, 1]
+2
+assert: boom
+gated
+fallthrough
+badbool: __bool__ should return bool, returned int
+neglen: __len__() should return >= 0
+strlen: 'str' object cannot be interpreted as an integer
+True
+== exception:
+== stderr:
