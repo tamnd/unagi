@@ -1,0 +1,20 @@
+== exit: 0
+== stdout:
+proxy 9 {'a': 1}
+1 made:missing
+hi
+10 w:7
+frozen: Frozen is read-only
+removing tmp
+has tmp: False
+sticky: cannot delete v
+3
+after direct del: False
+direct miss: 'Bag' object has no attribute 'gone'
+sub 2
+prop: 21 21
+<slot wrapper '__getattribute__' of 'object' objects>
+<slot wrapper '__setattr__' of 'object' objects>
+<slot wrapper '__delattr__' of 'object' objects>
+== exception:
+== stderr:
