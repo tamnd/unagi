@@ -57,6 +57,11 @@ func (f *fnCtx) nestedDef(s *frontend.FuncDef) error {
 	// then raises UnboundLocalError just like a name deleted and read back.
 	collectLocalDefs(s.Body, in.deleted)
 
+	// A plain nested def charges a recursion slot in its impl function; a
+	// generator's frames run on their own goroutine and are not accounted yet.
+	if !gen.has {
+		in.recursionGuard()
+	}
 	// The generator's body statements land in the yielder closure so each call
 	// gets fresh locals; the parameter binds stay in the impl function that runs
 	// at call time.

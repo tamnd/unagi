@@ -112,6 +112,21 @@ func (f *fnCtx) tmpVar() string {
 	return fmt.Sprintf("t%d", f.tmp)
 }
 
+// recursionGuard prepends this frame's recursion accounting. EnterRecursive
+// charges one slot and hands back a catchable RecursionError once the depth
+// passes the limit, and the deferred LeaveRecursive releases the slot on any
+// exit. Every non-generator Python frame emits it, so unbounded recursion
+// raises instead of overflowing the goroutine stack. The RecursionError
+// leaves raw and collects caller frames the way any exception does.
+func (f *fnCtx) recursionGuard() {
+	f.add(&ast.IfStmt{
+		Init: assign(token.DEFINE, []ast.Expr{ident("err")}, callExpr(sel("runtime", "EnterRecursive"))),
+		Cond: errNotNil(),
+		Body: block(f.retErr(ident("err"))),
+	})
+	f.add(&ast.DeferStmt{Call: callExpr(sel("runtime", "LeaveRecursive"))})
+}
+
 // tb wraps an unwinding error in runtime.TB so it picks up this frame's
 // traceback entry. Exactly one TB call runs per Python frame per unwind: the
 // check adjacent to the failing operation wraps, and every later propagation
@@ -269,6 +284,7 @@ func (e *emitter) fillFuncDecl(f *fnCtx, d *frontend.FuncDef, declName string) (
 		f.declLocal(name)
 	}
 	f.declPending(d.Body)
+	f.recursionGuard()
 	if err := f.stmts(d.Body); err != nil {
 		return nil, err
 	}
