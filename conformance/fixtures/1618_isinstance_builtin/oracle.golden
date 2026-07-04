@@ -1,0 +1,45 @@
+== exit: 0
+== stdout:
+int True
+bool-in-int True
+bool True
+int-not-bool False
+float-not-int False
+str True
+list True
+tuple True
+dict True
+set True
+frozenset True
+bytes True
+float True
+tuple-hit True
+tuple-miss False
+int-is-type True
+type-is-type True
+value-not-type False
+dog-not-int False
+five-not-dog False
+dog-cls-is-type True
+dog-is-animal True
+bool-sub-int True
+int-sub-int True
+int-not-sub-bool False
+int-not-sub-float False
+int-not-sub-type False
+type-sub-type True
+bool-sub-tuple True
+dog-sub-animal True
+dog-not-sub-int False
+int-not-sub-dog False
+issub-arg1 issubclass() arg 1 must be a class
+isinst-arg2 isinstance() arg 2 must be a type, a tuple of types, or a union
+classify int:5
+classify bool
+classify str:hi
+classify float
+classify other
+range-match range() accepts 0 positional sub-patterns (1 given)
+int-arity int() accepts 1 positional sub-pattern (2 given)
+== exception:
+== stderr:
