@@ -111,7 +111,13 @@ func (f *fnCtx) fInterp(p *frontend.FInterp) ([]ast.Expr, error) {
 		return out, nil
 	}
 	if conv == 0 {
-		fallibleConv("StrOf")
+		// No conversion and no spec still routes through format(value, ""),
+		// which is str(value) for builtins but honors a user __format__ that
+		// defines no __str__. Probed on 3.14: f"{m}" calls __format__ with "".
+		tmp := f.tmpVar()
+		f.fallible(tmp, f.e.obj("Format"), v, strLit(""))
+		out = append(out, ident(tmp))
+		return out, nil
 	}
 	out = append(out, v)
 	return out, nil

@@ -160,6 +160,20 @@ func parseFmtSpec(spec, typeName string, defaultVerb rune) (fmtSpec, error) {
 
 // Format implements format(o, spec), the __format__ dispatch.
 func Format(o Object, spec string) (Object, error) {
+	// A user __format__ intercepts every spec, empty included: probed on
+	// 3.14, format(Fmt(), '') calls __format__ with '' rather than str(o).
+	if inst, ok := o.(*instanceObject); ok {
+		res, defined, err := instanceSpecial(inst, "__format__", NewStr(spec))
+		if defined {
+			if err != nil {
+				return nil, err
+			}
+			if _, isStr := res.(*strObject); !isStr {
+				return nil, Raise(TypeError, "__format__ must return a str, not %s", res.TypeName())
+			}
+			return res, nil
+		}
+	}
 	// An empty spec is str(o) for every type. Probed on 3.14:
 	// format(True, '') is 'True' and format(None, '') is 'None'. The
 	// strict form keeps the 4300-digit int limit in play.
