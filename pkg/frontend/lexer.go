@@ -599,9 +599,27 @@ func (lx *lexer) lexEscape(strPos Pos, sb *strings.Builder) {
 	case 'r':
 		sb.WriteByte('\r')
 		lx.adv()
-	case '0':
-		sb.WriteByte(0)
+	case 'a':
+		sb.WriteByte('\a')
 		lx.adv()
+	case 'b':
+		sb.WriteByte('\b')
+		lx.adv()
+	case 'f':
+		sb.WriteByte('\f')
+		lx.adv()
+	case 'v':
+		sb.WriteByte('\v')
+		lx.adv()
+	case '0', '1', '2', '3', '4', '5', '6', '7':
+		// An octal escape takes one to three octal digits; the value may run
+		// past 0xff (\777 is U+01FF), so it lands as a rune, not a byte.
+		v := 0
+		for n := 0; n < 3 && lx.ch() >= '0' && lx.ch() <= '7'; n++ {
+			v = v<<3 | int(lx.ch()-'0')
+			lx.adv()
+		}
+		sb.WriteRune(rune(v))
 	case 'x':
 		lx.adv()
 		h1, h2 := lx.ch(), lx.ch2()
@@ -611,6 +629,12 @@ func (lx *lexer) lexEscape(strPos Pos, sb *strings.Builder) {
 		sb.WriteRune(rune(hexVal(h1)<<4 | hexVal(h2)))
 		lx.adv()
 		lx.adv()
+	case 'u':
+		lx.adv()
+		sb.WriteRune(lx.unicodeEscape(escPos, 4, `\u`))
+	case 'U':
+		lx.adv()
+		sb.WriteRune(lx.unicodeEscape(escPos, 8, `\U`))
 	case '\n', '\r':
 		// A backslash before the newline joins the physical lines.
 		lx.consumeNewline()
@@ -620,6 +644,26 @@ func (lx *lexer) lexEscape(strPos Pos, sb *strings.Builder) {
 		sb.WriteRune(r)
 		lx.adv()
 	}
+}
+
+// unicodeEscape reads exactly width hex digits after a \u or \U and returns
+// the rune. Too few hex digits, or a value above U+10FFFF, is the simplified
+// invalid-escape error the lexer already uses for \x; CPython's byte-position
+// codec wording is a deliberate house-style simplification here.
+func (lx *lexer) unicodeEscape(escPos Pos, width int, kind string) rune {
+	v := 0
+	for range width {
+		c := lx.ch()
+		if !isHexDigit(c) {
+			lx.err(escPos, "invalid %s escape", kind)
+		}
+		v = v<<4 | hexVal(c)
+		lx.adv()
+	}
+	if v > 0x10FFFF {
+		lx.err(escPos, "invalid %s escape", kind)
+	}
+	return rune(v)
 }
 
 func hexVal(c byte) int {
