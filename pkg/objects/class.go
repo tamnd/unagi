@@ -526,6 +526,10 @@ func StoreAttr(o Object, name string, val Object) error {
 	case *classObject:
 		x.setAttr(name, val)
 		return nil
+	case *Exception:
+		if handled, err := excStoreAttr(x, name, val); handled {
+			return err
+		}
 	}
 	return Raise(AttributeError,
 		"'%s' object has no attribute '%s' and no __dict__ for setting new attributes",

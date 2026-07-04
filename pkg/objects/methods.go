@@ -78,6 +78,27 @@ func excLoadAttr(e *Exception, name string) (Object, error) {
 	switch name {
 	case "args":
 		return NewTuple(append([]Object{}, e.Args...)), nil
+	case "__cause__":
+		return excOrNone(e.Cause), nil
+	case "__context__":
+		return excOrNone(e.Context), nil
+	case "__suppress_context__":
+		return NewBool(e.SuppressContext), nil
+	case "__traceback__":
+		// unagi does not model a first-class traceback object; a fresh
+		// exception's __traceback__ is None in CPython too, and this is the
+		// documented stand-in for a caught one.
+		return None, nil
+	case "__notes__":
+		// __notes__ exists only after add_note; a never-noted exception
+		// raises AttributeError, matching 3.14.
+		if len(e.Notes) > 0 {
+			notes := make([]Object, len(e.Notes))
+			for i, n := range e.Notes {
+				notes[i] = NewStr(n)
+			}
+			return NewList(notes), nil
+		}
 	case "value":
 		if e.Kind == "StopIteration" || e.Kind == "StopAsyncIteration" {
 			if len(e.Args) > 0 {
@@ -87,6 +108,63 @@ func excLoadAttr(e *Exception, name string) (Object, error) {
 		}
 	}
 	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", e.Kind, name)
+}
+
+// excOrNone returns the exception as an Object, or None when the slot is
+// empty, the way CPython reports an unset __cause__ or __context__.
+func excOrNone(e *Exception) Object {
+	if e == nil {
+		return None
+	}
+	return e
+}
+
+// excStoreAttr writes a settable dunder on an exception. Assigning
+// __cause__ also sets __suppress_context__ (True even for a None cause),
+// matching CPython; __context__ leaves suppression alone; both reject a
+// value that is neither None nor an exception with the probed wording.
+func excStoreAttr(e *Exception, name string, val Object) (bool, error) {
+	switch name {
+	case "__cause__":
+		c, err := asCauseException(val, "cause")
+		if err != nil {
+			return true, err
+		}
+		e.Cause = c
+		e.SuppressContext = true
+		return true, nil
+	case "__context__":
+		c, err := asCauseException(val, "context")
+		if err != nil {
+			return true, err
+		}
+		e.Context = c
+		return true, nil
+	case "__suppress_context__":
+		// CPython stores this slot as a strict bool: a non-bool value is a
+		// TypeError, not a truthiness coercion.
+		b, ok := val.(*boolObject)
+		if !ok {
+			return true, Raise(TypeError, "attribute value type must be bool")
+		}
+		e.SuppressContext = bool(b.v)
+		return true, nil
+	}
+	return false, nil
+}
+
+// asCauseException validates the right-hand side of e.__cause__ = v or
+// e.__context__ = v: None clears the slot, an exception fills it, anything
+// else is the "exception cause/context must be None or derive from
+// BaseException" TypeError.
+func asCauseException(val Object, which string) (*Exception, error) {
+	switch v := val.(type) {
+	case *noneObject:
+		return nil, nil
+	case *Exception:
+		return v, nil
+	}
+	return nil, Raise(TypeError, "exception %s must be None or derive from BaseException", which)
 }
 
 func noAttr(o Object, name string) error {
