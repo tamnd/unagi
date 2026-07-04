@@ -1,0 +1,7 @@
+== exit: 0
+== stdout:
+1 2
+9
+object.__init__() takes exactly one argument (the instance to initialize)
+== exception:
+== stderr:

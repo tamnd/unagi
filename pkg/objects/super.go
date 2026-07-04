@@ -85,7 +85,29 @@ func superCallMethod(s *superObject, name string, args []Object) (Object, error)
 		}
 		return Call(v, args)
 	}
+	if r, ok, err := objectDefaultCall(name, args); ok {
+		return r, err
+	}
 	return nil, Raise(AttributeError, "'super' object has no attribute '%s'", name)
+}
+
+// objectDefaultCall runs the object-root default for a method the cooperative
+// walk fell off the end of. The common case is super().__init__(): once a chain
+// reaches the object root the initializer is a no-op that takes no extra
+// arguments, so a lone class calling super().__init__() and the tail of a
+// longer chain both land here. Extra arguments are the exact TypeError CPython
+// raises when __init__ is overridden but __new__ is not, which every class in
+// this tier is. ok is false for a name object does not default, so the caller
+// falls through to its own AttributeError.
+func objectDefaultCall(name string, args []Object) (Object, bool, error) {
+	switch name {
+	case "__init__":
+		if len(args) != 0 {
+			return nil, true, Raise(TypeError, "object.__init__() takes exactly one argument (the instance to initialize)")
+		}
+		return None, true, nil
+	}
+	return nil, false, nil
 }
 
 // superCallMethodKw dispatches super().name(pos, **kw): the resolved function
@@ -97,6 +119,11 @@ func superCallMethodKw(s *superObject, name string, pos []Object, kwNames []stri
 			return fn.bind(append([]Object{s.obj}, pos...), kwNames, kwVals)
 		}
 		return CallKw(v, pos, kwNames, kwVals)
+	}
+	if len(kwNames) == 0 {
+		if r, ok, err := objectDefaultCall(name, pos); ok {
+			return r, err
+		}
 	}
 	return nil, Raise(AttributeError, "'super' object has no attribute '%s'", name)
 }
