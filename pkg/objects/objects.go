@@ -211,6 +211,24 @@ func NewFunc(name string, arity int, fn func(args []Object) (Object, error)) Obj
 	return &funcObject{name: name, arity: arity, fn: fn}
 }
 
+// builtinTypeReprs and builtinFuncReprs split the builtins that can be read as
+// values by how CPython reprs them: the type constructors print as classes and
+// the plain builtins as built-in functions. A funcObject name in neither set is
+// an internal helper and keeps the generic function repr.
+var builtinTypeReprs = map[string]bool{
+	"range": true, "str": true, "int": true, "float": true, "bool": true,
+	"reversed": true, "enumerate": true, "zip": true, "list": true,
+	"tuple": true, "dict": true, "set": true, "frozenset": true,
+}
+
+var builtinFuncReprs = map[string]bool{
+	"print": true, "len": true, "repr": true, "abs": true, "min": true,
+	"max": true, "sum": true, "round": true, "divmod": true, "pow": true,
+	"bin": true, "oct": true, "hex": true, "ord": true, "chr": true,
+	"hash": true, "sorted": true, "format": true, "next": true,
+	"isinstance": true, "issubclass": true,
+}
+
 // NewRange builds a range object. The caller must reject a zero step.
 func NewRange(start, stop, step int64) Object {
 	return &rangeObject{start: start, stop: stop, step: step}

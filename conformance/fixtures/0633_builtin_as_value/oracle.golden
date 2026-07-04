@@ -1,0 +1,24 @@
+== exit: 0
+== stdout:
+3
+42 7 5
+<built-in function len>
+<class 'list'>
+<class 'dict'>
+<built-in function sorted>
+<class 'range'>
+<class 'str'>
+<built-in function next>
+<built-in function isinstance>
+9 6
+[1, 2, 3]
+9 2
+7
+0xff
+5
+5
+10
+20
+done
+== exception:
+== stderr:

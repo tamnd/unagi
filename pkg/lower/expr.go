@@ -145,7 +145,10 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 			return f.e.obj("NotImplemented"), nil
 		}
 		if builtinNames[e.Id] {
-			return nil, f.e.errf(e.Span(), "using builtin %q as a value is not supported yet", e.Id)
+			// An unshadowed builtin read as a value resolves to its function
+			// object, so it can be passed around and called later. Shadowing by
+			// a local or module variable is handled above, before this point.
+			return callExpr(sel("runtime", "BuiltinFn"), strLit(e.Id)), nil
 		}
 		if f.inFunc {
 			// Inside a function an unresolved name is a global lookup deferred
