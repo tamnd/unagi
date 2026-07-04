@@ -159,6 +159,20 @@ func dictMethod(x *dictObject, name string, args []Object) (Object, error) {
 	return nil, noAttr(x, name)
 }
 
+// dictOr builds the PEP 584 union of two dicts: a fresh dict holding a's
+// entries in order, then b's, so a shared key keeps a's position but takes b's
+// value. Both operands are dicts, so the merge never fails.
+func dictOr(a, b *dictObject) (Object, error) {
+	out := &dictObject{index: make(map[string]int, len(a.entries)+len(b.entries))}
+	if err := dictUpdate(out, a); err != nil {
+		return nil, err
+	}
+	if err := dictUpdate(out, b); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // dictUpdate merges a dict or an iterable of key-value pairs into d,
 // overwriting values and keeping first-insertion key order like CPython.
 // The error messages mirror dict() in the runtime, probed on 3.14:

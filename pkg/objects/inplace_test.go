@@ -176,3 +176,50 @@ func TestInPlaceUnsupportedSymbol(t *testing.T) {
 		}
 	}
 }
+
+// Binary dict | builds a new dict keeping left order then the right's new keys,
+// right winning on an overlap; both operands must be dicts.
+func TestDictUnionBinary(t *testing.T) {
+	a := D(t, NewInt(3), NewInt(1), NewInt(1), NewInt(2))
+	b := D(t, NewInt(2), NewInt(3), NewInt(1), NewInt(9))
+	res, err := BitOr(a, b)
+	if err != nil {
+		t.Fatalf("dict | dict: %v", err)
+	}
+	if got := Repr(res); got != "{3: 1, 1: 9, 2: 3}" {
+		t.Fatalf("dict union = %s", got)
+	}
+	if res == Object(a) {
+		t.Fatal("binary | must build a new dict, not mutate the left operand")
+	}
+	if got := Repr(a); got != "{3: 1, 1: 2}" {
+		t.Fatalf("left operand changed to %s", got)
+	}
+	_, err = BitOr(D(t, NewInt(1), NewInt(2)), L(NewInt(1)))
+	if err == nil || err.Error() != "TypeError: unsupported operand type(s) for |: 'dict' and 'list'" {
+		t.Fatalf("dict | list error = %v", err)
+	}
+}
+
+// dict |= merges in place through the update path, so it takes a mapping or an
+// iterable of pairs and aliases see the merge.
+func TestDictUnionInPlace(t *testing.T) {
+	d := D(t, NewInt(1), NewStr("a"))
+	res, err := InPlace("|=", d, D(t, NewInt(2), NewStr("b")))
+	if err != nil {
+		t.Fatalf("dict |= dict: %v", err)
+	}
+	if res != d || Repr(d) != `{1: 'a', 2: 'b'}` {
+		t.Fatalf("|= dict = %s (same=%v)", Repr(d), res == d)
+	}
+	if _, err := InPlace("|=", d, L(T(NewInt(3), NewStr("c")))); err != nil {
+		t.Fatalf("|= pairs: %v", err)
+	}
+	if got := Repr(d); got != `{1: 'a', 2: 'b', 3: 'c'}` {
+		t.Fatalf("after |= pairs = %s", got)
+	}
+	_, err = InPlace("|=", D(t, NewInt(1), NewInt(2)), NewInt(5))
+	if err == nil || err.Error() != "TypeError: 'int' object is not iterable" {
+		t.Fatalf("|= int error = %v", err)
+	}
+}

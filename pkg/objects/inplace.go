@@ -142,6 +142,14 @@ func iterAll(o Object) ([]Object, error) {
 // operand or a non-set right operand declines so the binary op rebinds (a new
 // frozenset) or raises the augmented unsupported-operand error.
 func inplaceUnion(a, b Object) (Object, bool, error) {
+	// dict |= merges in place like dict.update, taking a mapping or an iterable
+	// of pairs, which is wider than the binary dict | that needs two dicts.
+	if d, ok := a.(*dictObject); ok {
+		if err := dictUpdate(d, b); err != nil {
+			return nil, true, err
+		}
+		return d, true, nil
+	}
 	return inplaceSet(a, b, func(dst, x, y *setCore) { unionInto(dst, x, y) })
 }
 
