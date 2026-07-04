@@ -199,6 +199,31 @@ func TestHugeIntLiteralLowersToText(t *testing.T) {
 	}
 }
 
+// An unshadowed builtin read as a value resolves to its function object
+// through runtime.BuiltinFn, so it can be passed around and called later.
+func TestBuiltinReadAsValueLowering(t *testing.T) {
+	got, err := lowerSrc(t, "f = len\nprint(f([1]))\n")
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	want := `runtime.BuiltinFn("len")`
+	if !strings.Contains(got, want) {
+		t.Errorf("emitted source missing %q:\n%s", want, got)
+	}
+}
+
+// A builtin shadowed by a local binding reads the local slot, never the
+// builtin fallback.
+func TestShadowedBuiltinReadsLocal(t *testing.T) {
+	got, err := lowerSrc(t, "len = 5\nprint(len)\n")
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	if strings.Contains(got, `runtime.BuiltinFn("len")`) {
+		t.Errorf("shadowed builtin should not fall back to BuiltinFn:\n%s", got)
+	}
+}
+
 func TestCompileErrors(t *testing.T) {
 	cases := []struct {
 		name string

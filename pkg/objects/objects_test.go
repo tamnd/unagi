@@ -321,6 +321,8 @@ func TestRepr(t *testing.T) {
 		{"dict", mustDict(NewStr("a"), NewInt(1), NewStr("b"), NewInt(2)), "{'a': 1, 'b': 2}"},
 		{"range-step1", NewRange(0, 5, 1), "range(0, 5)"},
 		{"range-step2", NewRange(1, 10, 2), "range(1, 10, 2)"},
+		{"builtin-func", NewFunc("len", -1, nil), "<built-in function len>"},
+		{"builtin-type", NewFunc("list", -1, nil), "<class 'list'>"},
 	}
 	for _, tt := range tests {
 		if got := Repr(tt.o); got != tt.want {

@@ -196,6 +196,15 @@ func reprCore(o Object, strict bool) (string, error) {
 		}
 		return fmt.Sprintf("range(%d, %d, %d)", x.start, x.stop, x.step), nil
 	case *funcObject:
+		// A builtin passed around as a value reprs the way CPython does: the
+		// type constructors as classes, the plain builtins as built-in
+		// functions. Internal helper funcObjects keep the generic form.
+		if builtinTypeReprs[x.name] {
+			return fmt.Sprintf("<class '%s'>", x.name), nil
+		}
+		if builtinFuncReprs[x.name] {
+			return fmt.Sprintf("<built-in function %s>", x.name), nil
+		}
 		return fmt.Sprintf("<function %s at %p>", x.name, x), nil
 	case *functionObject:
 		// Probed: repr spells __qualname__, g.<locals>.<lambda> and all.
