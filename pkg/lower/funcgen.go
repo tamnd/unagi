@@ -195,7 +195,11 @@ func (e *emitter) emitFuncDecl(d *frontend.FuncDef, declName, coName, qual strin
 	collectGlobals(d.Body, f.globals)
 	assigned := map[string]bool{}
 	collectAssigned(d.Body, assigned)
+	collectLocalDefs(d.Body, assigned)
 	collectDeleted(d.Body, f.deleted)
+	// A nested def name is unbound until its statement runs, so a read before
+	// then is checked just like a deleted local.
+	collectLocalDefs(d.Body, f.deleted)
 	for _, name := range sortedNames(assigned) {
 		if f.locals[name] || f.globals[name] {
 			continue

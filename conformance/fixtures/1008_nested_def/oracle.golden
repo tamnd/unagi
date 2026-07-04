@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+42
+15 110
+120
+3
+1
+(8, 3)
+('inner', 'outer')
+global g: 20
+free: cannot access free variable 'v' where it is not associated with a value in enclosing scope
+unbound: cannot access local variable 'h' where it is not associated with a value
+1 2 3
+== exception:
+== stderr:

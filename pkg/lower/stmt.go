@@ -125,8 +125,11 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 		f.pendingJump(3, loop.depth)
 		return nil
 	case *frontend.FuncDef:
-		if f.inFunc || f.e.defs[s.Name] != s {
-			return f.e.errf(s.Span(), "nested def is not supported yet")
+		if f.inFunc {
+			return f.nestedDef(s)
+		}
+		if f.e.defs[s.Name] != s {
+			return f.e.errf(s.Span(), "conditional module-level def is not supported yet")
 		}
 		// The def statement's runtime effects, in order: evaluate parameter
 		// defaults left to right into their module-level slots, then build
