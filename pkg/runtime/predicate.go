@@ -8,6 +8,20 @@ import "github.com/tamnd/unagi/pkg/objects"
 // short-circuit. A non-iterable argument raises the "not iterable" TypeError
 // from Iter, and an element whose truth test raises propagates that error.
 
+// Callable implements callable(o), True when Call would dispatch o.
+func Callable(o objects.Object) (objects.Object, error) {
+	return objects.NewBool(objects.Callable(o)), nil
+}
+
+// Ascii implements ascii(o): the repr with non-ASCII runes escaped.
+func Ascii(o objects.Object) (objects.Object, error) {
+	s, err := objects.Ascii(o)
+	if err != nil {
+		return nil, err
+	}
+	return objects.NewStr(s), nil
+}
+
 // Any implements any(iterable): True as soon as an element is truthy, else
 // False (True for no elements is impossible, so empty is False).
 func Any(o objects.Object) (objects.Object, error) {

@@ -19,7 +19,7 @@ var builtinNames = map[string]bool{
 	"frozenset": true, "format": true, "next": true,
 	"isinstance": true, "issubclass": true,
 	"getattr": true, "hasattr": true, "setattr": true, "delattr": true,
-	"any": true, "all": true,
+	"any": true, "all": true, "callable": true, "ascii": true,
 }
 
 // descriptorBuiltins are the builtin names that resolve to a value: the three
@@ -446,7 +446,7 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		return f.runtimeSliceCall("Enumerate", e)
 	case "zip":
 		return f.runtimeSliceCall("Zip", e)
-	case "any", "all":
+	case "any", "all", "callable", "ascii":
 		if err := need1(); err != nil {
 			return nil, err
 		}
@@ -454,10 +454,7 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		fn := "Any"
-		if name == "all" {
-			fn = "All"
-		}
+		fn := map[string]string{"any": "Any", "all": "All", "callable": "Callable", "ascii": "Ascii"}[name]
 		tmp := f.tmpVar()
 		f.fallible(tmp, sel("runtime", fn), args[0])
 		return ident(tmp), nil

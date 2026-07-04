@@ -274,6 +274,22 @@ func Call(f Object, args []Object) (Object, error) {
 	return fn.fn(args)
 }
 
+// Callable reports whether Call would dispatch f rather than raise the
+// "not callable" TypeError: the function, bound-method, class and builtin
+// objects are always callable, and an instance is callable exactly when its
+// class defines __call__. It mirrors the Call type switch above so callable()
+// never disagrees with an actual call.
+func Callable(f Object) bool {
+	switch x := f.(type) {
+	case *functionObject, *boundMethod, *classObject, *funcObject:
+		return true
+	case *instanceObject:
+		_, ok := x.cls.lookup("__call__")
+		return ok
+	}
+	return false
+}
+
 // AsInt extracts an int64-sized integer value from an int or bool
 // object. Spilled big ints return false; callers that must handle any
 // magnitude go through AsBigInt.
