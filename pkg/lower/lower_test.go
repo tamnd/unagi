@@ -38,7 +38,7 @@ func TestHelloLowering(t *testing.T) {
 		"package main",
 		"runtime.Print(objects.NewStr(\"hi\"))",
 		"func pymain() error {",
-		"runtime.PrintUncaught(err)",
+		"os.Exit(runtime.ReportExit(err))",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("emitted source missing %q:\n%s", want, got)

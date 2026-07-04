@@ -35,6 +35,15 @@ var descriptorBuiltins = map[string]string{
 	"property":     "PropertyBuiltin",
 }
 
+// siteBuiltins are the value-only builtins CPython installs from its site
+// module: the exit/quit quitters and the copyright/credits/license/help
+// printers. They have no fast path, so a name reads as the registered object
+// and a call routes through the dynamic call path like any other value.
+var siteBuiltins = map[string]bool{
+	"exit": true, "quit": true, "copyright": true, "credits": true,
+	"license": true, "help": true,
+}
+
 // call lowers a call expression. A name bound by a module-level def keeps
 // its static fast path: keyword matching and arity checks happen at compile
 // time and the callee is a direct Go call. An unshadowed builtin becomes its

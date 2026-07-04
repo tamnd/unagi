@@ -112,8 +112,9 @@ func fieldList(fs ...*ast.Field) *ast.FieldList {
 	return &ast.FieldList{List: fs}
 }
 
-// mainDecl is the fixed entry point: run pymain and report an uncaught
-// Python exception through the runtime before exiting nonzero.
+// mainDecl is the fixed entry point: run pymain and let the runtime turn an
+// uncaught error into a process exit status, a traceback for an ordinary
+// exception and a bare code for SystemExit.
 func mainDecl() *ast.FuncDecl {
 	return &ast.FuncDecl{
 		Name: ident("main"),
@@ -122,8 +123,8 @@ func mainDecl() *ast.FuncDecl {
 			Init: define(ident("err"), callExpr(ident("pymain"))),
 			Cond: errNotNil(),
 			Body: block(
-				exprStmt(callExpr(sel("runtime", "PrintUncaught"), ident("err"))),
-				exprStmt(callExpr(sel("os", "Exit"), intLit("1"))),
+				exprStmt(callExpr(sel("os", "Exit"),
+					callExpr(sel("runtime", "ReportExit"), ident("err")))),
 			),
 		}),
 	}

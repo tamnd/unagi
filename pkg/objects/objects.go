@@ -319,6 +319,12 @@ func Call(f Object, args []Object) (Object, error) {
 		}
 		return nil, Raise(TypeError, "'%s' object is not callable", f.TypeName())
 	}
+	if q, ok := f.(*quitterObject); ok {
+		return q.call(args)
+	}
+	if p, ok := f.(*printerObject); ok {
+		return p.call(args)
+	}
 	fn, ok := f.(*funcObject)
 	if !ok {
 		return nil, Raise(TypeError, "'%s' object is not callable", f.TypeName())
@@ -346,6 +352,8 @@ func Call(f Object, args []Object) (Object, error) {
 func Callable(f Object) bool {
 	switch x := f.(type) {
 	case *functionObject, *boundMethod, *classObject, *funcObject:
+		return true
+	case *quitterObject, *printerObject:
 		return true
 	case *instanceObject:
 		_, ok := x.cls.lookup("__call__")
