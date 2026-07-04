@@ -1,0 +1,51 @@
+== exit: 0
+== stdout:
+b'HELLO, WORLD! 123'
+b'hello, world! 123'
+b'hEllO'
+b'Hello world'
+b"They'Re Bill'S Friends"
+b'\xe9ABC'
+b'x y'
+b'x y  '
+b'  x y'
+b'abc'
+b'abc'
+b'bbbbbb'
+b'bbbba'
+b'-a-b-c-'
+b'-a-bc'
+b'llo'
+b'hello'
+b'hel'
+b'hello'
+b'***hello***'
+b'**hello***'
+b' hi '
+b'hi  '
+b'  hi'
+b'-0042'
+b'+0007'
+b'000'
+b'abc'
+True False
+False True
+True False
+True False
+True False
+True False False
+True False
+True False
+bytearray(b'abc')
+bytearray(b'x')
+bytearray(b'a+b')
+bytearray(b'..hi..')
+True
+stripstr a bytes-like object is required, not 'str'
+replaceold a bytes-like object is required, not 'str'
+replacecount 'str' object cannot be interpreted as an integer
+ljustwidth 'str' object cannot be interpreted as an integer
+ljustfilllen ljust(): argument 2 must be a byte string of length 1, not a bytes object of length 2
+ljustfillstr ljust() argument 2 must be a byte string of length 1, not str
+== exception:
+== stderr:
