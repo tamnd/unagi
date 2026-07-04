@@ -20,6 +20,7 @@ var builtinNames = map[string]bool{
 	"isinstance": true, "issubclass": true,
 	"getattr": true, "hasattr": true, "setattr": true, "delattr": true,
 	"any": true, "all": true, "callable": true, "ascii": true,
+	"iter": true, "map": true, "filter": true,
 }
 
 // descriptorBuiltins are the builtin names that resolve to a value: the three
@@ -465,6 +466,12 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 			"getattr": "GetAttr", "hasattr": "HasAttr",
 			"setattr": "SetAttr", "delattr": "DelAttr",
 		}[name]
+		return f.runtimeSliceCall(fn, e)
+	case "iter", "map", "filter":
+		// The lazy iteration builtins check their own arity in the runtime
+		// helper so the "must have at least two arguments" and "expected 2
+		// arguments" messages stay catchable, like getattr above.
+		fn := map[string]string{"iter": "Iter", "map": "Map", "filter": "Filter"}[name]
 		return f.runtimeSliceCall(fn, e)
 	case "list", "tuple", "dict", "set", "frozenset":
 		if argc > 1 {

@@ -1,0 +1,27 @@
+== exit: 0
+== stdout:
+1 2 3
+done
+loop a
+loop b
+[1, 2]
+made map
+call 1
+first 2
+call 2
+call 3
+[4, 6]
+[11, 22]
+pred 1
+first 1
+pred 2
+pred 3
+pred 4
+[3]
+[1, 2, 3]
+T 'int' object is not iterable
+nc iter(v, w): v must be callable
+m1 map() must have at least two arguments.
+f1 filter expected 2 arguments, got 1
+== exception:
+== stderr:
