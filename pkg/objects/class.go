@@ -86,7 +86,33 @@ func NewClass(name, qual string, bases []Object, names []string, vals []Object) 
 		return nil, err
 	}
 	c.mro = mro
+	if err := c.runSetNameHooks(); err != nil {
+		return nil, err
+	}
 	return c, nil
+}
+
+// runSetNameHooks fires __set_name__(owner, name) on every value the class body
+// bound whose type defines it, in definition order, right after the class
+// object exists. This is the descriptor-registration hook CPython runs from
+// type.__new__: a Field-style descriptor learns the attribute name it was
+// assigned to. Only names set in this body take part, never inherited ones, so
+// it walks c.order. A raising hook propagates; the RuntimeError that CPython
+// wraps it in is a later refinement.
+func (c *classObject) runSetNameHooks() error {
+	for _, name := range c.order {
+		inst, ok := c.dict[name].(*instanceObject)
+		if !ok {
+			continue
+		}
+		if _, ok := inst.cls.lookup("__set_name__"); !ok {
+			continue
+		}
+		if _, err := instanceCallMethod(inst, "__set_name__", []Object{c, NewStr(name)}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // c3Linearize computes the C3 method resolution order for c from its bases'

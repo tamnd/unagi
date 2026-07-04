@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+set_name Model first a
+set_name Model second b
+first
+second
+set_name Sub third c
+first
+third
+== exception:
+== stderr:
