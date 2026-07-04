@@ -636,32 +636,7 @@ func Instantiate(c *classObject, pos []Object, kwNames []string, kwVals []Object
 func LoadAttr(o Object, name string) (Object, error) {
 	switch x := o.(type) {
 	case *instanceObject:
-		// __dict__ is a data descriptor on the type, so it answers from the
-		// instance itself and outranks anything in the instance dict.
-		if name == "__dict__" {
-			return instanceDict(x)
-		}
-		// CPython precedence: a data descriptor on the type outranks the
-		// instance dict, then the instance dict, then a non-data descriptor or
-		// plain class value, then AttributeError.
-		tv, tok := x.cls.lookup(name)
-		if tok && isDataDescriptor(tv) {
-			return instanceGet(x, name, tv)
-		}
-		if v, ok := x.dict[name]; ok {
-			return v, nil
-		}
-		if tok {
-			return instanceGet(x, name, tv)
-		}
-		// A class __getattr__ is the last resort: normal resolution missed, so it
-		// is called with the name and its own AttributeError propagates. The
-		// lookup here cannot re-enter this miss path, since __getattr__ is found
-		// on the class as a plain method.
-		if _, ok := x.cls.lookup("__getattr__"); ok {
-			return instanceCallMethod(x, "__getattr__", []Object{NewStr(name)})
-		}
-		return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", x.cls.name, name)
+		return instanceLoadAttr(x, name)
 	case *classObject:
 		// __name__, __qualname__, __bases__, __mro__, and __base__ are
 		// metaclass data descriptors, so they answer from the type object
@@ -719,29 +694,7 @@ func LoadAttr(o Object, name string) (Object, error) {
 func StoreAttr(o Object, name string, val Object) error {
 	switch x := o.(type) {
 	case *instanceObject:
-		// A data descriptor on the type intercepts the write: a property calls
-		// its setter, or raises the probed no-setter error when it has none, and
-		// a user descriptor with __set__ runs __set__(descr, instance, value).
-		if tv, ok := x.cls.lookup(name); ok {
-			switch d := tv.(type) {
-			case *propertyObject:
-				if d.fset == nil {
-					return Raise(AttributeError, "property '%s' of '%s' object has no setter", name, x.cls.name)
-				}
-				_, err := Call(d.fset, []Object{x, val})
-				return err
-			case *instanceObject:
-				if _, ok := d.cls.lookup("__set__"); ok {
-					_, err := instanceCallMethod(d, "__set__", []Object{x, val})
-					return err
-				}
-			}
-		}
-		if _, seen := x.dict[name]; !seen {
-			x.order = append(x.order, name)
-		}
-		x.dict[name] = val
-		return nil
+		return instanceStoreAttr(x, name, val)
 	case *classObject:
 		x.setAttr(name, val)
 		return nil
@@ -763,32 +716,7 @@ func StoreAttr(o Object, name string, val Object) error {
 func DelAttr(o Object, name string) error {
 	switch x := o.(type) {
 	case *instanceObject:
-		if tv, ok := x.cls.lookup(name); ok {
-			switch d := tv.(type) {
-			case *propertyObject:
-				if d.fdel == nil {
-					return Raise(AttributeError, "property '%s' of '%s' object has no deleter", name, x.cls.name)
-				}
-				_, err := Call(d.fdel, []Object{x})
-				return err
-			case *instanceObject:
-				if _, ok := d.cls.lookup("__delete__"); ok {
-					_, err := instanceCallMethod(d, "__delete__", []Object{x})
-					return err
-				}
-			}
-		}
-		if _, ok := x.dict[name]; !ok {
-			return Raise(AttributeError, "'%s' object has no attribute '%s'", x.cls.name, name)
-		}
-		delete(x.dict, name)
-		for i, k := range x.order {
-			if k == name {
-				x.order = append(x.order[:i], x.order[i+1:]...)
-				break
-			}
-		}
-		return nil
+		return instanceDelAttr(x, name)
 	case *classObject:
 		if _, ok := x.dict[name]; !ok {
 			return Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)

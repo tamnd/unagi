@@ -99,7 +99,7 @@ func superCallMethod(s *superObject, name string, args []Object) (Object, error)
 		}
 		return Call(v, args)
 	}
-	if r, ok, err := objectDefaultCall(name, args); ok {
+	if r, ok, err := objectDefaultCall(s.obj, name, args); ok {
 		return r, err
 	}
 	return nil, Raise(AttributeError, "'super' object has no attribute '%s'", name)
@@ -111,9 +111,12 @@ func superCallMethod(s *superObject, name string, args []Object) (Object, error)
 // arguments, so a lone class calling super().__init__() and the tail of a
 // longer chain both land here. Extra arguments are the exact TypeError CPython
 // raises when __init__ is overridden but __new__ is not, which every class in
-// this tier is. ok is false for a name object does not default, so the caller
-// falls through to its own AttributeError.
-func objectDefaultCall(name string, args []Object) (Object, bool, error) {
+// this tier is. The three attribute slots resolve to object's generic cores so a
+// user __getattribute__/__setattr__/__delattr__ can end its chain with
+// super().__setattr__(name, value) and reach the real store. self is the
+// instance super was bound to. ok is false for a name object does not default,
+// so the caller falls through to its own AttributeError.
+func objectDefaultCall(self Object, name string, args []Object) (Object, bool, error) {
 	switch name {
 	case "__init__":
 		if len(args) != 0 {
@@ -125,6 +128,25 @@ func objectDefaultCall(name string, args []Object) (Object, bool, error) {
 		// A cooperative super().__init_subclass__() chain ends here once no user
 		// base defines the hook, and the same holds for __set_name__.
 		return None, true, nil
+	case "__getattribute__":
+		if inst, ok := self.(*instanceObject); ok && len(args) == 1 {
+			if n, ok := args[0].(*strObject); ok {
+				r, err := genericGetAttr(inst, n.v)
+				return r, true, err
+			}
+		}
+	case "__setattr__":
+		if inst, ok := self.(*instanceObject); ok && len(args) == 2 {
+			if n, ok := args[0].(*strObject); ok {
+				return None, true, genericSetAttr(inst, n.v, args[1])
+			}
+		}
+	case "__delattr__":
+		if inst, ok := self.(*instanceObject); ok && len(args) == 1 {
+			if n, ok := args[0].(*strObject); ok {
+				return None, true, genericDelAttr(inst, n.v)
+			}
+		}
 	}
 	return nil, false, nil
 }
@@ -143,7 +165,7 @@ func superCallMethodKw(s *superObject, name string, pos []Object, kwNames []stri
 		return CallKw(v, pos, kwNames, kwVals)
 	}
 	if len(kwNames) == 0 {
-		if r, ok, err := objectDefaultCall(name, pos); ok {
+		if r, ok, err := objectDefaultCall(s.obj, name, pos); ok {
 			return r, err
 		}
 	}

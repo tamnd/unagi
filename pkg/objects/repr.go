@@ -268,6 +268,9 @@ func reprCore(o Object, strict bool) (string, error) {
 		if builtinFuncReprs[x.name] {
 			return fmt.Sprintf("<built-in function %s>", x.name), nil
 		}
+		if objectSlotWrappers[x.name] {
+			return fmt.Sprintf("<slot wrapper '%s' of 'object' objects>", x.name), nil
+		}
 		return fmt.Sprintf("<function %s at %p>", x.name, x), nil
 	case *functionObject:
 		// Probed: repr spells __qualname__, g.<locals>.<lambda> and all.
