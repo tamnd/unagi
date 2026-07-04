@@ -98,6 +98,17 @@ func (p *parser) errf(pos Pos, format string, args ...any) {
 	panic(&SyntaxError{File: p.file, Pos: pos, Msg: fmt.Sprintf(format, args...)})
 }
 
+// isAsyncFor reports an `async for` clause head. Only the pair gets the
+// asynchronous-comprehension wording; a bare async falls through to the
+// ordinary invalid-syntax paths, matching CPython on [x async].
+func (p *parser) isAsyncFor() bool {
+	if !p.isKw("async") {
+		return false
+	}
+	nxt := p.peek()
+	return nxt.kind == tKeyword && nxt.text == "for"
+}
+
 // startsExpr reports whether t can begin an expression. Tokens like * are
 // included so the atom parser can reject them with a named message instead
 // of a generic one.
@@ -1410,18 +1421,186 @@ func (p *parser) parseList() Expr {
 	if p.eatOp("]") {
 		return node
 	}
-	node.Elts = append(node.Elts, p.parseTest())
-	if p.isKw("for") {
-		p.errf(p.cur().pos, "list comprehensions are not supported yet")
+	if p.isOp("*") {
+		star := p.advance()
+		p.parseOr()
+		if p.isKw("for") || p.isAsyncFor() {
+			p.errf(star.pos, "iterable unpacking cannot be used in comprehension")
+		}
+		p.errf(star.pos, "starred expressions are not supported yet")
+	}
+	node.Elts = append(node.Elts, p.parseNamedTest())
+	if p.isKw("for") || p.isAsyncFor() {
+		comp := &Comp{Pos_: lb.pos, Kind: CompList, Elt: node.Elts[0], Clauses: p.parseCompClauses(lb)}
+		p.wantCompClose("]")
+		p.validateComp(comp)
+		return comp
 	}
 	for p.eatOp(",") {
 		if p.isOp("]") {
 			break
 		}
-		node.Elts = append(node.Elts, p.parseTest())
+		node.Elts = append(node.Elts, p.parseNamedTest())
 	}
 	p.wantOp("]")
 	return node
+}
+
+// parseCompClauses parses the `for ... in ... if ...` legs of a
+// comprehension. The iterable and the conditions are disjunctions per the
+// grammar, so a bare tuple or an unparenthesized walrus stops the parse.
+// An async clause gets the 3.14 wording, anchored at the whole
+// comprehension like CPython's caret.
+func (p *parser) parseCompClauses(open token) []CompClause {
+	var clauses []CompClause
+	for {
+		if p.isAsyncFor() {
+			p.errf(open.pos, "asynchronous comprehension outside of an asynchronous function")
+		}
+		if !p.isKw("for") {
+			return clauses
+		}
+		ft := p.advance()
+		target := p.parseForTarget()
+		if s, ok := target.(*Starred); ok {
+			p.errf(s.Span(), "starred assignment target must be in a list or tuple")
+		}
+		if !p.eatKw("in") {
+			p.errf(p.cur().pos, "'in' expected after for-loop variables")
+		}
+		cl := CompClause{Pos_: ft.pos, Target: target, Iter: p.parseOr()}
+		for p.eatKw("if") {
+			cl.Ifs = append(cl.Ifs, p.parseOr())
+		}
+		clauses = append(clauses, cl)
+	}
+}
+
+// wantCompClose consumes a comprehension's closing bracket. Anything else
+// after the clauses is plain invalid syntax in CPython, not the expected-X
+// wording of a display: [i for i in 1, 2] points at the comma.
+func (p *parser) wantCompClose(close string) {
+	if !p.eatOp(close) {
+		p.errf(p.cur().pos, "invalid syntax")
+	}
+}
+
+// validateComp enforces the two 3.14 walrus bans, both probed: no
+// assignment expression anywhere inside an iterable, even nested in a
+// lambda or another comprehension, and no walrus rebinding an iteration
+// variable of this comprehension from the element or a condition, even
+// from a nested comprehension.
+func (p *parser) validateComp(c *Comp) {
+	vars := map[string]bool{}
+	var addTargets func(t Expr)
+	addTargets = func(t Expr) {
+		switch t := t.(type) {
+		case *Name:
+			vars[t.Id] = true
+		case *Starred:
+			addTargets(t.X)
+		case *TupleLit:
+			for _, el := range t.Elts {
+				addTargets(el)
+			}
+		}
+	}
+	for _, cl := range c.Clauses {
+		addTargets(cl.Target)
+	}
+	for _, cl := range c.Clauses {
+		walkNamed(cl.Iter, func(n *NamedExpr) {
+			p.errf(n.Span(), "assignment expression cannot be used in a comprehension iterable expression")
+		})
+	}
+	check := func(e Expr) {
+		walkNamed(e, func(n *NamedExpr) {
+			if vars[n.Target] {
+				p.errf(n.Span(), "assignment expression cannot rebind comprehension iteration variable '%s'", n.Target)
+			}
+		})
+	}
+	check(c.Elt)
+	check(c.Val)
+	for _, cl := range c.Clauses {
+		for _, cond := range cl.Ifs {
+			check(cond)
+		}
+	}
+}
+
+// walkNamed visits every NamedExpr in an expression tree, descending into
+// lambdas and nested comprehensions, matching the symtable-wide reach of
+// the CPython walrus bans.
+func walkNamed(e Expr, fn func(*NamedExpr)) {
+	list := func(es []Expr) {
+		for _, x := range es {
+			walkNamed(x, fn)
+		}
+	}
+	switch e := e.(type) {
+	case nil:
+	case *NamedExpr:
+		fn(e)
+		walkNamed(e.Value, fn)
+	case *ListLit:
+		list(e.Elts)
+	case *TupleLit:
+		list(e.Elts)
+	case *SetLit:
+		list(e.Elts)
+	case *DictLit:
+		list(e.Keys)
+		list(e.Vals)
+	case *Comp:
+		walkNamed(e.Elt, fn)
+		walkNamed(e.Val, fn)
+		for _, cl := range e.Clauses {
+			walkNamed(cl.Iter, fn)
+			list(cl.Ifs)
+		}
+	case *BinOp:
+		walkNamed(e.Left, fn)
+		walkNamed(e.Right, fn)
+	case *UnaryOp:
+		walkNamed(e.X, fn)
+	case *BoolOp:
+		list(e.Values)
+	case *Compare:
+		walkNamed(e.Left, fn)
+		list(e.Rights)
+	case *Call:
+		walkNamed(e.Fn, fn)
+		for _, a := range e.Args {
+			walkNamed(a.Value, fn)
+		}
+	case *Attribute:
+		walkNamed(e.X, fn)
+	case *Subscript:
+		walkNamed(e.X, fn)
+		walkNamed(e.Index, fn)
+	case *SliceExpr:
+		walkNamed(e.Lo, fn)
+		walkNamed(e.Hi, fn)
+		walkNamed(e.Step, fn)
+	case *IfExp:
+		walkNamed(e.Cond, fn)
+		walkNamed(e.Then, fn)
+		walkNamed(e.Else, fn)
+	case *Starred:
+		walkNamed(e.X, fn)
+	case *Lambda:
+		for _, pr := range e.Params {
+			walkNamed(pr.Default, fn)
+		}
+		walkNamed(e.Body, fn)
+	case *FStr:
+		for _, part := range e.Parts {
+			if in, ok := part.(*FInterp); ok {
+				walkNamed(in.X, fn)
+			}
+		}
+	}
 }
 
 // parseBraces parses a brace display. Empty braces are a dict, a colon after
@@ -1434,19 +1613,43 @@ func (p *parser) parseBraces() Expr {
 		return node
 	}
 	if p.isOp("**") {
-		p.errf(p.cur().pos, "dict unpacking is not supported yet")
+		dstar := p.advance()
+		p.parseOr()
+		if p.isKw("for") || p.isAsyncFor() {
+			p.errf(dstar.pos, "dict unpacking cannot be used in dict comprehension")
+		}
+		p.errf(dstar.pos, "dict unpacking is not supported yet")
 	}
-	key := p.parseTest()
-	if p.isKw("for") {
-		p.errf(p.cur().pos, "set comprehensions are not supported yet")
+	if p.isOp("*") {
+		star := p.advance()
+		p.parseOr()
+		if p.isKw("for") || p.isAsyncFor() {
+			p.errf(star.pos, "iterable unpacking cannot be used in comprehension")
+		}
+		p.errf(star.pos, "starred expressions are not supported yet")
+	}
+	key := p.parseNamedTest()
+	if p.isKw("for") || p.isAsyncFor() {
+		comp := &Comp{Pos_: lb.pos, Kind: CompSet, Elt: key, Clauses: p.parseCompClauses(lb)}
+		p.wantCompClose("}")
+		p.validateComp(comp)
+		return comp
 	}
 	if !p.isOp(":") {
 		return p.parseSetTail(lb, key)
 	}
+	if _, ok := key.(*NamedExpr); ok {
+		// {y := 1: 2} is plain invalid syntax in CPython: a dict key is an
+		// expression, not a named expression.
+		p.errf(p.cur().pos, "invalid syntax")
+	}
 	p.advance()
 	val := p.parseTest()
-	if p.isKw("for") {
-		p.errf(p.cur().pos, "dict comprehensions are not supported yet")
+	if p.isKw("for") || p.isAsyncFor() {
+		comp := &Comp{Pos_: lb.pos, Kind: CompDict, Elt: key, Val: val, Clauses: p.parseCompClauses(lb)}
+		p.wantCompClose("}")
+		p.validateComp(comp)
+		return comp
 	}
 	node.Keys = append(node.Keys, key)
 	node.Vals = append(node.Vals, val)
@@ -1480,7 +1683,7 @@ func (p *parser) parseSetTail(lb token, first Expr) Expr {
 		if p.isOp("}") {
 			break
 		}
-		elt := p.parseTest()
+		elt := p.parseNamedTest()
 		if p.isOp(":") {
 			// A dict entry after set elements, as in {1, 2: 3}; CPython
 			// reports plain invalid syntax at the colon.

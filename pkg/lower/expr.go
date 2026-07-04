@@ -58,6 +58,12 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 	case *frontend.NoneLit:
 		return f.e.obj("None"), nil
 	case *frontend.Name:
+		// A comprehension iteration variable outranks a like-named local
+		// while its comprehension lowers; the loop assigns the temporary
+		// before any read can run, so the read needs no unbound check.
+		if t, ok := f.compVars[e.Id]; ok {
+			return ident(t), nil
+		}
 		if f.locals[e.Id] {
 			return f.loadName(e.Id), nil
 		}
@@ -65,6 +71,13 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		// mangled variable by reference, which gives Python's late-binding
 		// read; the checked load supplies the probed unbound-read error.
 		for o := f.outer; o != nil; o = o.outer {
+			// A lambda in a comprehension body captures the iteration
+			// variable's temporary by reference, one Go variable per
+			// clause, which reproduces CPython's one-cell late binding:
+			// [lambda: i for i in range(3)] sees 2 from every lambda.
+			if t, ok := o.compVars[e.Id]; ok {
+				return ident(t), nil
+			}
 			if !o.locals[e.Id] {
 				continue
 			}
@@ -170,6 +183,8 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		return ident(mangle(e.Target)), nil
 	case *frontend.Lambda:
 		return f.lambda(e)
+	case *frontend.Comp:
+		return f.comp(e)
 	case *frontend.Call:
 		return f.call(e)
 	case *frontend.Subscript:

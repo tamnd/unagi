@@ -174,6 +174,22 @@ func de(e Expr) string {
 		return "(" + strings.Join(parts, " ") + ")"
 	case *SetLit:
 		return dexprs("set", e.Elts)
+	case *Comp:
+		kind := map[CompKind]string{CompList: "listcomp", CompSet: "setcomp", CompDict: "dictcomp"}[e.Kind]
+		parts := []string{kind}
+		if e.Kind == CompDict {
+			parts = append(parts, "("+de(e.Elt)+" "+de(e.Val)+")")
+		} else {
+			parts = append(parts, de(e.Elt))
+		}
+		for _, cl := range e.Clauses {
+			s := "(for " + de(cl.Target) + " " + de(cl.Iter)
+			for _, c := range cl.Ifs {
+				s += " (if " + de(c) + ")"
+			}
+			parts = append(parts, s+")")
+		}
+		return "(" + strings.Join(parts, " ") + ")"
 	case *BinOp:
 		return "(" + binNames[e.Op] + " " + de(e.Left) + " " + de(e.Right) + ")"
 	case *UnaryOp:
@@ -479,6 +495,26 @@ func TestParse(t *testing.T) {
 		{"walrus nested value", "(x := (y := 1))", "(expr (:= x (:= y 1)))"},
 		{"walrus in paren tuple", "(a, b := 2)", "(expr (tuple a (:= b 2)))"},
 		{"walrus ifexp value", "(x := 1 if c else 2)", "(expr (:= x (ifexp c 1 2)))"},
+		{"list comp", "[x * 2 for x in y]", "(expr (listcomp (* x 2) (for x y)))"},
+		{"list comp condition", "[x for x in y if x > 0]", "(expr (listcomp x (for x y (if (cmp x > 0)))))"},
+		{"list comp two conditions", "[x for x in y if a if b]", "(expr (listcomp x (for x y (if a) (if b))))"},
+		{"list comp two clauses", "[i + j for i in a for j in b]",
+			"(expr (listcomp (+ i j) (for i a) (for j b)))"},
+		{"list comp tuple target", "[a for a, b in y]", "(expr (listcomp a (for (tuple a b) y)))"},
+		{"list comp star target", "[a for *a, b in y]", "(expr (listcomp a (for (tuple (* a) b) y)))"},
+		{"list comp paren target", "[a for (a, b) in y]", "(expr (listcomp a (for (tuple a b) y)))"},
+		{"nested list comp", "[[j for j in range(i)] for i in y]",
+			"(expr (listcomp (listcomp j (for j (call range i))) (for i y)))"},
+		{"set comp", "{c for c in s}", "(expr (setcomp c (for c s)))"},
+		{"dict comp", "{k: v for k, v in y}", "(expr (dictcomp (k v) (for (tuple k v) y)))"},
+		{"comp walrus element", "[(y := x) for x in s]", "(expr (listcomp (:= y x) (for x s)))"},
+		{"comp walrus condition", "[v for i in s if (v := i) > 0]",
+			"(expr (listcomp v (for i s (if (cmp (:= v i) > 0)))))"},
+		{"comp iterable is disjunction", "[x for x in a or b]", "(expr (listcomp x (for x (or a b))))"},
+		{"comp duplicate var across clauses", "[i for i in a for i in b]",
+			"(expr (listcomp i (for i a) (for i b)))"},
+		{"set bare walrus element", "{x := 1}", "(expr (set (:= x 1)))"},
+		{"list bare walrus element", "[x := 1, 2]", "(expr (list (:= x 1) 2))"},
 		{"ifexp", "x = 1 if c else 2", "(= x (ifexp c 1 2))"},
 		{"ifexp right assoc", "a if c1 else b if c2 else c",
 			"(expr (ifexp c1 a (ifexp c2 b c)))"},
@@ -572,9 +608,6 @@ func TestParseErrors(t *testing.T) {
 		{"lambda operand position", "x = 1 + lambda: 2", "invalid syntax"},
 		{"yield", "yield 1", "yield expressions are not supported yet"},
 		{"await", "x = await f()", "await is not supported yet"},
-		{"list comprehension", "[x for x in y]", "list comprehensions are not supported yet"},
-		{"dict comprehension", "{k: v for k in y}", "dict comprehensions are not supported yet"},
-		{"set comprehension", "{x for x in y}", "set comprehensions are not supported yet"},
 		{"generator expr", "(x for x in y)", "generator expressions are not supported yet"},
 		{"generator arg", "f(x for x in y)", "generator expressions are not supported yet"},
 		{"dict unpacking", "{**a}", "dict unpacking is not supported yet"},
@@ -583,8 +616,32 @@ func TestParseErrors(t *testing.T) {
 		{"set star element", "{*x}", "starred expressions are not supported yet"},
 		{"set star later element", "{1, *x}", "starred expressions are not supported yet"},
 		{"set double star element", "{1, **x}", "invalid syntax"},
-		{"set bare walrus", "{x := 1}", "expected '}'"},
 		{"set missing comma", "{1 2}", "expected '}'"},
+		{"comp walrus in iterable", "[x for x in (y := a)]",
+			"assignment expression cannot be used in a comprehension iterable expression"},
+		{"comp walrus in iterable lambda", "[x for x in (lambda: (z := 1))]",
+			"assignment expression cannot be used in a comprehension iterable expression"},
+		{"comp walrus in inner iterable", "[x for x in a for y in (z := b)]",
+			"assignment expression cannot be used in a comprehension iterable expression"},
+		{"comp walrus rebinds var element", "[(i := 1) for i in a]",
+			"assignment expression cannot rebind comprehension iteration variable 'i'"},
+		{"comp walrus rebinds var condition", "[i for i in a if (i := 2)]",
+			"assignment expression cannot rebind comprehension iteration variable 'i'"},
+		{"comp walrus rebinds outer var from nested", "[[j for j in b if (i := 2)] for i in a]",
+			"assignment expression cannot rebind comprehension iteration variable 'i'"},
+		{"comp missing in", "[i for i]", "'in' expected after for-loop variables"},
+		{"comp bare tuple iterable", "[i for i in 1, 2]", "invalid syntax"},
+		{"dict comp bare tuple iterable", "{i: 1 for i in 1, 2}", "invalid syntax"},
+		{"comp bare walrus condition", "[i for i in a if i := 2]", "invalid syntax"},
+		{"dict key walrus", "{y := 1: 2}", "invalid syntax"},
+		{"async comprehension", "[x async for x in y]",
+			"asynchronous comprehension outside of an asynchronous function"},
+		{"async second clause", "[x for x in y async for z in w]",
+			"asynchronous comprehension outside of an asynchronous function"},
+		{"star element comp", "[*i for i in a]", "iterable unpacking cannot be used in comprehension"},
+		{"star element set comp", "{*i for i in a}", "iterable unpacking cannot be used in comprehension"},
+		{"double star dict comp", "{**d for d in a}", "dict unpacking cannot be used in dict comprehension"},
+		{"comp starred bare target", "[a for *a in y]", "starred assignment target must be in a list or tuple"},
 		{"assign to set", "{1} = x", "cannot assign to set display"},
 		{"del set", "del {1}", "cannot delete set display"},
 		{"aug set target", "{1} += 1", "'set display' is an illegal expression for augmented assignment"},

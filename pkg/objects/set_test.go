@@ -64,6 +64,24 @@ func TestSetConstructors(t *testing.T) {
 	}
 }
 
+func TestSetAdd(t *testing.T) {
+	s := S(t)
+	for _, v := range []Object{NewInt(2), NewInt(1), NewInt(2), True} {
+		if err := SetAdd(s, v); err != nil {
+			t.Fatalf("SetAdd(%s): %v", Repr(v), err)
+		}
+	}
+	if got := Repr(s); got != "{2, 1}" {
+		t.Errorf("after adds: got %s, want {2, 1}", got)
+	}
+	err := SetAdd(s, L())
+	checkErr(t, "add unhashable", err,
+		"TypeError: cannot use 'list' as a set element (unhashable type: 'list')")
+	if got := Repr(s); got != "{2, 1}" {
+		t.Errorf("after failed add: got %s, want {2, 1}", got)
+	}
+}
+
 func TestSetAsElementAndKey(t *testing.T) {
 	// set is unhashable as an element or dict key.
 	if _, err := NewSet([]Object{S(t, NewInt(1))}); err == nil ||

@@ -84,6 +84,12 @@ func (c *setCore) addElt(elt Object) error {
 	return nil
 }
 
+// SetAdd inserts one element into a set, the per-iteration add behind set
+// comprehensions. Unhashable elements fail with the set-element wording.
+func SetAdd(s, elt Object) error {
+	return s.(*setObject).addElt(elt)
+}
+
 // removeKey deletes an element by key, preserving insertion order of the
 // rest exactly like dict.delete.
 func (c *setCore) removeKey(k string) bool {

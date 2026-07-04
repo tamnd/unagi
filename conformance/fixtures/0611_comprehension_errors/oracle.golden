@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+A: 'int' object is not iterable
+B: 'int' object is not iterable
+C: cannot use 'list' as a set element (unhashable type: 'list')
+D: cannot use 'list' as a dict key (unhashable type: 'list')
+E: {0: [0], 1: [1]}
+F: not enough values to unpack (expected 2, got 1)
+G: too many values to unpack (expected 2, got 3)
+H: cannot unpack non-iterable int object
+I: mid-iter
+J: mid-iter
+K: mid-iter
+['k0', 'v0', 'k1', 'v1']
+{0: 0, 1: 1}
+['outer', 'elt0', 'elt1'] [0, 1]
+L: '<' not supported between instances of 'str' and 'int' [0, 1]
+== exception:
+== stderr:
