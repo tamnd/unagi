@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+\n42\t
+C:\path\world
+raw\q42end
+\\\\42
+\d42
+a\bworldc
+{lit}\n42
+line\one
+world
+== exception:
+== stderr:

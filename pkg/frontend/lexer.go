@@ -397,10 +397,12 @@ func (lx *lexer) lexName(pos Pos) {
 		switch {
 		case strings.Contains(low, "t"):
 			lx.err(pos, "t-strings are not supported yet")
-		case low == "f":
+		case strings.Contains(low, "f"):
 			// PEP 701 allows an f-string inside an interpolation, at any depth
 			// and reusing the same quote. The bracket-depth floor stack (fbase)
-			// already tracks nesting, so the inner f-string just recurses.
+			// already tracks nesting, so the inner f-string just recurses. The
+			// rf/fr prefixes reach here too; lexFString derives raw mode from
+			// the prefix text.
 			lx.lexFString(pos, name)
 			return
 		case strings.Contains(low, "b"):
@@ -413,8 +415,6 @@ func (lx *lexer) lexName(pos Pos) {
 			lx.lexString(pos, true)
 			return
 		default:
-			// Raw f-strings (rf/fr) still land here until the f-string lexer
-			// learns the raw mode.
 			lx.err(pos, "string prefix %q is not supported yet", name)
 		}
 	}
@@ -763,6 +763,7 @@ func (lx *lexer) closeBracket(pos Pos, c byte) {
 // braces come from the ordinary lexer, so strings reusing the outer quote,
 // nested brackets, and newlines all behave like they do outside an f-string.
 func (lx *lexer) lexFString(pos Pos, prefix string) {
+	raw := strings.ContainsAny(prefix, "rR")
 	q := lx.ch()
 	lx.adv()
 	triple := false
@@ -826,7 +827,7 @@ func (lx *lexer) lexFString(pos Pos, prefix string) {
 				continue
 			}
 			flush()
-			lx.lexFInterp(q, triple)
+			lx.lexFInterp(q, triple, raw)
 			warned = false
 		case '}':
 			if lx.ch2() == '}' {
@@ -851,6 +852,16 @@ func (lx *lexer) lexFString(pos Pos, prefix string) {
 				}
 				lx.err(pos, "unterminated f-string literal (detected at line %d)", lx.line)
 			}
+			if raw {
+				// A raw f-string keeps the backslash literally; the following
+				// character (including a quote) is still consumed with it.
+				sb.WriteByte('\\')
+				lx.adv()
+				r, _ := utf8.DecodeRune(lx.src[lx.off:])
+				sb.WriteRune(r)
+				lx.adv()
+				continue
+			}
 			lx.lexEscape(pos, &sb, &warned)
 		default:
 			r, _ := utf8.DecodeRune(lx.src[lx.off:])
@@ -864,7 +875,7 @@ func (lx *lexer) lexFString(pos Pos, prefix string) {
 // bracket level '}' closes the field, ':' starts the format spec, '!' takes
 // a conversion, and a lone '=' captures the self-documenting text; anything
 // deeper belongs to the expression and goes through lexToken.
-func (lx *lexer) lexFInterp(q byte, triple bool) {
+func (lx *lexer) lexFInterp(q byte, triple bool, raw bool) {
 	openPos := lx.pos()
 	lx.adv() // {
 	lx.emitAt(openPos, tFStrOpen, "{")
@@ -898,7 +909,7 @@ func (lx *lexer) lexFInterp(q byte, triple bool) {
 				lx.err(lx.pos(), "f-string: valid expression required before ':'")
 			}
 			lx.adv()
-			lx.lexFSpec(openPos, q, triple)
+			lx.lexFSpec(openPos, q, triple, raw)
 			lx.closeFInterp()
 			return
 		case atBase && c == '!' && lx.ch2() != '=':
@@ -906,7 +917,7 @@ func (lx *lexer) lexFInterp(q byte, triple bool) {
 				lx.err(lx.pos(), "f-string: valid expression required before '!'")
 			}
 			lx.lexFConv(openPos)
-			lx.finishFInterp(openPos, q, triple)
+			lx.finishFInterp(openPos, q, triple, raw)
 			return
 		case atBase && c == '!':
 			// != with nothing on its left cannot start an expression.
@@ -930,12 +941,12 @@ func (lx *lexer) lexFInterp(q byte, triple bool) {
 				return
 			case ':':
 				lx.adv()
-				lx.lexFSpec(openPos, q, triple)
+				lx.lexFSpec(openPos, q, triple, raw)
 				lx.closeFInterp()
 				return
 			case '!':
 				lx.lexFConv(openPos)
-				lx.finishFInterp(openPos, q, triple)
+				lx.finishFInterp(openPos, q, triple, raw)
 				return
 			case 0:
 				lx.err(openPos, "'{' was never closed")
@@ -965,14 +976,14 @@ func (lx *lexer) closeFInterp() {
 
 // finishFInterp finishes an interpolation after its conversion: optional
 // whitespace, then either a format spec or the closing brace.
-func (lx *lexer) finishFInterp(openPos Pos, q byte, triple bool) {
+func (lx *lexer) finishFInterp(openPos Pos, q byte, triple bool, raw bool) {
 	lx.skipFSpace()
 	switch lx.ch() {
 	case '}':
 		lx.closeFInterp()
 	case ':':
 		lx.adv()
-		lx.lexFSpec(openPos, q, triple)
+		lx.lexFSpec(openPos, q, triple, raw)
 		lx.closeFInterp()
 	case 0:
 		lx.err(openPos, "'{' was never closed")
@@ -1035,7 +1046,7 @@ func (lx *lexer) lexFConv(openPos Pos) {
 // field (PEP 701, `f"{x:{width}}"`): the text run so far is flushed as a
 // tFStrMid, the field is lexed like any interpolation, and the spec resumes
 // after it. The leading tFStrMid, empty or not, marks the spec as present.
-func (lx *lexer) lexFSpec(openPos Pos, q byte, triple bool) {
+func (lx *lexer) lexFSpec(openPos Pos, q byte, triple bool, raw bool) {
 	pos := lx.pos()
 	closing := strings.Repeat(string(q), 3)
 	var sb strings.Builder
@@ -1049,7 +1060,7 @@ func (lx *lexer) lexFSpec(openPos Pos, q byte, triple bool) {
 		case c == '{':
 			lx.emitAt(pos, tFStrMid, sb.String())
 			sb.Reset()
-			lx.lexFInterp(q, triple)
+			lx.lexFInterp(q, triple, raw)
 			pos = lx.pos()
 			warned = false
 		case c == 0 && triple:
@@ -1061,6 +1072,12 @@ func (lx *lexer) lexFSpec(openPos Pos, q byte, triple bool) {
 			lx.consumeNewline()
 		case c == q && (!triple || lx.lookahead(closing)):
 			lx.err(lx.pos(), "f-string: expecting '}', or format specs")
+		case c == '\\' && raw:
+			sb.WriteByte('\\')
+			lx.adv()
+			r, _ := utf8.DecodeRune(lx.src[lx.off:])
+			sb.WriteRune(r)
+			lx.adv()
 		case c == '\\':
 			lx.lexEscape(openPos, &sb, &warned)
 		default:
