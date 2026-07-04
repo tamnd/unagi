@@ -503,6 +503,18 @@ func FrozensetOf(args []objects.Object) (objects.Object, error) {
 	return objects.NewFrozenset(elts)
 }
 
+// BytesOf implements bytes(), bytes(int), bytes(iterable-of-ints),
+// bytes(bytes-like) and bytes(str, encoding).
+func BytesOf(args []objects.Object) (objects.Object, error) {
+	return objects.BytesOf(args)
+}
+
+// ByteArrayOf implements bytearray() and its constructor overloads, mirroring
+// BytesOf but returning a mutable bytearray.
+func ByteArrayOf(args []objects.Object) (objects.Object, error) {
+	return objects.ByteArrayOf(args)
+}
+
 // ctorElts is the shared zero-or-one-iterable argument handling for the
 // container constructors.
 func ctorElts(name string, args []objects.Object) ([]objects.Object, error) {
@@ -606,6 +618,8 @@ func init() {
 		"enumerate": objects.NewFunc("enumerate", -1, Enumerate),
 		"zip":       objects.NewFunc("zip", -1, Zip),
 		"list":      objects.NewFunc("list", -1, ListOf),
+		"bytes":     objects.NewFunc("bytes", -1, BytesOf),
+		"bytearray": objects.NewFunc("bytearray", -1, ByteArrayOf),
 		"tuple":     objects.NewFunc("tuple", -1, TupleOf),
 		"dict":      objects.NewFunc("dict", -1, DictOf),
 		"set":       objects.NewFunc("set", -1, SetOf),

@@ -137,6 +137,17 @@ func GetSlice(o, lo, hi, step Object) (Object, error) {
 			out = append(out, x.v[j])
 		}
 		return NewBytes(out), nil
+	case *bytearrayObject:
+		v := x.snapshot()
+		start, st, n, err := sliceIndices(lo, hi, step, len(v))
+		if err != nil {
+			return nil, err
+		}
+		out := make([]byte, 0, n)
+		for i, j := 0, start; i < n; i, j = i+1, j+st {
+			out = append(out, v[j])
+		}
+		return NewByteArray(out), nil
 	}
 	// Probed on 3.14: (1)[0:1] -> TypeError: 'int' object is not
 	// subscriptable. Range and dict slicing are not modeled yet.
@@ -169,6 +180,9 @@ func collectAssigned(val Object) ([]Object, error) {
 // (step omitted or 1) splices the items of any iterable in, resizing
 // the list; an extended slice needs an exact length match like CPython.
 func SetSlice(o, lo, hi, step, val Object) error {
+	if ba, ok := o.(*bytearrayObject); ok {
+		return setByteArraySlice(ba, lo, hi, step, val)
+	}
 	x, ok := o.(*listObject)
 	if !ok {
 		// Probed on 3.14: (1, 2)[0:1] = [9] and 'ab'[0:1] = 'x' both
@@ -202,9 +216,70 @@ func SetSlice(o, lo, hi, step, val Object) error {
 	return nil
 }
 
+// setByteArraySlice assigns bytes into a bytearray slice. A contiguous slice
+// splices in any length; an extended slice needs an exact-length match, like
+// CPython. The whole operation runs under the lock so it is atomic.
+func setByteArraySlice(ba *bytearrayObject, lo, hi, step, val Object) error {
+	repl, err := byteArrayAssignBytes(val)
+	if err != nil {
+		return err
+	}
+	ba.mu.Lock()
+	defer ba.mu.Unlock()
+	start, st, n, err := sliceIndices(lo, hi, step, len(ba.v))
+	if err != nil {
+		return err
+	}
+	if st == 1 {
+		out := make([]byte, 0, len(ba.v)-n+len(repl))
+		out = append(out, ba.v[:start]...)
+		out = append(out, repl...)
+		out = append(out, ba.v[start+n:]...)
+		ba.v = out
+		return nil
+	}
+	if len(repl) != n {
+		return Raise(ValueError, "attempt to assign bytes of size %d to extended slice of size %d", len(repl), n)
+	}
+	for i, j := 0, start; i < n; i, j = i+1, j+st {
+		ba.v[j] = repl[i]
+	}
+	return nil
+}
+
+// byteArrayAssignBytes converts a slice-assignment value into the bytes to
+// splice in: a bytes-like value copies its bytes, an iterable of ints is
+// collected with the byte-range check, and anything else raises the probed
+// "can assign only bytes, buffers, or iterables of ints" TypeError.
+func byteArrayAssignBytes(val Object) ([]byte, error) {
+	if bl, ok := asBytesLike(val); ok {
+		return append([]byte(nil), bl...), nil
+	}
+	if _, err := Iter(val); err != nil {
+		return nil, Raise(TypeError, "can assign only bytes, buffers, or iterables of ints in range(0, 256)")
+	}
+	return bytesFromIter(val, byteRangeMsg)
+}
+
 // DelItem implements `del o[key]` for dict keys and list indices.
 func DelItem(o, key Object) error {
 	switch x := o.(type) {
+	case *bytearrayObject:
+		i, ok := AsInt(key)
+		if !ok {
+			if IsBigInt(key) {
+				return errIndexFit()
+			}
+			return Raise(TypeError, "bytearray indices must be integers or slices, not %s", key.TypeName())
+		}
+		x.mu.Lock()
+		defer x.mu.Unlock()
+		j, err := seqIndex(i, len(x.v), "bytearray index out of range")
+		if err != nil {
+			return err
+		}
+		x.v = append(x.v[:j], x.v[j+1:]...)
+		return nil
 	case *listObject:
 		i, ok := AsInt(key)
 		if !ok {
@@ -253,6 +328,9 @@ func DelItem(o, key Object) error {
 // DelSlice implements `del o[lo:hi:step]` for lists, extended steps
 // included.
 func DelSlice(o, lo, hi, step Object) error {
+	if ba, ok := o.(*bytearrayObject); ok {
+		return delByteArraySlice(ba, lo, hi, step)
+	}
 	x, ok := o.(*listObject)
 	if !ok {
 		// Probed on 3.14: del (1, 2)[0:1] and del 'ab'[0:1] both use the
@@ -286,5 +364,39 @@ func DelSlice(o, lo, hi, step Object) error {
 		out = append(out, e)
 	}
 	x.elts = out
+	return nil
+}
+
+// delByteArraySlice deletes a bytearray slice in place under the lock,
+// mirroring the list slice-deletion walk for extended steps.
+func delByteArraySlice(ba *bytearrayObject, lo, hi, step Object) error {
+	ba.mu.Lock()
+	defer ba.mu.Unlock()
+	start, st, n, err := sliceIndices(lo, hi, step, len(ba.v))
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return nil
+	}
+	if st == 1 {
+		ba.v = append(ba.v[:start], ba.v[start+n:]...)
+		return nil
+	}
+	if st < 0 {
+		start += (n - 1) * st
+		st = -st
+	}
+	out := make([]byte, 0, len(ba.v)-n)
+	next, dropped := start, 0
+	for i, c := range ba.v {
+		if dropped < n && i == next {
+			dropped++
+			next += st
+			continue
+		}
+		out = append(out, c)
+	}
+	ba.v = out
 	return nil
 }

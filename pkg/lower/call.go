@@ -17,6 +17,7 @@ var builtinNames = map[string]bool{
 	"chr": true, "hash": true, "sorted": true, "reversed": true, "enumerate": true,
 	"zip": true, "list": true, "tuple": true, "dict": true, "set": true,
 	"frozenset": true, "format": true, "next": true,
+	"bytes": true, "bytearray": true,
 	"isinstance": true, "issubclass": true,
 	"getattr": true, "hasattr": true, "setattr": true, "delattr": true,
 	"any": true, "all": true, "callable": true, "ascii": true,
@@ -481,6 +482,12 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 			"list": "ListOf", "tuple": "TupleOf", "dict": "DictOf",
 			"set": "SetOf", "frozenset": "FrozensetOf",
 		}[name]
+		return f.runtimeSliceCall(fn, e)
+	case "bytes", "bytearray":
+		// bytes/bytearray take up to three arguments (source, encoding,
+		// errors), so the runtime helper checks arity and the per-source
+		// TypeErrors, keeping them catchable.
+		fn := map[string]string{"bytes": "BytesOf", "bytearray": "ByteArrayOf"}[name]
 		return f.runtimeSliceCall(fn, e)
 	}
 	return nil, f.e.errf(e.Span(), "builtin %q is not supported in M0", name)

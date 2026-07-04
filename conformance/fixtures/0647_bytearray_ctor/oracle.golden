@@ -1,0 +1,43 @@
+== exit: 0
+== stdout:
+bytearray(b'abc')
+bytearray(b'abc')
+bytearray(b'abc')
+bytearray(b'') bytearray(b'\x00\x00\x00')
+b'' b'\x00\x00\x00' b'hi' b'hi'
+b'ABC' bytearray(b'ABC')
+b'\xc3\xa9' b'\xe9'
+bytearray(b'abc')
+[195, 169] [233]
+97 101
+bytearray(b'bcd') bytearray(b'edcba')
+[97, 98, 99]
+5 0
+bytearray(b'Zabcdefgh')
+104 90
+bytearray(b'abcdfg')
+bytearray(b'gfdcba')
+bytearray(b'gfdcba!') bytearray(b'gfdcba')
+bytearray(b'')
+bytearray(b'Abcde')
+bytearray(b'xy__cde')
+bytearray(b'_cde')
+bytearray(b'abcdabcd')
+True True
+True True
+bytearray(b'abcd') b'abcd'
+True True
+False True
+bytes256 bytes must be in range(0, 256)
+bytearray256 byte must be in range(0, 256)
+negcount negative count
+float cannot convert 'float' object to bytes
+noenc string argument without an encoding
+codec unknown encoding: bogus
+encode 'ascii' codec can't encode character '\xe9' in position 0: ordinal not in range(128)
+setrange byte must be in range(0, 256)
+extend can't extend bytearray with int
+popempty pop from empty bytearray
+hash unhashable type: 'bytearray'
+== exception:
+== stderr:

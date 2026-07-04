@@ -23,6 +23,8 @@ func Truth(o Object) bool {
 		return len(x.v) > 0
 	case *bytesObject:
 		return len(x.v) > 0
+	case *bytearrayObject:
+		return len(x.snapshot()) > 0
 	case *listObject:
 		return len(x.elts) > 0
 	case *tupleObject:
@@ -165,14 +167,25 @@ func Add(a, b Object) (Object, error) {
 		}
 		return nil, Raise(TypeError, "can only concatenate str (not %q) to str", b.TypeName())
 	case *bytesObject:
-		if y, ok := b.(*bytesObject); ok {
-			out := make([]byte, 0, len(x.v)+len(y.v))
+		// A bytes or bytearray right operand concatenates; the result keeps
+		// the left operand's type, so bytes + bytearray is bytes.
+		if yv, ok := asBytesLike(b); ok {
+			out := make([]byte, 0, len(x.v)+len(yv))
 			out = append(out, x.v...)
-			out = append(out, y.v...)
+			out = append(out, yv...)
 			return NewBytes(out), nil
 		}
 		// Probed on 3.14: b"a" + "b" -> TypeError: can't concat str to bytes.
 		return nil, Raise(TypeError, "can't concat %s to bytes", b.TypeName())
+	case *bytearrayObject:
+		if yv, ok := asBytesLike(b); ok {
+			xv := x.snapshot()
+			out := make([]byte, 0, len(xv)+len(yv))
+			out = append(out, xv...)
+			out = append(out, yv...)
+			return NewByteArray(out), nil
+		}
+		return nil, Raise(TypeError, "can't concat %s to bytearray", b.TypeName())
 	case *listObject:
 		if y, ok := b.(*listObject); ok {
 			out := make([]Object, 0, len(x.elts)+len(y.elts))
@@ -238,7 +251,7 @@ func Sub(a, b Object) (Object, error) {
 
 func isSequence(o Object) bool {
 	switch o.(type) {
-	case *strObject, *bytesObject, *listObject, *tupleObject:
+	case *strObject, *bytesObject, *bytearrayObject, *listObject, *tupleObject:
 		return true
 	}
 	return false
@@ -257,6 +270,13 @@ func repeatSeq(seq Object, n int64) Object {
 			out = append(out, x.v...)
 		}
 		return NewBytes(out)
+	case *bytearrayObject:
+		xv := x.snapshot()
+		out := make([]byte, 0, int64(len(xv))*n)
+		for i := int64(0); i < n; i++ {
+			out = append(out, xv...)
+		}
+		return NewByteArray(out)
 	case *listObject:
 		out := make([]Object, 0, int64(len(x.elts))*n)
 		for i := int64(0); i < n; i++ {
@@ -680,8 +700,11 @@ func equals(a, b Object) bool {
 		y, ok := b.(*strObject)
 		return ok && x.v == y.v
 	case *bytesObject:
-		y, ok := b.(*bytesObject)
-		return ok && string(x.v) == string(y.v)
+		yv, ok := asBytesLike(b)
+		return ok && string(x.v) == string(yv)
+	case *bytearrayObject:
+		yv, ok := asBytesLike(b)
+		return ok && string(x.snapshot()) == string(yv)
 	case *listObject:
 		y, ok := b.(*listObject)
 		return ok && seqEquals(x.elts, y.elts)
@@ -773,9 +796,10 @@ func order(op CmpOp, a, b Object) (bool, error) {
 		if y, ok2 := b.(*strObject); ok2 {
 			return applyOrder(op, strings.Compare(x.v, y.v)), nil
 		}
-	} else if x, ok := a.(*bytesObject); ok {
-		if y, ok2 := b.(*bytesObject); ok2 {
-			return applyOrder(op, strings.Compare(string(x.v), string(y.v))), nil
+	} else if xv, ok := asBytesLike(a); ok {
+		// bytes and bytearray order lexicographically against either type.
+		if yv, ok2 := asBytesLike(b); ok2 {
+			return applyOrder(op, strings.Compare(string(xv), string(yv))), nil
 		}
 	} else if x, ok := a.(*listObject); ok {
 		if y, ok2 := b.(*listObject); ok2 {
@@ -840,6 +864,8 @@ func Contains(container, item Object) (Object, error) {
 		return NewBool(strings.Contains(x.v, sub.v)), nil
 	case *bytesObject:
 		return bytesContainsItem(x.v, item)
+	case *bytearrayObject:
+		return bytesContainsItem(x.snapshot(), item)
 	case *listObject:
 		return seqContains(x.elts, item), nil
 	case *tupleObject:
@@ -955,6 +981,22 @@ func GetItem(o, key Object) (Object, error) {
 			return nil, err
 		}
 		return NewInt(int64(x.v[j])), nil
+	case *bytearrayObject:
+		i, ok := AsInt(key)
+		if !ok {
+			if IsBigInt(key) {
+				return nil, errIndexFit()
+			}
+			// Probed on 3.14: bytearray(b"abc")[1.0] -> TypeError: bytearray
+			// indices must be integers or slices, not float.
+			return nil, Raise(TypeError, "bytearray indices must be integers or slices, not %s", key.TypeName())
+		}
+		v := x.snapshot()
+		j, err := seqIndex(i, len(v), "bytearray index out of range")
+		if err != nil {
+			return nil, err
+		}
+		return NewInt(int64(v[j])), nil
 	case *listObject:
 		i, ok := AsInt(key)
 		if !ok {
@@ -1034,6 +1076,26 @@ func SetItem(o, key, val Object) error {
 		}
 		x.elts[j] = val
 		return nil
+	case *bytearrayObject:
+		i, ok := AsInt(key)
+		if !ok {
+			if IsBigInt(key) {
+				return errIndexFit()
+			}
+			return Raise(TypeError, "bytearray indices must be integers or slices, not %s", key.TypeName())
+		}
+		b, err := byteFromObj(val, byteRangeMsg)
+		if err != nil {
+			return err
+		}
+		x.mu.Lock()
+		defer x.mu.Unlock()
+		j, err := seqIndex(i, len(x.v), "bytearray index out of range")
+		if err != nil {
+			return err
+		}
+		x.v[j] = b
+		return nil
 	case *dictObject:
 		return x.set(key, val)
 	case *instanceObject:
@@ -1055,6 +1117,8 @@ func Len(o Object) (int, error) {
 		return runeCount(x.v), nil
 	case *bytesObject:
 		return len(x.v), nil
+	case *bytearrayObject:
+		return len(x.snapshot()), nil
 	case *listObject:
 		return len(x.elts), nil
 	case *tupleObject:
@@ -1138,6 +1202,10 @@ func Iter(o Object) (Iterator, error) {
 		return &sliceIter{elts: elts}, nil
 	case *bytesObject:
 		return &bytesIter{v: x.v}, nil
+	case *bytearrayObject:
+		// Iterate over a snapshot so a concurrent mutation cannot tear the
+		// walk; CPython raises on concurrent resize, we simply freeze it.
+		return &bytesIter{v: x.snapshot()}, nil
 	case *listObject:
 		return &sliceIter{elts: x.elts}, nil
 	case *tupleObject:

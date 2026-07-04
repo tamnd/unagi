@@ -87,8 +87,8 @@ func (it *bytesIter) Next() (Object, bool, error) {
 // subsequence, an int tests as a member byte (and must fit a byte), and
 // any other left operand raises the probed 3.14 TypeError.
 func bytesContainsItem(v []byte, item Object) (Object, error) {
-	if sub, ok := item.(*bytesObject); ok {
-		return NewBool(bytesHasSub(v, sub.v)), nil
+	if sub, ok := asBytesLike(item); ok {
+		return NewBool(bytesHasSub(v, sub)), nil
 	}
 	if i, ok := AsInt(item); ok {
 		if i < 0 || i > 255 {
@@ -104,4 +104,152 @@ func bytesContainsItem(v []byte, item Object) (Object, error) {
 
 func bytesHasSub(v, sub []byte) bool {
 	return strings.Contains(string(v), string(sub))
+}
+
+// BytesOf implements the bytes() constructor.
+func BytesOf(args []Object) (Object, error) {
+	b, err := bytesFromArgs(args, "bytes")
+	if err != nil {
+		return nil, err
+	}
+	return NewBytes(b), nil
+}
+
+// ByteArrayOf implements the bytearray() constructor.
+func ByteArrayOf(args []Object) (Object, error) {
+	b, err := bytesFromArgs(args, "bytearray")
+	if err != nil {
+		return nil, err
+	}
+	return NewByteArray(b), nil
+}
+
+// bytesFromArgs builds the byte slice shared by the bytes and bytearray
+// constructors. typeName selects the wording that differs between the two:
+// the not-convertible TypeError names the target type, and the iterable
+// range error reads "bytes must be in range(0, 256)" for bytes but "byte
+// must be ..." for bytearray, matching CPython.
+func bytesFromArgs(args []Object, typeName string) ([]byte, error) {
+	rangeMsg := byteRangeMsg
+	if typeName == "bytes" {
+		rangeMsg = "bytes must be in range(0, 256)"
+	}
+	switch len(args) {
+	case 0:
+		return nil, nil
+	case 1:
+		return bytesFromSource(args[0], typeName, rangeMsg)
+	case 2, 3:
+		// (source, encoding[, errors]): the source must be a string, else the
+		// encoding argument has nothing to encode.
+		s, ok := args[0].(*strObject)
+		if !ok {
+			return nil, Raise(TypeError, "encoding without a string argument")
+		}
+		enc, ok := args[1].(*strObject)
+		if !ok {
+			return nil, Raise(TypeError, "%s() argument 'encoding' must be str, not %s", typeName, args[1].TypeName())
+		}
+		return encodeStr(s.v, enc.v)
+	default:
+		return nil, Raise(TypeError, "%s() takes at most 3 arguments (%d given)", typeName, len(args))
+	}
+}
+
+// bytesFromSource handles the single-argument constructor forms.
+func bytesFromArgsErr(typeName string, o Object) error {
+	return Raise(TypeError, "cannot convert '%s' object to %s", o.TypeName(), typeName)
+}
+
+func bytesFromSource(o Object, typeName, rangeMsg string) ([]byte, error) {
+	switch a := o.(type) {
+	case *strObject:
+		return nil, Raise(TypeError, "string argument without an encoding")
+	case *bytesObject:
+		return append([]byte(nil), a.v...), nil
+	case *bytearrayObject:
+		return a.snapshot(), nil
+	case *floatObject:
+		return nil, bytesFromArgsErr(typeName, o)
+	}
+	if n, ok := AsInt(o); ok {
+		if n < 0 {
+			return nil, Raise(ValueError, "negative count")
+		}
+		return make([]byte, n), nil
+	}
+	if IsBigInt(o) {
+		return nil, errIndexFit()
+	}
+	// Anything else must be an iterable of ints.
+	if _, err := Iter(o); err != nil {
+		return nil, bytesFromArgsErr(typeName, o)
+	}
+	return bytesFromIter(o, rangeMsg)
+}
+
+// encodeStr encodes a Python str to bytes for the two-argument constructor.
+// It supports the utf-8, ascii and latin-1 codec families; an unknown codec
+// raises LookupError and an unencodable character raises UnicodeEncodeError,
+// both with CPython's wording.
+func encodeStr(s, enc string) ([]byte, error) {
+	switch normalizeCodec(enc) {
+	case "utf8":
+		return []byte(s), nil
+	case "ascii":
+		return encodeNarrow(s, "ascii", 0x80)
+	case "latin1":
+		return encodeNarrow(s, "latin-1", 0x100)
+	}
+	return nil, Raise("LookupError", "unknown encoding: %s", enc)
+}
+
+// normalizeCodec folds a codec name to a canonical key: lowercased with
+// spaces, hyphens and underscores dropped, so "UTF-8" and "utf_8" both map
+// to "utf8". Only the small set this build supports is recognized.
+func normalizeCodec(enc string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(enc) {
+		if r == '-' || r == '_' || r == ' ' {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	switch b.String() {
+	case "utf8", "u8", "utf":
+		return "utf8"
+	case "ascii", "usascii", "646":
+		return "ascii"
+	case "latin1", "latin", "iso88591", "8859", "cp819", "l1":
+		return "latin1"
+	}
+	return b.String()
+}
+
+// encodeNarrow encodes a string under a single-byte codec whose code points
+// are the byte values below limit (0x80 for ascii, 0x100 for latin-1).
+func encodeNarrow(s, codec string, limit rune) ([]byte, error) {
+	out := make([]byte, 0, len(s))
+	for i, r := range []rune(s) {
+		if r >= limit {
+			return nil, Raise("UnicodeEncodeError",
+				"'%s' codec can't encode character %s in position %d: ordinal not in range(%d)",
+				codec, charEscape(r), i, int(limit))
+		}
+		out = append(out, byte(r))
+	}
+	return out, nil
+}
+
+// charEscape renders a single code point the way CPython's error message
+// does: '\xHH' below 0x100, '\uHHHH' in the BMP, '\UHHHHHHHH' above it.
+func charEscape(r rune) string {
+	switch {
+	case r < 0x100:
+		return fmt.Sprintf(`'\x%02x'`, r)
+	case r < 0x10000:
+		return fmt.Sprintf(`'\u%04x'`, r)
+	default:
+		return fmt.Sprintf(`'\U%08x'`, r)
+	}
 }
