@@ -215,7 +215,8 @@ func bytearrayMethod(x *bytearrayObject, name string, args []Object) (Object, er
 		}
 		return NewByteArray(x.snapshot()), nil
 	}
-	return nil, noAttr(x, name)
+	// The read methods (count/find/startswith/hex/...) are shared with bytes.
+	return bytesReadMethod(x.snapshot(), "bytearray", name, args)
 }
 
 // clampInsert normalizes an insert index the way bytearray.insert does:

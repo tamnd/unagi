@@ -15,6 +15,8 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 		return frozensetMethod(x, name, args)
 	case *tupleObject:
 		return tupleMethod(x, name, args)
+	case *bytesObject:
+		return bytesReadMethod(x.v, "bytes", name, args)
 	case *bytearrayObject:
 		return bytearrayMethod(x, name, args)
 	case *Exception:
