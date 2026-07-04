@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+0 1
+1
+11
+count: 11
+total: 11
+7
+sum = 7
+== exception:
+== stderr:
