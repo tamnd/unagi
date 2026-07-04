@@ -27,6 +27,25 @@ var binFuncs = map[frontend.BinKind]string{
 	frontend.BinMatMul:   "MatMul",
 }
 
+// augSyms maps each augmented assignment kind to its operator spelling, which
+// objects.InPlace uses to pick the in-place dunder and to word the fallback
+// unsupported-operand error.
+var augSyms = map[frontend.BinKind]string{
+	frontend.BinAdd:      "+=",
+	frontend.BinSub:      "-=",
+	frontend.BinMul:      "*=",
+	frontend.BinDiv:      "/=",
+	frontend.BinFloorDiv: "//=",
+	frontend.BinMod:      "%=",
+	frontend.BinPow:      "**=",
+	frontend.BinBitOr:    "|=",
+	frontend.BinBitXor:   "^=",
+	frontend.BinBitAnd:   "&=",
+	frontend.BinLShift:   "<<=",
+	frontend.BinRShift:   ">>=",
+	frontend.BinMatMul:   "@=",
+}
+
 var cmpOps = map[frontend.CmpKind]string{
 	frontend.CmpEq: "OpEq",
 	frontend.CmpNe: "OpNe",

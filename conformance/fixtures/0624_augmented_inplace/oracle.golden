@@ -1,0 +1,31 @@
+== exit: 0
+== stdout:
+[1, 2, 3] [1, 2, 3] True
+[1, 2, 3, 4, 5]
+[1, 2, 3, 4, 5, 'x', 'y']
+[1, 2, 1, 2, 1, 2] True
+[]
+[1, 2, 1, 2]
+[1, 2, 3, 4] True
+[2, 3] True
+[2, 9] True
+[9] True
+[1, 2, 3] False
+3 1 False
+ab a False
+341
+[[1, 8, 9], [2]] True
+[1, 7] True
+Acc(15) Acc(15) True
+Money(5) Money(1) False
+Tag('ab')
+Vec(7)
+bare: unsupported operand type(s) for +=: 'Bare' and 'int'
+list+int: 'int' object is not iterable
+int+str: unsupported operand type(s) for +=: 'int' and 'str'
+str+int: can only concatenate str (not "int") to str
+list*str: can't multiply sequence by non-int of type 'str'
+tuple-quirk: 'tuple' object does not support item assignment
+([1, 2],)
+== exception:
+== stderr:
