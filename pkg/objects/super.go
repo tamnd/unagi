@@ -16,22 +16,30 @@ type superObject struct {
 
 func (*superObject) TypeName() string { return "super" }
 
-// NewSuper builds the bound super for super(start, obj). start must be a
-// class and obj an instance whose type has start in its MRO. The unbound
-// one-argument form and the super(type, subtype) form used by classmethods
-// are a later slice.
+// NewSuper builds the bound super for super(start, obj). start must be a class.
+// obj is either an instance whose type has start in its MRO, the ordinary form,
+// or a class that has start in its MRO, the super(type, subtype) form a
+// classmethod (and __init_subclass__) uses. objCls is the linearization the
+// cooperative walk follows: the instance's type in the first case, the subtype
+// itself in the second. The unbound one-argument form is still a later slice.
 func NewSuper(start, obj Object) (Object, error) {
 	sc, ok := start.(*classObject)
 	if !ok {
 		return nil, Raise(TypeError, "super() argument 1 must be a type, not %s", start.TypeName())
 	}
-	inst, ok := obj.(*instanceObject)
-	if !ok || !hasInMRO(inst.cls, sc) {
-		return nil, Raise(TypeError,
-			"super(type, obj): obj (instance of %s) is not an instance or subtype of type (%s).",
-			obj.TypeName(), sc.name)
+	switch o := obj.(type) {
+	case *instanceObject:
+		if hasInMRO(o.cls, sc) {
+			return &superObject{start: sc, obj: obj, objCls: o.cls}, nil
+		}
+	case *classObject:
+		if hasInMRO(o, sc) {
+			return &superObject{start: sc, obj: obj, objCls: o}, nil
+		}
 	}
-	return &superObject{start: sc, obj: obj, objCls: inst.cls}, nil
+	return nil, Raise(TypeError,
+		"super(type, obj): obj (instance of %s) is not an instance or subtype of type (%s).",
+		obj.TypeName(), sc.name)
 }
 
 // hasInMRO reports whether target is on c's linearization.
@@ -68,8 +76,11 @@ func superLookup(s *superObject, name string) (Object, bool) {
 // probed 'super' object AttributeError.
 func superLoadAttr(s *superObject, name string) (Object, error) {
 	if v, ok := superLookup(s, name); ok {
-		if fn, ok := v.(*functionObject); ok {
+		switch fn := v.(type) {
+		case *functionObject:
 			return &boundMethod{fn: fn, self: s.obj}, nil
+		case *classmethodObject:
+			return classmethodBind(fn.fn, s.objCls), nil
 		}
 		return v, nil
 	}
@@ -80,8 +91,11 @@ func superLoadAttr(s *superObject, name string) (Object, error) {
 // called with the original instance as self.
 func superCallMethod(s *superObject, name string, args []Object) (Object, error) {
 	if v, ok := superLookup(s, name); ok {
-		if fn, ok := v.(*functionObject); ok {
+		switch fn := v.(type) {
+		case *functionObject:
 			return fn.bind(append([]Object{s.obj}, args...), nil, nil)
+		case *classmethodObject:
+			return Call(classmethodBind(fn.fn, s.objCls), args)
 		}
 		return Call(v, args)
 	}
@@ -106,6 +120,11 @@ func objectDefaultCall(name string, args []Object) (Object, bool, error) {
 			return nil, true, Raise(TypeError, "object.__init__() takes exactly one argument (the instance to initialize)")
 		}
 		return None, true, nil
+	case "__init_subclass__", "__set_name__":
+		// The object-root defaults for the two type-creation hooks are no-ops.
+		// A cooperative super().__init_subclass__() chain ends here once no user
+		// base defines the hook, and the same holds for __set_name__.
+		return None, true, nil
 	}
 	return nil, false, nil
 }
@@ -115,8 +134,11 @@ func objectDefaultCall(name string, args []Object) (Object, bool, error) {
 // its binder, the same cooperative walk superCallMethod uses.
 func superCallMethodKw(s *superObject, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
 	if v, ok := superLookup(s, name); ok {
-		if fn, ok := v.(*functionObject); ok {
+		switch fn := v.(type) {
+		case *functionObject:
 			return fn.bind(append([]Object{s.obj}, pos...), kwNames, kwVals)
+		case *classmethodObject:
+			return CallKw(classmethodBind(fn.fn, s.objCls), pos, kwNames, kwVals)
 		}
 		return CallKw(v, pos, kwNames, kwVals)
 	}

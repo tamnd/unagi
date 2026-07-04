@@ -1,0 +1,7 @@
+== exit: 0
+== stdout:
+B->A.make:B
+C->B->A.make:C
+['X', 'Y']
+== exception:
+== stderr:
