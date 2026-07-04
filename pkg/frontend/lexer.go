@@ -101,7 +101,7 @@ var keywords = map[string]bool{
 var opTable = []string{
 	"**=", "//=", "<<=", ">>=",
 	"**", "//", "==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "%=", ":=",
-	"<<", ">>", "&=", "|=", "^=",
+	"<<", ">>", "&=", "|=", "^=", "@=",
 	"+", "-", "*", "/", "%", "=", "<", ">", "&", "|", "^", "~", "@",
 	"(", ")", "[", "]", "{", "}", ",", ":", ".", ";",
 }
@@ -119,7 +119,6 @@ type lexer struct {
 	indents   []int
 	brackets  []openBracket
 	toks      []token
-	lineStart int   // token count at the start of the current logical line
 	fbase     []int // bracket-depth floor of each open f-string interpolation
 }
 
@@ -293,7 +292,6 @@ func (lx *lexer) applyIndent(col int) {
 // line.
 func (lx *lexer) lexLogicalLine() {
 	start := len(lx.toks)
-	lx.lineStart = start
 	for {
 		switch lx.ch() {
 		case ' ', '\t', '\f':
@@ -645,13 +643,6 @@ func (lx *lexer) lexOp(pos Pos) {
 		// through to the operator table.
 		if lx.ch2() != '=' && len(lx.fbase) > 0 {
 			lx.err(pos, "f-string: expecting '=', or '!', or ':', or '}'")
-		}
-	case '@':
-		// A '@' at the start of a logical line opens a decorator; it emits as
-		// an operator token the parser consumes. Anywhere else it is the matrix
-		// multiplication operator, which is not supported yet.
-		if len(lx.toks) != lx.lineStart {
-			lx.err(pos, "the matrix multiplication operator '@' is not supported yet")
 		}
 	}
 	for _, op := range opTable {

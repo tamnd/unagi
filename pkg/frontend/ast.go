@@ -415,6 +415,7 @@ const (
 	BinBitAnd // &
 	BinLShift // <<
 	BinRShift // >>
+	BinMatMul // @
 )
 
 // BinOp is `left op right` for the arithmetic and bitwise operators.

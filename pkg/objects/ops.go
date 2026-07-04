@@ -148,7 +148,7 @@ func Add(a, b Object) (Object, error) {
 		}
 		return NewFloat(af + bf), nil
 	}
-	return nil, unsupported("+", a, b)
+	return binFallback("+", a, b)
 }
 
 // Sub implements the - operator. On set operands it is set difference,
@@ -157,7 +157,7 @@ func Sub(a, b Object) (Object, error) {
 	if ac, ok := asSetCore(a); ok {
 		bc, ok2 := asSetCore(b)
 		if !ok2 {
-			return nil, unsupported("-", a, b)
+			return binFallback("-", a, b)
 		}
 		out, oc := newLike(a)
 		diffInto(oc, ac, bc)
@@ -177,7 +177,7 @@ func Sub(a, b Object) (Object, error) {
 		}
 		return NewFloat(af - bf), nil
 	}
-	return nil, unsupported("-", a, b)
+	return binFallback("-", a, b)
 }
 
 func isSequence(o Object) bool {
@@ -245,7 +245,7 @@ func Mul(a, b Object) (Object, error) {
 		}
 		return NewFloat(af * bf), nil
 	}
-	return nil, unsupported("*", a, b)
+	return binFallback("*", a, b)
 }
 
 // TrueDiv implements the / operator. The result is always a float.
@@ -272,7 +272,7 @@ func TrueDiv(a, b Object) (Object, error) {
 	}
 	af, bf, ok, err := bothFloat(a, b)
 	if !ok {
-		return nil, unsupported("/", a, b)
+		return binFallback("/", a, b)
 	}
 	if err != nil {
 		return nil, err
@@ -326,7 +326,7 @@ func FloorDiv(a, b Object) (Object, error) {
 		}
 		return NewFloat(math.Floor(af / bf)), nil
 	}
-	return nil, unsupported("//", a, b)
+	return binFallback("//", a, b)
 }
 
 // Mod implements the % operator with floor semantics. A str left
@@ -363,7 +363,7 @@ func Mod(a, b Object) (Object, error) {
 		}
 		return NewFloat(r), nil
 	}
-	return nil, unsupported("%", a, b)
+	return binFallback("%", a, b)
 }
 
 func ipow(base, exp int64) int64 {
@@ -409,6 +409,9 @@ func Pow(a, b Object) (Object, error) {
 		}
 		return NewFloat(r), nil
 	}
+	if res, ok, err := binaryDunder("__pow__", "__rpow__", a, b); ok || err != nil {
+		return res, err
+	}
 	return nil, Raise(TypeError, "unsupported operand type(s) for ** or pow(): '%s' and '%s'",
 		a.TypeName(), b.TypeName())
 }
@@ -419,7 +422,7 @@ func BitOr(a, b Object) (Object, error) {
 	if ac, ok := asSetCore(a); ok {
 		bc, ok2 := asSetCore(b)
 		if !ok2 {
-			return nil, unsupported("|", a, b)
+			return binFallback("|", a, b)
 		}
 		out, oc := newLike(a)
 		unionInto(oc, ac, bc)
@@ -436,7 +439,7 @@ func BitOr(a, b Object) (Object, error) {
 	if x, y, ok := bothBig(a, b); ok {
 		return NewIntFromBig(new(big.Int).Or(x, y)), nil
 	}
-	return nil, unsupported("|", a, b)
+	return binFallback("|", a, b)
 }
 
 // BitXor implements the ^ operator: int bitwise xor, set symmetric
@@ -445,7 +448,7 @@ func BitXor(a, b Object) (Object, error) {
 	if ac, ok := asSetCore(a); ok {
 		bc, ok2 := asSetCore(b)
 		if !ok2 {
-			return nil, unsupported("^", a, b)
+			return binFallback("^", a, b)
 		}
 		out, oc := newLike(a)
 		symDiffInto(oc, ac, bc)
@@ -462,7 +465,7 @@ func BitXor(a, b Object) (Object, error) {
 	if x, y, ok := bothBig(a, b); ok {
 		return NewIntFromBig(new(big.Int).Xor(x, y)), nil
 	}
-	return nil, unsupported("^", a, b)
+	return binFallback("^", a, b)
 }
 
 // BitAnd implements the & operator: int bitwise and, set intersection.
@@ -471,7 +474,7 @@ func BitAnd(a, b Object) (Object, error) {
 	if ac, ok := asSetCore(a); ok {
 		bc, ok2 := asSetCore(b)
 		if !ok2 {
-			return nil, unsupported("&", a, b)
+			return binFallback("&", a, b)
 		}
 		out, oc := newLike(a)
 		intersectInto(oc, ac, bc)
@@ -488,7 +491,7 @@ func BitAnd(a, b Object) (Object, error) {
 	if x, y, ok := bothBig(a, b); ok {
 		return NewIntFromBig(new(big.Int).And(x, y)), nil
 	}
-	return nil, unsupported("&", a, b)
+	return binFallback("&", a, b)
 }
 
 // LShift implements the << operator. Probed: True << True is int 2, so
@@ -497,7 +500,7 @@ func BitAnd(a, b Object) (Object, error) {
 // "too many digits in integer" wording.
 func LShift(a, b Object) (Object, error) {
 	if !isIntish(a) || !isIntish(b) {
-		return nil, unsupported("<<", a, b)
+		return binFallback("<<", a, b)
 	}
 	x, _ := AsBigInt(a)
 	if IsBigInt(b) {
@@ -532,7 +535,7 @@ func magnitude(v int64) uint64 {
 // count past int64 leaves only the sign: 0 or -1.
 func RShift(a, b Object) (Object, error) {
 	if !isIntish(a) || !isIntish(b) {
-		return nil, unsupported(">>", a, b)
+		return binFallback(">>", a, b)
 	}
 	if IsBigInt(b) {
 		y, _ := AsBigInt(b)

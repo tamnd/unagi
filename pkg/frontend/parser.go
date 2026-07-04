@@ -397,7 +397,7 @@ var augOps = map[string]BinKind{
 	"+=": BinAdd, "-=": BinSub, "*=": BinMul, "/=": BinDiv,
 	"//=": BinFloorDiv, "%=": BinMod, "**=": BinPow,
 	"|=": BinBitOr, "^=": BinBitXor, "&=": BinBitAnd,
-	"<<=": BinLShift, ">>=": BinRShift,
+	"<<=": BinLShift, ">>=": BinRShift, "@=": BinMatMul,
 }
 
 func (p *parser) checkAssignTarget(e Expr) {
@@ -1238,6 +1238,8 @@ func (p *parser) parseTerm() Expr {
 			op = BinFloorDiv
 		case p.isOp("%"):
 			op = BinMod
+		case p.isOp("@"):
+			op = BinMatMul
 		default:
 			return e
 		}

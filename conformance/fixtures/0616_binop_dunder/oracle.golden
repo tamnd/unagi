@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+11
+4 6
+3 6
+5 10
+abcd
+add: unsupported operand type(s) for +: 'Decline' and 'Decline'
+matmul: unsupported operand type(s) for @: 'int' and 'int'
+sub.rsub
+102
+== exception:
+== stderr:
