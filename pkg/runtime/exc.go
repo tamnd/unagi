@@ -59,6 +59,43 @@ func PopHandled() {
 	}
 }
 
+// ExcStarSplit partitions err by whether its leaves match any of the given
+// classes, for one except* clause. It returns the matched part and the
+// unhandled remainder, either of which is a nil error when empty. A non
+// exception err matches nothing and stays whole in rest.
+func ExcStarSplit(err error, classes ...string) (matched, rest error) {
+	e, ok := err.(*objects.Exception)
+	if !ok {
+		return nil, err
+	}
+	m, r := objects.SplitStar(e, classes)
+	if m != nil {
+		matched = m
+	}
+	if r != nil {
+		rest = r
+	}
+	return matched, rest
+}
+
+// ExcStarCombine folds the exceptions raised by the except* handlers back
+// together with the unhandled remainder into the one exception that leaves
+// the try, or nil when nothing is left to propagate. Nil entries in raised
+// are dropped so an empty accumulator combines to just the remainder.
+func ExcStarCombine(rest error, raised []error) error {
+	re, _ := rest.(*objects.Exception)
+	var rs []*objects.Exception
+	for _, r := range raised {
+		if e, ok := r.(*objects.Exception); ok {
+			rs = append(rs, e)
+		}
+	}
+	if c := objects.CombineStar(re, rs); c != nil {
+		return c
+	}
+	return nil
+}
+
 // NewExc constructs an exception object without raising it, the
 // ExceptionClass(args...) expression.
 func NewExc(class string, args []objects.Object) objects.Object {
