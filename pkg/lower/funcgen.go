@@ -283,6 +283,7 @@ func (e *emitter) fillFuncDecl(f *fnCtx, d *frontend.FuncDef, declName string) (
 		f.locals[name] = true
 		f.declLocal(name)
 	}
+	f.markNonlocalDeletes(d.Body)
 	f.declPending(d.Body)
 	f.recursionGuard()
 	if err := f.stmts(d.Body); err != nil {
@@ -620,6 +621,108 @@ func collectDeleted(body []frontend.Stmt, out map[string]bool) {
 		}
 	}
 	walk(body)
+}
+
+// forEachNested calls cb for every function defined directly in this scope. It
+// descends compound statements and class bodies (a class scope is transparent
+// to nonlocal) but never into a function's own body, which is a deeper scope.
+func forEachNested(body []frontend.Stmt, cb func(*frontend.FuncDef)) {
+	var walk func(list []frontend.Stmt)
+	walk = func(list []frontend.Stmt) {
+		for _, s := range list {
+			switch s := s.(type) {
+			case *frontend.FuncDef:
+				cb(s)
+			case *frontend.ClassDef:
+				walk(s.Body)
+			case *frontend.If:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.While:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.For:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.Try:
+				walk(s.Body)
+				for _, h := range s.Handlers {
+					walk(h.Body)
+				}
+				walk(s.OrElse)
+				walk(s.Final)
+			case *frontend.With:
+				walk(s.Body)
+			case *frontend.Match:
+				for _, c := range s.Cases {
+					walk(c.Body)
+				}
+			}
+		}
+	}
+	walk(body)
+}
+
+// collectNonlocalDeletes gathers names this scope owns that a nested function
+// unbinds through a nonlocal declaration. Nested functions capture this scope's
+// mangled slot by reference, so `nonlocal x; del x` inside one leaves this
+// scope's x unbound, and reads here must then go through the unbound check. A
+// function between the delete and this scope that binds the name as its own
+// local shadows it and stops the propagation.
+func collectNonlocalDeletes(body []frontend.Stmt, out map[string]bool) {
+	var scanFunc func(fn *frontend.FuncDef, blocked map[string]bool)
+	scanFunc = func(fn *frontend.FuncDef, blocked map[string]bool) {
+		nl := map[string]bool{}
+		collectNonlocals(fn.Body, nl)
+		dels := map[string]bool{}
+		collectDeleted(fn.Body, dels)
+		for name := range dels {
+			// A delete resolves to us only when this function declares the name
+			// nonlocal (so it is not this function's own local) and no closer
+			// function already bound it.
+			if nl[name] && !blocked[name] {
+				out[name] = true
+			}
+		}
+		// Names this function binds as its own local shadow ours for anything
+		// nested deeper; nonlocal and global names are not local binds.
+		binds := map[string]bool{}
+		collectAssigned(fn.Body, binds)
+		collectLocalDefs(fn.Body, binds)
+		for _, p := range fn.Params {
+			binds[p.Name] = true
+		}
+		for name := range nl {
+			delete(binds, name)
+		}
+		globals := map[string]bool{}
+		collectGlobals(fn.Body, globals)
+		for name := range globals {
+			delete(binds, name)
+		}
+		deeper := map[string]bool{}
+		for name := range blocked {
+			deeper[name] = true
+		}
+		for name := range binds {
+			deeper[name] = true
+		}
+		forEachNested(fn.Body, func(g *frontend.FuncDef) { scanFunc(g, deeper) })
+	}
+	forEachNested(body, func(g *frontend.FuncDef) { scanFunc(g, map[string]bool{}) })
+}
+
+// markNonlocalDeletes routes reads of any local a nested function deletes
+// through a nonlocal declaration through the unbound check, so the shared slot
+// reads as UnboundLocalError once deleted instead of dereferencing nil.
+func (f *fnCtx) markNonlocalDeletes(body []frontend.Stmt) {
+	nlDel := map[string]bool{}
+	collectNonlocalDeletes(body, nlDel)
+	for name := range nlDel {
+		if f.locals[name] {
+			f.deleted[name] = true
+		}
+	}
 }
 
 func sortedNames(set map[string]bool) []string {

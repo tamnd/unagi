@@ -215,6 +215,7 @@ func (e *emitter) fillGeneratorDecl(f *fnCtx, d *frontend.FuncDef, declName stri
 		f.locals[name] = true
 		f.declLocal(name)
 	}
+	f.markNonlocalDeletes(d.Body)
 	f.declPending(d.Body)
 	if err := f.stmts(d.Body); err != nil {
 		return nil, err

@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+global: name 'g' is not defined
+outer x unbound
+rebound x = 42
+inner: cannot access free variable 'x' where it is not associated with a value in enclosing scope
+after inner x = 8
+mid y unbound
+outer y still: outer
+z unbound at top
+== exception:
+== stderr:
