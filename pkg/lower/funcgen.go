@@ -175,8 +175,17 @@ func (e *emitter) emitMain(body []frontend.Stmt) (*ast.FuncDecl, error) {
 }
 
 func (e *emitter) emitFunc(d *frontend.FuncDef) (*ast.FuncDecl, error) {
-	f := newFnCtx(e, true, d.Name)
-	f.qual = d.Name
+	return e.emitFuncDecl(d, e.defName(d.Name), d.Name, d.Name)
+}
+
+// emitFuncDecl lowers one function body to a Go function declaration. declName
+// is the Go name the declaration carries, coName is the Python co_name that
+// traceback frames cite, and qual is __qualname__. A top-level def passes its
+// own name for all three shapes; a method passes the class-qualified name for
+// qual and the bare method name for the frame.
+func (e *emitter) emitFuncDecl(d *frontend.FuncDef, declName, coName, qual string) (*ast.FuncDecl, error) {
+	f := newFnCtx(e, true, coName)
+	f.qual = qual
 	params := &ast.FieldList{}
 	for _, p := range d.Params {
 		f.locals[p.Name] = true
@@ -200,7 +209,7 @@ func (e *emitter) emitFunc(d *frontend.FuncDef) (*ast.FuncDecl, error) {
 	}
 	f.add(&ast.ReturnStmt{Results: []ast.Expr{e.obj("None"), ident("nil")}})
 	return &ast.FuncDecl{
-		Name: ident(e.defName(d.Name)),
+		Name: ident(declName),
 		Type: &ast.FuncType{
 			Params:  params,
 			Results: fieldList(field(e.obj("Object")), field(ident("error"))),
@@ -365,6 +374,12 @@ func collectAssigned(body []frontend.Stmt, out map[string]bool) {
 				for _, p := range s.Params {
 					walkExpr(p.Default)
 				}
+			case *frontend.ClassDef:
+				// The class statement binds the class name in this scope; the
+				// base expressions evaluate here, so a walrus in one binds here
+				// too. The body is its own namespace and does not.
+				out[s.Name] = true
+				walkExprs(s.Bases)
 			}
 		}
 	}

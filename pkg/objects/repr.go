@@ -209,6 +209,12 @@ func reprCore(o Object, strict bool) (string, error) {
 			return "", err
 		}
 		return x.Kind + s, nil
+	case *classObject:
+		return classRepr(x), nil
+	case *instanceObject:
+		return instanceRepr(x), nil
+	case *boundMethod:
+		return boundMethodRepr(x), nil
 	}
 	return fmt.Sprintf("<%s object>", o.TypeName()), nil
 }

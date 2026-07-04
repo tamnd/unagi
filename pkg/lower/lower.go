@@ -45,11 +45,19 @@ func (e *Error) Error() string {
 // lines; nil skips the embedding and frames render bare, which is what
 // CPython prints when the source file is gone.
 func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
-	e := &emitter{file: file, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}}
+	e := &emitter{file: file, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}, classOrd: map[string]int{}}
 
 	var body []frontend.Stmt
 	var defs []*frontend.FuncDef
+	var classes []*frontend.ClassDef
 	for _, s := range mod.Body {
+		if c, ok := s.(*frontend.ClassDef); ok {
+			if _, dup := e.classOrd[c.Name]; dup {
+				return nil, e.errf(c.Span(), "redefining class %q is not supported yet", c.Name)
+			}
+			e.classOrd[c.Name] = len(classes)
+			classes = append(classes, c)
+		}
 		if d, ok := s.(*frontend.FuncDef); ok {
 			if _, dup := e.defs[d.Name]; dup {
 				// Redefinition is legal Python; the lowering hoists defs, so
@@ -92,7 +100,7 @@ func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
 			e.rebound[n] = true
 		}
 	}
-	if len(defs) > 0 || len(e.moduleVars) > 0 {
+	if len(defs) > 0 || len(e.moduleVars) > 0 || len(classes) > 0 {
 		e.usedObjects = true
 	}
 
@@ -103,6 +111,14 @@ func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
 			return nil, err
 		}
 		fnDecls = append(fnDecls, decl)
+	}
+	var methodDecls []methodEmit
+	for _, c := range classes {
+		ms, err := e.emitClassMethods(c)
+		if err != nil {
+			return nil, err
+		}
+		methodDecls = append(methodDecls, ms...)
 	}
 	pymain, err := e.emitMain(body)
 	if err != nil {
@@ -167,6 +183,16 @@ func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
 			return nil, err
 		}
 	}
+	for _, m := range methodDecls {
+		fmt.Fprintf(&out, "// %s\n", m.doc)
+		if err := writeDecl(&out, m.decl); err != nil {
+			return nil, err
+		}
+		fmt.Fprintf(&out, "// %s\n", m.implDoc)
+		if err := writeDecl(&out, m.impl); err != nil {
+			return nil, err
+		}
+	}
 
 	formatted, ferr := format.Source(out.Bytes())
 	if ferr != nil {
@@ -185,8 +211,22 @@ type emitter struct {
 	globalDecl  map[string]bool // names some def declares global
 	moduleVars  map[string]bool // every module-scope variable, emitted at package level
 	slots       []string
+	classOrd    map[string]int // top-level class name to its emission ordinal
 	usedObjects bool
 	usedTB      bool
+}
+
+// methodDefName is the Go function carrying one method's body. The class and
+// method ordinals keep it unique across classes and away from the def and
+// module-variable namespaces.
+func (e *emitter) methodDefName(className, methodName string, mi int) string {
+	return fmt.Sprintf("clsdef%d_%d_%s", e.classOrd[className], mi, methodName)
+}
+
+// methodImplName is the adapter that turns one method's Go function into the
+// slice-taking implementation its function object carries.
+func (e *emitter) methodImplName(className, methodName string, mi int) string {
+	return fmt.Sprintf("clsimpl%d_%d_%s", e.classOrd[className], mi, methodName)
 }
 
 // slotName is the module-level variable holding one parameter default,
@@ -218,15 +258,22 @@ func (e *emitter) defName(fname string) string {
 // implDecl builds one def's adapter: unpack the bound argument slice into
 // the def's Go parameters.
 func (e *emitter) implDecl(d *frontend.FuncDef) *ast.FuncDecl {
+	return e.implDeclAs(d, e.implName(d.Name), e.defName(d.Name))
+}
+
+// implDeclAs builds the adapter that turns a Go function taking positional
+// parameters into the slice-taking implementation a function object carries.
+// implName is the adapter's Go name and target is the Go function it calls.
+func (e *emitter) implDeclAs(d *frontend.FuncDef, implName, target string) *ast.FuncDecl {
 	args := make([]ast.Expr, len(d.Params))
 	for i := range d.Params {
 		args[i] = &ast.IndexExpr{X: ident("args"), Index: intLit(strconv.Itoa(i))}
 	}
 	return &ast.FuncDecl{
-		Name: ident(e.implName(d.Name)),
+		Name: ident(implName),
 		Type: e.implType(),
 		Body: &ast.BlockStmt{List: []ast.Stmt{&ast.ReturnStmt{
-			Results: []ast.Expr{callExpr(ident(e.defName(d.Name)), args...)},
+			Results: []ast.Expr{callExpr(ident(target), args...)},
 		}}},
 	}
 }
