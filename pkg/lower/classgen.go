@@ -155,6 +155,23 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 					return nil, err
 				}
 				bind(nm.Id, v)
+			case *frontend.AnnAssign:
+				// `a: int = 1` binds a in the class namespace exactly like a
+				// plain assignment; the annotation is deferred (PEP 649). A bare
+				// `b: str` binds nothing (it would only populate __annotations__,
+				// which is not modelled yet).
+				nm, ok := st.Target.(*frontend.Name)
+				if !ok {
+					return nil, f.e.errf(st.Span(), "only simple name annotations are supported in a class body")
+				}
+				if st.Value == nil {
+					break
+				}
+				v, err := f.expr(st.Value)
+				if err != nil {
+					return nil, err
+				}
+				bind(nm.Id, v)
 			case *frontend.Pass:
 				// A pass just holds the block open.
 			case *frontend.ExprStmt:

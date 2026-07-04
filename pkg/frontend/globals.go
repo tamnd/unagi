@@ -91,6 +91,18 @@ func (c *globalScope) stmt(s Stmt) {
 		// Probed: the augmented target counts as assigned, not used.
 		c.target(s.Target)
 		c.use(s.Value)
+	case *AnnAssign:
+		// Only a valued annotation binds its target. A bare `y: int` binds
+		// nothing (at module scope the name stays unbound), so it counts as an
+		// assignment only when a value is present; a bare attribute or
+		// subscript target still reads its base. The annotation itself is
+		// deferred (PEP 649) and never contributes a use.
+		c.use(s.Value)
+		if s.Value != nil {
+			c.target(s.Target)
+		} else if _, ok := s.Target.(*Name); !ok {
+			c.use(s.Target)
+		}
 	case *Del:
 		// Probed: a del target reports "assigned to", like CPython's
 		// symtable, which files del under binding operations.
@@ -323,6 +335,12 @@ func boundNames(body []Stmt, params []Param) map[string]bool {
 			case *AugAssign:
 				bindTarget(s.Target)
 				walrus(s.Value)
+			case *AnnAssign:
+				walrus(s.Value)
+				walrus(s.Target)
+				if s.Value != nil {
+					bindTarget(s.Target)
+				}
 			case *Del:
 				for _, t := range s.Targets {
 					bindTarget(t)

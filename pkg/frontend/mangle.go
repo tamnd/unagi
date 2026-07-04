@@ -61,6 +61,9 @@ func mangleStmt(s Stmt, priv string) {
 	case *AugAssign:
 		mangleExpr(s.Target, priv)
 		mangleExpr(s.Value, priv)
+	case *AnnAssign:
+		mangleExpr(s.Target, priv)
+		mangleExpr(s.Value, priv)
 	case *If:
 		mangleExpr(s.Cond, priv)
 		mangleStmts(s.Body, priv)

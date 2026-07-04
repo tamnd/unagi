@@ -138,6 +138,9 @@ func scanYields(body []frontend.Stmt) yieldScan {
 		case *frontend.AugAssign:
 			walkExpr(s.Target, guard)
 			walkExpr(s.Value, guard)
+		case *frontend.AnnAssign:
+			walkExpr(s.Target, guard)
+			walkExpr(s.Value, guard)
 		case *frontend.Return:
 			walkExpr(s.Value, guard)
 		case *frontend.Raise:

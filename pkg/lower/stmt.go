@@ -39,6 +39,8 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 		return f.assign(s)
 	case *frontend.AugAssign:
 		return f.augAssign(s)
+	case *frontend.AnnAssign:
+		return f.annAssign(s)
 	case *frontend.Del:
 		return f.delStmt(s)
 	case *frontend.If:
@@ -210,6 +212,55 @@ func (f *fnCtx) assign(s *frontend.Assign) error {
 		if err := f.assignTo(t, v); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// annAssign lowers a PEP 526 variable annotation. With a value it is a plain
+// assignment; the annotation itself is deferred (PEP 649) and never evaluated.
+// A bare annotation binds nothing: a Name target is a pure no-op, while an
+// attribute or subscript target still evaluates its object (and index) for
+// their side effects, matching CPython, but performs no load or store.
+func (f *fnCtx) annAssign(s *frontend.AnnAssign) error {
+	if s.Value != nil {
+		v, err := f.expr(s.Value)
+		if err != nil {
+			return err
+		}
+		return f.assignTo(s.Target, v)
+	}
+	switch t := s.Target.(type) {
+	case *frontend.Name:
+		return nil
+	case *frontend.Attribute:
+		x, err := f.expr(t.X)
+		if err != nil {
+			return err
+		}
+		f.add(set(ident("_"), x))
+		return nil
+	case *frontend.Subscript:
+		x, err := f.expr(t.X)
+		if err != nil {
+			return err
+		}
+		f.add(set(ident("_"), x))
+		if sl, ok := t.Index.(*frontend.SliceExpr); ok {
+			lo, hi, step, err := f.sliceParts(sl)
+			if err != nil {
+				return err
+			}
+			for _, part := range []ast.Expr{lo, hi, step} {
+				f.add(set(ident("_"), part))
+			}
+			return nil
+		}
+		idx, err := f.expr(t.Index)
+		if err != nil {
+			return err
+		}
+		f.add(set(ident("_"), idx))
+		return nil
 	}
 	return nil
 }

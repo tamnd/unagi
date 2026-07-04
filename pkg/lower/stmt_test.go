@@ -37,6 +37,29 @@ func TestListTargetLowersToUnpack(t *testing.T) {
 	}
 }
 
+// A valued annotation lowers to a plain store of the target; a bare
+// annotation evaluates nothing and stores nothing (PEP 649 defers the
+// annotation), so the emitted source names neither the annotation nor a store.
+func TestAnnotatedAssignLowersToStore(t *testing.T) {
+	got, err := lowerSrc(t, "x: int = 5\n")
+	if err != nil {
+		t.Fatalf("lower valued: %v", err)
+	}
+	if !strings.Contains(got, "u_x = ") {
+		t.Errorf("valued annotation did not store to u_x:\n%s", got)
+	}
+	if strings.Contains(got, "u_int") {
+		t.Errorf("annotation expression was evaluated, should be deferred:\n%s", got)
+	}
+	bare, err := lowerSrc(t, "y: int\n")
+	if err != nil {
+		t.Fatalf("lower bare: %v", err)
+	}
+	if strings.Contains(bare, "u_y") || strings.Contains(bare, "u_int") {
+		t.Errorf("bare annotation bound or evaluated something:\n%s", bare)
+	}
+}
+
 // Every augmented operator maps to its own symbol string.
 func TestAugAssignSymbols(t *testing.T) {
 	cases := map[string]string{
