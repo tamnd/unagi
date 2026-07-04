@@ -18,6 +18,25 @@ func TestAugAssignLowersToInPlace(t *testing.T) {
 	}
 }
 
+// A list-display target unpacks through objects.Unpack just like a tuple
+// target, and a starred element routes through objects.UnpackEx.
+func TestListTargetLowersToUnpack(t *testing.T) {
+	got, err := lowerSrc(t, "x = [1, 2]\n[a, b] = x\n")
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	if !strings.Contains(got, "objects.Unpack(") {
+		t.Errorf("list target did not lower to Unpack:\n%s", got)
+	}
+	starred, err := lowerSrc(t, "x = [1, 2]\n[a, *b] = x\n")
+	if err != nil {
+		t.Fatalf("lower starred: %v", err)
+	}
+	if !strings.Contains(starred, "objects.UnpackEx(") {
+		t.Errorf("starred list target did not lower to UnpackEx:\n%s", starred)
+	}
+}
+
 // Every augmented operator maps to its own symbol string.
 func TestAugAssignSymbols(t *testing.T) {
 	cases := map[string]string{

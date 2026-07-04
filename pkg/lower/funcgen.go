@@ -315,6 +315,10 @@ func collectAssigned(body []frontend.Stmt, out map[string]bool) {
 			for _, el := range t.Elts {
 				walkTarget(el)
 			}
+		case *frontend.ListLit:
+			for _, el := range t.Elts {
+				walkTarget(el)
+			}
 		}
 	}
 	// walkExpr finds walrus targets; every other case just recurses. A nil
