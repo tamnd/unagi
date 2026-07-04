@@ -1,0 +1,27 @@
+== exit: 0
+== stdout:
+abc
+café
+café
+abc
+😀
+a€b
+hi
+ab
+a�b
+a�b
+ab
+a�b
+startbyte 'utf-8' codec can't decode byte 0xff in position 1: invalid start byte
+shortend 'utf-8' codec can't decode byte 0xc3 in position 1: unexpected end of data
+badcont 'utf-8' codec can't decode byte 0xc3 in position 1: invalid continuation byte
+rangeend 'utf-8' codec can't decode bytes in position 0-1: unexpected end of data
+rangecont 'utf-8' codec can't decode bytes in position 0-1: invalid continuation byte
+surrogate 'utf-8' codec can't decode byte 0xed in position 0: invalid continuation byte
+asciibad 'ascii' codec can't decode byte 0x80 in position 1: ordinal not in range(128)
+unknownenc unknown encoding: bogus
+enctype decode() argument 'encoding' must be str, not int
+errtype decode() argument 'errors' must be str, not int
+badhandler unknown error handler name 'bogus'
+== exception:
+== stderr:

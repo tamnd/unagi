@@ -33,6 +33,8 @@ func bytesReadMethod(v []byte, typeName, name string, args []Object) (Object, er
 		return byteStartsEnds(name, v, args)
 	case "hex":
 		return byteHex(v, args)
+	case "decode":
+		return bytesDecode(v, args)
 	}
 	if res, handled, err := bytesTransformMethod(v, typeName, name, args); handled {
 		return res, err
