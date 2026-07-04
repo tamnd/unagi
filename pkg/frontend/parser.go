@@ -660,7 +660,15 @@ func (p *parser) parseClass() Stmt {
 	node := &ClassDef{Pos_: t.pos, Name: nt.text}
 	if p.eatOp("(") {
 		for !p.isOp(")") {
-			node.Bases = append(node.Bases, p.parseTest())
+			// A `NAME =` opens a keyword argument (metaclass or an
+			// __init_subclass__ name); anything else is a positional base.
+			if p.cur().kind == tName && p.peek().kind == tOp && p.peek().text == "=" {
+				kw := p.advance().text
+				p.advance() // =
+				node.Keywords = append(node.Keywords, ClassKeyword{Name: kw, Value: p.parseTest()})
+			} else {
+				node.Bases = append(node.Bases, p.parseTest())
+			}
 			if !p.eatOp(",") {
 				break
 			}

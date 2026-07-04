@@ -14,7 +14,7 @@ func mkclass(t *testing.T, name string, bases ...*classObject) *classObject {
 	for i, b := range bases {
 		args[i] = b
 	}
-	c, err := NewClass(name, name, args, nil, nil)
+	c, err := NewClass(name, name, args, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewClass(%s): %v", name, err)
 	}
@@ -52,7 +52,7 @@ func TestC3Diamond(t *testing.T) {
 func TestC3Inconsistent(t *testing.T) {
 	a := mkclass(t, "A")
 	b := mkclass(t, "B", a)
-	_, err := NewClass("C", "C", []Object{a, b}, nil, nil)
+	_, err := NewClass("C", "C", []Object{a, b}, nil, nil, nil, nil)
 	if err == nil {
 		t.Fatal("want an inconsistent-MRO error")
 	}
@@ -67,7 +67,7 @@ func TestC3BlockedNamesSubset(t *testing.T) {
 	a := mkclass(t, "A")
 	b := mkclass(t, "B", a)
 	c := mkclass(t, "C", a)
-	_, err := NewClass("D", "D", []Object{b, a, c}, nil, nil)
+	_, err := NewClass("D", "D", []Object{b, a, c}, nil, nil, nil, nil)
 	if err == nil {
 		t.Fatal("want an inconsistent-MRO error")
 	}
@@ -79,7 +79,7 @@ func TestC3BlockedNamesSubset(t *testing.T) {
 
 func TestDuplicateBase(t *testing.T) {
 	a := mkclass(t, "A")
-	_, err := NewClass("E", "E", []Object{a, a}, nil, nil)
+	_, err := NewClass("E", "E", []Object{a, a}, nil, nil, nil, nil)
 	if err == nil {
 		t.Fatal("want a duplicate-base error")
 	}
@@ -89,7 +89,7 @@ func TestDuplicateBase(t *testing.T) {
 }
 
 func TestNonTypeBase(t *testing.T) {
-	_, err := NewClass("E", "E", []Object{NewInt(1)}, nil, nil)
+	_, err := NewClass("E", "E", []Object{NewInt(1)}, nil, nil, nil, nil)
 	if err == nil {
 		t.Fatal("want a non-type-base error")
 	}
