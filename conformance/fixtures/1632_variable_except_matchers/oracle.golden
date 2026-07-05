@@ -1,0 +1,9 @@
+== exit: 0
+== stdout:
+var AppError boom
+tuple-var ValueError
+nested-bad catching classes that do not inherit from BaseException is not allowed
+bad-var catching classes that do not inherit from BaseException is not allowed context: ValueError
+star-var ['KeyError', 'ValueError']
+== exception:
+== stderr:

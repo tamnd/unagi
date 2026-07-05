@@ -72,13 +72,14 @@ func ExcMatch(err error, classes ...objects.Object) (bool, error) {
 	if !ok {
 		return false, nil
 	}
-	for _, c := range classes {
+	flat := objects.FlattenMatchers(classes)
+	for _, c := range flat {
 		if !objects.IsExcClassValue(c) {
 			return false, objects.Raise(objects.TypeError,
 				"catching classes that do not inherit from BaseException is not allowed")
 		}
 	}
-	for _, c := range classes {
+	for _, c := range flat {
 		if objects.ExcMatchesClass(e, c) {
 			return true, nil
 		}
@@ -108,7 +109,8 @@ func PopHandled() {
 // bad matcher in a later clause still raises the way CPython validates every
 // reached clause. A non-exception err matches nothing and stays whole in rest.
 func ExcStarSplit(err error, classes ...objects.Object) (matched, rest, matchErr error) {
-	for _, c := range classes {
+	flat := objects.FlattenMatchers(classes)
+	for _, c := range flat {
 		if !objects.IsExcClassValue(c) {
 			return nil, nil, objects.Raise(objects.TypeError,
 				"catching classes that do not inherit from BaseException is not allowed")
@@ -118,7 +120,7 @@ func ExcStarSplit(err error, classes ...objects.Object) (matched, rest, matchErr
 	if !ok {
 		return nil, err, nil
 	}
-	m, r := objects.SplitStarValues(e, classes)
+	m, r := objects.SplitStarValues(e, flat)
 	if m != nil {
 		matched = m
 	}

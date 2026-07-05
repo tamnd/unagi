@@ -91,6 +91,23 @@ func IsExcClassValue(o Object) bool {
 	return ok && isExcClass(c)
 }
 
+// FlattenMatchers expands a tuple matcher value into its elements, the way an
+// except or except* clause treats a tuple of exception classes. The expansion
+// is one level only, matching CPython: a nested tuple element stays a tuple,
+// fails the exception-class check, and raises the non-class TypeError rather
+// than flattening further. A non-tuple value passes through unchanged.
+func FlattenMatchers(classes []Object) []Object {
+	var out []Object
+	for _, c := range classes {
+		if t, ok := c.(*tupleObject); ok {
+			out = append(out, t.elts...)
+		} else {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // AsRaisable converts a raised value to the exception it raises. An exception
 // object raises itself; a bare exception class instantiates with no arguments
 // the way `raise ValueError` does. ok is false for anything that cannot be

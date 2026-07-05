@@ -244,18 +244,20 @@ func (f *fnCtx) matcherValues(t frontend.Expr) ([]ast.Expr, error) {
 		if !f.locals[t.Id] && !isClass && objects.IsExceptionClass(t.Id) {
 			return []ast.Expr{callExpr(sel("runtime", "BuiltinFn"), strLit(t.Id))}, nil
 		}
-		if isClass {
-			// A class defined in this module reads as its class value, so a user
-			// exception subclass catches by its own identity and by every base it
-			// derives from.
+		_, isDef := f.e.defs[t.Id]
+		if isClass || isDef || f.locals[t.Id] || f.e.moduleVars[t.Id] {
+			// Any other bound name evaluates to its value, so a variable holding
+			// an exception class or a tuple of them is a valid matcher. The
+			// runtime validates the value and raises the non-class TypeError when
+			// it is neither, matching CPython, which evaluates the matcher
+			// expression at match time. A class defined in this module reads as
+			// its own value so a user exception subclass catches by its identity
+			// and by every base it derives from.
 			v, err := f.expr(t)
 			if err != nil {
 				return nil, err
 			}
 			return []ast.Expr{v}, nil
-		}
-		if f.locals[t.Id] || f.e.moduleVars[t.Id] {
-			return nil, f.e.errf(t.Span(), "except matcher must be an exception class, not a plain variable")
 		}
 		return nil, f.e.errf(t.Span(), "name %q is not defined", t.Id)
 	case *frontend.TupleLit:
