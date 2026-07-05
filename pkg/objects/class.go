@@ -850,6 +850,14 @@ func StoreAttr(o Object, name string, val Object) error {
 	case *instanceObject:
 		return instanceStoreAttr(x, name, val)
 	case *classObject:
+		// A data descriptor on a user metaclass intercepts the write the way it
+		// does on an instance; a plain metaclass attribute lets the value land in
+		// the class dict.
+		if meta, ok := userMetaclass(x); ok {
+			if handled, err := metaSet(x, meta, name, val); handled {
+				return err
+			}
+		}
 		x.setAttr(name, val)
 		return nil
 	case *Exception:
@@ -872,6 +880,11 @@ func DelAttr(o Object, name string) error {
 	case *instanceObject:
 		return instanceDelAttr(x, name)
 	case *classObject:
+		if meta, ok := userMetaclass(x); ok {
+			if handled, err := metaDel(x, meta, name); handled {
+				return err
+			}
+		}
 		if _, ok := x.dict[name]; !ok {
 			return Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
 		}
