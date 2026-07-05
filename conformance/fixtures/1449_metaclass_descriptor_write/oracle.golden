@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+init
+changed
+['set changed']
+['set changed', 'del']
+err: property 'slot' of 'Meta' object has no setter
+class-kind
+== exception:
+== stderr:

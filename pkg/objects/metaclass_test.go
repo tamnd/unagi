@@ -164,3 +164,63 @@ func TestMetaclassAttrReadPrecedence(t *testing.T) {
 		t.Errorf("C.greet = %v, %v, want the metaclass method", got, err)
 	}
 }
+
+func TestMetaclassDescriptorWrite(t *testing.T) {
+	// A metaclass property store slot with a setter and deleter, and a
+	// getter-only slot ro; writes and deletes on a class route through the
+	// metaclass descriptor while a plain attribute lands in the class dict.
+	var lastSet, lastDel Object
+	store := NewProperty(
+		NewFunc("get", 1, func(a []Object) (Object, error) { return a[0].(*classObject).dict["_v"], nil }),
+		NewFunc("set", 2, func(a []Object) (Object, error) {
+			lastSet = a[1]
+			a[0].(*classObject).dict["_v"] = a[1]
+			return None, nil
+		}),
+		NewFunc("del", 1, func(a []Object) (Object, error) {
+			lastDel = NewStr("del")
+			delete(a[0].(*classObject).dict, "_v")
+			return None, nil
+		}),
+	)
+	ro := NewProperty(NewFunc("get", 1, func([]Object) (Object, error) { return None, nil }), nil, nil)
+	m, err := BuildClass(nil, "M", "__main__.M",
+		[]Object{typeClass}, []string{"store", "ro"}, []Object{store, ro}, nil, nil)
+	if err != nil {
+		t.Fatalf("build metaclass: %v", err)
+	}
+	c, err := BuildClass(m, "C", "__main__.C", nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("build class: %v", err)
+	}
+	// The setter runs and the class dict is not left holding a store entry.
+	if err := StoreAttr(c, "store", NewInt(7)); err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	if s, ok := lastSet.(*intObject); !ok || s.v != 7 {
+		t.Errorf("setter saw %v, want 7", lastSet)
+	}
+	if _, held := c.(*classObject).dict["store"]; held {
+		t.Errorf("store landed in the class dict instead of the setter")
+	}
+	// A getter-only property rejects the write with the no-setter error.
+	err = StoreAttr(c, "ro", NewInt(1))
+	checkErr(t, "no setter", err, "AttributeError: property 'ro' of 'M' object has no setter")
+	// The deleter runs on del.
+	if err := DelAttr(c, "store"); err != nil {
+		t.Fatalf("del: %v", err)
+	}
+	if lastDel == nil {
+		t.Errorf("deleter did not run")
+	}
+	// A plain attribute lands in the class dict, and deleting a missing one gives
+	// the type-object AttributeError.
+	if err := StoreAttr(c, "plain", NewInt(3)); err != nil {
+		t.Fatalf("store plain: %v", err)
+	}
+	if _, held := c.(*classObject).dict["plain"]; !held {
+		t.Errorf("plain attribute did not land in the class dict")
+	}
+	err = DelAttr(c, "missing")
+	checkErr(t, "missing del", err, "AttributeError: type object 'C' has no attribute 'missing'")
+}

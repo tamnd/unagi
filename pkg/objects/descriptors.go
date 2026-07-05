@@ -176,6 +176,57 @@ func metaGet(c, meta *classObject, name string, v Object) (Object, error) {
 	return v, nil
 }
 
+// metaSet intercepts a write to c.name when the metaclass meta defines a data
+// descriptor of that name: a property runs its setter or raises the no-setter
+// error, a user descriptor with __set__ runs it, and the class plays the part
+// of the instance. handled is false for a plain metaclass attribute or a
+// non-data descriptor, so the write lands in the class dict as before.
+func metaSet(c, meta *classObject, name string, val Object) (bool, error) {
+	v, ok := meta.lookup(name)
+	if !ok {
+		return false, nil
+	}
+	switch d := v.(type) {
+	case *propertyObject:
+		if d.fset == nil {
+			return true, Raise(AttributeError, "property '%s' of '%s' object has no setter", name, meta.name)
+		}
+		_, err := Call(d.fset, []Object{c, val})
+		return true, err
+	case *instanceObject:
+		if _, ok := d.cls.lookup("__set__"); ok {
+			_, err := instanceCallMethod(d, "__set__", []Object{c, val})
+			return true, err
+		}
+	}
+	return false, nil
+}
+
+// metaDel intercepts del c.name the same way metaSet intercepts a write: a
+// property runs its deleter or raises the no-deleter error and a user descriptor
+// with __delete__ runs it, otherwise handled is false and the class-dict entry
+// is removed.
+func metaDel(c, meta *classObject, name string) (bool, error) {
+	v, ok := meta.lookup(name)
+	if !ok {
+		return false, nil
+	}
+	switch d := v.(type) {
+	case *propertyObject:
+		if d.fdel == nil {
+			return true, Raise(AttributeError, "property '%s' of '%s' object has no deleter", name, meta.name)
+		}
+		_, err := Call(d.fdel, []Object{c})
+		return true, err
+	case *instanceObject:
+		if _, ok := d.cls.lookup("__delete__"); ok {
+			_, err := instanceCallMethod(d, "__delete__", []Object{c})
+			return true, err
+		}
+	}
+	return false, nil
+}
+
 // classmethodBind binds cls as the first argument of a classmethod's function.
 // A plain function object becomes a bound method on the class; any other
 // callable is wrapped so the class is prepended at call time.
