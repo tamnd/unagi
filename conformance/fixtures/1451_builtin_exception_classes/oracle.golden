@@ -1,0 +1,31 @@
+== exit: 0
+== stdout:
+<class 'ValueError'>
+<class 'Exception'>
+<class 'BaseException'>
+ValueError
+(<class 'Exception'>,)
+(<class 'BaseException'>,)
+(<class 'object'>,)
+True
+True
+False
+True
+True
+True
+True
+True
+<class 'OSError'>
+True
+True
+True
+False
+True
+True
+True
+True
+<class 'ValueError'>
+ValueError
+caught via base True
+== exception:
+== stderr:

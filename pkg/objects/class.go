@@ -580,6 +580,19 @@ func IsInstance(obj, cls Object) (Object, error) {
 			}
 			return False, nil
 		}
+		// A raised exception is an instance of its built-in exception class and
+		// every class that class derives from, so isinstance(e, ValueError) walks
+		// the exception class MRO the same way an instance's does.
+		if exc, ok := obj.(*Exception); ok {
+			if ec, ok := ExcClass(exc.Kind); ok {
+				for _, k := range ec.mro {
+					if k == c {
+						return True, nil
+					}
+				}
+			}
+			return False, nil
+		}
 		// A class is an instance of its metaclass and of every metaclass that
 		// metaclass derives from, so isinstance(C, Meta) walks the metaclass MRO.
 		if oc, ok := obj.(*classObject); ok {
