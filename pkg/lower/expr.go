@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/tamnd/unagi/pkg/frontend"
+	"github.com/tamnd/unagi/pkg/objects"
 )
 
 // This file lowers expressions. Every helper appends its temporaries to the
@@ -157,6 +158,13 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 			// builtins (exit, copyright, ...) take the same path: they are
 			// value-only, so reading and calling both go through the registered
 			// object. Shadowing by a local or module variable is handled above.
+			return callExpr(sel("runtime", "BuiltinFn"), strLit(e.Id)), nil
+		}
+		if objects.IsExceptionClass(e.Id) {
+			// A built-in exception name read as a value resolves to its first
+			// class exception class, so it can be assigned, printed, subclassed,
+			// and passed to isinstance and issubclass. Calling it to build an
+			// exception stays on the excClassNew fast path in call lowering.
 			return callExpr(sel("runtime", "BuiltinFn"), strLit(e.Id)), nil
 		}
 		if f.inFunc {

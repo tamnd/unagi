@@ -9,6 +9,20 @@ import (
 	"github.com/tamnd/unagi/pkg/objects"
 )
 
+// init registers the built-in exception classes as value builtins, so a name
+// like ValueError reads as its class object the same way object does. The
+// lowering resolves the names through BuiltinFn, and the aliases IOError and
+// EnvironmentError land on the OSError class.
+func init() {
+	m := make(map[string]objects.Object)
+	for _, name := range objects.ExcClassNames() {
+		if c, ok := objects.ExcClassValue(name); ok {
+			m[name] = c
+		}
+	}
+	register(m)
+}
+
 // handledStack tracks the exception each active except block is handling,
 // innermost last. The emitter calls PushHandled on entry to a handler and
 // PopHandled on every exit path. A plain package-level slice is enough:

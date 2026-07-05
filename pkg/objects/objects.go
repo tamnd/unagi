@@ -178,21 +178,27 @@ func TypeSingleton(name string) Object {
 }
 
 // ClassOf returns the class of a user instance, the type object a user value's
-// type() reports. ok is false for every non-instance, which TypeOf resolves by
-// other means.
+// type() reports. A raised exception reports its built-in exception class, so
+// type(e) is ValueError holds. ok is false for every other value, which TypeOf
+// resolves by other means.
 func ClassOf(o Object) (Object, bool) {
 	if inst, ok := o.(*instanceObject); ok {
 		return inst.cls, true
 	}
+	if e, ok := o.(*Exception); ok {
+		if c, ok := ExcClass(e.Kind); ok {
+			return c, true
+		}
+	}
 	return nil, false
 }
 
-// IsTypeValue reports whether o is itself a type object: a user class, one of
-// the typeObject singletons, or the internal exception-matcher type. type() of
-// any of these is the `type` metatype.
+// IsTypeValue reports whether o is itself a type object: a user or built-in
+// class or one of the typeObject singletons. type() of any of these is the
+// `type` metatype.
 func IsTypeValue(o Object) bool {
 	switch o.(type) {
-	case *classObject, *typeObject, *excTypeObject:
+	case *classObject, *typeObject:
 		return true
 	}
 	return false

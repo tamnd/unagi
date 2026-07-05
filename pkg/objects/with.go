@@ -1,30 +1,14 @@
 package objects
 
-import "fmt"
-
-// excTypeObject is the class object a with statement passes to __exit__ as its
-// first argument on the exception path. unagi has no first-class builtin
-// exception classes yet, so this is a minimal stand-in: it reprs like the real
-// class and is a distinct, non-None object, which is what __exit__ bodies test
-// when they branch on whether an exception occurred.
-type excTypeObject struct{ name string }
-
-func (*excTypeObject) TypeName() string { return "type" }
-
-func excTypeRepr(t *excTypeObject) string { return fmt.Sprintf("<class '%s'>", t.name) }
-
-// excTypeCache keeps one object per exception kind so repeated exits hand back
-// the same class object. The emitted program is single-threaded until M5.
-var excTypeCache = map[string]*excTypeObject{}
-
-// ExcType returns the stand-in class object for a builtin exception kind.
+// ExcType returns the class object a with statement passes to __exit__ as its
+// first argument on the exception path, the real first-class exception class for
+// the kind. A kind with no registered class falls back to a bare type value, so
+// __exit__ still receives a non-None class-like object.
 func ExcType(kind string) Object {
-	if t, ok := excTypeCache[kind]; ok {
-		return t
+	if c, ok := ExcClass(kind); ok {
+		return c
 	}
-	t := &excTypeObject{name: kind}
-	excTypeCache[kind] = t
-	return t
+	return TypeSingleton(kind)
 }
 
 // WithEnter runs the entry half of the context-manager protocol: it looks up
