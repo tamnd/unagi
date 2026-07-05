@@ -584,7 +584,10 @@ func IsInstance(obj, cls Object) (Object, error) {
 		// every class that class derives from, so isinstance(e, ValueError) walks
 		// the exception class MRO the same way an instance's does.
 		if exc, ok := obj.(*Exception); ok {
-			if ec, ok := ExcClass(exc.Kind); ok {
+			if ec, ok := excClassOf(exc); ok {
+				if ec == c {
+					return True, nil
+				}
 				for _, k := range ec.mro {
 					if k == c {
 						return True, nil
@@ -736,6 +739,18 @@ func Instantiate(c *classObject, pos []Object, kwNames []string, kwVals []Object
 	if c.isMeta {
 		return callMetaInstance(c, pos, kwNames, kwVals)
 	}
+	// An exception class builds an *Exception, not a plain instance, so the
+	// result is raisable and carries the traceback machinery. This covers the
+	// default BaseException behaviour: the positional arguments become args and
+	// str/repr follow from them. A custom __init__/__new__ needs an instance
+	// with a dict to run against, which is a later slice, so such a class falls
+	// through to the ordinary instance path and stays unraisable for now.
+	if isExcClass(c) && !hasExcInitOverride(c) {
+		if len(kwNames) > 0 {
+			return nil, Raise(TypeError, "%s() takes no keyword arguments", c.name)
+		}
+		return &Exception{Kind: c.name, Class: c, Args: pos}, nil
+	}
 	inst := &instanceObject{cls: c, dict: map[string]Object{}}
 	init, ok := c.lookup("__init__")
 	if !ok {
@@ -759,6 +774,21 @@ func Instantiate(c *classObject, pos []Object, kwNames []string, kwVals []Object
 		return nil, Raise(TypeError, "__init__() should return None, not '%s'", ret.TypeName())
 	}
 	return inst, nil
+}
+
+// hasExcInitOverride reports whether an exception class customises its
+// construction with a user __init__ or __new__. The built-in exception classes
+// carry neither, so a plain `class E(Exception): pass` returns false and takes
+// the default *Exception path; a class that overrides either needs a real
+// instance to run against and waits on a later slice.
+func hasExcInitOverride(c *classObject) bool {
+	if _, ok := c.lookup("__init__"); ok {
+		return true
+	}
+	if _, ok := c.lookup("__new__"); ok {
+		return true
+	}
+	return false
 }
 
 // LoadAttr reads o.name as a value. On an instance the instance dict wins,

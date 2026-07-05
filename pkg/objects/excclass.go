@@ -71,6 +71,59 @@ func ExcClassValue(name string) (Object, bool) {
 	return c, true
 }
 
+// isExcClass reports whether c is an exception class: itself BaseException or
+// any class deriving from it. Both built-in exception classes and user
+// subclasses of them qualify, which is what makes their instances raisable and
+// their names usable as except matchers.
+func isExcClass(c *classObject) bool {
+	base, ok := excClasses["BaseException"]
+	if !ok {
+		return false
+	}
+	return c == base || hasInMRO(c, base)
+}
+
+// AsRaisable converts a raised value to the exception it raises. An exception
+// object raises itself; a bare exception class instantiates with no arguments
+// the way `raise ValueError` does. ok is false for anything that cannot be
+// raised, which the caller turns into CPython's derive-from-BaseException
+// TypeError.
+func AsRaisable(o Object) (*Exception, bool) {
+	if e, ok := o.(*Exception); ok {
+		return e, true
+	}
+	if c, ok := o.(*classObject); ok && isExcClass(c) {
+		inst, err := Instantiate(c, nil, nil, nil)
+		if err != nil {
+			return nil, false
+		}
+		if e, ok := inst.(*Exception); ok {
+			return e, true
+		}
+	}
+	return nil, false
+}
+
+// ExcMatchesClass reports whether a raised exception is caught by one except
+// matcher, given as a class value. A non-class matcher, or one that is not an
+// exception class, matches nothing here; the mismatched-matcher TypeError is a
+// later slice. Matching walks the exception's class MRO, so a user subclass is
+// caught by any built-in or user base it derives from.
+func ExcMatchesClass(e *Exception, cls Object) bool {
+	c, ok := cls.(*classObject)
+	if !ok || !isExcClass(c) {
+		return false
+	}
+	ec, ok := excClassOf(e)
+	if !ok {
+		return false
+	}
+	if ec == c {
+		return true
+	}
+	return hasInMRO(ec, c)
+}
+
 // ExcClassNames lists every built-in exception name that reads as a value,
 // including the two OSError aliases, so the runtime can register them all.
 func ExcClassNames() []string {

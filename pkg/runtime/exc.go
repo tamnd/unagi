@@ -59,6 +59,24 @@ func ExcMatches(err error, classes ...string) bool {
 	return false
 }
 
+// ExcMatch reports whether err is an exception caught by any of the given
+// except matchers, each a class value. It is the value-level counterpart of
+// ExcMatches: a built-in matcher arrives as its class object and a user
+// exception class as itself, so both a built-in base and a user base catch a
+// user subclass. Non-exception errors match nothing.
+func ExcMatch(err error, classes ...objects.Object) bool {
+	e, ok := err.(*objects.Exception)
+	if !ok {
+		return false
+	}
+	for _, c := range classes {
+		if objects.ExcMatchesClass(e, c) {
+			return true
+		}
+	}
+	return false
+}
+
 // PushHandled records err as the exception now being handled. A non
 // exception err pushes a nil slot so PopHandled stays balanced.
 func PushHandled(err error) {
@@ -146,9 +164,10 @@ func chainInto(newer, pending *objects.Exception) {
 // get CPython's TypeError. The implicit context comes from the top of
 // the handled stack.
 func RaiseObj(o objects.Object) error {
-	e, ok := o.(*objects.Exception)
+	e, ok := objects.AsRaisable(o)
 	if !ok {
-		// Probed on 3.14: raise 42.
+		// Probed on 3.14: raise 42, and `raise SomeClass` where the class does
+		// not derive from BaseException.
 		return objects.Raise(objects.TypeError, "exceptions must derive from BaseException")
 	}
 	// An explicit `raise e` unwinds normally, so every frame including
