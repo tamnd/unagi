@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+u 1
+u 2
+u 3
+user result user-done
+g a
+g b
+gen result gen-done
+l 10
+l 20
+list result None
+empty result None
+next value carried
+== exception:
+== stderr:

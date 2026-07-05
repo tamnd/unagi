@@ -54,20 +54,34 @@ func iterInstance(x *instanceObject) (Iterator, error) {
 }
 
 // instanceIter drives a user iterator object through __next__, translating a
-// raised StopIteration into normal exhaustion.
+// raised StopIteration into normal exhaustion. The value that StopIteration
+// carried is kept in stop so a yield-from delegating to this iterator can hand
+// it back as its result, the way PEP 380 threads a sub-iterator's return value.
 type instanceIter struct {
 	inst *instanceObject
+	stop Object
 }
 
 func (ii *instanceIter) Next() (Object, bool, error) {
 	res, _, err := instanceSpecial(ii.inst, "__next__")
 	if err != nil {
 		if ex, ok := err.(*Exception); ok && ex.Kind == "StopIteration" {
+			ii.stop = excStopValue(ex)
 			return nil, false, nil
 		}
 		return nil, false, err
 	}
 	return res, true, nil
+}
+
+// StopValue reports the value the iterator's StopIteration carried on the last
+// exhausting Next, None when it carried none. It reads back the value a
+// yield-from result binds.
+func (ii *instanceIter) StopValue() Object {
+	if ii.stop == nil {
+		return None
+	}
+	return ii.stop
 }
 
 // getitemIter walks the old-style sequence protocol: it reads o[0], o[1], ...

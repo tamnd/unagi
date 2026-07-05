@@ -231,6 +231,41 @@ func TestYieldFromGeneratorReturnValue(t *testing.T) {
 	}
 }
 
+func TestYieldFromUserIteratorStopValue(t *testing.T) {
+	c := mkclass(t, "It")
+	c.setAttr("__iter__", mkfn("It.__iter__", 1, func(args []Object) (Object, error) {
+		return args[0], nil
+	}))
+	c.setAttr("__next__", mkfn("It.__next__", 1, func(args []Object) (Object, error) {
+		self := args[0].(*instanceObject)
+		i, _ := AsInt(self.dict["i"])
+		if i >= 2 {
+			return nil, &Exception{Kind: "StopIteration", Args: []Object{NewStr("carried")}}
+		}
+		self.dict["i"] = NewInt(i + 1)
+		return NewInt(i + 1), nil
+	}))
+	x := inst(c)
+	x.dict["i"] = NewInt(0)
+	g := NewGenerator("g", func(y Yielder) (Object, error) {
+		ret, err := y.YieldFrom(x)
+		if err != nil {
+			return nil, err
+		}
+		return y.Yield(ret)
+	})
+	vals, err := drain(g)
+	if err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+	if len(vals) != 3 {
+		t.Fatalf("got %d values, want 3", len(vals))
+	}
+	if s, _ := AsStr(vals[2]); s != "carried" {
+		t.Fatalf("yield-from value = %v, want carried", Str(vals[2]))
+	}
+}
+
 func TestNextOnNonIterator(t *testing.T) {
 	_, err := NextValue([]Object{NewList([]Object{NewInt(1)})})
 	e, ok := err.(*Exception)
