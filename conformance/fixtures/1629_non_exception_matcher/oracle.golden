@@ -1,0 +1,7 @@
+== exit: 0
+== stdout:
+single catching classes that do not inherit from BaseException is not allowed context: KeyError
+tuple catching classes that do not inherit from BaseException is not allowed context: ValueError
+valid tuple AppError ok
+== exception:
+== stderr:

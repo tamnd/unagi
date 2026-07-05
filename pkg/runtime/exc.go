@@ -63,18 +63,27 @@ func ExcMatches(err error, classes ...string) bool {
 // except matchers, each a class value. It is the value-level counterpart of
 // ExcMatches: a built-in matcher arrives as its class object and a user
 // exception class as itself, so both a built-in base and a user base catch a
-// user subclass. Non-exception errors match nothing.
-func ExcMatch(err error, classes ...objects.Object) bool {
+// user subclass. A matcher that is not a class deriving from BaseException
+// raises the probed TypeError, even when an earlier matcher would have caught
+// the exception, matching CPython which validates the whole handler before it
+// matches. Non-exception errors match nothing.
+func ExcMatch(err error, classes ...objects.Object) (bool, error) {
 	e, ok := err.(*objects.Exception)
 	if !ok {
-		return false
+		return false, nil
+	}
+	for _, c := range classes {
+		if !objects.IsExcClassValue(c) {
+			return false, objects.Raise(objects.TypeError,
+				"catching classes that do not inherit from BaseException is not allowed")
+		}
 	}
 	for _, c := range classes {
 		if objects.ExcMatchesClass(e, c) {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 // PushHandled records err as the exception now being handled. A non
