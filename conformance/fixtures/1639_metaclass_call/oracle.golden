@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+Tagging.__call__ Point (1, 2) {}
+x, y, tagged: 1 2 True
+Tagging.__call__ Point () {'x': 3, 'y': 4}
+kw x, y, tagged: 3 4 True
+cached a is b: True
+distinct a is c: False
+a.key, c.key: x y
+constant: always this
+plain: 9
+== exception:
+== stderr:
