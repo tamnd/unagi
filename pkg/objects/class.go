@@ -41,6 +41,16 @@ func metaOf(c *classObject) *classObject {
 	return typeClass
 }
 
+// userMetaclass returns a class's metaclass when it is a user metaclass, the
+// case where attribute reads on the class consult the metaclass MRO. A class on
+// the default `type` metatype returns false so its reads stay untouched.
+func userMetaclass(c *classObject) (*classObject, bool) {
+	if c.meta != nil && c.meta != typeClass {
+		return c.meta, true
+	}
+	return nil, false
+}
+
 // UserMetaOf returns the user metaclass of a class value so type() can report
 // it. ok is false for a class on the default `type` metatype, which the runtime
 // spells with the `type` builtin, and for every non-class object.
@@ -746,6 +756,22 @@ func LoadAttr(o Object, name string) (Object, error) {
 		// itself and outrank anything the class body bound under those names.
 		if v, ok := classIntrospect(x, name); ok {
 			return v, nil
+		}
+		// A user metaclass contributes attributes to its classes: a data
+		// descriptor on the metaclass MRO wins even over the class's own dict,
+		// then the class's own MRO answers, then a plain metaclass attribute
+		// binds the class as self. Default-metatype classes skip this entirely
+		// so an ordinary class reads exactly as before.
+		if meta, ok := userMetaclass(x); ok {
+			if mv, found := meta.lookup(name); found {
+				if isDataDescriptor(mv) {
+					return metaGet(x, meta, name, mv)
+				}
+				if v, ok := x.lookup(name); ok {
+					return classGet(x, v)
+				}
+				return metaGet(x, meta, name, mv)
+			}
 		}
 		if v, ok := x.lookup(name); ok {
 			return classGet(x, v)

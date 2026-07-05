@@ -120,3 +120,47 @@ func TestTypeNewSuperForm(t *testing.T) {
 		t.Errorf("class body y = %v, %v", v, ok)
 	}
 }
+
+func TestMetaclassAttrReadPrecedence(t *testing.T) {
+	// A metaclass with a method greet, a plain member kind, and a data
+	// descriptor val; reads on its classes bind or shadow each one the way
+	// CPython ranks a metaclass attribute against the class dict.
+	greet := NewFunc("greet", 1, func(a []Object) (Object, error) {
+		cls := a[0].(*classObject)
+		return NewStr("hi " + cls.name), nil
+	})
+	valProp := NewProperty(NewFunc("val", 1, func([]Object) (Object, error) {
+		return NewStr("from-meta"), nil
+	}), nil, nil)
+	m, err := BuildClass(nil, "M", "__main__.M",
+		[]Object{typeClass}, []string{"greet", "kind", "val"},
+		[]Object{greet, NewStr("meta-kind"), valProp}, nil, nil)
+	if err != nil {
+		t.Fatalf("build metaclass: %v", err)
+	}
+	// C binds the metaclass; its own dict carries kind and val.
+	c, err := BuildClass(m, "C", "__main__.C", nil,
+		[]string{"kind", "val"}, []Object{NewStr("class-kind"), NewStr("class-val")}, nil, nil)
+	if err != nil {
+		t.Fatalf("build class: %v", err)
+	}
+	cases := []struct{ name, want string }{
+		{"kind", "class-kind"}, // class dict shadows a plain metaclass member
+		{"val", "from-meta"},   // a data descriptor on the metaclass wins
+	}
+	for _, tc := range cases {
+		got, err := LoadAttr(c, tc.name)
+		if err != nil {
+			t.Fatalf("LoadAttr %s: %v", tc.name, err)
+		}
+		if s, ok := got.(*strObject); !ok || s.v != tc.want {
+			t.Errorf("C.%s = %v, want %q", tc.name, got, tc.want)
+		}
+	}
+	// A metaclass method is visible on the class even when the class dict has no
+	// entry of that name; binding it as self is exercised in the conformance
+	// fixture, where the method is a real function object.
+	if got, err := LoadAttr(c, "greet"); err != nil || got != greet {
+		t.Errorf("C.greet = %v, %v, want the metaclass method", got, err)
+	}
+}
