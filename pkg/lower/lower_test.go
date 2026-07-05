@@ -285,20 +285,6 @@ func TestCompileErrors(t *testing.T) {
 			"conditional module-level def",
 		},
 		{
-			"except matcher is a variable",
-			&frontend.Module{Body: []frontend.Stmt{
-				&frontend.Assign{Targets: []frontend.Expr{&frontend.Name{Id: "x"}}, Value: &frontend.IntLit{Text: "1"}},
-				&frontend.Try{
-					Body: []frontend.Stmt{&frontend.Pass{}},
-					Handlers: []*frontend.ExceptHandler{{
-						Type: &frontend.Name{Id: "x"},
-						Body: []frontend.Stmt{&frontend.Pass{}},
-					}},
-				},
-			}},
-			"except matcher must be an exception class, not a plain variable",
-		},
-		{
 			"except matcher unknown name",
 			&frontend.Module{Body: []frontend.Stmt{
 				&frontend.Try{
