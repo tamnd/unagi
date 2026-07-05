@@ -103,11 +103,13 @@ func hashKey(o Object) (string, error) {
 		}
 		return b.String(), nil
 	case *funcObject, *functionObject, *Exception, *dictValuesObject,
-		*ellipsisObject, *notImplementedObject:
+		*ellipsisObject, *notImplementedObject, *classObject, *typeObject:
 		// Identity types: the same objects PyHash hashes by pointer key
 		// dict slots by pointer, so two equal-by-identity reads collide
 		// and everything else stays distinct. The Ellipsis and NotImplemented
-		// singletons key stably because each is a unique pointer.
+		// singletons key stably because each is a unique pointer. A class and a
+		// builtin type value key by identity too, so a class works as a set
+		// element or dict key.
 		return fmt.Sprintf("p%p", x), nil
 	case *boundMethod:
 		// A bound method keys by its function pointer and its instance key, so

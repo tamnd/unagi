@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+A in s: True
+C in s: False
+len s: 2
+hash stable: True
+union: 3
+intersection is {B}: True
+A in fs: True
+C in fs: False
+reg[int]: i
+reg[A]: a
+reg[B]: b
+d[(A,1)]: a1
+td[A]: inst-of-A
+len iset: 2
+a1 in iset: True
+issubclass(A, Iface): True
+issubclass(B, Iface): False
+== exception:
+== stderr:
