@@ -149,6 +149,33 @@ func classGet(c *classObject, v Object) (Object, error) {
 	return v, nil
 }
 
+// metaGet applies the descriptor protocol to a value v resolved for name on the
+// metaclass meta of the class c: the class plays the part of the instance, so a
+// plain function binds c as self (c.greet() calls greet(c)), a property calls
+// its getter with c, a classmethod binds the metaclass, a staticmethod comes
+// back bare, a user __get__ descriptor runs with c and the metaclass, and any
+// other value is a plain metaclass attribute read through the class.
+func metaGet(c, meta *classObject, name string, v Object) (Object, error) {
+	switch d := v.(type) {
+	case *functionObject:
+		return &boundMethod{fn: d, self: c}, nil
+	case *staticmethodObject:
+		return d.fn, nil
+	case *classmethodObject:
+		return classmethodBind(d.fn, meta), nil
+	case *propertyObject:
+		if d.fget == nil {
+			return nil, Raise(AttributeError, "property '%s' of '%s' object has no getter", name, meta.name)
+		}
+		return Call(d.fget, []Object{c})
+	case *instanceObject:
+		if _, ok := d.cls.lookup("__get__"); ok {
+			return instanceCallMethod(d, "__get__", []Object{c, meta})
+		}
+	}
+	return v, nil
+}
+
 // classmethodBind binds cls as the first argument of a classmethod's function.
 // A plain function object becomes a bound method on the class; any other
 // callable is wrapped so the class is prepended at call time.

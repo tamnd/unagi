@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+hi C
+meta-kind
+label-of-C
+factory-Meta
+static-helper
+class-tag
+from-meta
+class-kind
+hi Sub
+method-m
+== exception:
+== stderr:
