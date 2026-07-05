@@ -218,6 +218,66 @@ func TestGeneratorThrow(t *testing.T) {
 	}
 }
 
+// throwValue normalizes the argument forms CPython's generator throw accepts:
+// a bare class instantiates, a class plus a value instantiates with it, a tuple
+// splats, a value already an instance of the class is used unchanged, and an
+// instance thrown directly may not carry a separate value.
+func TestThrowValueNormalization(t *testing.T) {
+	cls, _ := ExcClassValue(ValueError)
+
+	// A bare class instantiates with no arguments.
+	e, err := throwValue([]Object{cls})
+	if err != nil || e.Kind != ValueError || len(e.Args) != 0 {
+		t.Fatalf("throw(cls) = %v, %v; want ValueError()", e, err)
+	}
+
+	// A class plus a scalar value instantiates with that value.
+	e, err = throwValue([]Object{cls, NewStr("msg")})
+	if err != nil || len(e.Args) != 1 {
+		t.Fatalf("throw(cls, val) = %v, %v; want ValueError('msg')", e, err)
+	}
+	if s, _ := AsStr(e.Args[0]); s != "msg" {
+		t.Fatalf("arg = %q, want msg", s)
+	}
+
+	// A tuple value splats into the constructor arguments.
+	e, err = throwValue([]Object{cls, NewTuple([]Object{NewStr("a"), NewStr("b")})})
+	if err != nil || len(e.Args) != 2 {
+		t.Fatalf("throw(cls, tuple) args = %v, want two", e.Args)
+	}
+
+	// A value already an instance of the class is used unchanged.
+	inst := Raise(ValueError, "inst")
+	e, err = throwValue([]Object{cls, inst})
+	if err != nil || e != inst {
+		t.Fatalf("throw(cls, matching-inst) = %v, want the instance itself", e)
+	}
+
+	// A mismatched instance value becomes the sole constructor argument.
+	other := Raise(TypeError, "x")
+	e, err = throwValue([]Object{cls, other})
+	if err != nil || e.Kind != ValueError || len(e.Args) != 1 || e.Args[0] != other {
+		t.Fatalf("throw(cls, mismatched-inst) = %v, want ValueError(TypeError('x'))", e)
+	}
+
+	// An instance thrown with a separate value is the CPython TypeError.
+	_, err = throwValue([]Object{inst, NewStr("y")})
+	if err == nil {
+		t.Fatal("throw(inst, val) did not error")
+	}
+	if ex, ok := err.(*Exception); !ok || ex.Kind != TypeError {
+		t.Fatalf("throw(inst, val) err = %v, want TypeError", err)
+	}
+
+	// Too few and too many arguments are the throw arity TypeErrors.
+	if _, err := throwValue(nil); err == nil {
+		t.Fatal("throw() with no args did not error")
+	}
+	if _, err := throwValue([]Object{cls, None, None, None}); err == nil {
+		t.Fatal("throw() with four args did not error")
+	}
+}
+
 func TestGeneratorThrowPropagates(t *testing.T) {
 	g := NewGenerator("g", func(y Yielder) (Object, error) {
 		_, err := y.Yield(NewInt(1))

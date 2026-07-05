@@ -264,13 +264,9 @@ func genMethod(g *generatorObject, name string, args []Object) (Object, error) {
 		}
 		return g.send(args[0])
 	case "throw":
-		if len(args) != 1 {
-			// The value/traceback forms of throw wait for a later slice.
-			return nil, Raise(TypeError, "throw() takes 1 positional argument but %d were given", len(args))
-		}
-		exc, ok := args[0].(*Exception)
-		if !ok {
-			return nil, Raise(TypeError, "exceptions must derive from BaseException")
+		exc, err := throwValue(args)
+		if err != nil {
+			return nil, err
 		}
 		return g.throwInto(exc)
 	case "close":
@@ -364,4 +360,68 @@ func pep479(err error) error {
 	re.Context = e
 	re.SuppressContext = true
 	return re
+}
+
+// throwValue builds the exception a generator throw injects, applying the
+// type/value normalization CPython's _PyErr_CreateException performs. The
+// single-argument form takes an exception instance or a class to instantiate.
+// The deprecated two- and three-argument forms take a class plus a value and an
+// ignored traceback: the class is instantiated with the value unless the value
+// is already an instance of it, a tuple splats into the constructor arguments,
+// and None means no arguments. unagi models no traceback object, so the third
+// argument is accepted and ignored.
+func throwValue(args []Object) (*Exception, error) {
+	switch {
+	case len(args) == 0:
+		return nil, Raise(TypeError, "throw expected at least 1 argument, got 0")
+	case len(args) > 3:
+		return nil, Raise(TypeError, "throw expected at most 3 arguments, got %d", len(args))
+	}
+	typ := args[0]
+	value := None
+	if len(args) >= 2 {
+		value = args[1]
+	}
+	// An exception instance is thrown as itself and may not carry a separate
+	// value, the way `raise inst` takes no second operand.
+	if e, ok := typ.(*Exception); ok {
+		if value != None {
+			return nil, Raise(TypeError, "instance exception may not have a separate value")
+		}
+		return e, nil
+	}
+	c, ok := typ.(*classObject)
+	if !ok || !isExcClass(c) {
+		return nil, Raise(TypeError, "exceptions must be classes or instances deriving from BaseException, not %s", typ.TypeName())
+	}
+	// A value already an instance of the class is used unchanged; anything else
+	// becomes the constructor arguments, a tuple splatting into them.
+	if e, ok := value.(*Exception); ok && ExcMatchesClass(e, c) {
+		return e, nil
+	}
+	var pos []Object
+	switch {
+	case value == None:
+		pos = nil
+	case isTupleValue(value):
+		pos = value.(*tupleObject).elts
+	default:
+		pos = []Object{value}
+	}
+	inst, err := Instantiate(c, pos, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	e, ok := inst.(*Exception)
+	if !ok {
+		return nil, Raise(TypeError, "calling %s should have returned an instance of BaseException, not %s", c.TypeName(), inst.TypeName())
+	}
+	return e, nil
+}
+
+// isTupleValue reports whether o is a tuple, the sequence a throw splats into
+// the exception constructor arguments.
+func isTupleValue(o Object) bool {
+	_, ok := o.(*tupleObject)
+	return ok
 }

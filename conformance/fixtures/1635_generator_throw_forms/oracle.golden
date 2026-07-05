@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+1
+inst ('boom',)
+1
+cls ()
+1
+user ('bad',)
+1
+nonexc exceptions must be classes or instances deriving from BaseException, not int
+early ('early',)
+== exception:
+== stderr:
