@@ -224,3 +224,47 @@ func TestMetaclassDescriptorWrite(t *testing.T) {
 	err = DelAttr(c, "missing")
 	checkErr(t, "missing del", err, "AttributeError: type object 'C' has no attribute 'missing'")
 }
+
+func TestMetaclassDirectCall(t *testing.T) {
+	m := newMetaclass(t, "M")
+	ns, err := NewDict([]Object{NewStr("x")}, []Object{NewInt(1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A three-argument metaclass call builds a class through the default
+	// type.__new__ slot, the same as the super().__new__ form.
+	cls, err := Call(m, []Object{NewStr("C"), NewTuple(nil), ns})
+	if err != nil {
+		t.Fatalf("direct call: %v", err)
+	}
+	cc, ok := cls.(*classObject)
+	if !ok {
+		t.Fatalf("direct call returned %T, want a class", cls)
+	}
+	if cc.name != "C" || cc.meta != m {
+		t.Errorf("built class name=%q meta=%v, want C/M", cc.name, cc.meta)
+	}
+	if v, ok := cc.lookup("x"); !ok || Repr(v) != "1" {
+		t.Errorf("class body x = %v, %v", v, ok)
+	}
+	if r, _ := IsInstance(cls, m); r != True {
+		t.Errorf("isinstance(C, M) = %v", r)
+	}
+}
+
+func TestSuperBindsClassAsMetaclassInstance(t *testing.T) {
+	m := newMetaclass(t, "M")
+	c, err := BuildClass(m, "C", "__main__.C", nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A class is an instance of its metaclass, so super() bound to the class from
+	// the metaclass walks the metaclass MRO past M and reaches type.
+	s, err := NewSuper(m, c)
+	if err != nil {
+		t.Fatalf("NewSuper(M, C): %v", err)
+	}
+	if got := s.(*superObject).objCls; got != m {
+		t.Errorf("super objCls = %v, want the metaclass M", got)
+	}
+}

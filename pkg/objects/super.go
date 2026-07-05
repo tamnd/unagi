@@ -33,8 +33,16 @@ func NewSuper(start, obj Object) (Object, error) {
 			return &superObject{start: sc, obj: obj, objCls: o.cls}, nil
 		}
 	case *classObject:
+		// A class used as a subtype: super(Base, Sub) for a classmethod or
+		// __init_subclass__, where Sub subclasses Base and its own MRO is walked.
 		if hasInMRO(o, sc) {
 			return &superObject{start: sc, obj: obj, objCls: o}, nil
+		}
+		// A class used as an instance of its metaclass: super() inside a metaclass
+		// method binds the class, so the metaclass MRO past the defining metaclass
+		// is walked, the same way an ordinary super() walks type(self)'s MRO.
+		if m := metaOf(o); hasInMRO(m, sc) {
+			return &superObject{start: sc, obj: obj, objCls: m}, nil
 		}
 	}
 	return nil, Raise(TypeError,
