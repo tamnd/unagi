@@ -797,6 +797,28 @@ func Instantiate(c *classObject, pos []Object, kwNames []string, kwVals []Object
 	if c.isMeta {
 		return callMetaInstance(c, pos, kwNames, kwVals)
 	}
+	// A user metaclass __call__ intercepts C(...): CPython invokes it as
+	// type(C).__call__(C, *args, **kw), so a metaclass that caches instances or
+	// tags them after creation runs instead of the default protocol. Its body
+	// reaches the ordinary creation through super().__call__, which lands on
+	// instantiateCore. A class on the default type metatype has no such override
+	// and creates its instance directly.
+	if meta, ok := userMetaclass(c); ok {
+		if call, ok := meta.lookup("__call__"); ok {
+			if fn, ok := call.(*functionObject); ok {
+				return fn.bind(append([]Object{Object(c)}, pos...), kwNames, kwVals)
+			}
+		}
+	}
+	return instantiateCore(c, pos, kwNames, kwVals)
+}
+
+// instantiateCore is the default type.__call__ creation protocol: it runs a user
+// __new__ then __init__, builds an *Exception for an exception class, or
+// allocates a plain instance and initializes it. Instantiate calls it when no
+// metaclass __call__ intervenes, and a metaclass __call__ reaches it through
+// super().__call__.
+func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
 	// A user-defined __new__ runs CPython's type.__call__ creation protocol: the
 	// class calls __new__(cls, *args) to allocate, and __init__ runs only when
 	// the result is an instance of the class, so a __new__ that returns another

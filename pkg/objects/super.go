@@ -167,6 +167,15 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 				return &instanceObject{cls: cls, attrs: newAttrs()}, true, nil
 			}
 		}
+	case "__call__":
+		// super().__call__(*args) inside a metaclass __call__ walks past the
+		// user metaclass and lands on type.__call__, the ordinary creation
+		// protocol. self is the class being instantiated, so this runs the
+		// default __new__/__init__ path a metaclass __call__ delegates to.
+		if cls, ok := self.(*classObject); ok {
+			r, err := instantiateCore(cls, args, nil, nil)
+			return r, true, err
+		}
 	case "__init_subclass__", "__set_name__":
 		// The object-root defaults for the two type-creation hooks are no-ops.
 		// A cooperative super().__init_subclass__() chain ends here once no user
@@ -210,6 +219,14 @@ func superCallMethodKw(s *superObject, name string, pos []Object, kwNames []stri
 			return CallKw(classmethodBind(fn.fn, s.objCls), pos, kwNames, kwVals)
 		}
 		return CallKw(v, pos, kwNames, kwVals)
+	}
+	// super().__call__(*args, **kw) delegating to type.__call__ keeps its
+	// keywords, which the positional objectDefaultCall path would drop, so the
+	// creation core runs with them.
+	if name == "__call__" {
+		if cls, ok := s.obj.(*classObject); ok {
+			return instantiateCore(cls, pos, kwNames, kwVals)
+		}
 	}
 	if len(kwNames) == 0 {
 		if r, ok, err := objectDefaultCall(s.obj, name, pos); ok {
