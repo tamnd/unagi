@@ -97,6 +97,70 @@ func TestUserExcSubclassRaisable(t *testing.T) {
 	}
 }
 
+func TestUserExcCustomInit(t *testing.T) {
+	// A user exception with a custom __init__ runs it against the exception
+	// itself: super().__init__ resets args, self.x stores an attribute, and a
+	// __str__ override drives str().
+	exc, _ := ExcClass("Exception")
+	// __init__(self, code, message): self.args = (message,); self.code = code.
+	initFn := NewFunction("App.__init__",
+		[]Param{{Name: "self", Kind: ParamPlain}, {Name: "code", Kind: ParamPlain}, {Name: "message", Kind: ParamPlain}},
+		nil,
+		func(a []Object) (Object, error) {
+			self := a[0].(*Exception)
+			self.Args = []Object{a[2]}
+			if err := StoreAttr(self, "code", a[1]); err != nil {
+				return nil, err
+			}
+			return None, nil
+		})
+	// __str__(self): return "[<code>]".
+	strFn := NewFunction("App.__str__",
+		[]Param{{Name: "self", Kind: ParamPlain}}, nil,
+		func(a []Object) (Object, error) {
+			self := a[0].(*Exception)
+			code, err := LoadAttr(self, "code")
+			if err != nil {
+				return nil, err
+			}
+			return NewStr("[" + Str(code) + "]"), nil
+		})
+	app, err := newClassCore(nil, "App", "App", []Object{exc},
+		[]string{"__init__", "__str__"}, []Object{initFn, strFn}, nil, nil)
+	if err != nil {
+		t.Fatalf("build App: %v", err)
+	}
+	ac := app.(*classObject)
+	inst, err := Instantiate(ac, []Object{NewInt(404), NewStr("nf")}, nil, nil)
+	if err != nil {
+		t.Fatalf("Instantiate(App): %v", err)
+	}
+	e := inst.(*Exception)
+	// args came from super().__init__(message), not the raw constructor pair.
+	if len(e.Args) != 1 || Str(e.Args[0]) != "nf" {
+		t.Errorf("args = %v, want (nf,)", e.Args)
+	}
+	// The stored attribute reads back, and str() runs the override.
+	if got, err := LoadAttr(e, "code"); err != nil || Str(got) != "404" {
+		t.Errorf("e.code = %v, %v", got, err)
+	}
+	if Str(e) != "[404]" {
+		t.Errorf("str(e) = %q, want [404]", Str(e))
+	}
+	// repr keeps the default ClassName(args...) shape since no __repr__ override.
+	if Repr(e) != "App('nf')" {
+		t.Errorf("repr(e) = %q, want App('nf')", Repr(e))
+	}
+	// __dict__ reports the one stored attribute in insertion order.
+	d, err := InstanceDict(e)
+	if err != nil {
+		t.Fatalf("vars(e): %v", err)
+	}
+	if Repr(d) != "{'code': 404}" {
+		t.Errorf("__dict__ = %s, want {'code': 404}", Repr(d))
+	}
+}
+
 func classNames(cs []*classObject) []string {
 	out := make([]string, len(cs))
 	for i, c := range cs {

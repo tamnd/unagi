@@ -483,7 +483,7 @@ func renderFrames(b *strings.Builder, c *excPrintCtx, e *objects.Exception) {
 // renderMessage prints the final Kind: message line and the PEP 678
 // notes, multi-line notes spanning as many report lines as they contain.
 func renderMessage(b *strings.Builder, c *excPrintCtx, e *objects.Exception) {
-	c.emit(b, e.Error())
+	c.emit(b, objects.ExcMessageLine(e))
 	for _, n := range e.Notes {
 		for _, l := range strings.Split(n, "\n") {
 			c.emit(b, l)
