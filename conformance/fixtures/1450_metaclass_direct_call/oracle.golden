@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+new C
+init C
+Meta
+C
+1
+made
+True
+new D
+init D
+Base
+2
+D
+== exception:
+== stderr:

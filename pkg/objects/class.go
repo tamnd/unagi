@@ -717,6 +717,12 @@ func (c *classObject) delAttr(name string) {
 // exactly as a direct call would; a class with no __init__ rejects any
 // argument with the takes-no-arguments message probed on 3.14.
 func Instantiate(c *classObject, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	// Calling a metaclass builds a class, not an ordinary instance: it runs the
+	// metaclass __new__/__init__ protocol, so Meta(name, bases, ns) creates the
+	// class the same three-argument type(...) call does.
+	if c.isMeta {
+		return callMetaInstance(c, pos, kwNames, kwVals)
+	}
 	inst := &instanceObject{cls: c, dict: map[string]Object{}}
 	init, ok := c.lookup("__init__")
 	if !ok {

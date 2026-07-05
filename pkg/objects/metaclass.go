@@ -148,6 +148,38 @@ func callMetaclass(m *classObject, name, qual string, bases []Object, names []st
 	return cls, nil
 }
 
+// callMetaInstance runs the class-creation protocol for a direct metaclass
+// call meta(name, bases, ns): __new__ builds the class with the metaclass as
+// the first argument, then __init__ initializes it when the result is an
+// instance of the metaclass. It is the generic type.__call__ path, so it forms
+// the class from positional arguments rather than the class-statement body, and
+// the default metatype slots keep their type.__new__/type.__init__ behavior.
+func callMetaInstance(m *classObject, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	newFn, ok := m.lookup("__new__")
+	if !ok {
+		newFn = typeClass.dict["__new__"]
+	}
+	cls, err := CallKw(newFn, append([]Object{m}, pos...), kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	inst, err := IsInstance(cls, m)
+	if err != nil {
+		return nil, err
+	}
+	if inst != True {
+		return cls, nil
+	}
+	initFn, ok := m.lookup("__init__")
+	if !ok || initFn == typeClass.dict["__init__"] {
+		return cls, nil
+	}
+	if _, err := CallKw(initFn, append([]Object{cls}, pos...), kwNames, kwVals); err != nil {
+		return nil, err
+	}
+	return cls, nil
+}
+
 // metaBasesTuple builds the bases tuple a metaclass __new__ or __init__ sees,
 // the base list as written with the implicit-object nil dropped.
 func metaBasesTuple(bases []Object) Object {
