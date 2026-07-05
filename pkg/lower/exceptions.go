@@ -260,6 +260,48 @@ func (f *fnCtx) matcherClasses(t frontend.Expr) ([]string, error) {
 	}
 }
 
+// matcherValues resolves an except matcher to the class-value expressions it
+// catches: a built-in exception name to its class object, a user exception
+// class to the value the name loads, and a tuple to the flattened set of both.
+// Evaluating the value lets a user class subclassing a built-in exception be
+// caught either by itself or by any base it derives from. The matcher names are
+// side-effect free to load, so a chain of handlers can evaluate each in turn.
+func (f *fnCtx) matcherValues(t frontend.Expr) ([]ast.Expr, error) {
+	switch t := t.(type) {
+	case *frontend.Name:
+		_, isClass := f.e.classOrd[t.Id]
+		if !f.locals[t.Id] && !isClass && objects.IsExceptionClass(t.Id) {
+			return []ast.Expr{callExpr(sel("runtime", "BuiltinFn"), strLit(t.Id))}, nil
+		}
+		if isClass {
+			// A class defined in this module reads as its class value, so a user
+			// exception subclass catches by its own identity and by every base it
+			// derives from.
+			v, err := f.expr(t)
+			if err != nil {
+				return nil, err
+			}
+			return []ast.Expr{v}, nil
+		}
+		if f.locals[t.Id] || f.e.moduleVars[t.Id] {
+			return nil, f.e.errf(t.Span(), "except matcher must be an exception class, not a plain variable")
+		}
+		return nil, f.e.errf(t.Span(), "name %q is not defined", t.Id)
+	case *frontend.TupleLit:
+		var out []ast.Expr
+		for _, el := range t.Elts {
+			vs, err := f.matcherValues(el)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, vs...)
+		}
+		return out, nil
+	default:
+		return nil, f.e.errf(t.Span(), "except matcher must be an exception class name or a tuple of them")
+	}
+}
+
 // handlerBody emits one handler's dispatch block: bind the as-name, bracket
 // the body closure with the handled stack so bare raise and implicit context
 // stamping see the in-flight exception, unbind, and either clear the
@@ -293,19 +335,17 @@ func (f *fnCtx) handlerChain(hs []*frontend.ExceptHandler, i int, tExc string) (
 	if h.Type == nil {
 		return f.handlerBody(h, tExc)
 	}
-	classes, err := f.matcherClasses(h.Type)
+	vals, err := f.matcherValues(h.Type)
 	if err != nil {
 		return nil, err
 	}
 	args := []ast.Expr{ident(tExc)}
-	for _, c := range classes {
-		args = append(args, strLit(c))
-	}
+	args = append(args, vals...)
 	blk, err := f.handlerBody(h, tExc)
 	if err != nil {
 		return nil, err
 	}
-	out := &ast.IfStmt{Cond: callExpr(sel("runtime", "ExcMatches"), args...), Body: blk}
+	out := &ast.IfStmt{Cond: callExpr(sel("runtime", "ExcMatch"), args...), Body: blk}
 	if i+1 < len(hs) {
 		next, err := f.handlerChain(hs, i+1, tExc)
 		if err != nil {

@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+notfound NotFound missing
+apperror AppError bad
+tuple Other x
+tuple ValueError v
+base KeyError 'k'
+('built', 42)
+('built', 42)
+AppError('built', 42)
+True True False
+True True
+True AppError
+bare NotFound ()
+chain NotFound AppError
+== exception:
+== stderr:

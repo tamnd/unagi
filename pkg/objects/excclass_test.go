@@ -51,6 +51,52 @@ func TestExcClassIsInstanceOfRaised(t *testing.T) {
 	}
 }
 
+func TestUserExcSubclassRaisable(t *testing.T) {
+	// A user class subclassing a built-in exception builds an *Exception, not a
+	// plain instance, so it is raisable and reports its own class identity.
+	exc, _ := ExcClass("Exception")
+	myErr, err := newClassCore(nil, "MyError", "MyError", []Object{exc}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("build MyError: %v", err)
+	}
+	mc := myErr.(*classObject)
+	inst, err := Instantiate(mc, []Object{NewStr("boom")}, nil, nil)
+	if err != nil {
+		t.Fatalf("Instantiate(MyError): %v", err)
+	}
+	e, ok := inst.(*Exception)
+	if !ok {
+		t.Fatalf("Instantiate(MyError) = %T, want *Exception", inst)
+	}
+	if e.Kind != "MyError" || e.Class != mc {
+		t.Errorf("exception Kind/Class = %q/%p, want MyError/%p", e.Kind, e.Class, mc)
+	}
+	// type(e) reports MyError, and it is an instance of both MyError and its base.
+	if got, ok := ClassOf(e); !ok || got != mc {
+		t.Errorf("ClassOf = %v, %v", got, ok)
+	}
+	if r, err := IsInstance(e, mc); err != nil || r != True {
+		t.Errorf("isinstance(e, MyError) = %v, %v", r, err)
+	}
+	if r, err := IsInstance(e, exc); err != nil || r != True {
+		t.Errorf("isinstance(e, Exception) = %v, %v", r, err)
+	}
+	// A matcher matches on the class MRO: MyError and Exception catch it, an
+	// unrelated exception class does not.
+	typeErr, _ := ExcClass("TypeError")
+	if !ExcMatchesClass(e, mc) || !ExcMatchesClass(e, exc) {
+		t.Error("ExcMatchesClass(e, MyError/Exception) = false, want true")
+	}
+	if ExcMatchesClass(e, typeErr) {
+		t.Error("ExcMatchesClass(e, TypeError) = true, want false")
+	}
+	// A bare class raises a no-argument instance of itself.
+	bare, ok := AsRaisable(mc)
+	if !ok || bare.Class != mc || len(bare.Args) != 0 {
+		t.Errorf("AsRaisable(MyError) = %v, %v, args %v", bare, ok, bare.Args)
+	}
+}
+
 func classNames(cs []*classObject) []string {
 	out := make([]string, len(cs))
 	for i, c := range cs {

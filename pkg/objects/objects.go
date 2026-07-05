@@ -58,6 +58,12 @@ type Exception struct {
 	// CPython 3.14 keeps the original raise-site line for the re-raising
 	// function and adds no entry for the bare raise itself.
 	Reraised bool
+	// Class is the exception's class object when it is a user-defined
+	// exception subclass, so type(e), isinstance, and except matching key on
+	// the real class identity rather than the Kind string. It is nil for the
+	// built-in exceptions, whose Kind alone resolves back to a class through
+	// ExcClass.
+	Class *classObject
 }
 
 func (e *Exception) TypeName() string { return e.Kind }
@@ -186,11 +192,20 @@ func ClassOf(o Object) (Object, bool) {
 		return inst.cls, true
 	}
 	if e, ok := o.(*Exception); ok {
-		if c, ok := ExcClass(e.Kind); ok {
+		if c, ok := excClassOf(e); ok {
 			return c, true
 		}
 	}
 	return nil, false
+}
+
+// excClassOf resolves a raised exception to its class object: the carried
+// Class for a user subclass, otherwise the built-in class its Kind names.
+func excClassOf(e *Exception) (*classObject, bool) {
+	if e.Class != nil {
+		return e.Class, true
+	}
+	return ExcClass(e.Kind)
 }
 
 // IsTypeValue reports whether o is itself a type object: a user or built-in

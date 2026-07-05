@@ -296,7 +296,7 @@ func TestCompileErrors(t *testing.T) {
 					}},
 				},
 			}},
-			"except matcher must be a builtin exception class name",
+			"except matcher must be an exception class, not a plain variable",
 		},
 		{
 			"except matcher unknown name",
