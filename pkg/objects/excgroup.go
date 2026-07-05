@@ -36,7 +36,7 @@ func NewExcGroup(kind string, args []Object) (Object, error) {
 			return nil, Raise(ValueError, "Item %d of second argument (exceptions) is not an exception", i)
 		}
 		excs[i] = e
-		if !Matches(e.Kind, "Exception") {
+		if !derivesFromException(e) {
 			allExc = false
 		}
 	}
@@ -49,6 +49,20 @@ func NewExcGroup(kind string, args []Object) (Object, error) {
 		kind = "ExceptionGroup"
 	}
 	return &Exception{Kind: kind, Args: args, Group: excs}, nil
+}
+
+// derivesFromException reports whether an exception leaf derives from
+// Exception rather than only BaseException, the test that decides whether an
+// ExceptionGroup can hold it. It walks the leaf's class MRO so a user
+// exception subclass counts the same as its built-in base, falling back to the
+// string hierarchy only if the leaf carries no resolvable class.
+func derivesFromException(e *Exception) bool {
+	if ec, ok := excClassOf(e); ok {
+		if exc, ok := ExcClass("Exception"); ok {
+			return ec == exc || hasInMRO(ec, exc)
+		}
+	}
+	return Matches(e.Kind, "Exception")
 }
 
 // sequenceItems flattens the sequences a group constructor accepts.

@@ -15,14 +15,37 @@ package objects
 // comes back wrapped in an empty-message ExceptionGroup, which is what an
 // except* clause binds; an unmatched naked exception stays naked in rest.
 func SplitStar(e *Exception, kinds []string) (matched, rest *Exception) {
-	match := func(x *Exception) bool {
+	return splitStarBy(e, func(x *Exception) bool {
 		for _, k := range kinds {
 			if Matches(x.Kind, k) {
 				return true
 			}
 		}
 		return false
-	}
+	})
+}
+
+// SplitStarValues partitions e exactly like SplitStar but matches each leaf
+// against except* matchers given as class values, the same class-value matching
+// plain except uses, so a user exception subclass is caught by itself or any
+// base it derives from. The matchers are assumed already validated as exception
+// classes; the runtime rejects a non-class matcher before it reaches here.
+func SplitStarValues(e *Exception, classes []Object) (matched, rest *Exception) {
+	return splitStarBy(e, func(x *Exception) bool {
+		for _, c := range classes {
+			if ExcMatchesClass(x, c) {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+// splitStarBy is the shared tree walk behind SplitStar and SplitStarValues: it
+// partitions e by whether each leaf satisfies match, preserving the nested group
+// structure at every level and wrapping a naked matched exception in an
+// empty-message group the way an except* clause binds it.
+func splitStarBy(e *Exception, match func(*Exception) bool) (matched, rest *Exception) {
 	var rec func(*Exception) (*Exception, *Exception)
 	rec = func(x *Exception) (*Exception, *Exception) {
 		if x.Group == nil {
