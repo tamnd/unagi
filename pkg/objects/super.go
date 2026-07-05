@@ -164,7 +164,7 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 				if isExcClass(cls) {
 					return &Exception{Kind: cls.name, Class: cls, Args: append([]Object{}, args[1:]...)}, true, nil
 				}
-				return &instanceObject{cls: cls, dict: map[string]Object{}}, true, nil
+				return &instanceObject{cls: cls, attrs: newAttrs()}, true, nil
 			}
 		}
 	case "__init_subclass__", "__set_name__":

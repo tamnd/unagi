@@ -169,7 +169,7 @@ func TestInheritedMethodBinds(t *testing.T) {
 		}).(*functionObject)
 	base.setAttr("tag", fn)
 	derived := mkclass(t, "Derived", base)
-	inst := &instanceObject{cls: derived, dict: map[string]Object{}}
+	inst := &instanceObject{cls: derived, attrs: newAttrs()}
 	got, err := LoadAttr(inst, "tag")
 	if err != nil {
 		t.Fatalf("LoadAttr: %v", err)
@@ -190,7 +190,7 @@ func TestCallMethodKwBinds(t *testing.T) {
 	fn := NewFunction("C.echo", []Param{{Name: "self", Kind: ParamPlain}, {Name: "x", Kind: ParamPlain}}, nil,
 		func(args []Object) (Object, error) { return args[1], nil }).(*functionObject)
 	c.setAttr("echo", fn)
-	inst := &instanceObject{cls: c, dict: map[string]Object{}}
+	inst := &instanceObject{cls: c, attrs: newAttrs()}
 	got, err := CallMethodKw(inst, "echo", nil, []string{"x"}, []Object{NewStr("kw")})
 	if err != nil {
 		t.Fatalf("CallMethodKw: %v", err)
@@ -206,7 +206,7 @@ func TestCallMethodKwUnexpected(t *testing.T) {
 	fn := NewFunction("C.echo", []Param{{Name: "self", Kind: ParamPlain}, {Name: "x", Kind: ParamPlain}}, nil,
 		func(args []Object) (Object, error) { return args[1], nil }).(*functionObject)
 	c.setAttr("echo", fn)
-	inst := &instanceObject{cls: c, dict: map[string]Object{}}
+	inst := &instanceObject{cls: c, attrs: newAttrs()}
 	_, err := CallMethodKw(inst, "echo", []Object{NewInt(1)}, []string{"z"}, []Object{NewInt(2)})
 	if err == nil || !strings.Contains(err.Error(), "C.echo() got an unexpected keyword argument 'z'") {
 		t.Fatalf("error = %v, want unexpected-keyword message", err)
@@ -226,7 +226,7 @@ func TestCallMethodKwBuiltinRejects(t *testing.T) {
 // tracks deletes, backing vars() and __dict__.
 func TestInstanceDictOrder(t *testing.T) {
 	c := mkclass(t, "C")
-	inst := &instanceObject{cls: c, dict: map[string]Object{}}
+	inst := &instanceObject{cls: c, attrs: newAttrs()}
 	for _, kv := range []struct {
 		k string
 		v int64

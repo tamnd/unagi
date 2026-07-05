@@ -7,7 +7,7 @@ import (
 
 // inst builds a bare instance of c with an empty dict.
 func inst(c *classObject) *instanceObject {
-	return &instanceObject{cls: c, dict: map[string]Object{}}
+	return &instanceObject{cls: c, attrs: newAttrs()}
 }
 
 // setEq attaches an __eq__ that compares the instances' "v" attribute, returning
@@ -20,7 +20,9 @@ func setEq(t *testing.T, c *classObject) {
 		if !ok {
 			return NotImplemented, nil
 		}
-		return NewBool(equals(self.dict["v"], other.dict["v"])), nil
+		sv, _ := self.attrGet("v")
+		ov, _ := other.attrGet("v")
+		return NewBool(equals(sv, ov)), nil
 	}))
 }
 
@@ -30,11 +32,11 @@ func TestRichEqAndDerivedNe(t *testing.T) {
 	c := mkclass(t, "C")
 	setEq(t, c)
 	a := inst(c)
-	a.dict["v"] = NewInt(3)
+	a.attrSet("v", NewInt(3))
 	b := inst(c)
-	b.dict["v"] = NewInt(3)
+	b.attrSet("v", NewInt(3))
 	d := inst(c)
-	d.dict["v"] = NewInt(5)
+	d.attrSet("v", NewInt(5))
 
 	if got, _ := Compare(OpEq, a, b); got != True {
 		t.Fatalf("a == b = %v, want True", got)
@@ -52,7 +54,7 @@ func TestRichEqIdentityFallback(t *testing.T) {
 	c := mkclass(t, "C")
 	setEq(t, c)
 	a := inst(c)
-	a.dict["v"] = NewInt(1)
+	a.attrSet("v", NewInt(1))
 
 	if got, _ := Compare(OpEq, a, NewStr("x")); got != False {
 		t.Fatalf("a == 'x' = %v, want False", got)

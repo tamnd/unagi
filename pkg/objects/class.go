@@ -2,7 +2,6 @@ package objects
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 )
 
@@ -90,19 +89,38 @@ type classObject struct {
 
 func (*classObject) TypeName() string { return "type" }
 
-// instanceObject is an instance of a user class. dict is its __dict__, the
+// instanceObject is an instance of a user class. attrs is its __dict__, the
 // per-instance attribute store; a name missing here falls back to the class.
+// The store is a real dictObject, so obj.__dict__ hands back the live mapping
+// CPython does: writing through it or aliasing it reaches the instance, and it
+// keeps insertion order and identity across reads for free.
 type instanceObject struct {
-	cls  *classObject
-	dict map[string]Object
-	// order records the insertion order of the instance's own attributes, so
-	// __dict__ and vars() report them the way CPython's ordered instance dict
-	// does. It holds every live key in dict; StoreAttr appends a new key and
-	// DelAttr removes it.
-	order []string
+	cls   *classObject
+	attrs *dictObject
 }
 
 func (o *instanceObject) TypeName() string { return o.cls.name }
+
+// newAttrs builds an empty per-instance attribute store.
+func newAttrs() *dictObject { return &dictObject{index: map[string]int{}} }
+
+// attrGet reads an own attribute by name; ok is false when the instance has no
+// such key, so the caller falls back to the class.
+func (o *instanceObject) attrGet(name string) (Object, bool) {
+	v, ok, _ := o.attrs.lookup(NewStr(name))
+	return v, ok
+}
+
+// attrSet stores an own attribute, recording insertion order through the dict.
+func (o *instanceObject) attrSet(name string, val Object) {
+	_ = o.attrs.set(NewStr(name), val)
+}
+
+// attrDel removes an own attribute and reports whether it was present.
+func (o *instanceObject) attrDel(name string) bool {
+	_, ok, _ := o.attrs.delete(NewStr(name))
+	return ok
+}
 
 // boundMethod pairs a function with the instance it was read from, so a
 // later call prepends that instance as self. Reading a method off an
@@ -791,7 +809,7 @@ func Instantiate(c *classObject, pos []Object, kwNames []string, kwVals []Object
 		}
 		return e, nil
 	}
-	inst := &instanceObject{cls: c, dict: map[string]Object{}}
+	inst := &instanceObject{cls: c, attrs: newAttrs()}
 	init, ok := c.lookup("__init__")
 	if !ok {
 		if len(pos) > 0 || len(kwNames) > 0 {
@@ -1001,39 +1019,12 @@ func DelAttr(o Object, name string) error {
 	return Raise(AttributeError, "'%s' object has no attribute '%s'", o.TypeName(), name)
 }
 
-// instanceDict builds a fresh dict of an instance's own attributes in insertion
-// order, backing `inst.__dict__` and `vars(inst)`. CPython hands back a live
-// mapping; this is a snapshot, so writing through the returned dict does not
-// reach the instance. Keys missing from the order slice (only possible for
-// whitebox-constructed instances that bypass StoreAttr) are appended in sorted
-// order so the result stays deterministic.
+// instanceDict returns the live dict backing an instance's own attributes, which
+// is `inst.__dict__` and `vars(inst)`. It is the actual store, not a snapshot, so
+// writing through it or aliasing it reaches the instance and it keeps insertion
+// order and identity across reads, matching CPython's instance dict.
 func instanceDict(x *instanceObject) (Object, error) {
-	keys := make([]Object, 0, len(x.dict))
-	vals := make([]Object, 0, len(x.dict))
-	seen := make(map[string]bool, len(x.dict))
-	for _, k := range x.order {
-		v, ok := x.dict[k]
-		if !ok || seen[k] {
-			continue
-		}
-		seen[k] = true
-		keys = append(keys, NewStr(k))
-		vals = append(vals, v)
-	}
-	if len(seen) < len(x.dict) {
-		rest := make([]string, 0, len(x.dict)-len(seen))
-		for k := range x.dict {
-			if !seen[k] {
-				rest = append(rest, k)
-			}
-		}
-		sort.Strings(rest)
-		for _, k := range rest {
-			keys = append(keys, NewStr(k))
-			vals = append(vals, x.dict[k])
-		}
-	}
-	return NewDict(keys, vals)
+	return x.attrs, nil
 }
 
 // InstanceDict exposes an instance's own attributes as an ordered dict for the

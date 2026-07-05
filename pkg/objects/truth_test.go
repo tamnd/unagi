@@ -11,12 +11,13 @@ func TestTruthOfInstance(t *testing.T) {
 	b := mkclass(t, "B")
 	b.setAttr("__bool__", mkfn("B.__bool__", 1, func(args []Object) (Object, error) {
 		self := args[0].(*instanceObject)
-		return self.dict["v"], nil
+		v, _ := self.attrGet("v")
+		return v, nil
 	}))
 	yes := inst(b)
-	yes.dict["v"] = True
+	yes.attrSet("v", True)
 	no := inst(b)
-	no.dict["v"] = False
+	no.attrSet("v", False)
 	if got, err := TruthOf(yes); err != nil || !got {
 		t.Fatalf("TruthOf(Flag(True)) = %v, %v", got, err)
 	}
@@ -27,12 +28,13 @@ func TestTruthOfInstance(t *testing.T) {
 	l := mkclass(t, "L")
 	l.setAttr("__len__", mkfn("L.__len__", 1, func(args []Object) (Object, error) {
 		self := args[0].(*instanceObject)
-		return self.dict["n"], nil
+		v, _ := self.attrGet("n")
+		return v, nil
 	}))
 	empty := inst(l)
-	empty.dict["n"] = NewInt(0)
+	empty.attrSet("n", NewInt(0))
 	full := inst(l)
-	full.dict["n"] = NewInt(3)
+	full.attrSet("n", NewInt(3))
 	if got, _ := TruthOf(empty); got {
 		t.Fatal("TruthOf(len 0) should be false")
 	}

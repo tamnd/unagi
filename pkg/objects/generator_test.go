@@ -348,15 +348,16 @@ func TestYieldFromUserIteratorStopValue(t *testing.T) {
 	}))
 	c.setAttr("__next__", mkfn("It.__next__", 1, func(args []Object) (Object, error) {
 		self := args[0].(*instanceObject)
-		i, _ := AsInt(self.dict["i"])
+		iv, _ := self.attrGet("i")
+		i, _ := AsInt(iv)
 		if i >= 2 {
 			return nil, &Exception{Kind: "StopIteration", Args: []Object{NewStr("carried")}}
 		}
-		self.dict["i"] = NewInt(i + 1)
+		self.attrSet("i", NewInt(i+1))
 		return NewInt(i + 1), nil
 	}))
 	x := inst(c)
-	x.dict["i"] = NewInt(0)
+	x.attrSet("i", NewInt(0))
 	g := NewGenerator("g", func(y Yielder) (Object, error) {
 		ret, err := y.YieldFrom(x)
 		if err != nil {
