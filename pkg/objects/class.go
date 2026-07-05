@@ -739,6 +739,28 @@ func Instantiate(c *classObject, pos []Object, kwNames []string, kwVals []Object
 	if c.isMeta {
 		return callMetaInstance(c, pos, kwNames, kwVals)
 	}
+	// A user-defined __new__ runs CPython's type.__call__ creation protocol: the
+	// class calls __new__(cls, *args) to allocate, and __init__ runs only when
+	// the result is an instance of the class, so a __new__ that returns another
+	// type skips initialization. __new__ is an implicit staticmethod, so cls is
+	// passed explicitly with no self binding.
+	if newRaw, ok := c.lookup("__new__"); ok {
+		obj, err := CallKw(staticNew(newRaw), append([]Object{Object(c)}, pos...), kwNames, kwVals)
+		if err != nil {
+			return nil, err
+		}
+		isInst, err := IsInstance(obj, c)
+		if err != nil {
+			return nil, err
+		}
+		if isInst != True {
+			return obj, nil
+		}
+		if err := callInit(c, obj, pos, kwNames, kwVals); err != nil {
+			return nil, err
+		}
+		return obj, nil
+	}
 	// An exception class builds an *Exception, not a plain instance, so the
 	// result is raisable and carries the traceback machinery. The positional
 	// arguments seed args the way BaseException.__new__ does; a user __init__
@@ -792,6 +814,39 @@ func Instantiate(c *classObject, pos []Object, kwNames []string, kwVals []Object
 		return nil, Raise(TypeError, "__init__() should return None, not '%s'", ret.TypeName())
 	}
 	return inst, nil
+}
+
+// staticNew unwraps a __new__ value to the callable to invoke directly. __new__
+// is an implicit staticmethod, so a plain function is called as is and an
+// explicit @staticmethod wrapper unwraps to the function it holds.
+func staticNew(v Object) Object {
+	if sm, ok := v.(*staticmethodObject); ok {
+		return sm.fn
+	}
+	return v
+}
+
+// callInit runs __init__ on an object a user __new__ allocated. A missing user
+// __init__ leaves the object as __new__ built it: once __new__ is overridden the
+// object root ignores the constructor arguments, so no arity check fires here.
+// The instance is bound as self and a non-None return is the probed TypeError.
+func callInit(c *classObject, obj Object, pos []Object, kwNames []string, kwVals []Object) error {
+	init, ok := c.lookup("__init__")
+	if !ok {
+		return nil
+	}
+	fn, ok := init.(*functionObject)
+	if !ok {
+		return Raise(TypeError, "%s() argument after __init__ is not a plain function", c.name)
+	}
+	ret, err := fn.bind(append([]Object{obj}, pos...), kwNames, kwVals)
+	if err != nil {
+		return err
+	}
+	if _, isNone := ret.(*noneObject); !isNone {
+		return Raise(TypeError, "__init__() should return None, not '%s'", ret.TypeName())
+	}
+	return nil
 }
 
 // LoadAttr reads o.name as a value. On an instance the instance dict wins,

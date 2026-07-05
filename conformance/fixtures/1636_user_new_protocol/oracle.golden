@@ -1,0 +1,20 @@
+== exit: 0
+== stdout:
+Point.__new__ (3, 4) {}
+Point.__init__ 3 4
+point 3 4 Point
+Sneaky.__new__ -> (1, 2)
+sneaky 99 int
+MyErr.__new__ ('boom', 7)
+MyErr.__init__ ('boom', 7)
+caught ('boom', 7) MyErr
+Tagged.__new__ (1,)
+Tagged.__init__ (1,)
+tagged T
+Loose.__new__ (1, 2) {'z': 3}
+loose Loose
+Config.__new__ {'debug': True, 'level': 5}
+Config.__init__ {'debug': True, 'level': 5}
+config {'debug': True, 'level': 5}
+== exception:
+== stderr:

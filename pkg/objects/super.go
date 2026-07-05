@@ -106,6 +106,12 @@ func superLoadAttr(s *superObject, name string) (Object, error) {
 // called with the original instance as self.
 func superCallMethod(s *superObject, name string, args []Object) (Object, error) {
 	if v, ok := superLookup(s, name); ok {
+		// __new__ is an implicit staticmethod: it takes cls explicitly and no
+		// instance is bound, so a chained super().__new__(cls) calls the next
+		// __new__ with the arguments as written rather than injecting self.
+		if name == "__new__" {
+			return Call(staticNew(v), args)
+		}
 		switch fn := v.(type) {
 		case *functionObject:
 			return fn.bind(append([]Object{s.obj}, args...), nil, nil)
@@ -147,6 +153,20 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 			return nil, true, Raise(TypeError, "object.__init__() takes exactly one argument (the instance to initialize)")
 		}
 		return None, true, nil
+	case "__new__":
+		// object.__new__(cls) / BaseException.__new__(cls, *args) allocate the
+		// bare object a user __new__ ends its chain with. The cooperative walk
+		// falls off the end here because neither root carries a method dict. cls
+		// arrives as the first argument, the way __new__ takes it explicitly; an
+		// exception root seeds args from the rest, an object root ignores them.
+		if len(args) >= 1 {
+			if cls, ok := args[0].(*classObject); ok {
+				if isExcClass(cls) {
+					return &Exception{Kind: cls.name, Class: cls, Args: append([]Object{}, args[1:]...)}, true, nil
+				}
+				return &instanceObject{cls: cls, dict: map[string]Object{}}, true, nil
+			}
+		}
 	case "__init_subclass__", "__set_name__":
 		// The object-root defaults for the two type-creation hooks are no-ops.
 		// A cooperative super().__init_subclass__() chain ends here once no user
@@ -180,6 +200,9 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 // its binder, the same cooperative walk superCallMethod uses.
 func superCallMethodKw(s *superObject, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
 	if v, ok := superLookup(s, name); ok {
+		if name == "__new__" {
+			return CallKw(staticNew(v), pos, kwNames, kwVals)
+		}
 		switch fn := v.(type) {
 		case *functionObject:
 			return fn.bind(append([]Object{s.obj}, pos...), kwNames, kwVals)
