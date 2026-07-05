@@ -83,6 +83,14 @@ func isExcClass(c *classObject) bool {
 	return c == base || hasInMRO(c, base)
 }
 
+// IsExcClassValue reports whether a value is a class deriving from
+// BaseException, the check an except matcher must pass. A matcher that fails it
+// is the "catching classes that do not inherit from BaseException" TypeError.
+func IsExcClassValue(o Object) bool {
+	c, ok := o.(*classObject)
+	return ok && isExcClass(c)
+}
+
 // AsRaisable converts a raised value to the exception it raises. An exception
 // object raises itself; a bare exception class instantiates with no arguments
 // the way `raise ValueError` does. ok is false for anything that cannot be

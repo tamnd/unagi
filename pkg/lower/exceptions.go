@@ -341,19 +341,43 @@ func (f *fnCtx) handlerChain(hs []*frontend.ExceptHandler, i int, tExc string) (
 	}
 	args := []ast.Expr{ident(tExc)}
 	args = append(args, vals...)
+
+	// Matching is fallible: a matcher that is not an exception class raises a
+	// TypeError chained on the in-flight exception, cited at the except line,
+	// even when a valid matcher would otherwise have caught it.
+	f.push()
+	tM, tMErr := f.tmpVar(), f.tmpVar()
+	f.add(&ast.AssignStmt{
+		Lhs: []ast.Expr{ident(tM), ident(tMErr)},
+		Tok: token.DEFINE,
+		Rhs: []ast.Expr{callExpr(sel("runtime", "ExcMatch"), args...)},
+	})
+	savedLine := f.line
+	if p := h.Span(); p.Line > 0 {
+		f.line = p.Line
+	}
+	f.add(&ast.IfStmt{
+		Cond: neqNil(ident(tMErr)),
+		Body: block(f.retErr(f.tb(callExpr(sel("runtime", "ChainContext"), ident(tMErr), ident(tExc))))),
+	})
+	f.line = savedLine
+
 	blk, err := f.handlerBody(h, tExc)
 	if err != nil {
+		f.pop()
 		return nil, err
 	}
-	out := &ast.IfStmt{Cond: callExpr(sel("runtime", "ExcMatch"), args...), Body: blk}
+	out := &ast.IfStmt{Cond: ident(tM), Body: blk}
 	if i+1 < len(hs) {
 		next, err := f.handlerChain(hs, i+1, tExc)
 		if err != nil {
+			f.pop()
 			return nil, err
 		}
 		out.Else = next
 	}
-	return out, nil
+	f.add(out)
+	return f.pop(), nil
 }
 
 // starDispatch lowers the except* clauses of one try. Each clause splits the
