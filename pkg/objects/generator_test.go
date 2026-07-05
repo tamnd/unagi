@@ -144,6 +144,56 @@ func TestGeneratorClose(t *testing.T) {
 	}
 }
 
+// A StopIteration escaping the body becomes the PEP 479 RuntimeError carrying
+// the original as both cause and context with context suppressed.
+func TestGeneratorStopIterationConverts(t *testing.T) {
+	orig := &Exception{Kind: "StopIteration", Args: []Object{NewStr("escaped")}}
+	g := NewGenerator("g", func(y Yielder) (Object, error) {
+		return nil, orig
+	})
+	_, err := NextValue([]Object{g})
+	e, ok := err.(*Exception)
+	if !ok {
+		t.Fatalf("err = %T, want *Exception", err)
+	}
+	if e.Kind != "RuntimeError" {
+		t.Fatalf("Kind = %q, want RuntimeError", e.Kind)
+	}
+	if len(e.Args) == 0 {
+		t.Fatal("RuntimeError carries no message")
+	}
+	if s, _ := AsStr(e.Args[0]); s != "generator raised StopIteration" {
+		t.Fatalf("message = %q, want generator raised StopIteration", s)
+	}
+	if e.Cause != orig || e.Context != orig {
+		t.Fatalf("cause/context = %v/%v, want the original StopIteration", e.Cause, e.Context)
+	}
+	if !e.SuppressContext {
+		t.Fatal("SuppressContext = false, want true")
+	}
+}
+
+// close() converts a StopIteration raised while handling GeneratorExit into the
+// same PEP 479 RuntimeError instead of treating it as a clean close.
+func TestGeneratorCloseStopIterationConverts(t *testing.T) {
+	g := NewGenerator("g", func(y Yielder) (Object, error) {
+		if _, err := y.Yield(NewInt(1)); err != nil {
+			// The injected GeneratorExit arrives here; raising StopIteration in
+			// response must convert, not close cleanly.
+			return nil, &Exception{Kind: "StopIteration", Args: []Object{NewStr("during close")}}
+		}
+		return None, nil
+	})
+	if _, err := NextValue([]Object{g}); err != nil {
+		t.Fatalf("prime: %v", err)
+	}
+	_, err := CallMethod(g, "close", nil)
+	e, ok := err.(*Exception)
+	if !ok || e.Kind != "RuntimeError" {
+		t.Fatalf("close err = %v, want RuntimeError", err)
+	}
+}
+
 func TestGeneratorThrow(t *testing.T) {
 	g := NewGenerator("g", func(y Yielder) (Object, error) {
 		_, err := y.Yield(NewInt(1))
