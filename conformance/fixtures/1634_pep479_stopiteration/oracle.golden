@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+direct: generator raised StopIteration
+cause: StopIteration escaped
+context is cause: True
+suppress: True
+inner-next: generator raised StopIteration
+delegated: generator raised StopIteration
+clean: [1, 2]
+== exception:
+== stderr:

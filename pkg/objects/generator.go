@@ -64,7 +64,7 @@ func (g *generatorObject) start() {
 		<-g.resume // first resume just wakes the body; its value is discarded
 		ret, err := g.body(g)
 		if err != nil {
-			g.out <- genEvent{err: err}
+			g.out <- genEvent{err: pep479(err)}
 			return
 		}
 		g.out <- genEvent{val: ret, done: true}
@@ -231,9 +231,11 @@ func (g *generatorObject) throwInto(exc *Exception) (Object, error) {
 	return val, nil
 }
 
-// closeGen injects GeneratorExit. A generator that exits cleanly, by letting
-// the exit propagate or raising StopIteration, closes to None; one that yields
-// again is the RuntimeError CPython raises.
+// closeGen injects GeneratorExit. A generator that exits cleanly, by letting the
+// exit propagate or returning, closes to None; one that yields again is the
+// RuntimeError CPython raises, and one that raises StopIteration is the PEP 479
+// "generator raised StopIteration" RuntimeError, converted at the frame boundary
+// before it reaches here.
 func (g *generatorObject) closeGen() (Object, error) {
 	if g.done || !g.started {
 		g.done = true
@@ -241,7 +243,7 @@ func (g *generatorObject) closeGen() (Object, error) {
 	}
 	val, _, done, err := g.step(genSignal{err: &Exception{Kind: "GeneratorExit"}})
 	if err != nil {
-		if e, ok := err.(*Exception); ok && (e.Kind == "GeneratorExit" || e.Kind == "StopIteration") {
+		if e, ok := err.(*Exception); ok && e.Kind == "GeneratorExit" {
 			return None, nil
 		}
 		return nil, err
@@ -344,4 +346,22 @@ func excStopValue(e *Exception) Object {
 		return e.Args[0]
 	}
 	return None
+}
+
+// pep479 converts a StopIteration that escapes a generator frame into
+// RuntimeError, PEP 479. A StopIteration raised inside a generator body must not
+// leak out as ordinary exhaustion, so it becomes "generator raised
+// StopIteration" carrying the original as both __cause__ and __context__ with
+// context suppressed, matching CPython's gen_send_ex2. Any other error, a normal
+// return, or a GeneratorExit passes through unchanged.
+func pep479(err error) error {
+	e, ok := err.(*Exception)
+	if !ok || e.Kind != "StopIteration" {
+		return err
+	}
+	re := Raise(RuntimeError, "generator raised StopIteration")
+	re.Cause = e
+	re.Context = e
+	re.SuppressContext = true
+	return re
 }
