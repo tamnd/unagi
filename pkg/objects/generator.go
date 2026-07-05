@@ -99,12 +99,26 @@ func (g *generatorObject) YieldFrom(src Object) (Object, error) {
 			return nil, err
 		}
 		if !ok {
+			// PEP 380: the delegated-to iterator's StopIteration value is the
+			// value of the yield-from expression. A built-in iterator carries
+			// none and finishes as None; a user iterator surfaces the value its
+			// __next__ raised through StopValue.
+			if sv, ok := it.(stopValuer); ok {
+				return sv.StopValue(), nil
+			}
 			return None, nil
 		}
 		if _, err := g.Yield(v); err != nil {
 			return nil, err
 		}
 	}
+}
+
+// stopValuer is an iterator that carries a StopIteration value past exhaustion,
+// so yield-from can bind it as its result. Generators and user __next__
+// iterators implement it; built-in iterators do not and finish as None.
+type stopValuer interface {
+	StopValue() Object
 }
 
 // delegate runs a sub-generator to exhaustion, forwarding what the outer driver
@@ -320,4 +334,14 @@ func stopIteration(v Object) *Exception {
 		return &Exception{Kind: "StopIteration"}
 	}
 	return &Exception{Kind: "StopIteration", Args: []Object{v}}
+}
+
+// excStopValue reads the value a StopIteration carried, the inverse of
+// stopIteration: the first argument when one is present, None otherwise. It is
+// the result a yield-from binds when the delegated-to iterator finishes.
+func excStopValue(e *Exception) Object {
+	if len(e.Args) > 0 {
+		return e.Args[0]
+	}
+	return None
 }
