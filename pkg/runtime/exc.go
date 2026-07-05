@@ -101,22 +101,31 @@ func PopHandled() {
 }
 
 // ExcStarSplit partitions err by whether its leaves match any of the given
-// classes, for one except* clause. It returns the matched part and the
-// unhandled remainder, either of which is a nil error when empty. A non
-// exception err matches nothing and stays whole in rest.
-func ExcStarSplit(err error, classes ...string) (matched, rest error) {
+// except* matchers, each a class value, for one except* clause. It returns the
+// matched part, the unhandled remainder, and a match error. A matcher that is
+// not a class deriving from BaseException raises the probed TypeError, checked
+// before any leaf is matched and even when the remainder is already empty, so a
+// bad matcher in a later clause still raises the way CPython validates every
+// reached clause. A non-exception err matches nothing and stays whole in rest.
+func ExcStarSplit(err error, classes ...objects.Object) (matched, rest, matchErr error) {
+	for _, c := range classes {
+		if !objects.IsExcClassValue(c) {
+			return nil, nil, objects.Raise(objects.TypeError,
+				"catching classes that do not inherit from BaseException is not allowed")
+		}
+	}
 	e, ok := err.(*objects.Exception)
 	if !ok {
-		return nil, err
+		return nil, err, nil
 	}
-	m, r := objects.SplitStar(e, classes)
+	m, r := objects.SplitStarValues(e, classes)
 	if m != nil {
 		matched = m
 	}
 	if r != nil {
 		rest = r
 	}
-	return matched, rest
+	return matched, rest, nil
 }
 
 // ExcStarCombine folds the exceptions raised by the except* handlers back

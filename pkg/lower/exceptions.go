@@ -231,35 +231,6 @@ func (f *fnCtx) closureCallFn(emit func() error) (ast.Expr, error) {
 	return callExpr(&ast.FuncLit{Type: funcErrType(), Body: f.pop()}), nil
 }
 
-// matcherClasses resolves an except matcher to the class names it catches.
-// Matchers must be exception class names known to the compiler, or tuples of
-// them; exception classes are not first-class values yet.
-func (f *fnCtx) matcherClasses(t frontend.Expr) ([]string, error) {
-	switch t := t.(type) {
-	case *frontend.Name:
-		_, isDef := f.e.defs[t.Id]
-		if f.locals[t.Id] || isDef {
-			return nil, f.e.errf(t.Span(), "except matcher must be a builtin exception class name in this slice")
-		}
-		if objects.IsExceptionClass(t.Id) {
-			return []string{t.Id}, nil
-		}
-		return nil, f.e.errf(t.Span(), "name %q is not defined", t.Id)
-	case *frontend.TupleLit:
-		var out []string
-		for _, el := range t.Elts {
-			cs, err := f.matcherClasses(el)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, cs...)
-		}
-		return out, nil
-	default:
-		return nil, f.e.errf(t.Span(), "except matcher must be an exception class name or a tuple of them")
-	}
-}
-
 // matcherValues resolves an except matcher to the class-value expressions it
 // catches: a built-in exception name to its class object, a user exception
 // class to the value the name loads, and a tuple to the flattened set of both.
@@ -393,21 +364,30 @@ func (f *fnCtx) starDispatch(hs []*frontend.ExceptHandler, tExc string) (ast.Stm
 		&ast.ValueSpec{Names: []*ast.Ident{ident("raised")}, Type: &ast.ArrayType{Elt: ident("error")}},
 	}}})
 	for _, h := range hs {
-		classes, err := f.matcherClasses(h.Type)
+		vals, err := f.matcherValues(h.Type)
 		if err != nil {
 			f.pop()
 			return nil, err
 		}
-		m, r := f.tmpVar(), f.tmpVar()
+		m, r, mErr := f.tmpVar(), f.tmpVar(), f.tmpVar()
 		args := []ast.Expr{ident(tExc)}
-		for _, c := range classes {
-			args = append(args, strLit(c))
-		}
+		args = append(args, vals...)
 		f.add(&ast.AssignStmt{
-			Lhs: []ast.Expr{ident(m), ident(r)},
+			Lhs: []ast.Expr{ident(m), ident(r), ident(mErr)},
 			Tok: token.DEFINE,
 			Rhs: []ast.Expr{callExpr(sel("runtime", "ExcStarSplit"), args...)},
 		})
+		// A non-class matcher raises a TypeError chained on the in-flight
+		// exception and cited at the except* line, matching plain except.
+		savedLine := f.line
+		if p := h.Span(); p.Line > 0 {
+			f.line = p.Line
+		}
+		f.add(&ast.IfStmt{
+			Cond: neqNil(ident(mErr)),
+			Body: block(f.retErr(f.tb(callExpr(sel("runtime", "ChainContext"), ident(mErr), ident(tExc))))),
+		})
+		f.line = savedLine
 		f.add(set(ident(tExc), ident(r)))
 
 		f.push()

@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+own ['NotFound'] missing
+base ['AppError', 'NotFound']
+val ['ValueError']
+tuple ['AppError', 'ValueError']
+bad catching classes that do not inherit from BaseException is not allowed context: ValueError
+first ['ValueError']
+empty-then-bad catching classes that do not inherit from BaseException is not allowed
+== exception:
+== stderr:
