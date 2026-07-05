@@ -23,7 +23,7 @@ func TestSuperWalksInstanceMRO(t *testing.T) {
 	right.setAttr("m", method("Right.m", "right"))
 	dia := mkclass(t, "Diamond", left, right)
 
-	inst := &instanceObject{cls: dia, dict: map[string]Object{}}
+	inst := &instanceObject{cls: dia, attrs: newAttrs()}
 	// super(Left, inst).m resolves to Right.m
 	sup, err := NewSuper(left, inst)
 	if err != nil {
@@ -42,7 +42,7 @@ func TestSuperBindsOriginalSelf(t *testing.T) {
 	base := mkclass(t, "Base")
 	base.setAttr("m", method("Base.m", "base"))
 	derived := mkclass(t, "Derived", base)
-	inst := &instanceObject{cls: derived, dict: map[string]Object{}}
+	inst := &instanceObject{cls: derived, attrs: newAttrs()}
 	sup, _ := NewSuper(derived, inst)
 	got, err := superLoadAttr(sup.(*superObject), "m")
 	if err != nil {
@@ -73,7 +73,7 @@ func TestSuperArg2NotInstance(t *testing.T) {
 func TestSuperUnrelatedClass(t *testing.T) {
 	a := mkclass(t, "A")
 	u := mkclass(t, "U")
-	inst := &instanceObject{cls: u, dict: map[string]Object{}}
+	inst := &instanceObject{cls: u, attrs: newAttrs()}
 	_, err := NewSuper(a, inst)
 	if err == nil || !strings.Contains(err.Error(), "instance of U") {
 		t.Fatalf("error = %v, want unrelated-class rejection", err)
@@ -83,7 +83,7 @@ func TestSuperUnrelatedClass(t *testing.T) {
 func TestSuperMissingAttr(t *testing.T) {
 	a := mkclass(t, "A")
 	d := mkclass(t, "D", a)
-	inst := &instanceObject{cls: d, dict: map[string]Object{}}
+	inst := &instanceObject{cls: d, attrs: newAttrs()}
 	sup, _ := NewSuper(d, inst)
 	_, err := superLoadAttr(sup.(*superObject), "nope")
 	if err == nil || !strings.Contains(err.Error(), "'super' object has no attribute 'nope'") {
@@ -94,7 +94,7 @@ func TestSuperMissingAttr(t *testing.T) {
 func TestSuperRepr(t *testing.T) {
 	a := mkclass(t, "A")
 	w := mkclass(t, "W", a)
-	inst := &instanceObject{cls: w, dict: map[string]Object{}}
+	inst := &instanceObject{cls: w, attrs: newAttrs()}
 	sup, _ := NewSuper(w, inst)
 	if got := superRepr(sup.(*superObject)); got != "<super: <class 'W'>, <W object>>" {
 		t.Errorf("superRepr = %q", got)

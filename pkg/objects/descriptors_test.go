@@ -21,7 +21,7 @@ func TestStaticMethodReadsBare(t *testing.T) {
 	c := mkclass(t, "C")
 	fn := mkfn("C.f", 1, func(args []Object) (Object, error) { return NewInt(int64(len(args))), nil })
 	c.setAttr("f", NewStaticMethod(fn))
-	inst := &instanceObject{cls: c, dict: map[string]Object{}}
+	inst := &instanceObject{cls: c, attrs: newAttrs()}
 	got, err := LoadAttr(inst, "f")
 	if err != nil {
 		t.Fatalf("LoadAttr: %v", err)
@@ -41,7 +41,7 @@ func TestClassMethodBindsReachedClass(t *testing.T) {
 	})
 	base.setAttr("who", NewClassMethod(fn))
 	derived := mkclass(t, "Derived", base)
-	inst := &instanceObject{cls: derived, dict: map[string]Object{}}
+	inst := &instanceObject{cls: derived, attrs: newAttrs()}
 	got, err := CallMethod(inst, "who", nil)
 	if err != nil {
 		t.Fatalf("CallMethod: %v", err)
@@ -64,14 +64,16 @@ func TestClassMethodBindsReachedClass(t *testing.T) {
 func TestPropertyGetAndSet(t *testing.T) {
 	c := mkclass(t, "C")
 	getter := mkfn("C.x", 1, func(args []Object) (Object, error) {
-		return args[0].(*instanceObject).dict["_x"], nil
+		v, _ := args[0].(*instanceObject).attrGet("_x")
+		return v, nil
 	})
 	setter := mkfn("C.x", 2, func(args []Object) (Object, error) {
-		args[0].(*instanceObject).dict["_x"] = args[1]
+		args[0].(*instanceObject).attrSet("_x", args[1])
 		return None, nil
 	})
 	c.setAttr("x", NewProperty(getter, setter, nil))
-	inst := &instanceObject{cls: c, dict: map[string]Object{"_x": NewInt(7)}}
+	inst := &instanceObject{cls: c, attrs: newAttrs()}
+	inst.attrSet("_x", NewInt(7))
 	got, err := LoadAttr(inst, "x")
 	if err != nil {
 		t.Fatalf("LoadAttr: %v", err)
@@ -82,8 +84,8 @@ func TestPropertyGetAndSet(t *testing.T) {
 	if err := StoreAttr(inst, "x", NewInt(9)); err != nil {
 		t.Fatalf("StoreAttr: %v", err)
 	}
-	if Repr(inst.dict["_x"]) != "9" {
-		t.Errorf("property set left _x = %s, want 9", Repr(inst.dict["_x"]))
+	if xv, _ := inst.attrGet("_x"); Repr(xv) != "9" {
+		t.Errorf("property set left _x = %s, want 9", Repr(xv))
 	}
 }
 
@@ -93,7 +95,7 @@ func TestPropertyMissingSlotsRaise(t *testing.T) {
 	c := mkclass(t, "C")
 	getter := mkfn("C.x", 1, func(args []Object) (Object, error) { return NewInt(1), nil })
 	c.setAttr("x", NewProperty(getter, nil, nil))
-	inst := &instanceObject{cls: c, dict: map[string]Object{}}
+	inst := &instanceObject{cls: c, attrs: newAttrs()}
 	err := StoreAttr(inst, "x", NewInt(2))
 	if err == nil || !strings.Contains(err.Error(), "property 'x' of 'C' object has no setter") {
 		t.Fatalf("error = %v, want no-setter message", err)
@@ -111,7 +113,8 @@ func TestPropertyShadowsInstanceDict(t *testing.T) {
 	c := mkclass(t, "C")
 	getter := mkfn("C.x", 1, func(args []Object) (Object, error) { return NewStr("from-property"), nil })
 	c.setAttr("x", NewProperty(getter, nil, nil))
-	inst := &instanceObject{cls: c, dict: map[string]Object{"x": NewStr("from-dict")}}
+	inst := &instanceObject{cls: c, attrs: newAttrs()}
+	inst.attrSet("x", NewStr("from-dict"))
 	got, err := LoadAttr(inst, "x")
 	if err != nil {
 		t.Fatalf("LoadAttr: %v", err)
@@ -127,7 +130,8 @@ func TestInstanceDictShadowsStaticMethod(t *testing.T) {
 	c := mkclass(t, "C")
 	fn := mkfn("C.f", 1, func(args []Object) (Object, error) { return None, nil })
 	c.setAttr("f", NewStaticMethod(fn))
-	inst := &instanceObject{cls: c, dict: map[string]Object{"f": NewStr("shadow")}}
+	inst := &instanceObject{cls: c, attrs: newAttrs()}
+	inst.attrSet("f", NewStr("shadow"))
 	got, err := LoadAttr(inst, "f")
 	if err != nil {
 		t.Fatalf("LoadAttr: %v", err)

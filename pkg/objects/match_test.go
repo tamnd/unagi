@@ -106,11 +106,11 @@ func TestMatchRestOrder(t *testing.T) {
 // mkinst builds an instance of c with the given attributes, whitebox so a
 // test need not route through __init__.
 func mkinst(c *classObject, attrs map[string]Object) *instanceObject {
-	d := make(map[string]Object, len(attrs))
+	o := &instanceObject{cls: c, attrs: newAttrs()}
 	for k, v := range attrs {
-		d[k] = v
+		o.attrSet(k, v)
 	}
-	return &instanceObject{cls: c, dict: d}
+	return o
 }
 
 func TestMatchClassPositional(t *testing.T) {

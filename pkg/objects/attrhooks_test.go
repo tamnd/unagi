@@ -23,7 +23,7 @@ func TestGetattributeInterceptsAndFallsBack(t *testing.T) {
 		}).(*functionObject)
 	c.setAttr("__getattribute__", gattr)
 	c.setAttr("__getattr__", getattr)
-	inst := &instanceObject{cls: c, dict: map[string]Object{}}
+	inst := &instanceObject{cls: c, attrs: newAttrs()}
 	if err := StoreAttr(inst, "here", NewInt(1)); err != nil {
 		t.Fatalf("StoreAttr: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestSetattrOverride(t *testing.T) {
 			return None, genericSetAttr(args[0].(*instanceObject), args[1].(*strObject).v, NewInt(n*10))
 		}).(*functionObject)
 	c.setAttr("__setattr__", sattr)
-	inst := &instanceObject{cls: c, dict: map[string]Object{}}
+	inst := &instanceObject{cls: c, attrs: newAttrs()}
 	if err := StoreAttr(inst, "v", NewInt(4)); err != nil {
 		t.Fatalf("StoreAttr: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestDelattrOverride(t *testing.T) {
 			return None, genericDelAttr(args[0].(*instanceObject), args[1].(*strObject).v)
 		}).(*functionObject)
 	c.setAttr("__delattr__", dattr)
-	inst := &instanceObject{cls: c, dict: map[string]Object{}}
+	inst := &instanceObject{cls: c, attrs: newAttrs()}
 	_ = StoreAttr(inst, "tmp", NewInt(1))
 	if err := DelAttr(inst, "tmp"); err != nil {
 		t.Fatalf("DelAttr: %v", err)
@@ -85,7 +85,7 @@ func TestDelattrOverride(t *testing.T) {
 // object root and run the generic cores directly.
 func TestObjectSlotWrappersDirect(t *testing.T) {
 	c := mkclass(t, "Bag")
-	inst := &instanceObject{cls: c, dict: map[string]Object{}}
+	inst := &instanceObject{cls: c, attrs: newAttrs()}
 
 	setter, err := LoadAttr(objectClass, "__setattr__")
 	if err != nil {

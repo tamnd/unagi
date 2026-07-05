@@ -130,7 +130,7 @@ func TestInPlaceUserDunder(t *testing.T) {
 	c := mkclass(t, "Acc")
 	c.setAttr("__iadd__", mkfn("Acc.__iadd__", 2, func(args []Object) (Object, error) {
 		self := args[0].(*instanceObject)
-		self.dict["v"] = args[1]
+		self.attrSet("v", args[1])
 		return self, nil
 	}))
 	a := inst(c)
@@ -138,7 +138,7 @@ func TestInPlaceUserDunder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("user += : %v", err)
 	}
-	if res != a || Repr(a.dict["v"]) != "7" {
+	if av, _ := a.attrGet("v"); res != a || Repr(av) != "7" {
 		t.Fatalf("user += did not mutate self")
 	}
 

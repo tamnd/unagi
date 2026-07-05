@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+d: {'a': 1}
+c.__dict__ is c.__dict__: True
+d is c.__dict__: True
+read c.b after dict write: 2
+d sees attr set on instance: 10
+d after del c.a: {'b': 2, 'x': 10}
+vars(c) is c.__dict__: True
+vars(c) after clear: {}
+still has attr x: False
+descriptor wrote through __dict__: {'_v': 42}
+read back through descriptor: 42
+== exception:
+== stderr:

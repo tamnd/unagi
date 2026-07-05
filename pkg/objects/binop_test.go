@@ -37,8 +37,8 @@ func TestBinaryDunderForward(t *testing.T) {
 	c.setAttr("__add__", dunder("V.__add__", func(_, _ Object) (Object, error) {
 		return NewStr("forward"), nil
 	}))
-	a := &instanceObject{cls: c, dict: map[string]Object{}}
-	b := &instanceObject{cls: c, dict: map[string]Object{}}
+	a := &instanceObject{cls: c, attrs: newAttrs()}
+	b := &instanceObject{cls: c, attrs: newAttrs()}
 	got, err := Add(a, b)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
@@ -55,7 +55,7 @@ func TestBinaryDunderReflectedFallback(t *testing.T) {
 	c.setAttr("__radd__", dunder("R.__radd__", func(_, other Object) (Object, error) {
 		return NewStr("radd:" + Repr(other)), nil
 	}))
-	b := &instanceObject{cls: c, dict: map[string]Object{}}
+	b := &instanceObject{cls: c, attrs: newAttrs()}
 	got, err := Add(NewInt(5), b)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
@@ -72,8 +72,8 @@ func TestBinaryDunderNotImplementedRaises(t *testing.T) {
 	c.setAttr("__add__", dunder("D.__add__", func(_, _ Object) (Object, error) {
 		return NotImplemented, nil
 	}))
-	a := &instanceObject{cls: c, dict: map[string]Object{}}
-	b := &instanceObject{cls: c, dict: map[string]Object{}}
+	a := &instanceObject{cls: c, attrs: newAttrs()}
+	b := &instanceObject{cls: c, attrs: newAttrs()}
 	_, err := Add(a, b)
 	want := "TypeError: unsupported operand type(s) for +: 'D' and 'D'"
 	if err == nil || err.Error() != want {
@@ -95,8 +95,8 @@ func TestBinaryDunderSubclassReflectedFirst(t *testing.T) {
 	sub.setAttr("__rsub__", dunder("Sub.__rsub__", func(_, _ Object) (Object, error) {
 		return NewStr("sub.rsub"), nil
 	}))
-	a := &instanceObject{cls: base, dict: map[string]Object{}}
-	b := &instanceObject{cls: sub, dict: map[string]Object{}}
+	a := &instanceObject{cls: base, attrs: newAttrs()}
+	b := &instanceObject{cls: sub, attrs: newAttrs()}
 	got, err := Sub(a, b)
 	if err != nil {
 		t.Fatalf("Sub: %v", err)

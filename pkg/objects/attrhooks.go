@@ -91,7 +91,7 @@ func genericGetAttr(x *instanceObject, name string) (Object, error) {
 	if tok && isDataDescriptor(tv) {
 		return instanceGet(x, name, tv)
 	}
-	if v, ok := x.dict[name]; ok {
+	if v, ok := x.attrGet(name); ok {
 		return v, nil
 	}
 	if tok {
@@ -120,10 +120,7 @@ func genericSetAttr(x *instanceObject, name string, val Object) error {
 			}
 		}
 	}
-	if _, seen := x.dict[name]; !seen {
-		x.order = append(x.order, name)
-	}
-	x.dict[name] = val
+	x.attrSet(name, val)
 	return nil
 }
 
@@ -146,15 +143,8 @@ func genericDelAttr(x *instanceObject, name string) error {
 			}
 		}
 	}
-	if _, ok := x.dict[name]; !ok {
+	if !x.attrDel(name) {
 		return Raise(AttributeError, "'%s' object has no attribute '%s'", x.cls.name, name)
-	}
-	delete(x.dict, name)
-	for i, k := range x.order {
-		if k == name {
-			x.order = append(x.order[:i], x.order[i+1:]...)
-			break
-		}
 	}
 	return nil
 }

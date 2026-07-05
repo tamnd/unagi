@@ -76,16 +76,17 @@ func TestInstanceSubscript(t *testing.T) {
 	c := mkclass(t, "C")
 	c.setAttr("__getitem__", mkfn("C.__getitem__", 2, func(args []Object) (Object, error) {
 		self := args[0].(*instanceObject)
-		return self.dict[Str(args[1])], nil
+		v, _ := self.attrGet(Str(args[1]))
+		return v, nil
 	}))
 	c.setAttr("__setitem__", mkfn("C.__setitem__", 3, func(args []Object) (Object, error) {
 		self := args[0].(*instanceObject)
-		self.dict[Str(args[1])] = args[2]
+		self.attrSet(Str(args[1]), args[2])
 		return None, nil
 	}))
 	c.setAttr("__delitem__", mkfn("C.__delitem__", 2, func(args []Object) (Object, error) {
 		self := args[0].(*instanceObject)
-		delete(self.dict, Str(args[1]))
+		self.attrDel(Str(args[1]))
 		return None, nil
 	}))
 	x := inst(c)
@@ -99,7 +100,7 @@ func TestInstanceSubscript(t *testing.T) {
 	if err := DelItem(x, NewStr("k")); err != nil {
 		t.Fatalf("DelItem: %v", err)
 	}
-	if _, ok := x.dict["k"]; ok {
+	if _, ok := x.attrGet("k"); ok {
 		t.Fatal("DelItem did not remove the key")
 	}
 }
@@ -113,15 +114,16 @@ func TestInstanceIterNext(t *testing.T) {
 	}))
 	c.setAttr("__next__", mkfn("C.__next__", 1, func(args []Object) (Object, error) {
 		self := args[0].(*instanceObject)
-		i, _ := AsInt(self.dict["i"])
+		iv, _ := self.attrGet("i")
+		i, _ := AsInt(iv)
 		if i >= 3 {
 			return nil, Raise("StopIteration", "")
 		}
-		self.dict["i"] = NewInt(i + 1)
+		self.attrSet("i", NewInt(i+1))
 		return NewInt(i + 1), nil
 	}))
 	x := inst(c)
-	x.dict["i"] = NewInt(0)
+	x.attrSet("i", NewInt(0))
 	it, err := Iter(x)
 	if err != nil {
 		t.Fatalf("Iter: %v", err)
