@@ -740,16 +740,34 @@ func Instantiate(c *classObject, pos []Object, kwNames []string, kwVals []Object
 		return callMetaInstance(c, pos, kwNames, kwVals)
 	}
 	// An exception class builds an *Exception, not a plain instance, so the
-	// result is raisable and carries the traceback machinery. This covers the
-	// default BaseException behaviour: the positional arguments become args and
-	// str/repr follow from them. A custom __init__/__new__ needs an instance
-	// with a dict to run against, which is a later slice, so such a class falls
-	// through to the ordinary instance path and stays unraisable for now.
-	if isExcClass(c) && !hasExcInitOverride(c) {
-		if len(kwNames) > 0 {
-			return nil, Raise(TypeError, "%s() takes no keyword arguments", c.name)
+	// result is raisable and carries the traceback machinery. The positional
+	// arguments seed args the way BaseException.__new__ does; a user __init__
+	// then runs against the exception itself as self, so it can reset args
+	// through super().__init__ and store attributes on the exception's dict.
+	if isExcClass(c) {
+		e := &Exception{Kind: c.name, Class: c, Args: pos}
+		init, ok := c.lookup("__init__")
+		if !ok {
+			if len(kwNames) > 0 {
+				return nil, Raise(TypeError, "%s() takes no keyword arguments", c.name)
+			}
+			return e, nil
 		}
-		return &Exception{Kind: c.name, Class: c, Args: pos}, nil
+		fn, ok := init.(*functionObject)
+		if !ok {
+			// A non-function __init__ needs the descriptor protocol to call,
+			// which waits on a later slice.
+			return nil, Raise(TypeError, "%s() argument after __init__ is not a plain function", c.name)
+		}
+		withSelf := append([]Object{e}, pos...)
+		ret, err := fn.bind(withSelf, kwNames, kwVals)
+		if err != nil {
+			return nil, err
+		}
+		if _, isNone := ret.(*noneObject); !isNone {
+			return nil, Raise(TypeError, "__init__() should return None, not '%s'", ret.TypeName())
+		}
+		return e, nil
 	}
 	inst := &instanceObject{cls: c, dict: map[string]Object{}}
 	init, ok := c.lookup("__init__")
@@ -774,21 +792,6 @@ func Instantiate(c *classObject, pos []Object, kwNames []string, kwVals []Object
 		return nil, Raise(TypeError, "__init__() should return None, not '%s'", ret.TypeName())
 	}
 	return inst, nil
-}
-
-// hasExcInitOverride reports whether an exception class customises its
-// construction with a user __init__ or __new__. The built-in exception classes
-// carry neither, so a plain `class E(Exception): pass` returns false and takes
-// the default *Exception path; a class that overrides either needs a real
-// instance to run against and waits on a later slice.
-func hasExcInitOverride(c *classObject) bool {
-	if _, ok := c.lookup("__init__"); ok {
-		return true
-	}
-	if _, ok := c.lookup("__new__"); ok {
-		return true
-	}
-	return false
 }
 
 // LoadAttr reads o.name as a value. On an instance the instance dict wins,
@@ -982,11 +985,13 @@ func instanceDict(x *instanceObject) (Object, error) {
 // vars() builtin. A non-instance has no __dict__, which is the TypeError vars()
 // gives on 3.14.
 func InstanceDict(o Object) (Object, error) {
-	x, ok := o.(*instanceObject)
-	if !ok {
-		return nil, Raise(TypeError, "vars() argument must have __dict__ attribute")
+	switch x := o.(type) {
+	case *instanceObject:
+		return instanceDict(x)
+	case *Exception:
+		return excDict(x)
 	}
-	return instanceDict(x)
+	return nil, Raise(TypeError, "vars() argument must have __dict__ attribute")
 }
 
 // classSubscript implements C[item] on a class. Subscription looks for a

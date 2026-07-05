@@ -290,7 +290,11 @@ func reprCore(o Object, strict bool) (string, error) {
 	case *dictItemsObject:
 		return reprSeqCore(x.d.itemSlice(), "dict_items([", "])", strict)
 	case *Exception:
-		// ClassName(args...) with repr-joined args, ValueError('boom').
+		// A user exception subclass may override __repr__; otherwise the default
+		// is ClassName(args...) with repr-joined args, ValueError('boom').
+		if s, ok, err := excSpecialStr(x, "__repr__"); ok {
+			return s, err
+		}
 		s, err := reprSeqCore(x.Args, "(", ")", strict)
 		if err != nil {
 			return "", err
@@ -343,6 +347,11 @@ func strCore(o Object, strict bool) (string, error) {
 	case *strObject:
 		return x.v, nil
 	case *Exception:
+		// A user exception subclass may override __str__; otherwise str is the
+		// message rendered from args, BaseException.__str__.
+		if s, ok, err := excSpecialStr(x, "__str__"); ok {
+			return s, err
+		}
 		return x.Text(), nil
 	case *instanceObject:
 		res, defined, err := instanceSpecial(x, "__str__")

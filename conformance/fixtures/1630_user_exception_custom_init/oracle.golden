@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+str [404] widget not found
+repr NotFound('widget not found')
+args ('widget not found',)
+type NotFound
+code 404 what widget
+is AppError True
+is Exception True
+issubclass True
+dict {'code': 404, 'message': 'widget not found', 'what': 'widget'}
+Keep args (1, 2) pair (1, 2) repr Keep(1, 2)
+bad caught negative context NoneType
+weird repr Weird<('a', 'b')> label W:('a', 'b')
+kw (7,) 7
+builtin extra {'detail': 'extra'}
+by base NotFound [404] gadget not found
+== exception:
+== stderr:

@@ -32,6 +32,13 @@ func NewSuper(start, obj Object) (Object, error) {
 		if hasInMRO(o.cls, sc) {
 			return &superObject{start: sc, obj: obj, objCls: o.cls}, nil
 		}
+	case *Exception:
+		// A user exception subclass runs its methods with the exception itself
+		// as self, so super() inside such a method walks the exception's class
+		// MRO the same way it does for an ordinary instance.
+		if o.Class != nil && hasInMRO(o.Class, sc) {
+			return &superObject{start: sc, obj: obj, objCls: o.Class}, nil
+		}
 	case *classObject:
 		// A class used as a subtype: super(Base, Sub) for a classmethod or
 		// __init_subclass__, where Sub subclasses Base and its own MRO is walked.
@@ -127,6 +134,15 @@ func superCallMethod(s *superObject, name string, args []Object) (Object, error)
 func objectDefaultCall(self Object, name string, args []Object) (Object, bool, error) {
 	switch name {
 	case "__init__":
+		// BaseException.__init__(self, *args) resets args to whatever it is
+		// called with, so a user exception's super().__init__(msg) replaces the
+		// constructor-seeded args. The cooperative walk falls off the end here
+		// because the built-in exception classes carry no method dict, so this
+		// is where the exception root initializer runs.
+		if e, ok := self.(*Exception); ok {
+			e.Args = append([]Object{}, args...)
+			return None, true, nil
+		}
 		if len(args) != 0 {
 			return nil, true, Raise(TypeError, "object.__init__() takes exactly one argument (the instance to initialize)")
 		}

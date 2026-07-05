@@ -76,7 +76,13 @@ func CallMethodKw(o Object, name string, pos []Object, kwNames []string, kwVals 
 // on 3.14.
 func excMethod(e *Exception, name string, args []Object) (Object, error) {
 	if name != "add_note" {
-		return nil, noAttr(e, name)
+		// A user exception method, or a callable stored on the instance, is
+		// resolved through the same attribute path a read takes and then called.
+		v, err := LoadAttr(e, name)
+		if err != nil {
+			return nil, err
+		}
+		return Call(v, args)
 	}
 	if len(args) != 1 {
 		return nil, Raise(TypeError, "BaseException.add_note() takes exactly one argument (%d given)", len(args))
@@ -155,7 +161,73 @@ func excLoadAttr(e *Exception, name string) (Object, error) {
 			}
 		}
 	}
+	if name == "__dict__" {
+		return excDict(e)
+	}
+	// A stored instance attribute wins over a class attribute of the same
+	// name, the ordinary instance-dict-first precedence.
+	if v, ok := e.Dict[name]; ok {
+		return v, nil
+	}
+	// A user exception subclass contributes methods and class variables through
+	// its MRO: a function binds the exception as self, a plain class value comes
+	// back as is. The built-in exception classes hold no method dict, so this
+	// only ever resolves a user override.
+	if e.Class != nil {
+		if v, ok := e.Class.lookup(name); ok {
+			if fn, ok := v.(*functionObject); ok {
+				return &boundMethod{fn: fn, self: e}, nil
+			}
+			return v, nil
+		}
+	}
 	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", e.Kind, name)
+}
+
+// excDict builds a snapshot of an exception's own attributes in insertion
+// order, backing e.__dict__ and vars(e). An exception that has never had an
+// attribute set reports an empty dict, matching CPython where every exception
+// carries a __dict__.
+func excDict(e *Exception) (Object, error) {
+	keys := make([]Object, 0, len(e.Dict))
+	vals := make([]Object, 0, len(e.Dict))
+	for _, k := range e.DictOrder {
+		v, ok := e.Dict[k]
+		if !ok {
+			continue
+		}
+		keys = append(keys, NewStr(k))
+		vals = append(vals, v)
+	}
+	return NewDict(keys, vals)
+}
+
+// excSpecialStr runs a user-defined __str__ or __repr__ off an exception's
+// class, binding the exception as self. handled is false when the class holds
+// no such override, so the caller falls back to the built-in rendering; the
+// built-in exception classes carry no method dict, so a plain subclass never
+// overrides and keeps the default text.
+func excSpecialStr(e *Exception, name string) (string, bool, error) {
+	if e.Class == nil {
+		return "", false, nil
+	}
+	v, ok := e.Class.lookup(name)
+	if !ok {
+		return "", false, nil
+	}
+	fn, ok := v.(*functionObject)
+	if !ok {
+		return "", false, nil
+	}
+	res, err := fn.bind([]Object{e}, nil, nil)
+	if err != nil {
+		return "", true, err
+	}
+	s, ok := res.(*strObject)
+	if !ok {
+		return "", true, Raise(TypeError, "%s returned non-string (type %s)", name, res.TypeName())
+	}
+	return s.v, true, nil
 }
 
 // excOrNone returns the exception as an Object, or None when the slot is
@@ -198,7 +270,17 @@ func excStoreAttr(e *Exception, name string, val Object) (bool, error) {
 		e.SuppressContext = bool(b.v)
 		return true, nil
 	}
-	return false, nil
+	// Every exception has a __dict__, so any other name is a plain instance
+	// attribute: a custom __init__ storing self.code, or a caller annotating a
+	// caught exception. The dict is allocated on first write.
+	if e.Dict == nil {
+		e.Dict = map[string]Object{}
+	}
+	if _, seen := e.Dict[name]; !seen {
+		e.DictOrder = append(e.DictOrder, name)
+	}
+	e.Dict[name] = val
+	return true, nil
 }
 
 // asCauseException validates the right-hand side of e.__cause__ = v or

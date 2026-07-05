@@ -64,6 +64,15 @@ type Exception struct {
 	// built-in exceptions, whose Kind alone resolves back to a class through
 	// ExcClass.
 	Class *classObject
+	// Dict is the exception's __dict__, the per-instance attribute store a
+	// custom __init__ writes self.name into and a caught exception exposes.
+	// Every exception carries one in CPython; here it is allocated on first
+	// write so a plain built-in raise stays a bare struct until something
+	// actually sets an attribute. DictOrder records insertion order so
+	// __dict__ and vars() report attributes the way CPython's ordered dict
+	// does.
+	Dict      map[string]Object
+	DictOrder []string
 }
 
 func (e *Exception) TypeName() string { return e.Kind }
@@ -95,6 +104,17 @@ func (e *Exception) Text() string {
 // str(e) is empty, matching `raise ValueError` vs `raise ValueError("x")`.
 func (e *Exception) Error() string {
 	if s := e.Text(); s != "" {
+		return e.Kind + ": " + s
+	}
+	return e.Kind
+}
+
+// ExcMessageLine is the final traceback line with a user __str__ dispatched:
+// "Kind: str(e)", or the bare kind when str is empty. Error uses the built-in
+// Text, so the traceback renderer calls this instead to honour a subclass that
+// overrides __str__.
+func ExcMessageLine(e *Exception) string {
+	if s := Str(e); s != "" {
 		return e.Kind + ": " + s
 	}
 	return e.Kind
