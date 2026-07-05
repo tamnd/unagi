@@ -342,6 +342,11 @@ func TypeOf(o objects.Object) objects.Object {
 	if cls, ok := objects.ClassOf(o); ok {
 		return cls
 	}
+	// A class created through a user metaclass reports that metaclass; a class
+	// on the default metatype falls through to the `type` builtin below.
+	if meta, ok := objects.UserMetaOf(o); ok {
+		return meta
+	}
 	if name, ok := objects.BuiltinFuncName(o); ok {
 		// int/str/... and type itself are type constructors, so their type is
 		// the metatype; every other builtin function is built-in-function typed.

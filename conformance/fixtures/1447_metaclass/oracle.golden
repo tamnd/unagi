@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+new Meta C [('tag', 5)]
+init C
+type(C)= Meta
+type(C())= C
+C.tag= 5 C.x= 1
+isinstance(C, Meta)= True
+isinstance(C, type)= True
+c.m()= 1
+new Meta Sub []
+init Sub
+type(Sub)= Meta Sub.tag= 0
+type(D)= InitMeta D.stamped= True
+new Deep E []
+init E
+type(E)= Deep
+type(F)= type
+conflict: metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases
+== exception:
+== stderr:
