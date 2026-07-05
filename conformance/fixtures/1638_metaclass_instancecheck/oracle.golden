@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+isinstance(Circle(), Drawable): True
+isinstance(Square(), Drawable): False
+isinstance(Triangle(), Drawable): True
+issubclass(Circle, Drawable): True
+issubclass(Square, Drawable): False
+issubclass(Triangle, Drawable): True
+isinstance(Sub(), Drawable): False
+issubclass(Sub, Drawable): False
+isinstance(Circle(), (Drawable, int)): True
+isinstance(Square(), (Drawable, str)): False
+isinstance(Derived(), Base): True
+issubclass(Derived, Base): True
+propagated: no checks here
+== exception:
+== stderr:

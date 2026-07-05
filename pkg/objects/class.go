@@ -569,6 +569,37 @@ func instanceOfBuiltin(obj Object, name string) bool {
 	}
 }
 
+// metaCheckHook consults a user metaclass override of name (__instancecheck__ for
+// isinstance, __subclasscheck__ for issubclass) on the class c, calling it with c
+// as self and arg as the checked object. A user override decides the answer
+// outright, even against a real subclass, the way CPython routes isinstance and
+// issubclass through the metatype. handled is false when c rides the default type
+// metatype or its metaclass does not define name, so the caller keeps the
+// structural MRO walk that reproduces type's own check.
+func metaCheckHook(c *classObject, name string, arg Object) (Object, bool, error) {
+	meta, ok := userMetaclass(c)
+	if !ok {
+		return nil, false, nil
+	}
+	v, ok := meta.lookup(name)
+	if !ok {
+		return nil, false, nil
+	}
+	fn, ok := v.(*functionObject)
+	if !ok {
+		return nil, false, nil
+	}
+	r, err := fn.bind([]Object{c, arg}, nil, nil)
+	if err != nil {
+		return nil, true, err
+	}
+	t, err := TruthOf(r)
+	if err != nil {
+		return nil, true, err
+	}
+	return NewBool(t), true, nil
+}
+
 // IsInstance implements isinstance(obj, cls). cls is a class, a builtin type, or
 // a tuple of those; anything else raises the arg 2 TypeError probed on 3.14. A
 // user instance matches when cls is in its MRO or is the object root; a builtin
@@ -587,6 +618,9 @@ func IsInstance(obj, cls Object) (Object, error) {
 		return False, nil
 	}
 	if c, ok := cls.(*classObject); ok {
+		if r, handled, err := metaCheckHook(c, "__instancecheck__", obj); handled {
+			return r, err
+		}
 		if c == objectClass {
 			return True, nil
 		}
@@ -644,7 +678,7 @@ func IsSubclass(sub, cls Object) (Object, error) {
 		return subclassOf(sc, cls)
 	}
 	if sname, ok := builtinTypeArgName(sub); ok {
-		return builtinSubclassOf(sname, cls)
+		return builtinSubclassOf(sub, sname, cls)
 	}
 	return nil, Raise(TypeError, "issubclass() arg 1 must be a class")
 }
@@ -663,6 +697,9 @@ func subclassOf(sc *classObject, cls Object) (Object, error) {
 		return False, nil
 	}
 	if c, ok := cls.(*classObject); ok {
+		if r, handled, err := metaCheckHook(c, "__subclasscheck__", sc); handled {
+			return r, err
+		}
 		if c == objectClass {
 			return True, nil
 		}
@@ -686,10 +723,10 @@ func subclassOf(sc *classObject, cls Object) (Object, error) {
 // builtinSubclassOf answers issubclass when the first argument is a builtin
 // type. A builtin type descends only from itself, from object, and bool from
 // int; it is never a subclass of a user class.
-func builtinSubclassOf(sname string, cls Object) (Object, error) {
+func builtinSubclassOf(sub Object, sname string, cls Object) (Object, error) {
 	if t, ok := cls.(*tupleObject); ok {
 		for _, e := range t.elts {
-			r, err := builtinSubclassOf(sname, e)
+			r, err := builtinSubclassOf(sub, sname, e)
 			if err != nil {
 				return nil, err
 			}
@@ -700,6 +737,9 @@ func builtinSubclassOf(sname string, cls Object) (Object, error) {
 		return False, nil
 	}
 	if c, ok := cls.(*classObject); ok {
+		if r, handled, err := metaCheckHook(c, "__subclasscheck__", sub); handled {
+			return r, err
+		}
 		if c == objectClass {
 			return True, nil
 		}
