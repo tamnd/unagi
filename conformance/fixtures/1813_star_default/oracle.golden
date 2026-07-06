@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+helper: helper-tag
+pub: pub
+greet: hi
+Widget: w
+visible: provider-visible
+ghost: original-ghost
+hidden: NameError name '_hidden' is not defined
+== exception:
+== stderr:

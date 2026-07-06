@@ -171,6 +171,20 @@ func RelativeImportError(msg string) (objects.Object, error) {
 	return nil, objects.Raise(objects.ImportError, "%s", msg)
 }
 
+// StarLoad reads one name for `from m import *` under the default rule, where
+// only names actually bound at star time transfer. ok is false when the name
+// is currently unbound, and the caller leaves its own binding untouched;
+// CPython's star import skips such names rather than clearing them. The
+// __all__ form does not come through here: it reads each listed name with a
+// normal attribute load so a missing one raises AttributeError.
+func StarLoad(mod objects.Object, name string) (objects.Object, bool) {
+	m, ok := mod.(*objects.Module)
+	if !ok {
+		return nil, false
+	}
+	return m.Get(name)
+}
+
 // LoadModuleName reads a name the module's compile never saw statically: an
 // attribute an importer set on the module object after import. A miss falls
 // back to builtins and then raises NameError, the LOAD_GLOBAL order.

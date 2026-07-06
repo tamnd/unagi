@@ -229,7 +229,7 @@ func (f *fnCtx) importStmt(s *frontend.Import) error {
 // gives when the statement executes. Star imports wait for their own slice.
 func (f *fnCtx) importFrom(s *frontend.ImportFrom) error {
 	if s.Star {
-		return f.e.errf(s.Span(), "import * is not supported yet")
+		return f.starImport(s)
 	}
 	module := s.Module
 	if s.Level > 0 {
@@ -247,6 +247,65 @@ func (f *fnCtx) importFrom(s *frontend.ImportFrom) error {
 		tmp := f.tmpVar()
 		f.fallible(tmp, sel("runtime", "ImportFrom"), strLit(module), strLit(a.Name))
 		f.add(set(ident(mangle(a.Bound())), ident(tmp)))
+	}
+	return nil
+}
+
+// starImport lowers `from m import *`. It is a compile error inside a
+// function, CPython's "import * only allowed at module level" SyntaxError. At
+// module level the module executes, then a module with a literal __all__ binds
+// each listed name with a checked attribute load so a missing one raises
+// AttributeError after the earlier binds took effect, while any other module
+// binds every public name under the default rule, skipping names not bound at
+// star time. An impossible relative form raises when the statement runs, and a
+// module missing from the compile surfaces its ModuleNotFoundError through the
+// bare import.
+func (f *fnCtx) starImport(s *frontend.ImportFrom) error {
+	if f.inFunc {
+		return f.e.errf(s.Span(), "import * only allowed at module level")
+	}
+	if s.Level > 0 {
+		pack, known := f.e.selfPackage()
+		if !known || pack == "" {
+			tmp := f.tmpVar()
+			f.fallible(tmp, sel("runtime", "RelativeImportError"),
+				strLit("attempted relative import with no known parent package"))
+			f.add(set(ident("_"), ident(tmp)))
+			return nil
+		}
+		if _, ok := RelativeName(pack, s.Level, s.Module); !ok {
+			tmp := f.tmpVar()
+			f.fallible(tmp, sel("runtime", "RelativeImportError"),
+				strLit("attempted relative import beyond top-level package"))
+			f.add(set(ident("_"), ident(tmp)))
+			return nil
+		}
+	}
+	module, _ := f.e.starModule(s)
+	imp := f.tmpVar()
+	f.fallible(imp, sel("runtime", "ImportModule"), strLit(module))
+	exp, ok := f.e.stars[module]
+	if !ok {
+		// The module was not compiled: the import above already raised, so
+		// there is nothing to bind. Keep the module object referenced.
+		f.add(set(ident("_"), ident(imp)))
+		return nil
+	}
+	if exp.All != nil {
+		for _, n := range exp.All {
+			tmp := f.tmpVar()
+			f.fallible(tmp, sel("objects", "LoadAttr"), ident(imp), strLit(n))
+			f.add(set(ident(mangle(n)), ident(tmp)))
+		}
+		return nil
+	}
+	for _, n := range exp.Names {
+		f.add(&ast.IfStmt{
+			Init: assign(token.DEFINE, []ast.Expr{ident("v"), ident("ok")},
+				callExpr(sel("runtime", "StarLoad"), ident(imp), strLit(n))),
+			Cond: ident("ok"),
+			Body: block(set(ident(mangle(n)), ident("v"))),
+		})
 	}
 	return nil
 }

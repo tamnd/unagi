@@ -12,8 +12,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"runtime/debug"
+	"sort"
 	"strings"
 
 	"github.com/tamnd/unagi/pkg/frontend"
@@ -40,11 +40,11 @@ func Build(ctx context.Context, pyPath string, opts Options) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	goSrc, err := lower.Module(mod, pyPath, src)
+	mods, stars, err := collectModules(pyPath, mod)
 	if err != nil {
 		return "", err
 	}
-	mods, err := collectModules(pyPath, mod)
+	goSrc, err := lower.ModuleStars(mod, pyPath, src, stars)
 	if err != nil {
 		return "", err
 	}
@@ -128,11 +128,22 @@ type pymod struct {
 // to a plain module, and the import raises ModuleNotFoundError at runtime
 // the way CPython does. The result is ordered by first discovery, breadth
 // within one module sorted by name, so the generated table is deterministic.
-func collectModules(pyPath string, entry *frontend.Module) ([]pymod, error) {
+func collectModules(pyPath string, entry *frontend.Module) ([]pymod, map[string]lower.StarExports, error) {
 	dir := filepath.Dir(pyPath)
 	seen := map[string]bool{}
 	seenPkg := map[string]bool{}
-	var out []pymod
+	// Discover and parse the whole import graph first, in first-seen order,
+	// then lower every module in a second pass. Star imports need each
+	// module's export list up front, so the discovery pass cannot lower as it
+	// goes the way a single pass would.
+	type parsed struct {
+		name string
+		file string
+		pkg  bool
+		src  []byte
+		mod  *frontend.Module
+	}
+	var found []parsed
 	var visit func(body []frontend.Stmt, pack string) error
 	compile := func(name, file string, pkg bool) error {
 		src, err := os.ReadFile(file)
@@ -143,11 +154,7 @@ func collectModules(pyPath string, entry *frontend.Module) ([]pymod, error) {
 		if err != nil {
 			return err
 		}
-		goSrc, err := lower.PyModule(m, name, file, src)
-		if err != nil {
-			return err
-		}
-		out = append(out, pymod{name: name, file: file, pkg: pkg, src: goSrc})
+		found = append(found, parsed{name: name, file: file, pkg: pkg, src: src, mod: m})
 		// The module's own package context, for resolving its relative
 		// imports: a package is its own parent, a submodule belongs to the
 		// package above it, a top-level module to none.
@@ -198,9 +205,21 @@ func collectModules(pyPath string, entry *frontend.Module) ([]pymod, error) {
 		return nil
 	}
 	if err := visit(entry.Body, ""); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return out, nil
+	stars := map[string]lower.StarExports{}
+	for _, p := range found {
+		stars[p.name] = lower.ModuleExports(p.mod)
+	}
+	out := make([]pymod, 0, len(found))
+	for _, p := range found {
+		goSrc, err := lower.PyModuleStars(p.mod, p.name, p.file, p.src, stars)
+		if err != nil {
+			return nil, nil, err
+		}
+		out = append(out, pymod{name: p.name, file: p.file, pkg: p.pkg, src: goSrc})
+	}
+	return out, stars, nil
 }
 
 // resolvePy maps a dotted module name onto disk under dir: a package

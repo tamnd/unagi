@@ -180,11 +180,13 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 			f.fallible(tmp, sel("runtime", "LoadModuleName"), ident("thisModule"), strLit(e.Id))
 			return ident(tmp), nil
 		}
-		if f.inFunc {
+		if f.inFunc || f.e.hasStar {
 			// Inside a function an unresolved name is a global lookup deferred
 			// to call time: CPython raises NameError then, not at compile
 			// time, so a def can reference a module name defined later or
-			// never. LoadName on a nil value produces exactly that error.
+			// never. A module with a star import defers every unknown name the
+			// same way, since the star can bind it at runtime. LoadName on a
+			// nil value produces exactly that error when the name stays unbound.
 			tmp := f.tmpVar()
 			f.fallible(tmp, sel("runtime", "LoadName"), ident("nil"), strLit(e.Id))
 			return ident(tmp), nil
