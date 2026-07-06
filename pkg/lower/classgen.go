@@ -3,6 +3,8 @@ package lower
 import (
 	"fmt"
 	"go/ast"
+	"sort"
+	"strconv"
 
 	"github.com/tamnd/unagi/pkg/frontend"
 )
@@ -45,13 +47,17 @@ func (e *emitter) emitClassMethods(c *frontend.ClassDef) ([]methodEmit, error) {
 	return out, nil
 }
 
-// classDef lowers a class statement to the runtime class build. The body
-// runs top to bottom: class-variable expressions evaluate in place and each
-// method becomes a function object, then objects.NewClass folds the bound
-// names into the type object and the class name binds to it. Bases are the
-// written base classes; the C3 MRO is computed inside NewClass. Metaclasses,
-// descriptors, and super are a later slice, and the body is restricted to
-// methods and simple class-variable assignments.
+// classDef lowers a class statement to the runtime class build, following
+// CPython's __build_class__ order: bases and keywords evaluate, then
+// objects.StartClass determines the metaclass, calls its __prepare__ for the
+// namespace, and writes the synthesized header members; the body runs top to
+// bottom with every binding written into that namespace through the item
+// protocol; and Finish writes __static_attributes__ and hands the populated
+// namespace to the metaclass. Class-variable expressions evaluate in place
+// and each method becomes a function object. The body is restricted to
+// methods and simple class-variable assignments, and a name a __prepare__
+// mapping pre-seeds is readable as a class attribute afterwards but not from
+// the body itself, which resolves names at compile time.
 func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 	if f.inFunc {
 		return f.e.errf(s.Span(), "class definition inside a function is not supported yet")
@@ -77,8 +83,8 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 
 		// Class keyword arguments evaluate after the bases in source order. A
 		// metaclass= argument is pulled out to drive metaclass determination; every
-		// other name is threaded to BuildClass, which hands them to a metaclass
-		// hook or __init_subclass__.
+		// other name is threaded to StartClass, which hands them to __prepare__, a
+		// metaclass hook, or __init_subclass__.
 		metaArg := ast.Expr(ident("nil"))
 		var kwNames []string
 		var kwVals []ast.Expr
@@ -95,17 +101,45 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 			kwVals = append(kwVals, kv)
 		}
 
-		var names []string
-		var vals []ast.Expr
+		// A body opening with a docstring hands it to StartClass so __doc__
+		// lands in the namespace right after the header members, where CPython
+		// writes it; the body walk below still discards the bare literal.
+		docExpr := ast.Expr(ident("nil"))
+		if len(s.Body) > 0 {
+			if es, ok := s.Body[0].(*frontend.ExprStmt); ok {
+				if sl, ok := es.X.(*frontend.StrLit); ok {
+					d, err := f.expr(sl)
+					if err != nil {
+						return nil, err
+					}
+					docExpr = d
+				}
+			}
+		}
+
+		// StartClass runs metaclass determination and __prepare__, both
+		// fallible, and hands back the builder every body binding writes
+		// through.
+		bld := f.tmpVar()
+		f.fallible(bld, f.e.obj("StartClass"),
+			metaArg,
+			strLit(s.Name),
+			strLit("__main__."+s.Name),
+			intLit(strconv.Itoa(s.Span().Line)),
+			docExpr,
+			f.objSlice(baseArgs),
+			strSliceLit(kwNames),
+			f.objSlice(kwVals))
+
 		// bind spills a class-body value to a temp, records it under name so a
 		// later class-var initializer or method decorator can read it, and
-		// tracks name and the temp for the NewClass call. A name written twice
-		// keeps its last value, the plain dict overwrite a class body performs.
+		// writes it into the class namespace, where a custom __prepare__
+		// mapping's __setitem__ observes it. A name written twice keeps its
+		// last value, the plain dict overwrite a class body performs.
 		bind := func(name string, v ast.Expr) {
 			t := f.tmpVar()
 			f.add(define(ident(t), v))
-			names = append(names, name)
-			vals = append(vals, ident(t))
+			f.fallibleVoid(sel(bld, "Set"), strLit(name), ident(t))
 			f.classLocals[name] = ident(t)
 		}
 		// The class namespace is visible to later class-body code but not to
@@ -189,18 +223,11 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 				return nil, f.e.errf(st.Span(), "statement not supported in a class body yet")
 			}
 		}
-		// NewClass runs C3 linearization and can raise on an inconsistent or
-		// non-type base, so it lowers to a checked call spilled to a temp.
+		// Finish writes __static_attributes__ and runs C3 linearization and
+		// the metaclass call, any of which can raise, so it lowers to a
+		// checked call spilled to a temp.
 		cls := f.tmpVar()
-		f.fallible(cls, f.e.obj("BuildClass"),
-			metaArg,
-			strLit(s.Name),
-			strLit("__main__."+s.Name),
-			f.objSlice(baseArgs),
-			strSliceLit(names),
-			f.objSlice(vals),
-			strSliceLit(kwNames),
-			f.objSlice(kwVals))
+		f.fallible(cls, sel(bld, "Finish"), strSliceLit(staticAttrs(s.Body)))
 		return ident(cls), nil
 	}
 
@@ -218,4 +245,90 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 	}
 	f.add(set(ident(mangle(s.Name)), obj))
 	return nil
+}
+
+// staticAttrs collects the attribute names the class's functions assign on a
+// name spelled exactly `self`, sorted and deduplicated: the tuple CPython's
+// compiler synthesizes into the class namespace as __static_attributes__. The
+// probe on 3.14 pins the rule: assignment targets count (plain, augmented,
+// annotated, unpacked, for and with targets), deletes do not, the receiver
+// must be the literal name self whatever the method calls its first parameter,
+// and nested defs inside a method count too.
+func staticAttrs(body []frontend.Stmt) []string {
+	seen := map[string]bool{}
+	var target func(e frontend.Expr)
+	target = func(e frontend.Expr) {
+		switch e := e.(type) {
+		case *frontend.Attribute:
+			if n, ok := e.X.(*frontend.Name); ok && n.Id == "self" {
+				seen[e.Name] = true
+			}
+		case *frontend.TupleLit:
+			for _, x := range e.Elts {
+				target(x)
+			}
+		case *frontend.ListLit:
+			for _, x := range e.Elts {
+				target(x)
+			}
+		case *frontend.Starred:
+			target(e.X)
+		}
+	}
+	var walk func(list []frontend.Stmt)
+	walk = func(list []frontend.Stmt) {
+		for _, s := range list {
+			switch s := s.(type) {
+			case *frontend.Assign:
+				for _, t := range s.Targets {
+					target(t)
+				}
+			case *frontend.AugAssign:
+				target(s.Target)
+			case *frontend.AnnAssign:
+				target(s.Target)
+			case *frontend.If:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.While:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.For:
+				target(s.Target)
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.With:
+				for _, it := range s.Items {
+					if it.Target != nil {
+						target(it.Target)
+					}
+				}
+				walk(s.Body)
+			case *frontend.Try:
+				walk(s.Body)
+				for _, h := range s.Handlers {
+					walk(h.Body)
+				}
+				walk(s.OrElse)
+				walk(s.Final)
+			case *frontend.Match:
+				for _, c := range s.Cases {
+					walk(c.Body)
+				}
+			case *frontend.FuncDef:
+				walk(s.Body)
+			}
+		}
+	}
+	for _, st := range body {
+		if fn, ok := st.(*frontend.FuncDef); ok {
+			walk(fn.Body)
+		}
+	}
+	names := make([]string, 0, len(seen))
+	for n := range seen {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
 }

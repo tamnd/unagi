@@ -2,11 +2,27 @@ package objects
 
 import "testing"
 
+// buildClass drives the ClassBuilder the way a lowered class statement does:
+// StartClass, one Set per body binding, Finish. It keeps these tests on the
+// ordered name/value shape they assert against.
+func buildClass(meta Object, name, qual string, bases []Object, names []string, vals []Object, kwNames []string, kwVals []Object) (Object, error) {
+	b, err := StartClass(meta, name, qual, 1, nil, bases, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	for i, n := range names {
+		if err := b.Set(n, vals[i]); err != nil {
+			return nil, err
+		}
+	}
+	return b.Finish(nil)
+}
+
 // newMetaclass builds a bare metaclass deriving from type, the way a class
 // statement `class M(type): pass` would.
 func newMetaclass(t *testing.T, name string) *classObject {
 	t.Helper()
-	m, err := BuildClass(nil, name, "__main__."+name, []Object{typeClass}, nil, nil, nil, nil)
+	m, err := buildClass(nil, name, "__main__."+name, []Object{typeClass}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("build metaclass %s: %v", name, err)
 	}
@@ -18,7 +34,7 @@ func newMetaclass(t *testing.T, name string) *classObject {
 }
 
 func TestBuildClassDefaultMetatype(t *testing.T) {
-	c, err := BuildClass(nil, "C", "__main__.C", nil, []string{"x"}, []Object{NewInt(1)}, nil, nil)
+	c, err := buildClass(nil, "C", "__main__.C", nil, []string{"x"}, []Object{NewInt(1)}, nil, nil)
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
@@ -33,7 +49,7 @@ func TestBuildClassDefaultMetatype(t *testing.T) {
 
 func TestBuildClassThroughMetaclass(t *testing.T) {
 	m := newMetaclass(t, "M")
-	c, err := BuildClass(m, "C", "__main__.C", nil, nil, nil, nil, nil)
+	c, err := buildClass(m, "C", "__main__.C", nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("build through metaclass: %v", err)
 	}
@@ -54,15 +70,15 @@ func TestMetaclassConflict(t *testing.T) {
 	m1 := newMetaclass(t, "M1")
 	m2 := newMetaclass(t, "M2")
 	// Two bases carrying unrelated metaclasses cannot be combined.
-	a, err := BuildClass(m1, "A", "__main__.A", nil, nil, nil, nil, nil)
+	a, err := buildClass(m1, "A", "__main__.A", nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := BuildClass(m2, "B", "__main__.B", nil, nil, nil, nil, nil)
+	b, err := buildClass(m2, "B", "__main__.B", nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = BuildClass(nil, "Z", "__main__.Z", []Object{a, b}, nil, nil, nil, nil)
+	_, err = buildClass(nil, "Z", "__main__.Z", []Object{a, b}, nil, nil, nil, nil)
 	checkErr(t, "metaclass conflict", err,
 		"TypeError: metaclass conflict: the metaclass of a derived class "+
 			"must be a (non-strict) subclass of the metaclasses of all its bases")
@@ -71,16 +87,16 @@ func TestMetaclassConflict(t *testing.T) {
 func TestMostDerivedMetaclassWins(t *testing.T) {
 	base := newMetaclass(t, "Base")
 	// Derived subclasses Base, so it is chosen over Base when both apply.
-	derived, err := BuildClass(nil, "Derived", "__main__.Derived", []Object{base}, nil, nil, nil, nil)
+	derived, err := buildClass(nil, "Derived", "__main__.Derived", []Object{base}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	dc := derived.(*classObject)
-	a, err := BuildClass(base, "A", "__main__.A", nil, nil, nil, nil, nil)
+	a, err := buildClass(base, "A", "__main__.A", nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	z, err := BuildClass(dc, "Z", "__main__.Z", []Object{a}, nil, nil, nil, nil)
+	z, err := buildClass(dc, "Z", "__main__.Z", []Object{a}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("most-derived build: %v", err)
 	}
@@ -92,11 +108,11 @@ func TestMostDerivedMetaclassWins(t *testing.T) {
 func TestMetaclassMustDeriveFromType(t *testing.T) {
 	// A plain class used as a metaclass is the callable-metaclass feature, still
 	// rejected in this tier.
-	plain, err := BuildClass(nil, "Plain", "__main__.Plain", nil, nil, nil, nil, nil)
+	plain, err := buildClass(nil, "Plain", "__main__.Plain", nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = BuildClass(plain, "C", "__main__.C", nil, nil, nil, nil, nil)
+	_, err = buildClass(plain, "C", "__main__.C", nil, nil, nil, nil, nil)
 	checkErr(t, "non-type metaclass", err,
 		"TypeError: a metaclass that does not derive from type is not supported yet")
 }
@@ -132,14 +148,14 @@ func TestMetaclassAttrReadPrecedence(t *testing.T) {
 	valProp := NewProperty(NewFunc("val", 1, func([]Object) (Object, error) {
 		return NewStr("from-meta"), nil
 	}), nil, nil)
-	m, err := BuildClass(nil, "M", "__main__.M",
+	m, err := buildClass(nil, "M", "__main__.M",
 		[]Object{typeClass}, []string{"greet", "kind", "val"},
 		[]Object{greet, NewStr("meta-kind"), valProp}, nil, nil)
 	if err != nil {
 		t.Fatalf("build metaclass: %v", err)
 	}
 	// C binds the metaclass; its own dict carries kind and val.
-	c, err := BuildClass(m, "C", "__main__.C", nil,
+	c, err := buildClass(m, "C", "__main__.C", nil,
 		[]string{"kind", "val"}, []Object{NewStr("class-kind"), NewStr("class-val")}, nil, nil)
 	if err != nil {
 		t.Fatalf("build class: %v", err)
@@ -184,12 +200,12 @@ func TestMetaclassDescriptorWrite(t *testing.T) {
 		}),
 	)
 	ro := NewProperty(NewFunc("get", 1, func([]Object) (Object, error) { return None, nil }), nil, nil)
-	m, err := BuildClass(nil, "M", "__main__.M",
+	m, err := buildClass(nil, "M", "__main__.M",
 		[]Object{typeClass}, []string{"store", "ro"}, []Object{store, ro}, nil, nil)
 	if err != nil {
 		t.Fatalf("build metaclass: %v", err)
 	}
-	c, err := BuildClass(m, "C", "__main__.C", nil, nil, nil, nil, nil)
+	c, err := buildClass(m, "C", "__main__.C", nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("build class: %v", err)
 	}
@@ -254,7 +270,7 @@ func TestMetaclassDirectCall(t *testing.T) {
 
 func TestSuperBindsClassAsMetaclassInstance(t *testing.T) {
 	m := newMetaclass(t, "M")
-	c, err := BuildClass(m, "C", "__main__.C", nil, nil, nil, nil, nil)
+	c, err := buildClass(m, "C", "__main__.C", nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

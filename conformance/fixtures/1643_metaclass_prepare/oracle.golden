@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+prepare: Meta Vars 0 ['flavor']
+new sees: ['__module__', '__qualname__', '__firstlineno__', '__doc__', 'a', 'b', 'a', '__static_attributes__']
+init same ns: True
+Vars.a: 3
+Vars.b: 2
+Vars.__doc__: vars doc
+Vars.__module__: __main__
+Vars.__firstlineno__: 39
+bound: kind
+bound: clear
+static: ('deep', 'extra', 'tag', 'v')
+m.v: 5
+plain prepare: Seeded
+Seeded.injected: 42
+bad prep: BadPrep.__prepare__() must return a mapping, not int
+raising prep: prep boom
+pure ns to type.__new__: type.__new__() argument 3 must be dict, not LogNS
+Ordinary.__module__: __main__
+Ordinary.__doc__: ordinary doc
+Ordinary.__firstlineno__: 133
+Ordinary static: ('z',)
+== exception:
+== stderr:

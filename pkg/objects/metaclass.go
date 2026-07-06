@@ -1,35 +1,11 @@
 package objects
 
-// Metaclasses drive class creation. A class statement hands its bases and body
-// to BuildClass, which picks the winning metaclass the way CPython does, then
-// either builds the class directly on the default `type` metatype or dispatches
-// through the winning metaclass's __new__ and __init__. The determination and
-// the metaclass-conflict wording are probed on 3.14.
-
-// BuildClass creates a class from a class statement. meta is the explicit
-// metaclass= argument or nil; name and qual are the class name and its
-// module-qualified form; bases, names, and vals are the base list and the
-// ordered body bindings; kwNames and kwVals are the remaining class keyword
-// arguments, which reach __init_subclass__ or a metaclass hook. The default
-// metatype keeps the direct build so an ordinary class is untouched.
-func BuildClass(meta Object, name, qual string, bases []Object, names []string, vals []Object, kwNames []string, kwVals []Object) (Object, error) {
-	var explicit *classObject
-	if meta != nil {
-		m, err := metaclassValue(meta)
-		if err != nil {
-			return nil, err
-		}
-		explicit = m
-	}
-	winner, err := determineMeta(explicit, bases)
-	if err != nil {
-		return nil, err
-	}
-	if winner == typeClass {
-		return newClassCore(nil, name, qual, bases, names, vals, kwNames, kwVals)
-	}
-	return callMetaclass(winner, name, qual, bases, names, vals, kwNames, kwVals)
-}
+// Metaclasses drive class creation. A class statement runs through a
+// ClassBuilder (prepare.go), which picks the winning metaclass the way CPython
+// does, asks its __prepare__ for the namespace, and then either builds the
+// class directly on the default `type` metatype or dispatches through the
+// winning metaclass's __new__ and __init__ here. The determination and the
+// metaclass-conflict wording are probed on 3.14.
 
 // metaclassValue resolves an explicit metaclass= argument to the metaclass it
 // names. The `type` metatype and a class deriving from it are metaclasses; a
@@ -104,24 +80,27 @@ func metaIsSubclass(a, b *classObject) bool {
 
 // callMetaclass runs the class-creation protocol on a user metaclass: __new__
 // builds the class, then __init__ initializes it when the result is an instance
-// of the metaclass. The default metatype slots keep the direct build so
-// __init_subclass__ still receives the class keywords; a user __new__ takes the
-// (metaclass, name, bases, namespace) arguments and the class keywords, and a
-// user __init__ takes the class in place of the metaclass.
-func callMetaclass(m *classObject, name, qual string, bases []Object, names []string, vals []Object, kwNames []string, kwVals []Object) (Object, error) {
+// of the metaclass. ns is the namespace the class body populated, and the same
+// object reaches both hooks the way __build_class__ passes its single cell; a
+// user __new__ takes the (metaclass, name, bases, namespace) arguments and the
+// class keywords, and a user __init__ takes the class in place of the
+// metaclass. The default metatype slots keep the direct build, which requires
+// a real dict namespace exactly where type.__new__ does, so a custom mapping
+// forwarded to the default __new__ raises the argument-3 wording.
+func callMetaclass(m *classObject, name, qual string, bases []Object, ns Object, kwNames []string, kwVals []Object) (Object, error) {
 	newFn, _ := m.lookup("__new__")
 	var cls Object
 	var err error
 	if newFn == typeClass.dict["__new__"] {
+		names, vals, err := nsBodyItems(ns)
+		if err != nil {
+			return nil, err
+		}
 		cls, err = newClassCore(m, name, qual, bases, names, vals, kwNames, kwVals)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		ns, err := metaNamespace(names, vals)
-		if err != nil {
-			return nil, err
-		}
 		cls, err = CallKw(newFn, []Object{m, NewStr(name), metaBasesTuple(bases), ns}, kwNames, kwVals)
 		if err != nil {
 			return nil, err
@@ -137,10 +116,6 @@ func callMetaclass(m *classObject, name, qual string, bases []Object, names []st
 	initFn, _ := m.lookup("__init__")
 	if initFn == typeClass.dict["__init__"] {
 		return cls, nil
-	}
-	ns, err := metaNamespace(names, vals)
-	if err != nil {
-		return nil, err
 	}
 	if _, err := CallKw(initFn, []Object{cls, NewStr(name), metaBasesTuple(bases), ns}, kwNames, kwVals); err != nil {
 		return nil, err
@@ -190,15 +165,4 @@ func metaBasesTuple(bases []Object) Object {
 		}
 	}
 	return NewTuple(elts)
-}
-
-// metaNamespace builds the namespace dict a metaclass __new__ or __init__ sees.
-// It carries the body-bound names in definition order; the compiler-synthesized
-// members CPython also places here are not modelled yet.
-func metaNamespace(names []string, vals []Object) (Object, error) {
-	keys := make([]Object, len(names))
-	for i, n := range names {
-		keys[i] = NewStr(n)
-	}
-	return NewDict(keys, vals)
 }
