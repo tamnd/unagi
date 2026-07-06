@@ -44,6 +44,11 @@ type generatorObject struct {
 	ret     Object // StopIteration value once the body has returned
 	resume  chan genSignal
 	out     chan genEvent
+	// excSeg stashes the handled-stack entries the body pushed and had not yet
+	// popped when it last suspended, CPython's gi_exc_state: a yield inside an
+	// except block takes its in-flight exception off the shared stack while the
+	// consumer runs and puts it back on resume.
+	excSeg []*Exception
 }
 
 func (*generatorObject) TypeName() string { return "generator" }
@@ -165,8 +170,15 @@ func (g *generatorObject) step(sig genSignal) (val, ret Object, done bool, err e
 		g.start()
 	}
 	g.running = true
+	// The body's stashed handler entries go back on top of the consumer's
+	// stack while it runs and come off again at the next suspension. The
+	// channels enforce strict ping-pong, so only one side touches the stack
+	// at a time and each send carries the happens-before edge.
+	base := pushHandledSegment(g.excSeg)
+	g.excSeg = nil
 	g.resume <- sig
 	ev := <-g.out
+	g.excSeg = cutHandledSegment(base)
 	g.running = false
 	if ev.done {
 		g.done = true
@@ -321,17 +333,20 @@ func NextValue(args []Object) (Object, error) {
 	if g, gok := args[0].(*generatorObject); gok {
 		return nil, stopIteration(g.ret)
 	}
-	return nil, &Exception{Kind: "StopIteration"}
+	return nil, &Exception{Kind: "StopIteration", Context: CurrentHandled()}
 }
 
 // stopIteration builds the StopIteration a completed generator raises. A None
 // return carries no argument, matching a bare `return`; any other value becomes
 // the single argument, so `except StopIteration as e: e.value` reads it back.
 func stopIteration(v Object) *Exception {
+	// Raised, not just built, so it picks up the handled exception as context
+	// like every other raise; next() of a finished generator inside an except
+	// block chains in CPython too.
 	if v == nil || v == None {
-		return &Exception{Kind: "StopIteration"}
+		return &Exception{Kind: "StopIteration", Context: CurrentHandled()}
 	}
-	return &Exception{Kind: "StopIteration", Args: []Object{v}}
+	return &Exception{Kind: "StopIteration", Args: []Object{v}, Context: CurrentHandled()}
 }
 
 // excStopValue reads the value a StopIteration carried, the inverse of

@@ -493,8 +493,13 @@ func (f *fnCtx) tryStmt(s *frontend.Try) error {
 		if err != nil {
 			return err
 		}
+		// The exception the finally unwinds is the current exception while the
+		// block runs, like CPython's unwind path, so a raise inside chains onto
+		// it and a bare raise re-raises it; a normal-exit finally pushes nothing.
+		f.add(exprStmt(callExpr(sel("runtime", "PushHandledIf"), ident(tExc))))
 		tF := f.tmpVar()
 		f.add(define(ident(tF), finCall))
+		f.add(exprStmt(callExpr(sel("runtime", "PopHandledIf"), ident(tExc))))
 		// A raising finally wins over both a pending jump and an in-flight
 		// exception; the latter chains in as context.
 		var body []ast.Stmt

@@ -76,18 +76,24 @@ func TestYieldOutsideFunctionRejected(t *testing.T) {
 	}
 }
 
-func TestYieldInTryRejected(t *testing.T) {
+func TestYieldInTryLowers(t *testing.T) {
 	src := "def g():\n    try:\n        yield 1\n    finally:\n        pass\n"
-	_, err := lowerSrc(t, src)
-	if err == nil || !strings.Contains(err.Error(), "yield inside try or with is not supported yet") {
-		t.Fatalf("want yield-in-try error, got %v", err)
+	got, err := lowerSrc(t, src)
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	if !strings.Contains(got, "NewGenerator") || !strings.Contains(got, "Yield") {
+		t.Errorf("want a generator with a yield in the try closure:\n%s", got)
 	}
 }
 
-func TestYieldInWithRejected(t *testing.T) {
+func TestYieldInWithLowers(t *testing.T) {
 	src := "def g(cm):\n    with cm:\n        yield 1\n"
-	_, err := lowerSrc(t, src)
-	if err == nil || !strings.Contains(err.Error(), "yield inside try or with is not supported yet") {
-		t.Fatalf("want yield-in-with error, got %v", err)
+	got, err := lowerSrc(t, src)
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	if !strings.Contains(got, "NewGenerator") || !strings.Contains(got, "WithEnter") {
+		t.Errorf("want a generator whose with body yields:\n%s", got)
 	}
 }

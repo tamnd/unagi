@@ -121,9 +121,13 @@ func ExcMessageLine(e *Exception) string {
 }
 
 // Raise builds an *Exception with one formatted string argument. This is
-// the constructor every preformatted-message call site uses.
+// the constructor every preformatted-message call site uses, and every call
+// site raises what it builds, so the implicit context chains on here the way
+// CPython's PyErr_SetObject does: the exception being handled right now, if
+// any, becomes the new one's context. A fresh object cannot form a cycle, so
+// the plain assignment needs none of chainInto's unlinking.
 func Raise(kind, format string, a ...any) *Exception {
-	return &Exception{Kind: kind, Args: []Object{NewStr(fmt.Sprintf(format, a...))}}
+	return &Exception{Kind: kind, Args: []Object{NewStr(fmt.Sprintf(format, a...))}, Context: CurrentHandled()}
 }
 
 // NewException builds an *Exception carrying explicit argument objects,

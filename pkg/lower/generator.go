@@ -11,9 +11,11 @@ import (
 // body lazily, driven by the iterator protocol and by send, throw, and close.
 // The body lowers exactly like a plain function body except that it lands in a
 // closure taking a yielder handle, and each yield turns into a call on that
-// handle. yield inside try or with is rejected for now: the package-level
-// handled-exception stack would interleave across the yield boundary, so that
-// case waits for the static tier.
+// handle. yield inside try or with lowers like any other yield: the closure
+// shapes a try emits nest inside the yielder closure unchanged, and the
+// generator object stashes the handled-exception entries its body pushed
+// whenever it suspends, so the consumer's exception state never interleaves
+// with the body's.
 
 // yield lowers a yield or yield-from expression to a call on the generator's
 // yielder handle. A plain yield hands the value out and comes back with the
@@ -45,148 +47,137 @@ func (f *fnCtx) yield(e *frontend.Yield) (ast.Expr, error) {
 	return ident(tmp), nil
 }
 
-// yieldScan summarizes the yields a function body owns directly. has marks the
-// body as a generator; inGuard marks a yield sitting inside a try or with,
-// which this slice cannot lower yet.
-type yieldScan struct {
-	has     bool
-	inGuard bool
-}
-
-// scanYields reports whether a function body is a generator and whether any of
-// its yields sit inside a try or with. Nested defs, lambdas, classes, and
-// comprehensions start their own scope, so a yield inside one belongs to that
-// scope and does not count here.
-func scanYields(body []frontend.Stmt) yieldScan {
-	var sc yieldScan
-	var walkStmt func(s frontend.Stmt, guard bool)
-	var walkExpr func(e frontend.Expr, guard bool)
-	walkStmts := func(list []frontend.Stmt, guard bool) {
+// hasYield reports whether a function body is a generator: whether its own
+// scope contains a yield. Nested defs, lambdas, classes, and comprehensions
+// start their own scope, so a yield inside one belongs to that scope and does
+// not count here.
+func hasYield(body []frontend.Stmt) bool {
+	found := false
+	var walkStmt func(s frontend.Stmt)
+	var walkExpr func(e frontend.Expr)
+	walkStmts := func(list []frontend.Stmt) {
 		for _, s := range list {
-			walkStmt(s, guard)
+			walkStmt(s)
 		}
 	}
-	walkExprs := func(list []frontend.Expr, guard bool) {
+	walkExprs := func(list []frontend.Expr) {
 		for _, x := range list {
-			walkExpr(x, guard)
+			walkExpr(x)
 		}
 	}
-	walkExpr = func(e frontend.Expr, guard bool) {
+	walkExpr = func(e frontend.Expr) {
 		switch e := e.(type) {
 		case *frontend.Yield:
-			sc.has = true
-			if guard {
-				sc.inGuard = true
-			}
-			walkExpr(e.Value, guard)
+			found = true
+			walkExpr(e.Value)
 		case *frontend.ListLit:
-			walkExprs(e.Elts, guard)
+			walkExprs(e.Elts)
 		case *frontend.TupleLit:
-			walkExprs(e.Elts, guard)
+			walkExprs(e.Elts)
 		case *frontend.SetLit:
-			walkExprs(e.Elts, guard)
+			walkExprs(e.Elts)
 		case *frontend.DictLit:
-			walkExprs(e.Keys, guard)
-			walkExprs(e.Vals, guard)
+			walkExprs(e.Keys)
+			walkExprs(e.Vals)
 		case *frontend.BinOp:
-			walkExpr(e.Left, guard)
-			walkExpr(e.Right, guard)
+			walkExpr(e.Left)
+			walkExpr(e.Right)
 		case *frontend.UnaryOp:
-			walkExpr(e.X, guard)
+			walkExpr(e.X)
 		case *frontend.BoolOp:
-			walkExprs(e.Values, guard)
+			walkExprs(e.Values)
 		case *frontend.Compare:
-			walkExpr(e.Left, guard)
-			walkExprs(e.Rights, guard)
+			walkExpr(e.Left)
+			walkExprs(e.Rights)
 		case *frontend.Call:
-			walkExpr(e.Fn, guard)
+			walkExpr(e.Fn)
 			for _, a := range e.Args {
-				walkExpr(a.Value, guard)
+				walkExpr(a.Value)
 			}
 		case *frontend.Attribute:
-			walkExpr(e.X, guard)
+			walkExpr(e.X)
 		case *frontend.Subscript:
-			walkExpr(e.X, guard)
-			walkExpr(e.Index, guard)
+			walkExpr(e.X)
+			walkExpr(e.Index)
 		case *frontend.SliceExpr:
-			walkExpr(e.Lo, guard)
-			walkExpr(e.Hi, guard)
-			walkExpr(e.Step, guard)
+			walkExpr(e.Lo)
+			walkExpr(e.Hi)
+			walkExpr(e.Step)
 		case *frontend.IfExp:
-			walkExpr(e.Cond, guard)
-			walkExpr(e.Then, guard)
-			walkExpr(e.Else, guard)
+			walkExpr(e.Cond)
+			walkExpr(e.Then)
+			walkExpr(e.Else)
 		case *frontend.NamedExpr:
-			walkExpr(e.Value, guard)
+			walkExpr(e.Value)
 		case *frontend.Starred:
-			walkExpr(e.X, guard)
+			walkExpr(e.X)
 		case *frontend.FStr:
 			for _, in := range frontend.FInterps(e.Parts) {
-				walkExpr(in.X, guard)
+				walkExpr(in.X)
 			}
 		}
 		// A Lambda or Comp starts a fresh scope; a yield inside one is that
 		// scope's, so the walk stops here.
 	}
-	walkStmt = func(s frontend.Stmt, guard bool) {
+	walkStmt = func(s frontend.Stmt) {
 		switch s := s.(type) {
 		case *frontend.ExprStmt:
-			walkExpr(s.X, guard)
+			walkExpr(s.X)
 		case *frontend.Assign:
-			walkExprs(s.Targets, guard)
-			walkExpr(s.Value, guard)
+			walkExprs(s.Targets)
+			walkExpr(s.Value)
 		case *frontend.AugAssign:
-			walkExpr(s.Target, guard)
-			walkExpr(s.Value, guard)
+			walkExpr(s.Target)
+			walkExpr(s.Value)
 		case *frontend.AnnAssign:
-			walkExpr(s.Target, guard)
-			walkExpr(s.Value, guard)
+			walkExpr(s.Target)
+			walkExpr(s.Value)
 		case *frontend.Return:
-			walkExpr(s.Value, guard)
+			walkExpr(s.Value)
 		case *frontend.Raise:
-			walkExpr(s.Exc, guard)
-			walkExpr(s.Cause, guard)
+			walkExpr(s.Exc)
+			walkExpr(s.Cause)
 		case *frontend.Assert:
-			walkExpr(s.Test, guard)
-			walkExpr(s.Msg, guard)
+			walkExpr(s.Test)
+			walkExpr(s.Msg)
 		case *frontend.Del:
-			walkExprs(s.Targets, guard)
+			walkExprs(s.Targets)
 		case *frontend.If:
-			walkExpr(s.Cond, guard)
-			walkStmts(s.Body, guard)
-			walkStmts(s.Else, guard)
+			walkExpr(s.Cond)
+			walkStmts(s.Body)
+			walkStmts(s.Else)
 		case *frontend.While:
-			walkExpr(s.Cond, guard)
-			walkStmts(s.Body, guard)
-			walkStmts(s.Else, guard)
+			walkExpr(s.Cond)
+			walkStmts(s.Body)
+			walkStmts(s.Else)
 		case *frontend.For:
-			walkExpr(s.Iter, guard)
-			walkStmts(s.Body, guard)
-			walkStmts(s.Else, guard)
+			walkExpr(s.Iter)
+			walkStmts(s.Body)
+			walkStmts(s.Else)
 		case *frontend.With:
 			for _, it := range s.Items {
-				walkExpr(it.Context, guard)
+				walkExpr(it.Context)
 			}
-			walkStmts(s.Body, true)
+			walkStmts(s.Body)
 		case *frontend.Try:
-			walkStmts(s.Body, true)
+			walkStmts(s.Body)
 			for _, h := range s.Handlers {
-				walkExpr(h.Type, guard)
-				walkStmts(h.Body, true)
+				walkExpr(h.Type)
+				walkStmts(h.Body)
 			}
-			walkStmts(s.OrElse, true)
-			walkStmts(s.Final, true)
+			walkStmts(s.OrElse)
+			walkStmts(s.Final)
 		case *frontend.Match:
-			walkExpr(s.Subject, guard)
+			walkExpr(s.Subject)
 			for _, c := range s.Cases {
-				walkExpr(c.Guard, guard)
-				walkStmts(c.Body, guard)
+				walkExpr(c.Guard)
+				walkStmts(c.Body)
 			}
 		}
 		// FuncDef and ClassDef bodies are their own scope and are not walked.
 	}
-	walkStmts(body, false)
-	return sc
+	walkStmts(body)
+	return found
 }
 
 // fillGeneratorDecl builds the Go declaration for a generator function. The

@@ -255,10 +255,7 @@ func (e *emitter) emitMethodDecl(d *frontend.FuncDef, declName, coName, qual, cl
 }
 
 func (e *emitter) fillFuncDecl(f *fnCtx, d *frontend.FuncDef, declName string) (*ast.FuncDecl, error) {
-	if sc := scanYields(d.Body); sc.has {
-		if sc.inGuard {
-			return nil, e.errf(d.Span(), "yield inside try or with is not supported yet")
-		}
+	if hasYield(d.Body) {
 		return e.fillGeneratorDecl(f, d, declName)
 	}
 	params := &ast.FieldList{}
