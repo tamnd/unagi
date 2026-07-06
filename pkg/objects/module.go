@@ -9,11 +9,11 @@ package objects
 // means the name is currently unbound, the state before its first assignment
 // and after a del.
 type Module struct {
-	name string
-	file string
-	slots map[string]*Object
-	slotOrder []string
-	extra map[string]Object
+	name       string
+	file       string
+	slots      map[string]*Object
+	slotOrder  []string
+	extra      map[string]Object
 	extraOrder []string
 	// initializing is true while the body runs; a partial module reached
 	// through an import cycle reports missing attributes with the
