@@ -139,6 +139,11 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 			// A def name nothing rebinds keeps its static binding.
 			return ident(f.e.fnObjName(e.Id)), nil
 		}
+		if e.Id == "__name__" {
+			// __name__ folds to the compile-time module name; an assignment to
+			// it anywhere in scope makes it an ordinary variable handled above.
+			return callExpr(f.e.obj("NewStr"), strLit(f.e.modName)), nil
+		}
 		if sing, ok := descriptorBuiltins[e.Id]; ok {
 			// staticmethod, classmethod, and property resolve to their builtin
 			// constructor objects, so they work as decorators and as direct
@@ -166,6 +171,14 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 			// and passed to isinstance and issubclass. Calling it to build an
 			// exception stays on the excClassNew fast path in call lowering.
 			return callExpr(sel("runtime", "BuiltinFn"), strLit(e.Id)), nil
+		}
+		if f.e.pkgMode {
+			// In a module package an unresolved name defers to the module
+			// object: an importer can set an attribute this compile never saw,
+			// and a read here must find it. A miss raises the usual NameError.
+			tmp := f.tmpVar()
+			f.fallible(tmp, sel("runtime", "LoadModuleName"), ident("thisModule"), strLit(e.Id))
+			return ident(tmp), nil
 		}
 		if f.inFunc {
 			// Inside a function an unresolved name is a global lookup deferred

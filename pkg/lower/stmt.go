@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"strconv"
+	"strings"
 
 	"github.com/tamnd/unagi/pkg/frontend"
 )
@@ -194,9 +195,50 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 		return f.classDef(s)
 	case *frontend.Match:
 		return f.matchStmt(s)
+	case *frontend.Import:
+		return f.importStmt(s)
+	case *frontend.ImportFrom:
+		return f.importFrom(s)
 	default:
 		return f.e.errf(s.Span(), "statement not supported in M0")
 	}
+}
+
+// importStmt lowers `import m` and `import m as a`. The runtime executes the
+// module body at most once and hands back the module object, which then binds
+// like an ordinary assignment: a module variable at module scope, a local
+// inside a function. Dotted names wait for the package milestone.
+func (f *fnCtx) importStmt(s *frontend.Import) error {
+	for _, a := range s.Names {
+		if strings.Contains(a.Name, ".") {
+			return f.e.errf(s.Span(), "dotted import is not supported yet")
+		}
+		tmp := f.tmpVar()
+		f.fallible(tmp, sel("runtime", "ImportModule"), strLit(a.Name))
+		f.add(set(ident(mangle(a.Bound())), ident(tmp)))
+	}
+	return nil
+}
+
+// importFrom lowers `from m import x, y as z`: import the module, then read
+// each name off it with the from-import error wordings. Relative levels, star
+// imports, and dotted module paths wait for the package milestone.
+func (f *fnCtx) importFrom(s *frontend.ImportFrom) error {
+	if s.Level > 0 {
+		return f.e.errf(s.Span(), "relative import is not supported yet")
+	}
+	if s.Star {
+		return f.e.errf(s.Span(), "import * is not supported yet")
+	}
+	if strings.Contains(s.Module, ".") {
+		return f.e.errf(s.Span(), "dotted import is not supported yet")
+	}
+	for _, a := range s.Names {
+		tmp := f.tmpVar()
+		f.fallible(tmp, sel("runtime", "ImportFrom"), strLit(s.Module), strLit(a.Name))
+		f.add(set(ident(mangle(a.Bound())), ident(tmp)))
+	}
+	return nil
 }
 
 func (f *fnCtx) assign(s *frontend.Assign) error {

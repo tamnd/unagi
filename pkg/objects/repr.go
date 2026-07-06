@@ -285,6 +285,8 @@ func reprCore(o Object, strict bool) (string, error) {
 		return descriptorRepr(x), nil
 	case *memberDescriptor:
 		return fmt.Sprintf("<member '%s' of '%s' objects>", x.name, x.owner.name), nil
+	case *Module:
+		return fmt.Sprintf("<module '%s' from '%s'>", x.name, x.file), nil
 	case *dictKeysObject:
 		return reprSeqCore(x.d.keySlice(), "dict_keys([", "])", strict)
 	case *dictValuesObject:

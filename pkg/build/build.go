@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"runtime/debug"
 	"strings"
 
@@ -43,6 +44,10 @@ func Build(ctx context.Context, pyPath string, opts Options) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	mods, err := collectModules(pyPath, mod)
+	if err != nil {
+		return "", err
+	}
 
 	genDir := opts.EmitGo
 	if genDir == "" {
@@ -54,7 +59,7 @@ func Build(ctx context.Context, pyPath string, opts Options) (string, error) {
 	} else if err := os.MkdirAll(genDir, 0o755); err != nil {
 		return "", err
 	}
-	if err := writeModule(genDir, goSrc); err != nil {
+	if err := writeModule(genDir, goSrc, mods); err != nil {
 		return "", err
 	}
 
@@ -104,11 +109,136 @@ func Run(ctx context.Context, pyPath string) (int, error) {
 	return 0, nil
 }
 
-// writeModule lays out the generated module: main.go, a go.mod requiring
-// unagi with a replace onto a slim in-tree copy, and that copy itself.
-func writeModule(genDir string, goSrc []byte) error {
+// pymod is one compiled sibling module ready to lay out: its import name,
+// the source path baked into its registration, and the generated Go package.
+type pymod struct {
+	name string
+	file string
+	src  []byte
+}
+
+// collectModules compiles every sibling module the program can import: the
+// static import graph from the entry module, each name resolved as <name>.py
+// next to it. A name with no sibling file is skipped, not an error; the
+// import raises ModuleNotFoundError at runtime the way CPython does. The
+// result is ordered by first discovery, breadth within one module sorted by
+// name, so the generated table is deterministic.
+func collectModules(pyPath string, entry *frontend.Module) ([]pymod, error) {
+	dir := filepath.Dir(pyPath)
+	seen := map[string]bool{}
+	var out []pymod
+	var visit func(body []frontend.Stmt) error
+	visit = func(body []frontend.Stmt) error {
+		names := map[string]bool{}
+		importNames(body, names)
+		ordered := make([]string, 0, len(names))
+		for n := range names {
+			ordered = append(ordered, n)
+		}
+		sort.Strings(ordered)
+		for _, name := range ordered {
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			file := filepath.Join(dir, name+".py")
+			src, err := os.ReadFile(file)
+			if err != nil {
+				continue
+			}
+			m, err := frontend.Parse(src, file)
+			if err != nil {
+				return err
+			}
+			goSrc, err := lower.PyModule(m, name, file, src)
+			if err != nil {
+				return err
+			}
+			out = append(out, pymod{name: name, file: file, src: goSrc})
+			if err := visit(m.Body); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := visit(entry.Body); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// importNames gathers every module name the statements import, at any
+// nesting depth including function and class bodies, so the build compiles
+// the full static graph up front. Dotted and relative forms are skipped
+// here; the lowering rejects them with a compile error.
+func importNames(body []frontend.Stmt, out map[string]bool) {
+	var walk func(list []frontend.Stmt)
+	walk = func(list []frontend.Stmt) {
+		for _, s := range list {
+			switch s := s.(type) {
+			case *frontend.Import:
+				for _, a := range s.Names {
+					if !strings.Contains(a.Name, ".") {
+						out[a.Name] = true
+					}
+				}
+			case *frontend.ImportFrom:
+				if s.Level == 0 && s.Module != "" && !strings.Contains(s.Module, ".") {
+					out[s.Module] = true
+				}
+			case *frontend.FuncDef:
+				walk(s.Body)
+			case *frontend.ClassDef:
+				walk(s.Body)
+			case *frontend.If:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.While:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.For:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.With:
+				walk(s.Body)
+			case *frontend.Try:
+				walk(s.Body)
+				for _, h := range s.Handlers {
+					walk(h.Body)
+				}
+				walk(s.OrElse)
+				walk(s.Final)
+			case *frontend.Match:
+				for _, c := range s.Cases {
+					walk(c.Body)
+				}
+			}
+		}
+	}
+	walk(body)
+}
+
+// writeModule lays out the generated module: main.go, one package per
+// imported sibling under pym/, the modtable.go registering them, a go.mod
+// requiring unagi with a replace onto a slim in-tree copy, and that copy
+// itself.
+func writeModule(genDir string, goSrc []byte, mods []pymod) error {
 	if err := os.WriteFile(filepath.Join(genDir, "main.go"), goSrc, 0o644); err != nil {
 		return err
+	}
+	for _, m := range mods {
+		d := filepath.Join(genDir, "pym", m.name)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(d, "module.go"), m.src, 0o644); err != nil {
+			return err
+		}
+	}
+	if len(mods) > 0 {
+		if err := os.WriteFile(filepath.Join(genDir, "modtable.go"), modTable(mods), 0o644); err != nil {
+			return err
+		}
 	}
 	gomod := "module unagiprog\n\ngo 1.26.4\n\nrequire github.com/tamnd/unagi v0.0.0\n\nreplace github.com/tamnd/unagi => ./unagi-src\n"
 	if err := os.WriteFile(filepath.Join(genDir, "go.mod"), []byte(gomod), 0o644); err != nil {
@@ -132,6 +262,22 @@ func writeModule(genDir string, goSrc []byte) error {
 		}
 	}
 	return nil
+}
+
+// modTable renders modtable.go: one RegisterModule call per compiled sibling
+// module, run from init so the table is complete before pymain starts.
+func modTable(mods []pymod) []byte {
+	var b strings.Builder
+	b.WriteString("// Code generated by unagi. DO NOT EDIT.\npackage main\n\nimport (\n\t\"github.com/tamnd/unagi/pkg/runtime\"\n\n")
+	for _, m := range mods {
+		fmt.Fprintf(&b, "\tpym_%s \"unagiprog/pym/%s\"\n", m.name, m.name)
+	}
+	b.WriteString(")\n\n// init registers every compiled module in the import table.\nfunc init() {\n")
+	for _, m := range mods {
+		fmt.Fprintf(&b, "\truntime.RegisterModule(%q, %q, pym_%s.Exec)\n", m.name, m.file, m.name)
+	}
+	b.WriteString("}\n")
+	return []byte(b.String())
 }
 
 // copyPkg copies the non-test Go files of one package.

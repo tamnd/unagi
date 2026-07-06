@@ -1,0 +1,10 @@
+== exit: 1
+== stdout:
+caught: kaboom
+== exception:
+ValueError: kaboom
+  main.py:8 <module>
+  deep.py:4 blow
+  deep.py:4 blow
+  deep.py:3 blow
+== stderr:

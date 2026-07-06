@@ -1,6 +1,7 @@
 package frontend
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -119,6 +120,14 @@ func ds(s Stmt) string {
 		return dexprs("del", s.Targets)
 	case *Global:
 		return "(global " + strings.Join(s.Names, " ") + ")"
+	case *Import:
+		return "(import " + strings.Join(daliases(s.Names), " ") + ")"
+	case *ImportFrom:
+		head := fmt.Sprintf("(from %d %s import", s.Level, s.Module)
+		if s.Star {
+			return head + " *)"
+		}
+		return head + " " + strings.Join(daliases(s.Names), " ") + ")"
 	case *Match:
 		parts := []string{"match", de(s.Subject)}
 		for _, c := range s.Cases {
@@ -131,6 +140,19 @@ func ds(s Stmt) string {
 		return "(" + strings.Join(parts, " ") + ")"
 	}
 	return "?stmt"
+}
+
+// daliases renders import aliases, "name" or "name:as".
+func daliases(names []ImportAlias) []string {
+	var out []string
+	for _, a := range names {
+		if a.As != "" {
+			out = append(out, a.Name+":"+a.As)
+		} else {
+			out = append(out, a.Name)
+		}
+	}
+	return out
 }
 
 // dpat renders a pattern as an s-expression for the parser tests. Captures show
@@ -798,6 +820,17 @@ func TestParse(t *testing.T) {
 		{"fstring spec field only", `f"{x:{w}}"`, `(expr (fstr (interp x :(spec (interp w)))))`},
 		{"fstring spec text and field", `f"{x:>{w}}"`, `(expr (fstr (interp x :(spec ">" (interp w)))))`},
 		{"fstring spec field then text", `f"{v:.{p}f}"`, `(expr (fstr (interp v :(spec "." (interp p) "f"))))`},
+		{"import plain", "import m", "(import m)"},
+		{"import dotted", "import a.b.c", "(import a.b.c)"},
+		{"import as", "import m as x", "(import m:x)"},
+		{"import list", "import a, b.c as d, e", "(import a b.c:d e)"},
+		{"from import", "from m import x", "(from 0 m import x)"},
+		{"from import list", "from a.b import x, y as z", "(from 0 a.b import x y:z)"},
+		{"from import parens", "from m import (x, y,)", "(from 0 m import x y)"},
+		{"from import star", "from m import *", "(from 0 m import *)"},
+		{"from relative", "from .. import x", "(from 2  import x)"},
+		{"from relative module", "from ...pkg.sub import x", "(from 3 pkg.sub import x)"},
+		{"import in def", "def f():\n    import m\n    return m\n", "(def f () [(import m) (return m)])"},
 		{"global at module", "global x", "(global x)"},
 		{"global name list", "global a, b", "(global a b)"},
 		{"global then write", "def f():\n    global x\n    x = 1\n", "(def f () [(global x) (= x 1)])"},
@@ -850,8 +883,9 @@ func TestParseErrors(t *testing.T) {
 		src     string
 		wantErr string
 	}{
-		{"import", "import os", "import statements are not supported yet"},
-		{"from import", "from os import path", "from imports are not supported yet"},
+		{"from nothing", "from import x", "invalid syntax"},
+		{"import no name", "import 1", "invalid syntax"},
+		{"from star trailing", "from m import *, x", "invalid syntax"},
 		{"with literal target", "with m() as 1: pass", "cannot assign to literal"},
 		{"nonlocal at module level", "nonlocal x", "nonlocal declaration not allowed at module level"},
 		{"nonlocal top-level def", "def f():\n    nonlocal x", "no binding for nonlocal 'x' found"},

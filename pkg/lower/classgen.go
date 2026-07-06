@@ -123,8 +123,9 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 		bld := f.tmpVar()
 		f.fallible(bld, f.e.obj("StartClass"),
 			metaArg,
+			strLit(f.e.modName),
 			strLit(s.Name),
-			strLit("__main__."+s.Name),
+			strLit(f.e.modName+"."+s.Name),
 			intLit(strconv.Itoa(s.Span().Line)),
 			docExpr,
 			f.objSlice(baseArgs),

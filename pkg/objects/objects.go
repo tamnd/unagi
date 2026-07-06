@@ -27,6 +27,9 @@ const (
 	RuntimeError      = "RuntimeError"
 	OverflowError     = "OverflowError"
 	RecursionError    = "RecursionError"
+
+	ImportError         = "ImportError"
+	ModuleNotFoundError = "ModuleNotFoundError"
 )
 
 // Frame is one traceback entry: where the exception passed through on

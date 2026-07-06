@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+module
+box
+<class 'box.Thing'>
+<module 'box' from 'box.py'>
+new
+42
+42
+read: module 'box' has no attribute 'stored'
+del: 'module' object has no attribute 'stored'
+del2: 'module' object has no attribute 'never'
+back
+func: module 'box' has no attribute 'gone'
+== exception:
+== stderr:

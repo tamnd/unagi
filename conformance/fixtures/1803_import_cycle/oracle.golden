@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+alpha start
+beta start
+attr: module 'alpha' has no attribute 'aval' (consider renaming 'alpha.py' if it has the same name as a library you intended to import)
+from: cannot import name 'ping' from 'alpha' (consider renaming 'alpha.py' if it has the same name as a library you intended to import)
+beta done
+alpha resumed
+1 2
+alpha.ping
+alpha.ping
+True
+== exception:
+== stderr:

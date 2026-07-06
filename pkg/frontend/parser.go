@@ -215,9 +215,11 @@ func (p *parser) parseSimpleStmt() Stmt {
 			p.advance()
 			return &Continue{Pos_: t.pos}
 		case "import":
-			p.errf(t.pos, "import statements are not supported yet")
+			p.advance()
+			return p.parseImport(t.pos)
 		case "from":
-			p.errf(t.pos, "from imports are not supported yet")
+			p.advance()
+			return p.parseImportFrom(t.pos)
 		case "del":
 			p.advance()
 			d := &Del{Pos_: t.pos}
@@ -332,6 +334,92 @@ func (p *parser) parseAnnAssign(target Expr) Stmt {
 		p.rejectStarred(value)
 	}
 	return &AnnAssign{Pos_: target.Span(), Target: target, Value: value}
+}
+
+// parseImport parses the dotted-as-names tail of an import statement; the
+// import keyword is already consumed.
+func (p *parser) parseImport(pos Pos) Stmt {
+	s := &Import{Pos_: pos}
+	for {
+		aliasPos := p.cur().pos
+		name := p.parseDottedName()
+		a := ImportAlias{Pos_: aliasPos, Name: name}
+		if p.eatKw("as") {
+			a.As = p.wantName()
+		}
+		s.Names = append(s.Names, a)
+		if !p.eatOp(",") {
+			return s
+		}
+	}
+}
+
+// parseImportFrom parses `from ...mod import names`; the from keyword is
+// already consumed. The leading dots of a relative import count into Level,
+// with the lexer's "..." operator contributing three at a time.
+func (p *parser) parseImportFrom(pos Pos) Stmt {
+	s := &ImportFrom{Pos_: pos}
+	for {
+		if p.eatOp(".") {
+			s.Level++
+			continue
+		}
+		if p.eatOp("...") {
+			s.Level += 3
+			continue
+		}
+		break
+	}
+	if p.cur().kind == tName {
+		s.Module = p.parseDottedName()
+	} else if s.Level == 0 {
+		p.errf(p.cur().pos, "invalid syntax")
+	}
+	p.wantKw("import")
+	if p.eatOp("*") {
+		s.Star = true
+		return s
+	}
+	paren := p.eatOp("(")
+	for {
+		aliasPos := p.cur().pos
+		a := ImportAlias{Pos_: aliasPos, Name: p.wantName()}
+		if p.eatKw("as") {
+			a.As = p.wantName()
+		}
+		s.Names = append(s.Names, a)
+		if !p.eatOp(",") {
+			break
+		}
+		// A parenthesized list allows a trailing comma; a bare list does not.
+		if paren && p.isOp(")") {
+			break
+		}
+	}
+	if paren {
+		p.wantOp(")")
+	}
+	return s
+}
+
+// parseDottedName parses NAME ("." NAME)* and returns the joined path.
+func (p *parser) parseDottedName() string {
+	name := p.wantName()
+	for p.isOp(".") && p.peek().kind == tName {
+		p.advance()
+		name += "." + p.wantName()
+	}
+	return name
+}
+
+// wantName consumes an identifier token and returns its text.
+func (p *parser) wantName() string {
+	t := p.cur()
+	if t.kind != tName {
+		p.errf(t.pos, "invalid syntax")
+	}
+	p.advance()
+	return t.text
 }
 
 // addDelTargets flattens one del target list into d.Targets; a parenthesized

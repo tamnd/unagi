@@ -494,8 +494,13 @@ func classIntrospect(c *classObject, name string) (Object, bool) {
 	case "__qualname__":
 		// The stored qual carries the module prefix repr wants; __qualname__ is
 		// that path without the module, which is the bare name for a top-level
-		// class and Outer.Inner for a nested one.
-		return NewStr(strings.TrimPrefix(c.qual, "__main__.")), true
+		// class and Outer.Inner for a nested one. The module comes from the
+		// class dict, where the class statement and type.__new__ both put it.
+		mod := "__main__"
+		if m, ok := c.dict["__module__"].(*strObject); ok {
+			mod = m.v
+		}
+		return NewStr(strings.TrimPrefix(c.qual, mod+".")), true
 	case "__bases__":
 		return classBases(c), true
 	case "__mro__":
@@ -965,6 +970,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 	switch x := o.(type) {
 	case *instanceObject:
 		return instanceLoadAttr(x, name)
+	case *Module:
+		return moduleLoadAttr(x, name)
 	case *classObject:
 		// __name__, __qualname__, __bases__, __mro__, and __base__ are
 		// metaclass data descriptors, so they answer from the type object
@@ -1064,6 +1071,8 @@ func StoreAttr(o Object, name string, val Object) error {
 	switch x := o.(type) {
 	case *instanceObject:
 		return instanceStoreAttr(x, name, val)
+	case *Module:
+		return moduleStoreAttr(x, name, val)
 	case *classObject:
 		// A data descriptor on a user metaclass intercepts the write the way it
 		// does on an instance; a plain metaclass attribute lets the value land in
@@ -1094,6 +1103,8 @@ func DelAttr(o Object, name string) error {
 	switch x := o.(type) {
 	case *instanceObject:
 		return instanceDelAttr(x, name)
+	case *Module:
+		return moduleDelAttr(x, name)
 	case *classObject:
 		if meta, ok := userMetaclass(x); ok {
 			if handled, err := metaDel(x, meta, name); handled {

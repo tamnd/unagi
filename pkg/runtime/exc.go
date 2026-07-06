@@ -324,16 +324,16 @@ func TB(err error, file string, line int, fn string) error {
 	return e
 }
 
-// srcLines is the compiled program's Python source split into lines,
-// registered by the generated main so frame lines can quote their
-// source. M1 compiles a single file, so one slice is enough. Nil means
-// no source was embedded and frames render bare, which matches what
-// CPython prints when the source file is gone.
-var srcLines []string
+// srcFiles maps a source path to its Python text split into lines, one entry
+// per compiled file, registered by each generated package's init so frame
+// lines can quote their source. A file with no entry renders its frames bare,
+// which matches what CPython prints when the source file is gone.
+var srcFiles = map[string][]string{}
 
-// SetSource registers the embedded Python source for excerpt rendering.
-func SetSource(src string) {
-	srcLines = strings.Split(src, "\n")
+// RegisterSource registers one embedded Python source for excerpt rendering,
+// keyed by the path its traceback frames cite.
+func RegisterSource(file, src string) {
+	srcFiles[file] = strings.Split(src, "\n")
 }
 
 // SyntaxWarn writes one preformatted SyntaxWarning to Stderr. The generated
@@ -343,14 +343,16 @@ func SyntaxWarn(msg string) {
 	_, _ = io.WriteString(Stderr, msg)
 }
 
-// srcLine returns the stripped text of a 1-based source line, or ""
-// when the line is out of range or blank. Blank excerpts print nothing,
-// CPython's `if line:` guard in traceback.py.
-func srcLine(n int) string {
-	if n < 1 || n > len(srcLines) {
+// srcLine returns the stripped text of a 1-based source line in one
+// registered file, or "" when the file is unknown or the line is out of range
+// or blank. Blank excerpts print nothing, CPython's `if line:` guard in
+// traceback.py.
+func srcLine(file string, n int) string {
+	lines := srcFiles[file]
+	if n < 1 || n > len(lines) {
 		return ""
 	}
-	return strings.TrimSpace(srcLines[n-1])
+	return strings.TrimSpace(lines[n-1])
 }
 
 // ReportExit turns an uncaught error from pymain into a process exit status.
@@ -501,7 +503,7 @@ func renderFrames(b *strings.Builder, c *excPrintCtx, e *objects.Exception) {
 	for i := len(e.Frames) - 1; i >= 0; i-- {
 		f := e.Frames[i]
 		c.emit(b, fmt.Sprintf("  File %q, line %d, in %s", f.File, f.Line, f.Func))
-		if l := srcLine(f.Line); l != "" {
+		if l := srcLine(f.File, f.Line); l != "" {
 			c.emit(b, "    "+l)
 		}
 	}

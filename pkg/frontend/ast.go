@@ -6,6 +6,8 @@
 // SyntaxError with a CPython-shaped message, never a silent skip.
 package frontend
 
+import "strings"
+
 // Pos is a position in the source file, 1-based like CPython's.
 type Pos struct {
 	Line int
@@ -283,9 +285,52 @@ type Nonlocal struct {
 	Names []string
 }
 
-func (s *Del) Span() Pos       { return s.Pos_ }
-func (s *Global) Span() Pos    { return s.Pos_ }
-func (s *Nonlocal) Span() Pos  { return s.Pos_ }
+// ImportAlias is one name in an import statement. Name is the dotted module
+// path as written (or the attribute name in a from import), and As is the
+// binding name when an `as` clause renames it, empty otherwise.
+type ImportAlias struct {
+	Pos_ Pos
+	Name string
+	As   string
+}
+
+// Bound is the name the alias binds in the importing scope: the As name when
+// present, otherwise the first segment of the dotted path (import a.b binds
+// a) or the plain name for a from import.
+func (a ImportAlias) Bound() string {
+	if a.As != "" {
+		return a.As
+	}
+	if i := strings.IndexByte(a.Name, '.'); i >= 0 {
+		return a.Name[:i]
+	}
+	return a.Name
+}
+
+// Import is `import a, b.c as d`.
+type Import struct {
+	Pos_  Pos
+	Names []ImportAlias
+}
+
+// ImportFrom is `from ...mod import a, b as c` or `from mod import *`.
+// Module is the dotted path after the relative dots and may be empty for a
+// pure-relative form like `from . import x`; Level counts the leading dots,
+// zero for an absolute import. Star marks the `*` form, which carries no
+// aliases.
+type ImportFrom struct {
+	Pos_   Pos
+	Module string
+	Level  int
+	Names  []ImportAlias
+	Star   bool
+}
+
+func (s *Del) Span() Pos        { return s.Pos_ }
+func (s *Global) Span() Pos     { return s.Pos_ }
+func (s *Nonlocal) Span() Pos   { return s.Pos_ }
+func (s *Import) Span() Pos     { return s.Pos_ }
+func (s *ImportFrom) Span() Pos { return s.Pos_ }
 func (s *Try) Span() Pos       { return s.Pos_ }
 func (s *Raise) Span() Pos     { return s.Pos_ }
 func (s *Assert) Span() Pos    { return s.Pos_ }
@@ -305,9 +350,11 @@ func (s *Pass) Span() Pos      { return s.Pos_ }
 func (s *Break) Span() Pos     { return s.Pos_ }
 func (s *Continue) Span() Pos  { return s.Pos_ }
 
-func (*Del) stmt()       {}
-func (*Global) stmt()    {}
-func (*Nonlocal) stmt()  {}
+func (*Del) stmt()        {}
+func (*Global) stmt()     {}
+func (*Nonlocal) stmt()   {}
+func (*Import) stmt()     {}
+func (*ImportFrom) stmt() {}
 func (*Try) stmt()       {}
 func (*Raise) stmt()     {}
 func (*Assert) stmt()    {}

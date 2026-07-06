@@ -32,9 +32,10 @@ type ClassBuilder struct {
 // __prepare__, and the synthesized namespace members CPython writes before
 // the body executes, __module__, __qualname__, __firstlineno__, and __doc__
 // when the body opens with a docstring (doc is nil otherwise). meta is the
-// explicit metaclass= argument or nil; kwNames and kwVals are the remaining
-// class keywords, which __prepare__ receives too.
-func StartClass(meta Object, name, qual string, firstLine int, doc Object, bases []Object, kwNames []string, kwVals []Object) (*ClassBuilder, error) {
+// explicit metaclass= argument or nil; module is the defining module's
+// __name__, which qual carries as its leading segment; kwNames and kwVals
+// are the remaining class keywords, which __prepare__ receives too.
+func StartClass(meta Object, module, name, qual string, firstLine int, doc Object, bases []Object, kwNames []string, kwVals []Object) (*ClassBuilder, error) {
 	// An explicit metaclass that is a class, type-derived or plain, joins the
 	// most-derived determination against the bases' metaclasses; anything else
 	// is taken as-is, the isinstance(meta, type) split __build_class__ makes.
@@ -63,10 +64,10 @@ func StartClass(meta Object, name, qual string, firstLine int, doc Object, bases
 		return nil, err
 	}
 	b := &ClassBuilder{meta: winner, callable: callable, name: name, qual: qual, bases: bases, ns: ns, kwNames: kwNames, kwVals: kwVals}
-	if err := b.Set("__module__", NewStr("__main__")); err != nil {
+	if err := b.Set("__module__", NewStr(module)); err != nil {
 		return nil, err
 	}
-	if err := b.Set("__qualname__", NewStr(strings.TrimPrefix(qual, "__main__."))); err != nil {
+	if err := b.Set("__qualname__", NewStr(strings.TrimPrefix(qual, module+"."))); err != nil {
 		return nil, err
 	}
 	if err := b.Set("__firstlineno__", NewInt(int64(firstLine))); err != nil {

@@ -4,6 +4,7 @@
 package conformance
 
 import (
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -22,9 +23,17 @@ var n3Prefixes = []string{
 
 // normalize applies N1 and N2 to one output channel. root is the absolute
 // fixture run directory; every occurrence of it, with the trailing
-// separator, comes off so both sides cite fixture-relative paths.
+// separator, comes off so both sides cite fixture-relative paths. The
+// import machinery resolves symlinks when it absolutizes a module path
+// (macOS /var vs /private/var), so the resolved form of root comes off too.
 func normalize(s, root string) string {
 	if root != "" {
+		// The resolved form comes off first: it embeds the literal form as a
+		// suffix (/private/var vs /var), so the other order would leave the
+		// /private prefix glued to the relative path.
+		if real, err := filepath.EvalSymlinks(root); err == nil && real != root {
+			s = strings.ReplaceAll(s, strings.TrimSuffix(real, "/")+"/", "")
+		}
 		s = strings.ReplaceAll(s, strings.TrimSuffix(root, "/")+"/", "")
 	}
 	return addrRe.ReplaceAllString(s, "0xADDR")
