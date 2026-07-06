@@ -1,0 +1,19 @@
+== exit: 1
+== stdout:
+init fragile
+caught: boom in init
+init fragile
+caught again: boom in init
+init pkg
+pkg ok
+loading bad
+caught: bad module
+pkg still cached
+loading bad
+bad reran: bad module
+init fragile
+== exception:
+ValueError: boom in init
+  main.py:32 <module>
+  fragile/__init__.py:2 <module>
+== stderr:

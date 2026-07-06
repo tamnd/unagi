@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+init pkg
+init sub
+load leaf
+pkg pkg.sub pkg.sub.leaf
+'pkg' 'pkg.sub' 'pkg.sub'
+leaf!
+1
+True
+imports run once
+True False
+leaf!
+== exception:
+== stderr:

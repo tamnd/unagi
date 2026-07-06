@@ -13,7 +13,9 @@ func TestAugAssignLowersToInPlace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lower: %v", err)
 	}
-	if !strings.Contains(got, `objects.InPlace("+=", u_a,`) {
+	// The current value arrives through a checked module-level read, so the
+	// receiver is the read's temporary, not the raw variable.
+	if !strings.Contains(got, `objects.InPlace("+=", `) {
 		t.Errorf("emitted source missing InPlace call:\n%s", got)
 	}
 }

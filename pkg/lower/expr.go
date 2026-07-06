@@ -348,16 +348,20 @@ func (f *fnCtx) loadName(id string) ast.Expr {
 		f.fallible(tmp, sel("runtime", "LoadName"), ident(mangle(id)), strLit(id))
 		return ident(tmp)
 	}
-	if !f.deleted[id] {
-		return ident(mangle(id))
+	// A module-level read is always checked: the assignment that binds the
+	// name may sit in an untaken branch, a try body that raised, or a failed
+	// import, and CPython raises NameError at the read. Module bodies run
+	// once, so the check costs nothing that matters.
+	if !f.inFunc || f.deleted[id] {
+		fn := "LoadName"
+		if f.inFunc {
+			fn = "LoadLocal"
+		}
+		tmp := f.tmpVar()
+		f.fallible(tmp, sel("runtime", fn), ident(mangle(id)), strLit(id))
+		return ident(tmp)
 	}
-	fn := "LoadName"
-	if f.inFunc {
-		fn = "LoadLocal"
-	}
-	tmp := f.tmpVar()
-	f.fallible(tmp, sel("runtime", fn), ident(mangle(id)), strLit(id))
-	return ident(tmp)
+	return ident(mangle(id))
 }
 
 // ifExp lowers the conditional expression. Exactly one arm may evaluate, so

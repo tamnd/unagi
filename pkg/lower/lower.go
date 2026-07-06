@@ -234,7 +234,9 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 	if pkgMode {
 		// A module package always references objects (the Exec signature) and
 		// runtime (the source registration), and never os: there is no main.
-		fmt.Fprintf(&out, "package pym_%s\n\nimport (\n", modName)
+		// A dotted module name folds its dots into underscores for the Go
+		// package identifier; the directory layout keeps the real nesting.
+		fmt.Fprintf(&out, "package pym_%s\n\nimport (\n", strings.ReplaceAll(modName, ".", "_"))
 		out.WriteString("\t\"github.com/tamnd/unagi/pkg/objects\"\n")
 		out.WriteString("\t\"github.com/tamnd/unagi/pkg/runtime\"\n)\n\n")
 	} else {

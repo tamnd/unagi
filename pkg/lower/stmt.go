@@ -4,7 +4,6 @@ import (
 	"go/ast"
 	"go/token"
 	"strconv"
-	"strings"
 
 	"github.com/tamnd/unagi/pkg/frontend"
 )
@@ -207,31 +206,31 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 // importStmt lowers `import m` and `import m as a`. The runtime executes the
 // module body at most once and hands back the module object, which then binds
 // like an ordinary assignment: a module variable at module scope, a local
-// inside a function. Dotted names wait for the package milestone.
+// inside a function. A dotted name without as binds the root module after the
+// whole chain executes, with as it binds the leaf, CPython's split.
 func (f *fnCtx) importStmt(s *frontend.Import) error {
 	for _, a := range s.Names {
-		if strings.Contains(a.Name, ".") {
-			return f.e.errf(s.Span(), "dotted import is not supported yet")
+		entry := "ImportModule"
+		if a.As == "" {
+			entry = "ImportRoot"
 		}
 		tmp := f.tmpVar()
-		f.fallible(tmp, sel("runtime", "ImportModule"), strLit(a.Name))
+		f.fallible(tmp, sel("runtime", entry), strLit(a.Name))
 		f.add(set(ident(mangle(a.Bound())), ident(tmp)))
 	}
 	return nil
 }
 
 // importFrom lowers `from m import x, y as z`: import the module, then read
-// each name off it with the from-import error wordings. Relative levels, star
-// imports, and dotted module paths wait for the package milestone.
+// each name off it with the from-import error wordings; the runtime falls
+// back to a compiled submodule when the attribute is missing. Relative levels
+// and star imports wait for their own slices.
 func (f *fnCtx) importFrom(s *frontend.ImportFrom) error {
 	if s.Level > 0 {
 		return f.e.errf(s.Span(), "relative import is not supported yet")
 	}
 	if s.Star {
 		return f.e.errf(s.Span(), "import * is not supported yet")
-	}
-	if strings.Contains(s.Module, ".") {
-		return f.e.errf(s.Span(), "dotted import is not supported yet")
 	}
 	for _, a := range s.Names {
 		tmp := f.tmpVar()

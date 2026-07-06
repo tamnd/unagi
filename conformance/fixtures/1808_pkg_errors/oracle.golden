@@ -1,0 +1,17 @@
+== exit: 1
+== stdout:
+ModuleNotFoundError No module named 'missing'
+init pkg
+ModuleNotFoundError No module named 'pkg.missing'
+plain loading
+ModuleNotFoundError No module named 'plain.deep'; 'plain' is not a package
+init sub
+load leaf
+ModuleNotFoundError No module named 'pkg.sub.leaf.deeper'; 'pkg.sub.leaf' is not a package
+ImportError cannot import name 'nothing' from 'pkg' (pkg/__init__.py)
+ImportError cannot import name 'deep' from 'plain' (plain.py)
+ImportError cannot import name 'gone' from 'pkg.sub' (pkg/sub/__init__.py)
+== exception:
+NameError: name 'plain' is not defined
+  main.py:39 <module>
+== stderr:
