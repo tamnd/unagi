@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+init box
+init inner
+True
+7
+attr wins / box tag
+init shadow module
+99 module
+True
+7
+== exception:
+== stderr:

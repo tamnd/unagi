@@ -109,25 +109,47 @@ func Run(ctx context.Context, pyPath string) (int, error) {
 	return 0, nil
 }
 
-// pymod is one compiled sibling module ready to lay out: its import name,
-// the source path baked into its registration, and the generated Go package.
+// pymod is one compiled module ready to lay out: its dotted import name, the
+// source path baked into its registration, whether it is a package
+// (__init__.py), and the generated Go package.
 type pymod struct {
 	name string
 	file string
+	pkg  bool
 	src  []byte
 }
 
-// collectModules compiles every sibling module the program can import: the
-// static import graph from the entry module, each name resolved as <name>.py
-// next to it. A name with no sibling file is skipped, not an error; the
-// import raises ModuleNotFoundError at runtime the way CPython does. The
-// result is ordered by first discovery, breadth within one module sorted by
-// name, so the generated table is deterministic.
+// collectModules compiles every module the program can import: the static
+// import graph from the entry module, each dotted name resolved next to the
+// entry file, package directories through their __init__.py. Every
+// resolvable prefix of a dotted name compiles as its own module, since
+// CPython executes each ancestor on the way to the leaf; the walk down a
+// dotted name stops at the first prefix that is missing on disk or resolves
+// to a plain module, and the import raises ModuleNotFoundError at runtime
+// the way CPython does. The result is ordered by first discovery, breadth
+// within one module sorted by name, so the generated table is deterministic.
 func collectModules(pyPath string, entry *frontend.Module) ([]pymod, error) {
 	dir := filepath.Dir(pyPath)
 	seen := map[string]bool{}
+	seenPkg := map[string]bool{}
 	var out []pymod
 	var visit func(body []frontend.Stmt) error
+	compile := func(name, file string, pkg bool) error {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			return err
+		}
+		m, err := frontend.Parse(src, file)
+		if err != nil {
+			return err
+		}
+		goSrc, err := lower.PyModule(m, name, file, src)
+		if err != nil {
+			return err
+		}
+		out = append(out, pymod{name: name, file: file, pkg: pkg, src: goSrc})
+		return visit(m.Body)
+	}
 	visit = func(body []frontend.Stmt) error {
 		names := map[string]bool{}
 		importNames(body, names)
@@ -137,26 +159,31 @@ func collectModules(pyPath string, entry *frontend.Module) ([]pymod, error) {
 		}
 		sort.Strings(ordered)
 		for _, name := range ordered {
-			if seen[name] {
-				continue
-			}
-			seen[name] = true
-			file := filepath.Join(dir, name+".py")
-			src, err := os.ReadFile(file)
-			if err != nil {
-				continue
-			}
-			m, err := frontend.Parse(src, file)
-			if err != nil {
-				return err
-			}
-			goSrc, err := lower.PyModule(m, name, file, src)
-			if err != nil {
-				return err
-			}
-			out = append(out, pymod{name: name, file: file, src: goSrc})
-			if err := visit(m.Body); err != nil {
-				return err
+			prefix := ""
+			for _, seg := range strings.Split(name, ".") {
+				if prefix == "" {
+					prefix = seg
+				} else {
+					prefix = prefix + "." + seg
+				}
+				if seen[prefix] {
+					if !seenPkg[prefix] {
+						break
+					}
+					continue
+				}
+				file, pkg, ok := resolvePy(dir, prefix)
+				if !ok {
+					break
+				}
+				seen[prefix] = true
+				seenPkg[prefix] = pkg
+				if err := compile(prefix, file, pkg); err != nil {
+					return err
+				}
+				if !pkg {
+					break
+				}
 			}
 		}
 		return nil
@@ -167,10 +194,29 @@ func collectModules(pyPath string, entry *frontend.Module) ([]pymod, error) {
 	return out, nil
 }
 
-// importNames gathers every module name the statements import, at any
+// resolvePy maps a dotted module name onto disk under dir: a package
+// directory with __init__.py wins over a plain <path>.py file, CPython's
+// regular-package precedence. Namespace packages (a directory with no
+// __init__.py) are not resolved yet.
+func resolvePy(dir, name string) (string, bool, bool) {
+	base := filepath.Join(dir, filepath.FromSlash(strings.ReplaceAll(name, ".", "/")))
+	initFile := filepath.Join(base, "__init__.py")
+	if st, err := os.Stat(initFile); err == nil && !st.IsDir() {
+		return initFile, true, true
+	}
+	if st, err := os.Stat(base + ".py"); err == nil && !st.IsDir() {
+		return base + ".py", false, true
+	}
+	return "", false, false
+}
+
+// importNames gathers every dotted module name the statements import, at any
 // nesting depth including function and class bodies, so the build compiles
-// the full static graph up front. Dotted and relative forms are skipped
-// here; the lowering rejects them with a compile error.
+// the full static graph up front. A from import contributes its module path
+// plus one candidate per imported name, since `from a import b` reaches a
+// submodule when b is not an attribute; candidates that turn out to be plain
+// attributes simply fail to resolve. Relative forms are skipped here; the
+// lowering rejects them with a compile error.
 func importNames(body []frontend.Stmt, out map[string]bool) {
 	var walk func(list []frontend.Stmt)
 	walk = func(list []frontend.Stmt) {
@@ -178,13 +224,14 @@ func importNames(body []frontend.Stmt, out map[string]bool) {
 			switch s := s.(type) {
 			case *frontend.Import:
 				for _, a := range s.Names {
-					if !strings.Contains(a.Name, ".") {
-						out[a.Name] = true
-					}
+					out[a.Name] = true
 				}
 			case *frontend.ImportFrom:
-				if s.Level == 0 && s.Module != "" && !strings.Contains(s.Module, ".") {
+				if s.Level == 0 && s.Module != "" {
 					out[s.Module] = true
+					for _, a := range s.Names {
+						out[s.Module+"."+a.Name] = true
+					}
 				}
 			case *frontend.FuncDef:
 				walk(s.Body)
@@ -227,7 +274,7 @@ func writeModule(genDir string, goSrc []byte, mods []pymod) error {
 		return err
 	}
 	for _, m := range mods {
-		d := filepath.Join(genDir, "pym", m.name)
+		d := filepath.Join(genDir, "pym", filepath.FromSlash(strings.ReplaceAll(m.name, ".", "/")))
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
 		}
@@ -264,17 +311,21 @@ func writeModule(genDir string, goSrc []byte, mods []pymod) error {
 	return nil
 }
 
-// modTable renders modtable.go: one RegisterModule call per compiled sibling
-// module, run from init so the table is complete before pymain starts.
+// modTable renders modtable.go: one RegisterModule call per compiled module,
+// run from init so the table is complete before pymain starts. A dotted name
+// nests as directories under pym/ and folds to underscores in the package
+// identifier.
 func modTable(mods []pymod) []byte {
 	var b strings.Builder
 	b.WriteString("// Code generated by unagi. DO NOT EDIT.\npackage main\n\nimport (\n\t\"github.com/tamnd/unagi/pkg/runtime\"\n\n")
 	for _, m := range mods {
-		fmt.Fprintf(&b, "\tpym_%s \"unagiprog/pym/%s\"\n", m.name, m.name)
+		fmt.Fprintf(&b, "\tpym_%s \"unagiprog/pym/%s\"\n",
+			strings.ReplaceAll(m.name, ".", "_"), strings.ReplaceAll(m.name, ".", "/"))
 	}
 	b.WriteString(")\n\n// init registers every compiled module in the import table.\nfunc init() {\n")
 	for _, m := range mods {
-		fmt.Fprintf(&b, "\truntime.RegisterModule(%q, %q, pym_%s.Exec)\n", m.name, m.file, m.name)
+		fmt.Fprintf(&b, "\truntime.RegisterModule(%q, %q, %t, pym_%s.Exec)\n",
+			m.name, m.file, m.pkg, strings.ReplaceAll(m.name, ".", "_"))
 	}
 	b.WriteString("}\n")
 	return []byte(b.String())

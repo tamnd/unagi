@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+init toolkit
+init core
+toolkit v1
+HI
+THERE
+once
+True
+== exception:
+== stderr:
