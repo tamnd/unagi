@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+type: module
+name: geo
+file: None
+path entries: 1
+path basename: geo
+has body attr: False
+exec geo.shapes
+shapes: 42
+via from: 42
+== exception:
+== stderr:

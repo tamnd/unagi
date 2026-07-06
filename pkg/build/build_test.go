@@ -37,6 +37,53 @@ func TestBuildRuns(t *testing.T) {
 	}
 }
 
+// TestResolvePy covers the three on-disk shapes a dotted name can resolve to:
+// a regular package (__init__.py wins), a plain module, and a bare directory
+// that becomes a PEP 420 namespace package.
+func TestResolvePy(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "regular", "__init__.py"), "x = 1\n")
+	writeFile(t, filepath.Join(dir, "plain.py"), "y = 2\n")
+	if err := os.MkdirAll(filepath.Join(dir, "space", "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dir, "space", "sub", "leaf.py"), "z = 3\n")
+
+	cases := []struct {
+		name    string
+		wantPkg bool
+		wantNs  bool
+	}{
+		{"regular", true, false},
+		{"plain", false, false},
+		{"space", true, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, pkg, ns, ok := resolvePy(dir, tc.name)
+			if !ok {
+				t.Fatalf("%s did not resolve", tc.name)
+			}
+			if pkg != tc.wantPkg || ns != tc.wantNs {
+				t.Errorf("%s: pkg=%v ns=%v, want pkg=%v ns=%v", tc.name, pkg, ns, tc.wantPkg, tc.wantNs)
+			}
+		})
+	}
+	if _, _, _, ok := resolvePy(dir, "absent"); ok {
+		t.Error("absent name resolved")
+	}
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestEmitGoKeepsModule checks that --emit-go leaves a buildable module
 // behind with the slim runtime copy in place.
 func TestEmitGoKeepsModule(t *testing.T) {

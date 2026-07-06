@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+exec plugins.core init
+plugins file: None
+core is regular: True
+exec plugins.core.impl
+impl: impl-tag
+missing: No module named 'plugins.missing'
+== exception:
+== stderr:
