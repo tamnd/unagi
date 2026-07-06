@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+6 5
+16
+ImportError cannot import name 'nothere' from 'shapes' (shapes.py)
+ModuleNotFoundError No module named 'missing'
+ModuleNotFoundError No module named 'also_missing'
+True
+7 5
+== exception:
+== stderr:
