@@ -12,15 +12,20 @@ import "strings"
 // __new__ and __init__.
 
 // ClassBuilder carries one class statement's build from the header through
-// the body to the metaclass call.
+// the body to the metaclass call. meta is the winning metaclass when the
+// explicit metaclass= argument is a class; callable is set instead when it is
+// any other callable, which skips determination against the bases and simply
+// receives (name, bases, ns) plus the class keywords, its return value bound
+// to the class name whatever it is.
 type ClassBuilder struct {
-	meta    *classObject
-	name    string
-	qual    string
-	bases   []Object
-	ns      Object
-	kwNames []string
-	kwVals  []Object
+	meta     *classObject
+	callable Object
+	name     string
+	qual     string
+	bases    []Object
+	ns       Object
+	kwNames  []string
+	kwVals   []Object
 }
 
 // StartClass runs the class-statement header: metaclass determination,
@@ -30,23 +35,34 @@ type ClassBuilder struct {
 // explicit metaclass= argument or nil; kwNames and kwVals are the remaining
 // class keywords, which __prepare__ receives too.
 func StartClass(meta Object, name, qual string, firstLine int, doc Object, bases []Object, kwNames []string, kwVals []Object) (*ClassBuilder, error) {
+	// An explicit metaclass that is a class, type-derived or plain, joins the
+	// most-derived determination against the bases' metaclasses; anything else
+	// is taken as-is, the isinstance(meta, type) split __build_class__ makes.
 	var explicit *classObject
+	var callable Object
 	if meta != nil {
-		m, err := metaclassValue(meta)
+		if c, ok := asBaseClass(meta); ok {
+			explicit = c
+		} else {
+			callable = meta
+		}
+	}
+	var winner *classObject
+	var ns Object
+	var err error
+	if callable != nil {
+		ns, err = prepareCallable(callable, name, bases, kwNames, kwVals)
+	} else {
+		winner, err = determineMeta(explicit, bases)
 		if err != nil {
 			return nil, err
 		}
-		explicit = m
+		ns, err = prepareNamespace(winner, name, bases, kwNames, kwVals)
 	}
-	winner, err := determineMeta(explicit, bases)
 	if err != nil {
 		return nil, err
 	}
-	ns, err := prepareNamespace(winner, name, bases, kwNames, kwVals)
-	if err != nil {
-		return nil, err
-	}
-	b := &ClassBuilder{meta: winner, name: name, qual: qual, bases: bases, ns: ns, kwNames: kwNames, kwVals: kwVals}
+	b := &ClassBuilder{meta: winner, callable: callable, name: name, qual: qual, bases: bases, ns: ns, kwNames: kwNames, kwVals: kwVals}
 	if err := b.Set("__module__", NewStr("__main__")); err != nil {
 		return nil, err
 	}
@@ -96,6 +112,29 @@ func prepareNamespace(winner *classObject, name string, bases []Object, kwNames 
 	return ns, nil
 }
 
+// prepareCallable builds the namespace for a non-type callable metaclass:
+// __prepare__ resolves as an ordinary attribute on the callable itself (an
+// instance's method binds it, a missing attribute means the default dict) and
+// the mapping check spells the winner as the literal <metaclass>, the wording
+// __build_class__ uses when the metaclass is not a type.
+func prepareCallable(callable Object, name string, bases []Object, kwNames []string, kwVals []Object) (Object, error) {
+	prep, err := LoadAttr(callable, "__prepare__")
+	if err != nil {
+		if isAttrError(err) {
+			return NewDict(nil, nil)
+		}
+		return nil, err
+	}
+	ns, err := CallKw(prep, []Object{NewStr(name), metaBasesTuple(bases)}, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	if !nsIsMapping(ns) {
+		return nil, Raise(TypeError, "<metaclass>.__prepare__() must return a mapping, not %s", ns.TypeName())
+	}
+	return ns, nil
+}
+
 // nsIsMapping mirrors the PyMapping_Check gate on the __prepare__ result: a
 // dict passes, and so does an instance whose class defines __getitem__.
 func nsIsMapping(o Object) bool {
@@ -128,12 +167,22 @@ func (b *ClassBuilder) Finish(staticAttrs []string) (Object, error) {
 	if err := b.Set("__static_attributes__", NewTuple(elts)); err != nil {
 		return nil, err
 	}
+	// A non-type callable, and a plain class that won determination without
+	// deriving from type, both just get called with (name, bases, ns) and the
+	// class keywords: no __new__/__init__ metaclass protocol, and the return
+	// value is the class binding whatever it is.
+	if b.callable != nil {
+		return CallKw(b.callable, []Object{NewStr(b.name), metaBasesTuple(b.bases), b.ns}, b.kwNames, b.kwVals)
+	}
 	if b.meta == typeClass {
 		names, vals, err := nsBodyItems(b.ns)
 		if err != nil {
 			return nil, err
 		}
 		return newClassCore(nil, b.name, b.qual, b.bases, names, vals, b.kwNames, b.kwVals)
+	}
+	if !b.meta.isMeta {
+		return CallKw(b.meta, []Object{NewStr(b.name), metaBasesTuple(b.bases), b.ns}, b.kwNames, b.kwVals)
 	}
 	return callMetaclass(b.meta, b.name, b.qual, b.bases, b.ns, b.kwNames, b.kwVals)
 }
