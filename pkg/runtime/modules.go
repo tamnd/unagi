@@ -14,10 +14,13 @@ import (
 
 // moduleEntry is one compiled module: its source path, whether it is a
 // package (__init__.py) rather than a plain module, its Exec, and the module
-// object once the first import created it.
+// object once the first import created it. A namespace package (a directory
+// with no __init__.py) has no source and no exec: ns is true, file holds the
+// directory for its __path__, and importing it just seeds a bodyless module.
 type moduleEntry struct {
 	file string
 	pkg  bool
+	ns   bool
 	exec func(*objects.Module) error
 	mod  *objects.Module
 }
@@ -28,6 +31,14 @@ var moduleTable = map[string]*moduleEntry{}
 // modtable.go calls it from init for every module in the program.
 func RegisterModule(name, file string, pkg bool, exec func(*objects.Module) error) {
 	moduleTable[name] = &moduleEntry{file: file, pkg: pkg, exec: exec}
+}
+
+// RegisterNamespace adds a PEP 420 namespace package to the import table. dir
+// is the directory that stands in for the package; it becomes the sole entry
+// of __path__. A namespace package has no body to run, so importing it only
+// creates the module object and seeds its identity attributes.
+func RegisterNamespace(name, dir string) {
+	moduleTable[name] = &moduleEntry{file: dir, pkg: true, ns: true}
 }
 
 // ImportModule is the import statement: walk the dotted name outward-in,
@@ -73,6 +84,17 @@ func importOne(name, seg string, parent *objects.Module) (*objects.Module, error
 	m := objects.NewModule(name, ent.file)
 	seedModuleAttrs(m, name, ent)
 	ent.mod = m
+	if ent.ns {
+		// A namespace package has no body. Its module object is already
+		// complete once the identity attributes are seeded, so bind it on the
+		// parent and return without a run.
+		if parent != nil {
+			if err := objects.StoreAttr(parent, seg, m); err != nil {
+				return nil, err
+			}
+		}
+		return m, nil
+	}
 	m.StartInit()
 	if err := ent.exec(m); err != nil {
 		ent.mod = nil
@@ -99,6 +121,14 @@ func seedModuleAttrs(m *objects.Module, name string, ent *moduleEntry) {
 		pkgName = name[:i]
 	}
 	_ = objects.StoreAttr(m, "__package__", objects.NewStr(pkgName))
+	if ent.ns {
+		// A namespace package's directory is its __path__ entry, and CPython
+		// gives it a None __file__ rather than a path, since there is no
+		// __init__.py backing it.
+		_ = objects.StoreAttr(m, "__path__", objects.NewList([]objects.Object{objects.NewStr(ent.file)}))
+		_ = objects.StoreAttr(m, "__file__", objects.None)
+		return
+	}
 	if ent.pkg {
 		path := objects.NewList([]objects.Object{objects.NewStr(filepath.Dir(ent.file))})
 		_ = objects.StoreAttr(m, "__path__", path)

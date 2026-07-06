@@ -1,0 +1,9 @@
+== exit: 0
+== stdout:
+exec task
+org file: None
+org.team file: None
+org type: module
+task: run
+== exception:
+== stderr:
