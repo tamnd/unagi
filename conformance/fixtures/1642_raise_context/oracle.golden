@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+IndexError -> KeyError -> ValueError
+finally raise context: ValueError
+finally bare raise: unwound
+idle finally bare raise: outer
+runtime in finally: ValueError
+runtime in handler: KeyError
+__exit__ raise context: ValueError
+__exit__ bare raise: bare-body
+from: IndexError ValueError True
+first raise context: ValueError
+second raise context: IndexError
+StopIteration context: ValueError
+== exception:
+== stderr:

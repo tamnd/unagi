@@ -1,0 +1,36 @@
+== exit: 0
+== stdout:
+1
+fin: finally
+fin: closed
+a
+catcher caught boom
+b
+catcher done
+1
+consumer bare raise: No active exception to reraise
+holder context: ValueError
+1
+bare re-raise: os
+a1 b1 a2 b2
+tagged a -> a
+tagged b -> b
+cm enter
+1
+cm exit GeneratorExit
+managed closed
+1
+valued finally
+valued value: 42
+1
+polite: caught exit
+polite closed
+1
+rude: generator ignored GeneratorExit
+1
+delegated context: ValueError
+full: else
+full: finally
+[1, 2]
+== exception:
+== stderr:

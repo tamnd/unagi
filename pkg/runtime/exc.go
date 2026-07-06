@@ -23,12 +23,6 @@ func init() {
 	register(m)
 }
 
-// handledStack tracks the exception each active except block is handling,
-// innermost last. The emitter calls PushHandled on entry to a handler and
-// PopHandled on every exit path. A plain package-level slice is enough:
-// emitted programs are single-threaded until M5 brings goroutines.
-var handledStack []*objects.Exception
-
 // IsExc reports whether err is a Python-level exception.
 func IsExc(err error) bool {
 	_, ok := err.(*objects.Exception)
@@ -87,17 +81,34 @@ func ExcMatch(err error, classes ...objects.Object) (bool, error) {
 	return false, nil
 }
 
-// PushHandled records err as the exception now being handled. A non
-// exception err pushes a nil slot so PopHandled stays balanced.
+// PushHandled records err as the exception now being handled. The stack
+// itself lives in pkg/objects so a suspending generator can stash and restore
+// the entries its own body pushed.
 func PushHandled(err error) {
-	e, _ := err.(*objects.Exception)
-	handledStack = append(handledStack, e)
+	objects.PushHandledExc(err)
 }
 
 // PopHandled drops the innermost handled exception.
 func PopHandled() {
-	if n := len(handledStack); n > 0 {
-		handledStack = handledStack[:n-1]
+	objects.PopHandledExc()
+}
+
+// PushHandledIf and PopHandledIf bracket a finally block with the exception
+// it is unwinding, when there is one. CPython pushes the in-flight exception
+// while a finally (or an __exit__) runs, so a raise inside it chains onto the
+// unwinding exception and a bare raise re-raises it; a finally entered with
+// nothing in flight pushes nothing, so a bare raise inside it still sees the
+// enclosing handler's exception.
+func PushHandledIf(err error) {
+	if err != nil {
+		objects.PushHandledExc(err)
+	}
+}
+
+// PopHandledIf balances PushHandledIf.
+func PopHandledIf(err error) {
+	if err != nil {
+		objects.PopHandledExc()
 	}
 }
 
@@ -193,9 +204,7 @@ func RaiseObj(o objects.Object) error {
 	// An explicit `raise e` unwinds normally, so every frame including
 	// the raise line lands in the traceback. Only a bare raise skips.
 	e.Reraised = false
-	if len(handledStack) > 0 {
-		chainInto(e, handledStack[len(handledStack)-1])
-	}
+	chainInto(e, objects.CurrentHandled())
 	return e
 }
 
@@ -206,11 +215,9 @@ func RaiseObj(o objects.Object) error {
 // function without adding an entry for the bare raise itself, so the
 // Reraised flag tells TB to skip exactly one frame.
 func RaiseBare() error {
-	if n := len(handledStack); n > 0 {
-		if e := handledStack[n-1]; e != nil {
-			e.Reraised = true
-			return e
-		}
+	if e := objects.CurrentHandled(); e != nil {
+		e.Reraised = true
+		return e
 	}
 	return objects.Raise(objects.RuntimeError, "No active exception to reraise")
 }
@@ -257,6 +264,11 @@ func WithExit(exitFn objects.Object, exc error) (error, bool) {
 	if pe != nil {
 		et = objects.ExcType(pe.Kind)
 		ev = pe
+		// CPython runs __exit__ with the body exception as the current
+		// exception, so a raise inside it chains onto the body exception and a
+		// bare raise re-raises it.
+		objects.PushHandledExc(pe)
+		defer objects.PopHandledExc()
 	}
 	res, cerr := objects.Call(exitFn, []objects.Object{et, ev, objects.None})
 	if cerr != nil {
@@ -278,13 +290,17 @@ func WithExit(exitFn objects.Object, exc error) (error, bool) {
 	return exc, false
 }
 
-// ChainContext links a pending exception under a newer one, the case
-// where a finally block raises over an in-flight exception. Same
-// self-reference rules as the implicit raise chaining.
+// ChainContext links a pending exception under a newer one as the newer one
+// leaves a handler, a finally, or an __exit__ with the pending one in flight.
+// It only fills a missing context: CPython attaches context at raise time
+// from the innermost handled exception and never re-chains on the way out, so
+// a context recorded at the raise (possibly deeper than pending, say inside a
+// generator resumed mid-handler) must survive. The fill covers exceptions the
+// runtime raises without going through RaiseObj, which carry no context yet.
 func ChainContext(newer, pending error) error {
 	ne, ok1 := newer.(*objects.Exception)
 	pe, ok2 := pending.(*objects.Exception)
-	if ok1 && ok2 {
+	if ok1 && ok2 && ne.Context == nil {
 		chainInto(ne, pe)
 	}
 	return newer

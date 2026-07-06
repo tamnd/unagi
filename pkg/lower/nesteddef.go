@@ -39,11 +39,8 @@ func (f *fnCtx) nestedDef(s *frontend.FuncDef) error {
 	// A nested def whose own scope yields is a generator: calling it returns a
 	// generator object, so the Python body lands in a yielder closure while the
 	// impl function keeps only the parameter binds and the constructor.
-	gen := scanYields(s.Body)
-	if gen.has {
-		if gen.inGuard {
-			return f.e.errf(s.Span(), "yield inside try or with is not supported yet")
-		}
+	gen := hasYield(s.Body)
+	if gen {
 		in.genYielder = "gy"
 	}
 
@@ -59,13 +56,13 @@ func (f *fnCtx) nestedDef(s *frontend.FuncDef) error {
 
 	// A plain nested def charges a recursion slot in its impl function; a
 	// generator's frames run on their own goroutine and are not accounted yet.
-	if !gen.has {
+	if !gen {
 		in.recursionGuard()
 	}
 	// The generator's body statements land in the yielder closure so each call
 	// gets fresh locals; the parameter binds stay in the impl function that runs
 	// at call time.
-	if gen.has {
+	if gen {
 		in.push()
 	}
 	for _, name := range sortedNames(assigned) {
@@ -81,7 +78,7 @@ func (f *fnCtx) nestedDef(s *frontend.FuncDef) error {
 		return err
 	}
 	in.add(&ast.ReturnStmt{Results: []ast.Expr{f.e.obj("None"), ident("nil")}})
-	if gen.has {
+	if gen {
 		closure := &ast.FuncLit{
 			Type: &ast.FuncType{
 				Params:  fieldList(field(f.e.obj("Yielder"), in.genYielder)),

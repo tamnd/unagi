@@ -15,8 +15,14 @@ import (
 
 func resetHandled(t *testing.T) {
 	t.Helper()
-	handledStack = nil
-	t.Cleanup(func() { handledStack = nil })
+	clearHandled()
+	t.Cleanup(clearHandled)
+}
+
+func clearHandled() {
+	for objects.HandledLen() > 0 {
+		objects.PopHandledExc()
+	}
 }
 
 func TestIsExcAndExcObj(t *testing.T) {
