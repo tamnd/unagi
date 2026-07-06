@@ -491,6 +491,17 @@ func collectAssigned(body []frontend.Stmt, out map[string]bool) {
 				out[s.Name] = true
 				walkExprs(s.Decorators)
 				walkExprs(s.Bases)
+			case *frontend.Import:
+				// import m binds m; import m as a binds a.
+				for _, a := range s.Names {
+					out[a.Bound()] = true
+				}
+			case *frontend.ImportFrom:
+				// from m import x binds x (or its as-name); a star import
+				// binds nothing statically and is rejected at lowering.
+				for _, a := range s.Names {
+					out[a.Bound()] = true
+				}
 			}
 		}
 	}

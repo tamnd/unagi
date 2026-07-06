@@ -130,6 +130,27 @@ func mainDecl() *ast.FuncDecl {
 	}
 }
 
+// execDecl is a module package's entry point: remember the module object for
+// dynamic name loads, bind every module-scope variable as a live slot on it
+// so importer and body share storage, and run the body. vars are the Python
+// names, already sorted, each backed by its mangled package variable.
+func execDecl(vars []string) *ast.FuncDecl {
+	body := []ast.Stmt{set(ident("thisModule"), ident("m"))}
+	for _, n := range vars {
+		body = append(body, exprStmt(callExpr(sel("m", "Bind"),
+			strLit(n), &ast.UnaryExpr{Op: token.AND, X: ident(mangle(n))})))
+	}
+	body = append(body, &ast.ReturnStmt{Results: []ast.Expr{callExpr(ident("pymain"))}})
+	return &ast.FuncDecl{
+		Name: ident("Exec"),
+		Type: &ast.FuncType{
+			Params:  fieldList(field(&ast.StarExpr{X: sel("objects", "Module")}, "m")),
+			Results: fieldList(field(ident("error"))),
+		},
+		Body: block(body...),
+	}
+}
+
 // writeDecl prints one built declaration followed by a blank line. This is
 // the boundary between the node world and the text world: a print failure
 // means the emitter built a node the printer rejects, an emitter bug, so it

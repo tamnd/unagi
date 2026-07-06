@@ -144,7 +144,7 @@ func TestMethodDefaultLowering(t *testing.T) {
 	}
 	got := string(src)
 	for _, want := range []string{
-		`t1, err := objects.StartClass(nil, "C", "__main__.C"`,
+		`t1, err := objects.StartClass(nil, "__main__", "C", "__main__.C"`,
 		"t2 := objects.NewInt(1)",
 		`objects.NewFunction("C.m"`,
 		"[]objects.Object{nil, t2}",
