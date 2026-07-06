@@ -105,16 +105,47 @@ func TestMostDerivedMetaclassWins(t *testing.T) {
 	}
 }
 
-func TestMetaclassMustDeriveFromType(t *testing.T) {
-	// A plain class used as a metaclass is the callable-metaclass feature, still
-	// rejected in this tier.
-	plain, err := buildClass(nil, "Plain", "__main__.Plain", nil, nil, nil, nil, nil)
+func TestPlainClassAsMetaclass(t *testing.T) {
+	// A plain class used as a metaclass wins determination and is simply
+	// called with (name, bases, ns): the class statement binds an instance of
+	// it, built through the ordinary creation protocol.
+	initFn := NewFunction("Plain.__init__",
+		[]Param{{Name: "self"}, {Name: "name"}, {Name: "bases"}, {Name: "ns"}}, nil,
+		func(a []Object) (Object, error) {
+			a[0].(*instanceObject).attrSet("cls_name", a[1])
+			return None, nil
+		})
+	plain, err := buildClass(nil, "Plain", "__main__.Plain", nil,
+		[]string{"__init__"}, []Object{initFn}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = buildClass(plain, "C", "__main__.C", nil, nil, nil, nil, nil)
-	checkErr(t, "non-type metaclass", err,
-		"TypeError: a metaclass that does not derive from type is not supported yet")
+	c, err := buildClass(plain, "C", "__main__.C", nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("plain-class metaclass: %v", err)
+	}
+	inst, ok := c.(*instanceObject)
+	if !ok || inst.cls != plain.(*classObject) {
+		t.Fatalf("class binding = %T, want an instance of Plain", c)
+	}
+	if v, err := LoadAttr(inst, "cls_name"); err != nil || Repr(v) != "'C'" {
+		t.Errorf("Plain.__init__ saw name %v, %v", v, err)
+	}
+}
+
+func TestCallableMetaclass(t *testing.T) {
+	// A non-type callable receives (name, bases, ns) and its return value is
+	// the class binding whatever it is.
+	fn := NewFunc("f", 3, func(a []Object) (Object, error) {
+		return NewInt(int64(len(a))), nil
+	})
+	got, err := buildClass(fn, "C", "__main__.C", nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("callable metaclass: %v", err)
+	}
+	if Repr(got) != "3" {
+		t.Errorf("callable result = %v, want 3", got)
+	}
 }
 
 func TestTypeNewSuperForm(t *testing.T) {

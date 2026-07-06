@@ -7,20 +7,6 @@ package objects
 // winning metaclass's __new__ and __init__ here. The determination and the
 // metaclass-conflict wording are probed on 3.14.
 
-// metaclassValue resolves an explicit metaclass= argument to the metaclass it
-// names. The `type` metatype and a class deriving from it are metaclasses; a
-// plain class or any other callable used as a metaclass is the callable-metaclass
-// feature, which is a later slice.
-func metaclassValue(o Object) (*classObject, error) {
-	if c, ok := asBaseClass(o); ok {
-		if c.isMeta {
-			return c, nil
-		}
-		return nil, Raise(TypeError, "a metaclass that does not derive from type is not supported yet")
-	}
-	return nil, Raise(TypeError, "a callable metaclass is not supported yet")
-}
-
 // determineMeta picks the most derived metaclass among the explicit metaclass=
 // argument and the metaclasses of every base. The winner must be a non-strict
 // subclass of all the others, or the metaclass conflict is raised the way

@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+f called: C () ['x'] [('tag', 't')]
+built: type C doc 1
+non-class result: 42 int
+lambda result: ['F', 2]
+inst prepare: G [('level', 2)]
+inst call: G 9
+G: 9 type
+non-mapping: <metaclass>.__prepare__() must return a mapping, not int
+plain class metaclass: Plain P 0
+arity: noargs() takes 0 positional arguments but 3 were given
+== exception:
+== stderr:
