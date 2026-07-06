@@ -6,7 +6,7 @@ import "testing"
 // StartClass, one Set per body binding, Finish. It keeps these tests on the
 // ordered name/value shape they assert against.
 func buildClass(meta Object, name, qual string, bases []Object, names []string, vals []Object, kwNames []string, kwVals []Object) (Object, error) {
-	b, err := StartClass(meta, name, qual, 1, nil, bases, kwNames, kwVals)
+	b, err := StartClass(meta, "__main__", name, qual, 1, nil, bases, kwNames, kwVals)
 	if err != nil {
 		return nil, err
 	}

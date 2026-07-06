@@ -44,6 +44,14 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 			return nil, err
 		}
 		return Call(v, args)
+	case *Module:
+		// m.f(args) is an attribute read then a plain call: modules add no
+		// binding, so the miss and the call errors are the attribute's own.
+		v, err := moduleLoadAttr(x, name)
+		if err != nil {
+			return nil, err
+		}
+		return Call(v, args)
 	}
 	return nil, noAttr(o, name)
 }
@@ -66,6 +74,12 @@ func CallMethodKw(o Object, name string, pos []Object, kwNames []string, kwVals 
 		return classCallMethodKw(x, name, pos, kwNames, kwVals)
 	case *superObject:
 		return superCallMethodKw(x, name, pos, kwNames, kwVals)
+	case *Module:
+		v, err := moduleLoadAttr(x, name)
+		if err != nil {
+			return nil, err
+		}
+		return CallKw(v, pos, kwNames, kwVals)
 	}
 	return nil, Raise(TypeError, "%s.%s() takes no keyword arguments", o.TypeName(), name)
 }
