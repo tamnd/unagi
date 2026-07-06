@@ -85,6 +85,18 @@ type classObject struct {
 	// class that derives from type, whose instances are themselves classes.
 	meta   *classObject
 	isMeta bool
+	// __slots__ layout, filled by applySlots at creation. slotNames are this
+	// class's own mangled slot names; hasSlots marks a body that bound
+	// __slots__ at all; slotsDict and slotsWeakref record the pseudo-slots.
+	// instDict and instWeakref say whether instances carry a __dict__ and
+	// weakref support, derived from the whole base chain: a class without
+	// __slots__ anywhere keeps both.
+	slotNames    []string
+	hasSlots     bool
+	slotsDict    bool
+	slotsWeakref bool
+	instDict     bool
+	instWeakref  bool
 }
 
 func (*classObject) TypeName() string { return "type" }
@@ -97,6 +109,10 @@ func (*classObject) TypeName() string { return "type" }
 type instanceObject struct {
 	cls   *classObject
 	attrs *dictObject
+	// slots holds the values behind the class's member descriptors, separate
+	// from attrs so a mixed dict-plus-slots instance's __dict__ never shows a
+	// slot value. Lazily allocated on the first slot write.
+	slots map[string]Object
 }
 
 func (o *instanceObject) TypeName() string { return o.cls.name }
@@ -176,6 +192,18 @@ func newClassCore(meta *classObject, name, qual string, bases []Object, names []
 		}
 		c.bases = append(c.bases, bc)
 	}
+	// __slots__ processing installs the member descriptors and sets the layout
+	// flags; the layout check then rejects bases whose slot layouts cannot
+	// combine, and the instance flags fold the base chain: a dict (and weakref
+	// support) survives unless every contributing class traded it away.
+	if err := applySlots(c); err != nil {
+		return nil, err
+	}
+	if err := checkLayout(c); err != nil {
+		return nil, err
+	}
+	c.instDict = !c.hasSlots || c.slotsDict || anyBase(c, func(b *classObject) bool { return b.instDict })
+	c.instWeakref = !c.hasSlots || c.slotsWeakref || anyBase(c, func(b *classObject) bool { return b.instWeakref })
 	mro, err := c3Linearize(c)
 	if err != nil {
 		return nil, err

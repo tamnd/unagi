@@ -87,7 +87,7 @@ func noneToNil(o Object) Object {
 // to rank a data descriptor above the instance dict.
 func isDataDescriptor(v Object) bool {
 	switch d := v.(type) {
-	case *propertyObject:
+	case *propertyObject, *memberDescriptor:
 		return true
 	case *instanceObject:
 		if _, ok := d.cls.lookup("__set__"); ok {
@@ -117,6 +117,8 @@ func instanceGet(x *instanceObject, name string, v Object) (Object, error) {
 			return nil, Raise(AttributeError, "property '%s' of '%s' object has no getter", name, x.cls.name)
 		}
 		return Call(d.fget, []Object{x})
+	case *memberDescriptor:
+		return slotGet(x, d)
 	case *instanceObject:
 		// A user descriptor with __get__ runs __get__(descr, instance, owner);
 		// owner is the instance's type. Without __get__ the object is a plain

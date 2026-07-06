@@ -57,14 +57,75 @@ func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
 	var body []frontend.Stmt
 	var defs []*frontend.FuncDef
 	var classes []*frontend.ClassDef
-	for _, s := range mod.Body {
-		if c, ok := s.(*frontend.ClassDef); ok {
-			if _, dup := e.classOrd[c.Name]; dup {
-				return nil, e.errf(c.Span(), "redefining class %q is not supported yet", c.Name)
+	// Classes are collected through nested module-level blocks too (a class
+	// statement under try or if is common for creation-error probing and
+	// conditional definition), so their methods emit and their ordinals stay
+	// unique; def bodies are excluded since a class in a function is rejected
+	// at lowering.
+	var collectClasses func(list []frontend.Stmt) error
+	collectClasses = func(list []frontend.Stmt) error {
+		for _, s := range list {
+			switch s := s.(type) {
+			case *frontend.ClassDef:
+				if _, dup := e.classOrd[s.Name]; dup {
+					return e.errf(s.Span(), "redefining class %q is not supported yet", s.Name)
+				}
+				e.classOrd[s.Name] = len(classes)
+				classes = append(classes, s)
+			case *frontend.If:
+				if err := collectClasses(s.Body); err != nil {
+					return err
+				}
+				if err := collectClasses(s.Else); err != nil {
+					return err
+				}
+			case *frontend.While:
+				if err := collectClasses(s.Body); err != nil {
+					return err
+				}
+				if err := collectClasses(s.Else); err != nil {
+					return err
+				}
+			case *frontend.For:
+				if err := collectClasses(s.Body); err != nil {
+					return err
+				}
+				if err := collectClasses(s.Else); err != nil {
+					return err
+				}
+			case *frontend.With:
+				if err := collectClasses(s.Body); err != nil {
+					return err
+				}
+			case *frontend.Try:
+				if err := collectClasses(s.Body); err != nil {
+					return err
+				}
+				for _, h := range s.Handlers {
+					if err := collectClasses(h.Body); err != nil {
+						return err
+					}
+				}
+				if err := collectClasses(s.OrElse); err != nil {
+					return err
+				}
+				if err := collectClasses(s.Final); err != nil {
+					return err
+				}
+			case *frontend.Match:
+				for _, c := range s.Cases {
+					if err := collectClasses(c.Body); err != nil {
+						return err
+					}
+				}
 			}
-			e.classOrd[c.Name] = len(classes)
-			classes = append(classes, c)
 		}
+		return nil
+	}
+	if err := collectClasses(mod.Body); err != nil {
+		return nil, err
+	}
+	for _, s := range mod.Body {
 		if d, ok := s.(*frontend.FuncDef); ok {
 			if _, dup := e.defs[d.Name]; dup {
 				// Redefinition is legal Python; the lowering hoists defs, so

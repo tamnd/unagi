@@ -1,0 +1,35 @@
+== exit: 0
+== stdout:
+new attr: 'C' object has no attribute 'z' and no __dict__ for setting new attributes
+unset read: 'C' object has no attribute 'x'
+x: 5
+read after del: 'C' object has no attribute 'x'
+del unset: y
+del missing: 'C' object has no attribute 'nope' and no __dict__ for setting new attributes
+no dict: 'C' object has no attribute '__dict__'
+descr: <member 'x' of 'C' objects>
+slots kept: ('x', 'y')
+string slots: 1
+string slots err: 'One' object has no attribute 'other' and no __dict__ for setting new attributes
+plain subclass gets dict: 9 {'anything': 9}
+slots stack: 1 2
+slots subclass: 'E' object has no attribute 'w' and no __dict__ for setting new attributes
+class var conflict: 'v' in __slots__ conflicts with class variable
+method conflict: 'm' in __slots__ conflicts with class variable
+non-str: __slots__ items must be strings, not 'int'
+dict in slots: 1 2 {'b': 2}
+mangled: 7
+has mangled descr: True
+inherited slot: 4
+empty slots sub: 'Sub' object has no attribute 'other' and no __dict__ for setting new attributes
+dict base keeps dict: 1 2 {'free': 1}
+layout conflict: multiple bases have instance lay-out conflict
+dup dict slot: __dict__ slot disallowed: we already got one
+dict slot over dict base: __dict__ slot disallowed: we already got one
+class attr after overwrite: 10
+read only: 'RO' object attribute 'r' is read-only
+dup slot ok: 3
+descr wins over dict: slotval {'mv': 'dictval'}
+init through slots: box 3 3
+== exception:
+== stderr:

@@ -85,6 +85,9 @@ func instanceDelAttr(x *instanceObject, name string) error {
 // still gets it.
 func genericGetAttr(x *instanceObject, name string) (Object, error) {
 	if name == "__dict__" {
+		if !x.cls.instDict {
+			return nil, Raise(AttributeError, "'%s' object has no attribute '__dict__'", x.cls.name)
+		}
 		return instanceDict(x)
 	}
 	tv, tok := x.cls.lookup(name)
@@ -105,7 +108,8 @@ func genericGetAttr(x *instanceObject, name string) (Object, error) {
 // descriptor with __set__ runs it), otherwise the value lands in the instance
 // dict with its insertion order recorded.
 func genericSetAttr(x *instanceObject, name string, val Object) error {
-	if tv, ok := x.cls.lookup(name); ok {
+	tv, tok := x.cls.lookup(name)
+	if tok {
 		switch d := tv.(type) {
 		case *propertyObject:
 			if d.fset == nil {
@@ -113,12 +117,17 @@ func genericSetAttr(x *instanceObject, name string, val Object) error {
 			}
 			_, err := Call(d.fset, []Object{x, val})
 			return err
+		case *memberDescriptor:
+			return slotSet(x, d, val)
 		case *instanceObject:
 			if _, ok := d.cls.lookup("__set__"); ok {
 				_, err := instanceCallMethod(d, "__set__", []Object{x, val})
 				return err
 			}
 		}
+	}
+	if !x.cls.instDict {
+		return noDictSetError(x, name, tok)
 	}
 	x.attrSet(name, val)
 	return nil
@@ -128,7 +137,8 @@ func genericSetAttr(x *instanceObject, name string, val Object) error {
 // property with a deleter) intercepts the delete, otherwise the instance-dict
 // entry is removed, a missing name being the same AttributeError a read gives.
 func genericDelAttr(x *instanceObject, name string) error {
-	if tv, ok := x.cls.lookup(name); ok {
+	tv, tok := x.cls.lookup(name)
+	if tok {
 		switch d := tv.(type) {
 		case *propertyObject:
 			if d.fdel == nil {
@@ -136,12 +146,19 @@ func genericDelAttr(x *instanceObject, name string) error {
 			}
 			_, err := Call(d.fdel, []Object{x})
 			return err
+		case *memberDescriptor:
+			return slotDel(x, d)
 		case *instanceObject:
 			if _, ok := d.cls.lookup("__delete__"); ok {
 				_, err := instanceCallMethod(d, "__delete__", []Object{x})
 				return err
 			}
 		}
+	}
+	if !x.cls.instDict {
+		// A delete on a dict-less instance fails the same two ways a write
+		// does; CPython's generic delattr is a set with a NULL value.
+		return noDictSetError(x, name, tok)
 	}
 	if !x.attrDel(name) {
 		return Raise(AttributeError, "'%s' object has no attribute '%s'", x.cls.name, name)
