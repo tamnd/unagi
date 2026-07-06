@@ -223,18 +223,42 @@ func (f *fnCtx) importStmt(s *frontend.Import) error {
 
 // importFrom lowers `from m import x, y as z`: import the module, then read
 // each name off it with the from-import error wordings; the runtime falls
-// back to a compiled submodule when the attribute is missing. Relative levels
-// and star imports wait for their own slices.
+// back to a compiled submodule when the attribute is missing. A relative form
+// resolves against the importer's package at compile time, since __package__
+// is static here; an unresolvable one lowers to the runtime raise CPython
+// gives when the statement executes. Star imports wait for their own slice.
 func (f *fnCtx) importFrom(s *frontend.ImportFrom) error {
-	if s.Level > 0 {
-		return f.e.errf(s.Span(), "relative import is not supported yet")
-	}
 	if s.Star {
 		return f.e.errf(s.Span(), "import * is not supported yet")
 	}
+	module := s.Module
+	if s.Level > 0 {
+		pack, known := f.e.selfPackage()
+		if !known || pack == "" {
+			return f.relativeImportError(s, "attempted relative import with no known parent package")
+		}
+		abs, ok := RelativeName(pack, s.Level, s.Module)
+		if !ok {
+			return f.relativeImportError(s, "attempted relative import beyond top-level package")
+		}
+		module = abs
+	}
 	for _, a := range s.Names {
 		tmp := f.tmpVar()
-		f.fallible(tmp, sel("runtime", "ImportFrom"), strLit(s.Module), strLit(a.Name))
+		f.fallible(tmp, sel("runtime", "ImportFrom"), strLit(module), strLit(a.Name))
+		f.add(set(ident(mangle(a.Bound())), ident(tmp)))
+	}
+	return nil
+}
+
+// relativeImportError lowers an impossible relative import to the runtime
+// raise with the compile-chosen wording. The shape mirrors a normal from
+// import so the statement still declares its bindings; the call always
+// raises, so the binding is dead.
+func (f *fnCtx) relativeImportError(s *frontend.ImportFrom, msg string) error {
+	for _, a := range s.Names {
+		tmp := f.tmpVar()
+		f.fallible(tmp, sel("runtime", "RelativeImportError"), strLit(msg))
 		f.add(set(ident(mangle(a.Bound())), ident(tmp)))
 	}
 	return nil

@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+init pkg
+init sib
+mod sees: sib / pkg val / sib
+sub sees: sib
+leaf sees: pkg val / sib
+True
+sib
+== exception:
+== stderr:

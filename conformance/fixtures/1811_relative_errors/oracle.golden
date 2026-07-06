@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+entry: ImportError attempted relative import with no known parent package
+toprel: ImportError attempted relative import with no known parent package
+init pkg
+beyond: ImportError attempted relative import beyond top-level package
+relmiss: ModuleNotFoundError No module named 'pkg.missing'
+relattr: ImportError cannot import name 'gone' from 'pkg' (pkg/__init__.py)
+late not called yet
+late: ImportError attempted relative import with no known parent package
+== exception:
+== stderr:

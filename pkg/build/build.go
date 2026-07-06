@@ -133,7 +133,7 @@ func collectModules(pyPath string, entry *frontend.Module) ([]pymod, error) {
 	seen := map[string]bool{}
 	seenPkg := map[string]bool{}
 	var out []pymod
-	var visit func(body []frontend.Stmt) error
+	var visit func(body []frontend.Stmt, pack string) error
 	compile := func(name, file string, pkg bool) error {
 		src, err := os.ReadFile(file)
 		if err != nil {
@@ -148,11 +148,20 @@ func collectModules(pyPath string, entry *frontend.Module) ([]pymod, error) {
 			return err
 		}
 		out = append(out, pymod{name: name, file: file, pkg: pkg, src: goSrc})
-		return visit(m.Body)
+		// The module's own package context, for resolving its relative
+		// imports: a package is its own parent, a submodule belongs to the
+		// package above it, a top-level module to none.
+		pack := ""
+		if pkg {
+			pack = name
+		} else if i := strings.LastIndex(name, "."); i >= 0 {
+			pack = name[:i]
+		}
+		return visit(m.Body, pack)
 	}
-	visit = func(body []frontend.Stmt) error {
+	visit = func(body []frontend.Stmt, pack string) error {
 		names := map[string]bool{}
-		importNames(body, names)
+		importNames(body, pack, names)
 		ordered := make([]string, 0, len(names))
 		for n := range names {
 			ordered = append(ordered, n)
@@ -188,7 +197,7 @@ func collectModules(pyPath string, entry *frontend.Module) ([]pymod, error) {
 		}
 		return nil
 	}
-	if err := visit(entry.Body); err != nil {
+	if err := visit(entry.Body, ""); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -215,9 +224,10 @@ func resolvePy(dir, name string) (string, bool, bool) {
 // the full static graph up front. A from import contributes its module path
 // plus one candidate per imported name, since `from a import b` reaches a
 // submodule when b is not an attribute; candidates that turn out to be plain
-// attributes simply fail to resolve. Relative forms are skipped here; the
-// lowering rejects them with a compile error.
-func importNames(body []frontend.Stmt, out map[string]bool) {
+// attributes simply fail to resolve. A relative form resolves against pack,
+// the walked module's own package; an unresolvable one contributes nothing
+// and raises when the statement executes.
+func importNames(body []frontend.Stmt, pack string, out map[string]bool) {
 	var walk func(list []frontend.Stmt)
 	walk = func(list []frontend.Stmt) {
 		for _, s := range list {
@@ -227,10 +237,14 @@ func importNames(body []frontend.Stmt, out map[string]bool) {
 					out[a.Name] = true
 				}
 			case *frontend.ImportFrom:
-				if s.Level == 0 && s.Module != "" {
-					out[s.Module] = true
+				module, ok := s.Module, s.Module != ""
+				if s.Level > 0 {
+					module, ok = lower.RelativeName(pack, s.Level, s.Module)
+				}
+				if ok {
+					out[module] = true
 					for _, a := range s.Names {
-						out[s.Module+"."+a.Name] = true
+						out[module+"."+a.Name] = true
 					}
 				}
 			case *frontend.FuncDef:

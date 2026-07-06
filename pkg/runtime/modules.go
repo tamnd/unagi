@@ -161,6 +161,16 @@ func ImportFrom(module, name string) (objects.Object, error) {
 		"cannot import name '%s' from '%s' (%s)", name, module, m.File())
 }
 
+// RelativeImportError raises the ImportError for a relative import the
+// compile resolved as impossible. The wording is chosen at compile time:
+// no-known-parent for the entry script and top-level modules, beyond-top-level
+// when the dots walk past the package tree, both probed on 3.14. The raise
+// happens here rather than at compile time because CPython only errors when
+// the statement executes.
+func RelativeImportError(msg string) (objects.Object, error) {
+	return nil, objects.Raise(objects.ImportError, "%s", msg)
+}
+
 // LoadModuleName reads a name the module's compile never saw statically: an
 // attribute an importer set on the module object after import. A miss falls
 // back to builtins and then raises NameError, the LOAD_GLOBAL order.

@@ -60,13 +60,30 @@ func PyModule(mod *frontend.Module, name, file string, source []byte) ([]byte, e
 	return lowerModule(mod, file, source, name, true)
 }
 
+// RelativeName resolves a relative import against the importer's package:
+// strip level-1 trailing segments of the package name, then append the
+// written module path. ok is false when the dots walk past the top of the
+// package tree. The build's module collector shares this arithmetic.
+func RelativeName(pack string, level int, module string) (string, bool) {
+	segs := strings.Split(pack, ".")
+	remaining := len(segs) - (level - 1)
+	if pack == "" || remaining < 1 {
+		return "", false
+	}
+	base := strings.Join(segs[:remaining], ".")
+	if module != "" {
+		return base + "." + module, true
+	}
+	return base, true
+}
+
 func lowerModule(mod *frontend.Module, file string, source []byte, modName string, pkgMode bool) ([]byte, error) {
 	// Rewrite class-private __names to their mangled _Class__name form before
 	// any name analysis runs, so scope collection and lowering see the same
 	// identifiers CPython would after mangling.
 	frontend.MangleClassPrivates(mod)
 
-	e := &emitter{file: file, source: source, modName: modName, pkgMode: pkgMode, escWarns: mod.EscapeWarnings, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}, classOrd: map[string]int{}}
+	e := &emitter{file: file, source: source, modName: modName, pkgMode: pkgMode, pkgInit: pkgMode && strings.HasSuffix(file, "__init__.py"), escWarns: mod.EscapeWarnings, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}, classOrd: map[string]int{}}
 
 	var body []frontend.Stmt
 	var defs []*frontend.FuncDef
@@ -329,6 +346,8 @@ type emitter struct {
 	source      []byte
 	modName     string // the module's __name__: "__main__" or the import name
 	pkgMode     bool   // emitting an importable module package, not package main
+	pkgInit     bool   // this module is a package's __init__.py
+
 	defs        map[string]*frontend.FuncDef
 	defOrd      map[string]int
 	rebound     map[string]bool // def names that are also module variables
@@ -340,6 +359,23 @@ type emitter struct {
 	escWarns    []frontend.EscapeWarning // invalid backslash-escape SyntaxWarnings from the lexer
 	usedObjects bool
 	usedTB      bool
+}
+
+// selfPackage is the module's __package__ resolved at compile time: the
+// module's own name for a package, the parent for a submodule, the empty
+// string for a top-level module. known is false for the entry script, whose
+// __package__ is None; both states make a relative import fail the same way.
+func (e *emitter) selfPackage() (string, bool) {
+	if !e.pkgMode {
+		return "", false
+	}
+	if e.pkgInit {
+		return e.modName, true
+	}
+	if i := strings.LastIndexByte(e.modName, '.'); i >= 0 {
+		return e.modName[:i], true
+	}
+	return "", true
 }
 
 // finWarn records one return/break/continue that exits a finally block. CPython
