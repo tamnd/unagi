@@ -331,48 +331,48 @@ func (s *Global) Span() Pos     { return s.Pos_ }
 func (s *Nonlocal) Span() Pos   { return s.Pos_ }
 func (s *Import) Span() Pos     { return s.Pos_ }
 func (s *ImportFrom) Span() Pos { return s.Pos_ }
-func (s *Try) Span() Pos       { return s.Pos_ }
-func (s *Raise) Span() Pos     { return s.Pos_ }
-func (s *Assert) Span() Pos    { return s.Pos_ }
-func (s *ExprStmt) Span() Pos  { return s.Pos_ }
-func (s *Assign) Span() Pos    { return s.Pos_ }
-func (s *AugAssign) Span() Pos { return s.Pos_ }
-func (s *AnnAssign) Span() Pos { return s.Pos_ }
-func (s *If) Span() Pos        { return s.Pos_ }
-func (s *While) Span() Pos     { return s.Pos_ }
-func (s *For) Span() Pos       { return s.Pos_ }
-func (s *With) Span() Pos      { return s.Pos_ }
-func (s *Match) Span() Pos     { return s.Pos_ }
-func (s *FuncDef) Span() Pos   { return s.Pos_ }
-func (s *ClassDef) Span() Pos  { return s.Pos_ }
-func (s *Return) Span() Pos    { return s.Pos_ }
-func (s *Pass) Span() Pos      { return s.Pos_ }
-func (s *Break) Span() Pos     { return s.Pos_ }
-func (s *Continue) Span() Pos  { return s.Pos_ }
+func (s *Try) Span() Pos        { return s.Pos_ }
+func (s *Raise) Span() Pos      { return s.Pos_ }
+func (s *Assert) Span() Pos     { return s.Pos_ }
+func (s *ExprStmt) Span() Pos   { return s.Pos_ }
+func (s *Assign) Span() Pos     { return s.Pos_ }
+func (s *AugAssign) Span() Pos  { return s.Pos_ }
+func (s *AnnAssign) Span() Pos  { return s.Pos_ }
+func (s *If) Span() Pos         { return s.Pos_ }
+func (s *While) Span() Pos      { return s.Pos_ }
+func (s *For) Span() Pos        { return s.Pos_ }
+func (s *With) Span() Pos       { return s.Pos_ }
+func (s *Match) Span() Pos      { return s.Pos_ }
+func (s *FuncDef) Span() Pos    { return s.Pos_ }
+func (s *ClassDef) Span() Pos   { return s.Pos_ }
+func (s *Return) Span() Pos     { return s.Pos_ }
+func (s *Pass) Span() Pos       { return s.Pos_ }
+func (s *Break) Span() Pos      { return s.Pos_ }
+func (s *Continue) Span() Pos   { return s.Pos_ }
 
 func (*Del) stmt()        {}
 func (*Global) stmt()     {}
 func (*Nonlocal) stmt()   {}
 func (*Import) stmt()     {}
 func (*ImportFrom) stmt() {}
-func (*Try) stmt()       {}
-func (*Raise) stmt()     {}
-func (*Assert) stmt()    {}
-func (*ExprStmt) stmt()  {}
-func (*Assign) stmt()    {}
-func (*AugAssign) stmt() {}
-func (*AnnAssign) stmt() {}
-func (*If) stmt()        {}
-func (*While) stmt()     {}
-func (*For) stmt()       {}
-func (*With) stmt()      {}
-func (*Match) stmt()     {}
-func (*FuncDef) stmt()   {}
-func (*ClassDef) stmt()  {}
-func (*Return) stmt()    {}
-func (*Pass) stmt()      {}
-func (*Break) stmt()     {}
-func (*Continue) stmt()  {}
+func (*Try) stmt()        {}
+func (*Raise) stmt()      {}
+func (*Assert) stmt()     {}
+func (*ExprStmt) stmt()   {}
+func (*Assign) stmt()     {}
+func (*AugAssign) stmt()  {}
+func (*AnnAssign) stmt()  {}
+func (*If) stmt()         {}
+func (*While) stmt()      {}
+func (*For) stmt()        {}
+func (*With) stmt()       {}
+func (*Match) stmt()      {}
+func (*FuncDef) stmt()    {}
+func (*ClassDef) stmt()   {}
+func (*Return) stmt()     {}
+func (*Pass) stmt()       {}
+func (*Break) stmt()      {}
+func (*Continue) stmt()   {}
 
 // --- expressions ---
 

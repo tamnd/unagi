@@ -301,6 +301,15 @@ func TestCompileErrors(t *testing.T) {
 			`name "NoSuchError" is not defined`,
 		},
 		{
+			"star import in function",
+			&frontend.Module{Body: []frontend.Stmt{
+				&frontend.FuncDef{Name: "f", Body: []frontend.Stmt{
+					&frontend.ImportFrom{Module: "m", Star: true},
+				}},
+			}},
+			"import * only allowed at module level",
+		},
+		{
 			"except matcher not a name",
 			&frontend.Module{Body: []frontend.Stmt{
 				&frontend.Try{

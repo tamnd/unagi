@@ -47,7 +47,14 @@ func (e *Error) Error() string {
 // lines; nil skips the embedding and frames render bare, which is what
 // CPython prints when the source file is gone.
 func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
-	return lowerModule(mod, file, source, "__main__", false)
+	return lowerModule(mod, file, source, "__main__", false, nil)
+}
+
+// ModuleStars lowers the entry module of a program that uses star imports:
+// stars maps each compiled module's import name to its export list, computed
+// by ModuleExports, so `from m import *` can bind names statically.
+func ModuleStars(mod *frontend.Module, file string, source []byte, stars map[string]StarExports) ([]byte, error) {
+	return lowerModule(mod, file, source, "__main__", false, stars)
 }
 
 // PyModule lowers an imported module to a Go package the build lays out under
@@ -57,7 +64,126 @@ func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
 // the module object's live slots and runs the body once; the generated
 // modtable.go registers it in the runtime's import table.
 func PyModule(mod *frontend.Module, name, file string, source []byte) ([]byte, error) {
-	return lowerModule(mod, file, source, name, true)
+	return lowerModule(mod, file, source, name, true, nil)
+}
+
+// PyModuleStars is PyModule for a program that uses star imports, threading
+// the per-module export lists so a `from m import *` inside this module can
+// bind names statically.
+func PyModuleStars(mod *frontend.Module, name, file string, source []byte, stars map[string]StarExports) ([]byte, error) {
+	return lowerModule(mod, file, source, name, true, stars)
+}
+
+// StarExports is one module's contribution to a `from m import *`. All holds a
+// literal top-level __all__ list in source order when the module defines one;
+// otherwise Names holds every module-scope public name, sorted. Exactly one is
+// set: All drives the attribute-load form that can raise, Names the default
+// rule that silently skips unbound names.
+type StarExports struct {
+	All   []string
+	Names []string
+}
+
+// ModuleExports computes a module's star-import surface: a literal top-level
+// __all__ of plain strings when present, else every module-scope bound name
+// that does not start with an underscore. A non-literal __all__ is not modeled
+// and falls back to the name rule, which is the closest static approximation.
+func ModuleExports(mod *frontend.Module) StarExports {
+	if all, ok := literalAll(mod.Body); ok {
+		return StarExports{All: all}
+	}
+	bound := map[string]bool{}
+	collectAssigned(mod.Body, bound)
+	collectModuleDefs(mod.Body, bound)
+	var names []string
+	for n := range bound {
+		if !strings.HasPrefix(n, "_") {
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	return StarExports{Names: names}
+}
+
+// literalAll returns the value of a top-level `__all__ = [...]` or `= (...)`
+// assignment when it is a literal list or tuple of string literals. The last
+// such assignment wins, matching a straight-line module body. ok is false when
+// no literal __all__ is present, including when __all__ is built dynamically.
+func literalAll(body []frontend.Stmt) ([]string, bool) {
+	var all []string
+	found := false
+	for _, s := range body {
+		a, ok := s.(*frontend.Assign)
+		if !ok || len(a.Targets) != 1 {
+			continue
+		}
+		n, ok := a.Targets[0].(*frontend.Name)
+		if !ok || n.Id != "__all__" {
+			continue
+		}
+		var elts []frontend.Expr
+		switch v := a.Value.(type) {
+		case *frontend.ListLit:
+			elts = v.Elts
+		case *frontend.TupleLit:
+			elts = v.Elts
+		default:
+			continue
+		}
+		names := make([]string, 0, len(elts))
+		literal := true
+		for _, el := range elts {
+			sl, ok := el.(*frontend.StrLit)
+			if !ok {
+				literal = false
+				break
+			}
+			names = append(names, sl.Val)
+		}
+		if literal {
+			all = names
+			found = true
+		}
+	}
+	return all, found
+}
+
+// collectModuleDefs adds every module-scope def name to out, at any nesting of
+// module-level blocks (a def under if or try still binds at module scope). It
+// does not descend into def or class bodies, whose names are their own scope.
+func collectModuleDefs(body []frontend.Stmt, out map[string]bool) {
+	var walk func(list []frontend.Stmt)
+	walk = func(list []frontend.Stmt) {
+		for _, s := range list {
+			switch s := s.(type) {
+			case *frontend.FuncDef:
+				out[s.Name] = true
+			case *frontend.If:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.While:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.For:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.With:
+				walk(s.Body)
+			case *frontend.Try:
+				walk(s.Body)
+				for _, h := range s.Handlers {
+					walk(h.Body)
+				}
+				walk(s.OrElse)
+				walk(s.Final)
+			case *frontend.Match:
+				for _, c := range s.Cases {
+					walk(c.Body)
+				}
+			}
+		}
+	}
+	walk(body)
 }
 
 // RelativeName resolves a relative import against the importer's package:
@@ -77,13 +203,13 @@ func RelativeName(pack string, level int, module string) (string, bool) {
 	return base, true
 }
 
-func lowerModule(mod *frontend.Module, file string, source []byte, modName string, pkgMode bool) ([]byte, error) {
+func lowerModule(mod *frontend.Module, file string, source []byte, modName string, pkgMode bool, stars map[string]StarExports) ([]byte, error) {
 	// Rewrite class-private __names to their mangled _Class__name form before
 	// any name analysis runs, so scope collection and lowering see the same
 	// identifiers CPython would after mangling.
 	frontend.MangleClassPrivates(mod)
 
-	e := &emitter{file: file, source: source, modName: modName, pkgMode: pkgMode, pkgInit: pkgMode && strings.HasSuffix(file, "__init__.py"), escWarns: mod.EscapeWarnings, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}, classOrd: map[string]int{}}
+	e := &emitter{file: file, source: source, modName: modName, pkgMode: pkgMode, pkgInit: pkgMode && strings.HasSuffix(file, "__init__.py"), stars: stars, escWarns: mod.EscapeWarnings, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}, classOrd: map[string]int{}}
 
 	var body []frontend.Stmt
 	var defs []*frontend.FuncDef
@@ -185,6 +311,11 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 	// of the static fast path.
 	assigned := map[string]bool{}
 	collectAssigned(body, assigned)
+	// A `from m import *` binds names the collector cannot see in the source,
+	// so pull each resolved module's export list into the assigned set; those
+	// names become checked module variables like any other module binding.
+	e.collectStarNames(body, assigned)
+	e.hasStar = hasModuleStar(body)
 	for _, d := range defs {
 		collectGlobals(d.Body, e.globalDecl)
 	}
@@ -342,11 +473,13 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 }
 
 type emitter struct {
-	file        string
-	source      []byte
-	modName     string // the module's __name__: "__main__" or the import name
-	pkgMode     bool   // emitting an importable module package, not package main
-	pkgInit     bool   // this module is a package's __init__.py
+	file    string
+	source  []byte
+	modName string                 // the module's __name__: "__main__" or the import name
+	pkgMode bool                   // emitting an importable module package, not package main
+	pkgInit bool                   // this module is a package's __init__.py
+	stars   map[string]StarExports // export lists keyed by module name, for `from m import *`
+	hasStar bool                   // a module-level `from m import *` makes unresolved names dynamic
 
 	defs        map[string]*frontend.FuncDef
 	defOrd      map[string]int
@@ -376,6 +509,119 @@ func (e *emitter) selfPackage() (string, bool) {
 		return e.modName[:i], true
 	}
 	return "", true
+}
+
+// hasModuleStar reports whether the module body contains a `from m import *`
+// at module level. CPython compiles every free name in such a module with
+// LOAD_NAME, since the star can introduce any name, so an otherwise unknown
+// module-scope read defers to runtime rather than failing the compile.
+func hasModuleStar(body []frontend.Stmt) bool {
+	found := false
+	var walk func(list []frontend.Stmt)
+	walk = func(list []frontend.Stmt) {
+		for _, s := range list {
+			switch s := s.(type) {
+			case *frontend.ImportFrom:
+				if s.Star {
+					found = true
+				}
+			case *frontend.If:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.While:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.For:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.With:
+				walk(s.Body)
+			case *frontend.Try:
+				walk(s.Body)
+				for _, h := range s.Handlers {
+					walk(h.Body)
+				}
+				walk(s.OrElse)
+				walk(s.Final)
+			case *frontend.Match:
+				for _, c := range s.Cases {
+					walk(c.Body)
+				}
+			}
+		}
+	}
+	walk(body)
+	return found
+}
+
+// starModule resolves the module a `from ... import *` names against this
+// module's package. ok is false when the form is impossible (a relative star
+// with no parent or one reaching past the package root), the same conditions
+// that make an ordinary relative import raise.
+func (e *emitter) starModule(s *frontend.ImportFrom) (string, bool) {
+	if s.Level == 0 {
+		return s.Module, true
+	}
+	pack, known := e.selfPackage()
+	if !known || pack == "" {
+		return "", false
+	}
+	return RelativeName(pack, s.Level, s.Module)
+}
+
+// collectStarNames adds every name a module-level `from m import *` binds to
+// out, walking module-level blocks but not def or class bodies (a star there
+// is rejected at lowering). It uses the resolved module's export list; a star
+// whose module does not resolve or was not compiled binds nothing statically.
+func (e *emitter) collectStarNames(body []frontend.Stmt, out map[string]bool) {
+	var walk func(list []frontend.Stmt)
+	walk = func(list []frontend.Stmt) {
+		for _, s := range list {
+			switch s := s.(type) {
+			case *frontend.ImportFrom:
+				if !s.Star {
+					continue
+				}
+				module, ok := e.starModule(s)
+				if !ok {
+					continue
+				}
+				exp, ok := e.stars[module]
+				if !ok {
+					continue
+				}
+				for _, n := range exp.All {
+					out[n] = true
+				}
+				for _, n := range exp.Names {
+					out[n] = true
+				}
+			case *frontend.If:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.While:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.For:
+				walk(s.Body)
+				walk(s.Else)
+			case *frontend.With:
+				walk(s.Body)
+			case *frontend.Try:
+				walk(s.Body)
+				for _, h := range s.Handlers {
+					walk(h.Body)
+				}
+				walk(s.OrElse)
+				walk(s.Final)
+			case *frontend.Match:
+				for _, c := range s.Cases {
+					walk(c.Body)
+				}
+			}
+		}
+	}
+	walk(body)
 }
 
 // finWarn records one return/break/continue that exits a finally block. CPython

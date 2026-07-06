@@ -245,7 +245,7 @@ func (f *fnCtx) matcherValues(t frontend.Expr) ([]ast.Expr, error) {
 			return []ast.Expr{callExpr(sel("runtime", "BuiltinFn"), strLit(t.Id))}, nil
 		}
 		_, isDef := f.e.defs[t.Id]
-		if isClass || isDef || f.locals[t.Id] || f.e.moduleVars[t.Id] {
+		if isClass || isDef || f.locals[t.Id] || f.e.moduleVars[t.Id] || f.e.hasStar {
 			// Any other bound name evaluates to its value, so a variable holding
 			// an exception class or a tuple of them is a valid matcher. The
 			// runtime validates the value and raises the non-class TypeError when
