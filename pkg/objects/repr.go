@@ -283,6 +283,8 @@ func reprCore(o Object, strict bool) (string, error) {
 		return fmt.Sprintf("<function %s at %p>", x.qual, x), nil
 	case *staticmethodObject, *classmethodObject, *propertyObject:
 		return descriptorRepr(x), nil
+	case *memberDescriptor:
+		return fmt.Sprintf("<member '%s' of '%s' objects>", x.name, x.owner.name), nil
 	case *dictKeysObject:
 		return reprSeqCore(x.d.keySlice(), "dict_keys([", "])", strict)
 	case *dictValuesObject:
