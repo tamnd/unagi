@@ -144,9 +144,12 @@ func TestMethodDefaultLowering(t *testing.T) {
 	}
 	got := string(src)
 	for _, want := range []string{
-		"t1 := objects.NewInt(1)",
+		`t1, err := objects.StartClass(nil, "C", "__main__.C"`,
+		"t2 := objects.NewInt(1)",
 		`objects.NewFunction("C.m"`,
-		"[]objects.Object{nil, t1}",
+		"[]objects.Object{nil, t2}",
+		`t1.Set("m", t3)`,
+		"t1.Finish(",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("emitted source missing %q:\n%s", want, got)
