@@ -373,6 +373,15 @@ func (c *classObject) runInitSubclass(kwNames []string, kwVals []Object) error {
 // it walks c.order. A raising hook propagates; the RuntimeError that CPython
 // wraps it in is a later refinement.
 func (c *classObject) runSetNameHooks() error {
+	// Collect the (name, value) pairs first, the way type.__new__ gathers the
+	// descriptor list before firing any hook. A hook like enum's _proto_member
+	// deletes its own name from the class during the call, and walking the live
+	// order while it shrinks would skip the entry that slid into the freed slot.
+	type setNameTarget struct {
+		name string
+		inst *instanceObject
+	}
+	var targets []setNameTarget
 	for _, name := range c.order {
 		inst, ok := c.dict[name].(*instanceObject)
 		if !ok {
@@ -381,7 +390,10 @@ func (c *classObject) runSetNameHooks() error {
 		if _, ok := inst.cls.lookup("__set_name__"); !ok {
 			continue
 		}
-		if _, err := instanceCallMethod(inst, "__set_name__", []Object{c, NewStr(name)}); err != nil {
+		targets = append(targets, setNameTarget{name: name, inst: inst})
+	}
+	for _, t := range targets {
+		if _, err := instanceCallMethod(t.inst, "__set_name__", []Object{c, NewStr(t.name)}); err != nil {
 			return err
 		}
 	}
