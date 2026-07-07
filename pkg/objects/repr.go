@@ -326,6 +326,10 @@ func reprCore(o Object, strict bool) (string, error) {
 		return boundMethodRepr(x), nil
 	case *superObject:
 		return superRepr(x), nil
+	case *stringIOObject:
+		return stringIORepr(x), nil
+	case *bytesIOObject:
+		return bytesIORepr(x), nil
 	case *generatorObject:
 		kind := "generator"
 		if x.isCoro {

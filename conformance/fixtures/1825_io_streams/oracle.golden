@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+wrote: 5
+value: hello world
+tell: 11
+read5: hello
+rest:  world
+line: 'hello world'
+closed before: False
+closed after: True
+write closed: I/O operation on closed file
+overwrite: hXllo
+lines: ['a\n', 'bb\n', 'ccc']
+ctx value: in ctx
+ctx closed: True
+str TE: string argument expected, got 'bytes'
+b wrote: 2
+b value: b'hi there'
+b read2: b'hi'
+b rest: b' there'
+b init: b'seed'
+bytes TE: a bytes-like object is required, not 'str'
+init TE: initial_value must be str or None, not int
+== exception:
+== stderr:

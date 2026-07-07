@@ -1027,6 +1027,16 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return nil, Raise(AttributeError, "'slice' object has no attribute '%s'", name)
 	case *memoryviewObject:
 		return memoryviewLoadAttr(x, name)
+	case *stringIOObject:
+		if name == "closed" {
+			return NewBool(x.closed), nil
+		}
+		return nil, noAttr(x, name)
+	case *bytesIOObject:
+		if name == "closed" {
+			return NewBool(x.closed), nil
+		}
+		return nil, noAttr(x, name)
 	case *functionObject:
 		// A Python function carries __name__ and __qualname__; the bare name is
 		// the last qualname segment, so C.m.__name__ is "m" and __qualname__ is

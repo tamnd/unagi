@@ -29,6 +29,10 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 		return superCallMethod(x, name, args)
 	case *generatorObject:
 		return genMethod(x, name, args)
+	case *stringIOObject:
+		return stringIOMethod(x, name, args)
+	case *bytesIOObject:
+		return bytesIOMethod(x, name, args)
 	case *complexObject:
 		return complexMethod(x, name, args)
 	case *sliceObject:
