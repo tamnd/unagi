@@ -282,27 +282,92 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 	if err := collectClasses(mod.Body); err != nil {
 		return nil, err
 	}
-	for _, s := range mod.Body {
-		if d, ok := s.(*frontend.FuncDef); ok {
-			if _, dup := e.defs[d.Name]; dup {
-				// Redefinition is legal Python; the lowering hoists defs, so
-				// the second binding cannot take effect and we refuse it.
-				return nil, e.errf(d.Span(), "redefining function %q is not supported yet", d.Name)
-			}
-			e.defOrd[d.Name] = len(defs)
-			for _, p := range d.Params {
-				if p.Default != nil {
-					e.slots = append(e.slots, e.slotName(d.Name, p.Name))
-					e.usedObjects = true
+	// Defs are collected through nested module-level blocks the same way
+	// classes are, so a guarded fallback def (the try/except ImportError idiom
+	// the stdlib floor leans on) registers as the canonical function and its
+	// def statement takes effect where it runs. A def collected from inside a
+	// block is conditional: its binding may not happen, so its name becomes a
+	// checked module variable. Def bodies are not descended into; a nested
+	// function is a separate scope handled at lowering.
+	conditionalDefs := map[string]bool{}
+	var collectDefs func(list []frontend.Stmt, conditional bool) error
+	collectDefs = func(list []frontend.Stmt, conditional bool) error {
+		for _, s := range list {
+			switch s := s.(type) {
+			case *frontend.FuncDef:
+				if _, dup := e.defs[s.Name]; dup {
+					// Redefinition is legal Python; the lowering hoists defs, so
+					// the second binding cannot take effect and we refuse it.
+					return e.errf(s.Span(), "redefining function %q is not supported yet", s.Name)
+				}
+				e.defOrd[s.Name] = len(defs)
+				for _, p := range s.Params {
+					if p.Default != nil {
+						e.slots = append(e.slots, e.slotName(s.Name, p.Name))
+						e.usedObjects = true
+					}
+				}
+				e.defs[s.Name] = s
+				defs = append(defs, s)
+				if conditional {
+					conditionalDefs[s.Name] = true
+				}
+			case *frontend.If:
+				if err := collectDefs(s.Body, true); err != nil {
+					return err
+				}
+				if err := collectDefs(s.Else, true); err != nil {
+					return err
+				}
+			case *frontend.While:
+				if err := collectDefs(s.Body, true); err != nil {
+					return err
+				}
+				if err := collectDefs(s.Else, true); err != nil {
+					return err
+				}
+			case *frontend.For:
+				if err := collectDefs(s.Body, true); err != nil {
+					return err
+				}
+				if err := collectDefs(s.Else, true); err != nil {
+					return err
+				}
+			case *frontend.With:
+				if err := collectDefs(s.Body, true); err != nil {
+					return err
+				}
+			case *frontend.Try:
+				if err := collectDefs(s.Body, true); err != nil {
+					return err
+				}
+				for _, h := range s.Handlers {
+					if err := collectDefs(h.Body, true); err != nil {
+						return err
+					}
+				}
+				if err := collectDefs(s.OrElse, true); err != nil {
+					return err
+				}
+				if err := collectDefs(s.Final, true); err != nil {
+					return err
+				}
+			case *frontend.Match:
+				for _, c := range s.Cases {
+					if err := collectDefs(c.Body, true); err != nil {
+						return err
+					}
 				}
 			}
-			e.defs[d.Name] = d
-			defs = append(defs, d)
 		}
-		// Defs stay in the body: the def statement evaluates its parameter
-		// defaults when it executes, so the slot fills at that point.
-		body = append(body, s)
+		return nil
 	}
+	if err := collectDefs(mod.Body, false); err != nil {
+		return nil, err
+	}
+	// Defs stay in the body: the def statement evaluates its parameter defaults
+	// when it executes, so the slot fills at that point.
+	body = append(body, mod.Body...)
 
 	// __doc__ is the module docstring: the value of a leading bare string
 	// literal, otherwise None. CPython stores it before the rest of the body
@@ -352,6 +417,13 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 		if len(d.Decorators) > 0 {
 			e.moduleVars[d.Name] = true
 		}
+	}
+	// A conditionally defined name may never bind, so it is a checked module
+	// variable too: the def statement binds it where it runs, and a read before
+	// or without that raises NameError instead of resolving a function that was
+	// never defined on this path.
+	for n := range conditionalDefs {
+		e.moduleVars[n] = true
 	}
 	// In a module package every def is a module variable: an importer can
 	// rebind or delete m.f, and calls inside the module must observe that, so
