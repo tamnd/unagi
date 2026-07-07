@@ -108,6 +108,14 @@ func instanceGet(x *instanceObject, name string, v Object) (Object, error) {
 	switch d := v.(type) {
 	case *functionObject:
 		return &boundMethod{fn: d, self: x}, nil
+	case *funcObject:
+		// A builtin string dunder that a class reassigned to another slot binds
+		// the instance as self, the way a wrapper_descriptor does, so
+		// __str__ = int.__repr__ calls int.__repr__(self). A plain builtin
+		// leaves selfBound false and comes back unbound.
+		if d.selfBound {
+			return bindBuiltinSelf(d, x), nil
+		}
 	case *staticmethodObject:
 		return d.fn, nil
 	case *classmethodObject:
@@ -130,6 +138,14 @@ func instanceGet(x *instanceObject, name string, v Object) (Object, error) {
 		}
 	}
 	return v, nil
+}
+
+// bindBuiltinSelf wraps a self-bound builtin so a call prepends the instance,
+// the way reading a wrapper_descriptor off an instance yields a bound method.
+func bindBuiltinSelf(d *funcObject, self Object) Object {
+	return NewFunc(d.name, -1, func(args []Object) (Object, error) {
+		return Call(d, append([]Object{self}, args...))
+	})
 }
 
 // classGet applies the descriptor protocol to a class-dict value v resolved for
