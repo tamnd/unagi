@@ -40,6 +40,31 @@ type functionObject struct {
 	params   []Param
 	defaults []Object // aligned with params, nil entries mean no default
 	impl     func(args []Object) (Object, error)
+	// attrs holds the writable attribute state a function grows when code
+	// assigns to it: the __dict__ of arbitrary attributes plus overrides for the
+	// __name__/__qualname__/__doc__/__module__/__annotations__ slots. It stays nil
+	// for the common function that is only ever called, so the hot path pays
+	// nothing for it.
+	attrs *funcAttrs
+}
+
+// funcAttrs is the lazily allocated writable-attribute overlay for a function.
+// A nil field means the slot keeps its default (derived from qual, or None, or
+// an empty dict); a set field is the value assigned to it. dict is the function
+// __dict__ that holds every non-slot attribute such as __wrapped__.
+type funcAttrs struct {
+	dict        *dictObject
+	name, qual  Object
+	doc, module Object
+	annotations *dictObject
+}
+
+// overlay returns the function's writable overlay, allocating it on first use.
+func (fn *functionObject) overlay() *funcAttrs {
+	if fn.attrs == nil {
+		fn.attrs = &funcAttrs{}
+	}
+	return fn.attrs
 }
 
 func (*functionObject) TypeName() string { return "function" }
