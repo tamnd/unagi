@@ -97,6 +97,12 @@ type classObject struct {
 	slotsWeakref bool
 	instDict     bool
 	instWeakref  bool
+	// builtinBase names the builtin type this class derives from, empty for a
+	// plain object-rooted class. A dict base makes instances dict-backed: the
+	// mapping protocol and dict methods route to the instance's dictData store
+	// unless the class overrides them. It is inherited, so a subclass of a dict
+	// subclass stays dict-backed.
+	builtinBase string
 }
 
 func (*classObject) TypeName() string { return "type" }
@@ -113,6 +119,10 @@ type instanceObject struct {
 	// from attrs so a mixed dict-plus-slots instance's __dict__ never shows a
 	// slot value. Lazily allocated on the first slot write.
 	slots map[string]Object
+	// dictData is the mapping payload of a dict subclass instance, the storage
+	// self[key] and the inherited dict methods read and write. It is nil for an
+	// ordinary instance whose class has no dict base.
+	dictData *dictObject
 }
 
 func (o *instanceObject) TypeName() string { return o.cls.name }
@@ -179,6 +189,12 @@ func newClassCore(meta *classObject, name, qual string, bases []Object, names []
 			// The implicit object base contributes no user names.
 			continue
 		}
+		if name, ok := builtinBaseName(b); ok {
+			// A builtin type base like dict is not a classObject, so it never
+			// joins the MRO; it is recorded as the layout the instances take.
+			c.builtinBase = name
+			continue
+		}
 		bc, ok := asBaseClass(b)
 		if !ok {
 			return nil, Raise(TypeError, "bases must be types")
@@ -189,6 +205,9 @@ func newClassCore(meta *classObject, name, qual string, bases []Object, names []
 		seen[bc] = true
 		if bc.isMeta {
 			c.isMeta = true
+		}
+		if bc.builtinBase != "" {
+			c.builtinBase = bc.builtinBase
 		}
 		c.bases = append(c.bases, bc)
 	}
@@ -588,6 +607,11 @@ func isTypeArg(o Object) bool {
 // named name. int owns bool as a subtype, type covers every type value, and
 // every other kind matches its own TypeName exactly.
 func instanceOfBuiltin(obj Object, name string) bool {
+	// A dict subclass instance is an instance of dict, so isinstance(x, dict)
+	// answers from the layout the class recorded, not its own type name.
+	if inst, ok := obj.(*instanceObject); ok {
+		return inst.cls.builtinBase == name
+	}
 	switch name {
 	case "type":
 		return isTypeArg(obj)
@@ -746,9 +770,10 @@ func subclassOf(sc *classObject, cls Object) (Object, error) {
 		}
 		return False, nil
 	}
-	// A user class is a subclass of no builtin type other than object.
-	if _, ok := builtinTypeArgName(cls); ok {
-		return False, nil
+	// A user class is a subclass of a builtin type only when it derives from
+	// that type, the layout recorded on the class; object is handled above.
+	if tname, ok := builtinTypeArgName(cls); ok {
+		return NewBool(sc.builtinBase == tname), nil
 	}
 	return nil, Raise(TypeError, "issubclass() arg 2 must be a class, a tuple of classes, or a union")
 }
@@ -905,8 +930,19 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 		return e, nil
 	}
 	inst := &instanceObject{cls: c, attrs: newAttrs()}
+	if c.builtinBase == "dict" {
+		inst.dictData = &dictObject{index: map[string]int{}}
+	}
 	init, ok := c.lookup("__init__")
 	if !ok {
+		if inst.dictData != nil {
+			// A dict subclass with no __init__ override inherits dict.__init__,
+			// which seeds the store from the constructor arguments.
+			if err := dictInit(inst.dictData, pos, kwNames, kwVals); err != nil {
+				return nil, err
+			}
+			return inst, nil
+		}
 		if len(pos) > 0 || len(kwNames) > 0 {
 			return nil, Raise(TypeError, "%s() takes no arguments", c.name)
 		}

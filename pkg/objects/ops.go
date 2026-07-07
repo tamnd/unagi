@@ -89,6 +89,9 @@ func TruthOf(o Object) (bool, error) {
 		}
 		return n != 0, nil
 	}
+	if d, ok := dictBacked(x); ok {
+		return len(d.entries) != 0, nil
+	}
 	return true, nil
 }
 
@@ -1028,6 +1031,13 @@ func Contains(container, item Object) (Object, error) {
 			}
 			return NewBool(t), nil
 		}
+		if d, ok := dictBacked(x); ok {
+			_, found, err := d.lookup(item)
+			if err != nil {
+				return nil, err
+			}
+			return NewBool(found), nil
+		}
 		return containsByIter(container, item)
 	}
 	return nil, Raise(TypeError, "argument of type '%s' is not iterable", container.TypeName())
@@ -1183,6 +1193,9 @@ func GetItem(o, key Object) (Object, error) {
 		if defined {
 			return res, nil
 		}
+		if d, ok := dictBacked(x); ok {
+			return d.get(key)
+		}
 	}
 	return nil, Raise(TypeError, "'%s' object is not subscriptable", o.TypeName())
 }
@@ -1247,6 +1260,9 @@ func SetItem(o, key, val Object) error {
 		if defined {
 			return nil
 		}
+		if d, ok := dictBacked(x); ok {
+			return d.set(key, val)
+		}
 	}
 	return Raise(TypeError, "'%s' object does not support item assignment", o.TypeName())
 }
@@ -1291,6 +1307,9 @@ func Len(o Object) (int, error) {
 		}
 		if defined {
 			return lenFromResult(res)
+		}
+		if d, ok := dictBacked(x); ok {
+			return len(d.entries), nil
 		}
 	}
 	return 0, Raise(TypeError, "object of type '%s' has no len()", o.TypeName())
@@ -1383,6 +1402,13 @@ func Iter(o Object) (Iterator, error) {
 	case Iterable:
 		return x.Iterate()
 	case *instanceObject:
+		if _, ok := x.cls.lookup("__iter__"); !ok {
+			if _, ok := x.cls.lookup("__getitem__"); !ok {
+				if d, backed := dictBacked(x); backed {
+					return &sliceIter{elts: d.keySlice()}, nil
+				}
+			}
+		}
 		return iterInstance(x)
 	}
 	return nil, Raise(TypeError, "'%s' object is not iterable", o.TypeName())

@@ -100,6 +100,11 @@ func genericGetAttr(x *instanceObject, name string) (Object, error) {
 	if tok {
 		return instanceGet(x, name, tv)
 	}
+	// A dict subclass that overrode neither the instance dict nor the class
+	// inherits dict's own methods, bound to the instance's store.
+	if v, ok := dictSubclassAttr(x, name); ok {
+		return v, nil
+	}
 	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", x.cls.name, name)
 }
 

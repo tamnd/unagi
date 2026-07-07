@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+{'a': 1, 'b': 2}
+2 True False
+1 2 -1
+True False
+['a', 'b'] [1, 2]
+[('a', 1), ('b', 2)]
+['b']
+KeyError 'nope'
+[('x', 10), ('y', 20)]
+[('p', 1), ('q', 2)]
+True True
+True True
+Plain
+['c', 'a', 'b']
+[('c', 'C'), ('a', 'A'), ('b', 'B')]
+[('art', 4), ('math', 3)] 7 scores
+True True 9
+== exception:
+== stderr:
