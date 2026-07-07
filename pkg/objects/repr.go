@@ -300,6 +300,8 @@ func reprCore(o Object, strict bool) (string, error) {
 	case *functionObject:
 		// Probed: repr spells __qualname__, g.<locals>.<lambda> and all.
 		return fmt.Sprintf("<function %s at %p>", x.qual, x), nil
+	case *partialObject:
+		return partialRepr(x, strict)
 	case *staticmethodObject, *classmethodObject, *propertyObject:
 		return descriptorRepr(x), nil
 	case *memberDescriptor:
