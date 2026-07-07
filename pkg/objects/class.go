@@ -1058,16 +1058,10 @@ func LoadAttr(o Object, name string) (Object, error) {
 		}
 		return nil, noAttr(x, name)
 	case *functionObject:
-		// A Python function carries __name__ and __qualname__; the bare name is
-		// the last qualname segment, so C.m.__name__ is "m" and __qualname__ is
-		// "C.m".
-		switch name {
-		case "__name__":
-			return NewStr(funcName(x.qual)), nil
-		case "__qualname__":
-			return NewStr(x.qual), nil
-		}
-		return nil, Raise(AttributeError, "'function' object has no attribute '%s'", name)
+		// A Python function carries the __name__/__qualname__/__doc__/__module__/
+		// __annotations__ slots plus a __dict__ of arbitrary attributes; the read
+		// protocol lives with the writable overlay in funcattrs.go.
+		return functionLoadAttr(x, name)
 	case *boundMethod:
 		// A bound method exposes the function and the instance it is bound to as
 		// __func__/__self__, and proxies every other attribute to the underlying
@@ -1123,6 +1117,8 @@ func StoreAttr(o Object, name string, val Object) error {
 	switch x := o.(type) {
 	case *instanceObject:
 		return instanceStoreAttr(x, name, val)
+	case *functionObject:
+		return functionStoreAttr(x, name, val)
 	case *Module:
 		return moduleStoreAttr(x, name, val)
 	case *classObject:
@@ -1166,6 +1162,8 @@ func DelAttr(o Object, name string) error {
 	switch x := o.(type) {
 	case *instanceObject:
 		return instanceDelAttr(x, name)
+	case *functionObject:
+		return functionDelAttr(x, name)
 	case *Module:
 		return moduleDelAttr(x, name)
 	case *classObject:

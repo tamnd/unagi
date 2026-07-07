@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+outer outer
+method C.method
+__main__
+None
+{}
+{}
+7 team
+[('owner', 'team'), ('tag', 7)]
+99
+['late', 'owner']
+AttributeError: 'function' object has no attribute 'tag'
+renamed mod.renamed
+TypeError: __name__ must be set to a string object
+TypeError: __qualname__ must be set to a string object
+a summary
+None
+{'x': <class 'int'>}
+TypeError: __annotations__ must be set to a dict object
+TypeError: __dict__ must be set to a dictionary, not a 'int'
+== exception:
+== stderr:
