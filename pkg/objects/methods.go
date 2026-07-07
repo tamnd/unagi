@@ -8,6 +8,11 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 	case *listObject:
 		return listMethod(x, name, args)
 	case *dictObject:
+		if x.kind == counterDict {
+			if v, handled, err := counterMethod(x, name, args); handled {
+				return v, err
+			}
+		}
 		return dictMethod(x, name, args)
 	case *setObject:
 		return setMethod(x, name, args)

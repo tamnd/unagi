@@ -6,7 +6,7 @@ import "strings"
 // that carries a default_factory and overrides __missing__, so a subscript on
 // an absent key calls the factory, stores the result under the key, and returns
 // it. Because it is a dict subclass, unagi models it as a dictObject with the
-// isDefault flag set rather than a separate type, so it shares the dict storage,
+// defaultDict kind rather than a separate type, so it shares the dict storage,
 // methods, equality (a defaultdict equals a plain dict with the same items), and
 // hashing behavior for free.
 
@@ -18,7 +18,7 @@ func NewDefaultDict(factory Object, keys, vals []Object) (Object, error) {
 		return nil, err
 	}
 	dd := d.(*dictObject)
-	dd.isDefault = true
+	dd.kind = defaultDict
 	dd.factory = factory
 	return dd, nil
 }
@@ -27,7 +27,17 @@ func NewDefaultDict(factory Object, keys, vals []Object) (Object, error) {
 // factory the way __missing__ does. A plain dict, or a defaultdict whose factory
 // is None, raises the ordinary KeyError.
 func dictSubscript(d *dictObject, key Object) (Object, error) {
-	if !d.isDefault || d.factory == nil || d.factory == None {
+	if d.kind == counterDict {
+		// Counter.__missing__ returns a zero count without storing the key, so a
+		// read never grows the mapping.
+		if v, ok, err := d.lookup(key); err != nil {
+			return nil, err
+		} else if ok {
+			return v, nil
+		}
+		return NewInt(0), nil
+	}
+	if d.kind != defaultDict || d.factory == nil || d.factory == None {
 		return d.get(key)
 	}
 	if v, ok, err := d.lookup(key); err != nil {

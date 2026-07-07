@@ -14,21 +14,37 @@ import (
 type dictObject struct {
 	entries []dictEntry
 	index   map[string]int
-	// isDefault marks a collections.defaultdict, whose factory fills a missing
-	// key on subscript. A plain dict leaves both zero. factory is the
-	// default_factory: None disables the fill so a miss raises KeyError like an
-	// ordinary dict, matching CPython.
-	isDefault bool
-	factory   Object
+	// kind marks a dict subclass from collections; a plain dict leaves it zero.
+	// The subclasses share the dict storage and only differ in a few overridden
+	// behaviors (missing-key handling, repr, and Counter's methods), so a flag is
+	// enough and equality and hashing stay the dict ones.
+	kind dictKind
+	// factory is the default_factory of a defaultdict: None disables the fill so
+	// a miss raises KeyError like an ordinary dict. Unused by the other kinds.
+	factory Object
 }
+
+// dictKind names the dict subclass a dictObject stands in for.
+type dictKind uint8
+
+const (
+	plainDict dictKind = iota
+	defaultDict
+	counterDict
+)
 
 type dictEntry struct {
 	key, val Object
 }
 
 func (d *dictObject) TypeName() string {
-	if d.isDefault {
+	switch d.kind {
+	case defaultDict:
+		// A C type in CPython, so its tp_name carries the module.
 		return "collections.defaultdict"
+	case counterDict:
+		// A pure-Python class in CPython, so its tp_name is the bare class name.
+		return "Counter"
 	}
 	return "dict"
 }
