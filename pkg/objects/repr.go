@@ -105,6 +105,31 @@ func reprSeqCore(elts []Object, open, close string, strict bool) (string, error)
 	return b.String(), nil
 }
 
+// dictBodyRepr spells the {k: v, ...} body shared by a plain dict and the
+// trailing part of a defaultdict repr.
+func dictBodyRepr(d *dictObject, strict bool) (string, error) {
+	var b strings.Builder
+	b.WriteString("{")
+	for i, e := range d.entries {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		k, err := reprCore(e.key, strict)
+		if err != nil {
+			return "", err
+		}
+		v, err := reprCore(e.val, strict)
+		if err != nil {
+			return "", err
+		}
+		b.WriteString(k)
+		b.WriteString(": ")
+		b.WriteString(v)
+	}
+	b.WriteString("}")
+	return b.String(), nil
+}
+
 // Repr returns the Python repr of an object. This infallible form serves
 // error messages and internal rendering; it ignores the 4300-digit int
 // conversion limit, which only the user-visible boundaries enforce.
@@ -209,26 +234,10 @@ func reprCore(o Object, strict bool) (string, error) {
 		}
 		return reprSeqCore(x.elts, "(", ")", strict)
 	case *dictObject:
-		var b strings.Builder
-		b.WriteString("{")
-		for i, e := range x.entries {
-			if i > 0 {
-				b.WriteString(", ")
-			}
-			k, err := reprCore(e.key, strict)
-			if err != nil {
-				return "", err
-			}
-			v, err := reprCore(e.val, strict)
-			if err != nil {
-				return "", err
-			}
-			b.WriteString(k)
-			b.WriteString(": ")
-			b.WriteString(v)
+		if x.isDefault {
+			return defaultDictRepr(x, strict)
 		}
-		b.WriteString("}")
-		return b.String(), nil
+		return dictBodyRepr(x, strict)
 	case *setObject:
 		// Probed: repr(set()) is "set()", repr({1,2}) is "{1, 2}".
 		if len(x.elts) == 0 {

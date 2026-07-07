@@ -66,10 +66,14 @@ func dictMethod(x *dictObject, name string, args []Object) (Object, error) {
 			return nil, Raise(TypeError, "dict.copy() takes no arguments (%d given)", len(args))
 		}
 		// Shallow copy with independent storage: same key and value
-		// objects, but inserts into either dict never touch the other.
+		// objects, but inserts into either dict never touch the other. A
+		// defaultdict copies its subclass and factory, so d.copy() is another
+		// defaultdict with the same default_factory, matching CPython.
 		out := &dictObject{
-			entries: append([]dictEntry(nil), x.entries...),
-			index:   make(map[string]int, len(x.index)),
+			entries:   append([]dictEntry(nil), x.entries...),
+			index:     make(map[string]int, len(x.index)),
+			isDefault: x.isDefault,
+			factory:   x.factory,
 		}
 		for k, i := range x.index {
 			out.index[k] = i

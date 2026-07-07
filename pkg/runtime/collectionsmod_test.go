@@ -169,6 +169,123 @@ func TestDequeSubscript(t *testing.T) {
 	}
 }
 
+// collFn returns a named callable from the collections module.
+func collFn(t *testing.T, name string) objects.Object {
+	t.Helper()
+	mo, err := ImportModule("collections")
+	if err != nil {
+		t.Fatalf("import collections: %v", err)
+	}
+	fn, err := objects.LoadAttr(mo, name)
+	if err != nil {
+		t.Fatalf("collections.%s: %v", name, err)
+	}
+	return fn
+}
+
+// builtin returns a global builtin callable such as list or int, the factory a
+// defaultdict is usually built with.
+func builtin(t *testing.T, name string) objects.Object {
+	t.Helper()
+	v, ok := builtins[name]
+	if !ok {
+		t.Fatalf("builtin %s not registered", name)
+	}
+	return v
+}
+
+func TestDefaultDictFactoryFill(t *testing.T) {
+	dd, err := objects.Call(collFn(t, "defaultdict"), []objects.Object{builtin(t, "list")})
+	if err != nil {
+		t.Fatalf("defaultdict(list): %v", err)
+	}
+	// d['a'] on a missing key calls list() and stores it.
+	v, err := objects.GetItem(dd, objects.NewStr("a"))
+	if err != nil {
+		t.Fatalf("d['a']: %v", err)
+	}
+	if _, err := objects.CallMethod(v, "append", []objects.Object{objects.NewInt(1)}); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if got := objects.Repr(dd); got != "defaultdict(<class 'list'>, {'a': [1]})" {
+		t.Fatalf("defaultdict repr = %q", got)
+	}
+}
+
+func TestDefaultDictNoneFactory(t *testing.T) {
+	dd, err := objects.Call(collFn(t, "defaultdict"), nil)
+	if err != nil {
+		t.Fatalf("defaultdict(): %v", err)
+	}
+	if v, _ := objects.LoadAttr(dd, "default_factory"); v != objects.None {
+		t.Fatalf("default_factory = %s", objects.Repr(v))
+	}
+	// A None factory raises KeyError on a missing key like a plain dict.
+	if _, err := objects.GetItem(dd, objects.NewStr("x")); err == nil {
+		t.Fatal("missing key with None factory should raise KeyError")
+	}
+	if got := objects.Repr(dd); got != "defaultdict(None, {})" {
+		t.Fatalf("empty defaultdict repr = %q", got)
+	}
+}
+
+func TestDefaultDictSeededAndEqual(t *testing.T) {
+	seed, _ := objects.NewDict([]objects.Object{objects.NewStr("x")}, []objects.Object{objects.NewInt(5)})
+	dd, err := objects.Call(collFn(t, "defaultdict"), []objects.Object{builtin(t, "int"), seed})
+	if err != nil {
+		t.Fatalf("defaultdict(int, {...}): %v", err)
+	}
+	v, _ := objects.GetItem(dd, objects.NewStr("x"))
+	if objects.Repr(v) != "5" {
+		t.Fatalf("seeded value = %s", objects.Repr(v))
+	}
+	// A missing key fills with int() == 0.
+	v, _ = objects.GetItem(dd, objects.NewStr("y"))
+	if objects.Repr(v) != "0" {
+		t.Fatalf("filled value = %s", objects.Repr(v))
+	}
+	// A defaultdict equals a plain dict with the same items.
+	plain, _ := objects.NewDict(
+		[]objects.Object{objects.NewStr("x"), objects.NewStr("y")},
+		[]objects.Object{objects.NewInt(5), objects.NewInt(0)})
+	res, _ := objects.Compare(objects.OpEq, dd, plain)
+	if !objects.Truth(res) {
+		t.Fatal("defaultdict should equal a plain dict with the same items")
+	}
+}
+
+func TestDefaultDictBadFactory(t *testing.T) {
+	if _, err := objects.Call(collFn(t, "defaultdict"), []objects.Object{objects.NewInt(5)}); err == nil {
+		t.Fatal("non-callable factory should raise TypeError")
+	}
+}
+
+func TestDefaultDictSetFactory(t *testing.T) {
+	dd, _ := objects.Call(collFn(t, "defaultdict"), nil)
+	if err := objects.StoreAttr(dd, "default_factory", builtin(t, "int")); err != nil {
+		t.Fatalf("set default_factory: %v", err)
+	}
+	v, _ := objects.GetItem(dd, objects.NewStr("z"))
+	if objects.Repr(v) != "0" {
+		t.Fatalf("after setting factory, d['z'] = %s", objects.Repr(v))
+	}
+}
+
+func TestDefaultDictCopy(t *testing.T) {
+	dd, _ := objects.Call(collFn(t, "defaultdict"), []objects.Object{builtin(t, "list")})
+	c, err := objects.CallMethod(dd, "copy", nil)
+	if err != nil {
+		t.Fatalf("copy: %v", err)
+	}
+	if c.TypeName() != "collections.defaultdict" {
+		t.Fatalf("copy type = %s", c.TypeName())
+	}
+	// The copy keeps the factory, so a missing key still fills.
+	if _, err := objects.GetItem(c, objects.NewStr("q")); err != nil {
+		t.Fatalf("copy fill: %v", err)
+	}
+}
+
 func TestDequeEqualityAndLen(t *testing.T) {
 	a := newDeque(t, nums(1, 2, 3))
 	b := newDeque(t, nums(1, 2, 3))

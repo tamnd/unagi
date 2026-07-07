@@ -65,6 +65,18 @@ func materialize(o objects.Object) ([]objects.Object, error) {
 // last inserted first.
 func Reversed(o objects.Object) (objects.Object, error) {
 	var name string
+	if objects.IsDict(o) {
+		// A dict and its subclasses (defaultdict) reverse over their keys.
+		name = "dict_reversekeyiterator"
+		elts, err := materialize(o)
+		if err != nil {
+			return nil, err
+		}
+		for i, j := 0, len(elts)-1; i < j; i, j = i+1, j-1 {
+			elts[i], elts[j] = elts[j], elts[i]
+		}
+		return &iterObject{name: name, elts: elts}, nil
+	}
 	switch o.TypeName() {
 	case "list":
 		name = "list_reverseiterator"
@@ -72,8 +84,6 @@ func Reversed(o objects.Object) (objects.Object, error) {
 		name = "reversed"
 	case "range":
 		name = "range_iterator"
-	case "dict":
-		name = "dict_reversekeyiterator"
 	case "collections.deque":
 		name = "_collections._deque_reverse_iterator"
 	default:
