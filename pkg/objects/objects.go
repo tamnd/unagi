@@ -172,9 +172,22 @@ type listObject struct{ elts []Object }
 
 func (*listObject) TypeName() string { return "list" }
 
-type tupleObject struct{ elts []Object }
+// tupleObject is an immutable sequence. named is nil for an ordinary tuple and
+// points at the field metadata for a collections.namedtuple instance, which is
+// a tuple subclass: it keeps every tuple behavior (indexing, iteration,
+// equality with a plain tuple, and the tuple hash) and only adds the field
+// names, the named repr, and the _fields/_make/_replace/_asdict helpers.
+type tupleObject struct {
+	elts  []Object
+	named *namedType
+}
 
-func (*tupleObject) TypeName() string { return "tuple" }
+func (x *tupleObject) TypeName() string {
+	if x.named != nil {
+		return x.named.name
+	}
+	return "tuple"
+}
 
 type funcObject struct {
 	name  string
@@ -371,6 +384,9 @@ func NewRange(start, stop, step int64) Object {
 func Call(f Object, args []Object) (Object, error) {
 	if u, ok := f.(*functionObject); ok {
 		return u.bind(args, nil, nil)
+	}
+	if t, ok := f.(*namedTupleType); ok {
+		return t.build.bind(args, nil, nil)
 	}
 	if m, ok := f.(*boundMethod); ok {
 		return m.fn.bind(append([]Object{m.self}, args...), nil, nil)

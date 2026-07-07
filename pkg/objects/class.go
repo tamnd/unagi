@@ -1093,6 +1093,12 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return NewStr(x.name), nil
 		}
 		return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
+	case *namedTupleType:
+		return namedTupleTypeAttr(x, name)
+	case *tupleObject:
+		if x.named != nil {
+			return namedTupleInstanceAttr(x, name)
+		}
 	}
 	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", o.TypeName(), name)
 }

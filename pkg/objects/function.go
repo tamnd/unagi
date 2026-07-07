@@ -66,6 +66,8 @@ func CallKw(f Object, pos []Object, kwNames []string, kwVals []Object) (Object, 
 	switch fn := f.(type) {
 	case *functionObject:
 		return fn.bind(pos, kwNames, kwVals)
+	case *namedTupleType:
+		return fn.build.bind(pos, kwNames, kwVals)
 	case *boundMethod:
 		return fn.fn.bind(append([]Object{fn.self}, pos...), kwNames, kwVals)
 	case *classObject:

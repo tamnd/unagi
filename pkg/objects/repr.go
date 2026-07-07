@@ -225,6 +225,9 @@ func reprCore(o Object, strict bool) (string, error) {
 	case *dequeObject:
 		return dequeRepr(x, strict)
 	case *tupleObject:
+		if x.named != nil {
+			return namedTupleRepr(x, strict)
+		}
 		if len(x.elts) == 1 {
 			s, err := reprCore(x.elts[0], strict)
 			if err != nil {

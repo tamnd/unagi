@@ -158,6 +158,27 @@ func initCollections(m *objects.Module) error {
 		return err
 	}
 
+	// namedtuple(typename, field_names, *, rename=False, defaults=None,
+	// module=None): a factory that returns a tuple subclass whose fields are
+	// reachable by name. The name parsing, identifier and keyword validation,
+	// rename handling, and default alignment live in buildNamedTuple, which then
+	// asks objects to mint the class.
+	namedtuple := objects.NewFunction("namedtuple",
+		[]objects.Param{
+			{Name: "typename", Kind: objects.ParamPlain},
+			{Name: "field_names", Kind: objects.ParamPlain},
+			{Name: "rename", Kind: objects.ParamKwOnly},
+			{Name: "defaults", Kind: objects.ParamKwOnly},
+			{Name: "module", Kind: objects.ParamKwOnly},
+		},
+		[]objects.Object{nil, nil, objects.False, objects.None, objects.None},
+		func(a []objects.Object) (objects.Object, error) {
+			return buildNamedTuple(a)
+		})
+	if err := set("namedtuple", namedtuple); err != nil {
+		return err
+	}
+
 	return nil
 }
 

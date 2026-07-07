@@ -1,0 +1,27 @@
+== exit: 0
+== stdout:
+Point(x=1, y=2)
+1 2 1 2
+True
+Point(x=6, y=5)
+1 2
+('x', 'y')
+Point
+{'x': 1, 'y': 2}
+Point(x=1, y=9)
+Point(x=3, y=4)
+Named(first='hi', second='there')
+P3(a=1, b=10, c=20)
+P3(a=1, b=2, c=20)
+{'b': 10, 'c': 20}
+('abc', '_1', '_2', 'x')
+TypeError Got unexpected field names: ['z']
+TypeError Expected 2 arguments, got 1
+TypeError Got more default values than field names
+ValueError Type names and field names must be valid identifiers: '1b'
+ValueError Type names and field names cannot be a keyword: 'def'
+ValueError Encountered duplicate field name: 'a'
+ValueError Field names cannot start with an underscore: '_b'
+ValueError Type names and field names cannot be a keyword: 'class'
+== exception:
+== stderr:
