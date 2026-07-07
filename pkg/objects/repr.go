@@ -302,7 +302,7 @@ func reprCore(o Object, strict bool) (string, error) {
 		return fmt.Sprintf("<function %s at %p>", x.qual, x), nil
 	case *partialObject:
 		return partialRepr(x, strict)
-	case *staticmethodObject, *classmethodObject, *propertyObject:
+	case *staticmethodObject, *classmethodObject, *propertyObject, *cachedPropertyObject:
 		return descriptorRepr(x), nil
 	case *memberDescriptor:
 		return fmt.Sprintf("<member '%s' of '%s' objects>", x.name, x.owner.name), nil
