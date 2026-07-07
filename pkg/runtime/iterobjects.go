@@ -74,6 +74,8 @@ func Reversed(o objects.Object) (objects.Object, error) {
 		name = "range_iterator"
 	case "dict":
 		name = "dict_reversekeyiterator"
+	case "collections.deque":
+		name = "_collections._deque_reverse_iterator"
 	default:
 		// Probed: reversed({1,2}) -> TypeError: 'set' object is not reversible.
 		return nil, objects.Raise(objects.TypeError, "'%s' object is not reversible", o.TypeName())

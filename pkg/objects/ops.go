@@ -27,6 +27,8 @@ func Truth(o Object) bool {
 		return len(x.snapshot()) > 0
 	case *listObject:
 		return len(x.elts) > 0
+	case *dequeObject:
+		return len(x.elts) > 0
 	case *tupleObject:
 		return len(x.elts) > 0
 	case *dictObject:
@@ -757,6 +759,9 @@ func equals(a, b Object) bool {
 	case *listObject:
 		y, ok := b.(*listObject)
 		return ok && seqEquals(x.elts, y.elts)
+	case *dequeObject:
+		y, ok := b.(*dequeObject)
+		return ok && dequeEquals(x, y)
 	case *tupleObject:
 		y, ok := b.(*tupleObject)
 		return ok && seqEquals(x.elts, y.elts)
@@ -865,6 +870,10 @@ func order(op CmpOp, a, b Object) (bool, error) {
 		if y, ok2 := b.(*listObject); ok2 {
 			return seqOrder(op, x.elts, y.elts)
 		}
+	} else if x, ok := a.(*dequeObject); ok {
+		if y, ok2 := b.(*dequeObject); ok2 {
+			return seqOrder(op, x.elts, y.elts)
+		}
 	} else if x, ok := a.(*tupleObject); ok {
 		if y, ok2 := b.(*tupleObject); ok2 {
 			return seqOrder(op, x.elts, y.elts)
@@ -934,6 +943,8 @@ func Contains(container, item Object) (Object, error) {
 	case *bytearrayObject:
 		return bytesContainsItem(x.snapshot(), item)
 	case *listObject:
+		return seqContains(x.elts, item), nil
+	case *dequeObject:
 		return seqContains(x.elts, item), nil
 	case *tupleObject:
 		return seqContains(x.elts, item), nil
@@ -1090,6 +1101,8 @@ func GetItem(o, key Object) (Object, error) {
 			return nil, err
 		}
 		return x.elts[j], nil
+	case *dequeObject:
+		return dequeGetItem(x, key)
 	case *tupleObject:
 		i, ok := AsInt(key)
 		if !ok {
@@ -1163,6 +1176,8 @@ func SetItem(o, key, val Object) error {
 		}
 		x.elts[j] = val
 		return nil
+	case *dequeObject:
+		return dequeSetItem(x, key, val)
 	case *bytearrayObject:
 		i, ok := AsInt(key)
 		if !ok {
@@ -1209,6 +1224,8 @@ func Len(o Object) (int, error) {
 	case *bytearrayObject:
 		return len(x.snapshot()), nil
 	case *listObject:
+		return len(x.elts), nil
+	case *dequeObject:
 		return len(x.elts), nil
 	case *tupleObject:
 		return len(x.elts), nil

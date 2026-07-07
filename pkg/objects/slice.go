@@ -335,6 +335,8 @@ func DelItem(o, key Object) error {
 		}
 		x.elts = append(x.elts[:j], x.elts[j+1:]...)
 		return nil
+	case *dequeObject:
+		return dequeDelItem(x, key)
 	case *dictObject:
 		_, found, err := x.delete(key)
 		if err != nil {

@@ -197,6 +197,8 @@ func reprCore(o Object, strict bool) (string, error) {
 		return x.reprText, nil
 	case *listObject:
 		return reprSeqCore(x.elts, "[", "]", strict)
+	case *dequeObject:
+		return dequeRepr(x, strict)
 	case *tupleObject:
 		if len(x.elts) == 1 {
 			s, err := reprCore(x.elts[0], strict)

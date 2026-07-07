@@ -1025,6 +1025,16 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return x.step, nil
 		}
 		return nil, Raise(AttributeError, "'slice' object has no attribute '%s'", name)
+	case *dequeObject:
+		// maxlen reads the bound as an int, or None for an unbounded deque; it is
+		// the one data attribute CPython's deque exposes.
+		if name == "maxlen" {
+			if x.bounded() {
+				return NewInt(int64(x.maxlen)), nil
+			}
+			return None, nil
+		}
+		return nil, noAttr(x, name)
 	case *memoryviewObject:
 		return memoryviewLoadAttr(x, name)
 	case *stringIOObject:
