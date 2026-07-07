@@ -16,10 +16,66 @@ package objects
 // rejecting the base. Only dict is supported so far; every other builtin still
 // reaches the bases-must-be-types path.
 func builtinBaseName(b Object) (string, bool) {
-	if f, ok := b.(*funcObject); ok && f.name == "dict" {
-		return "dict", true
+	if f, ok := b.(*funcObject); ok {
+		switch f.name {
+		case "dict", "int":
+			return f.name, true
+		}
 	}
 	return "", false
+}
+
+// builtinUnwrap returns the immutable builtin payload a value subclass instance
+// wraps, the int an int subclass holds. ok is false for any other object,
+// including a dict subclass whose store is not a scalar value. An operator uses
+// it to compute on the underlying builtin after an override lookup misses.
+func builtinUnwrap(o Object) (Object, bool) {
+	inst, ok := o.(*instanceObject)
+	if !ok || inst.builtinData == nil {
+		return nil, false
+	}
+	return inst.builtinData, true
+}
+
+// BuiltinValue exposes builtinUnwrap to callers in other packages, so a
+// conversion such as int(x) or an index can read the payload of a value subclass
+// instance. ok is false for every object that is not such an instance.
+func BuiltinValue(o Object) (Object, bool) {
+	return builtinUnwrap(o)
+}
+
+// builtinUnary runs a unary operator on a value subclass instance: a class
+// override wins (the shape IntFlag's __invert__ takes), otherwise the payload
+// carries the operation and returns the plain builtin result. ok is false for an
+// instance that is not value-backed, so the caller keeps its own type error.
+func builtinUnary(o Object, dunder string, apply func(Object) (Object, error)) (Object, bool, error) {
+	inst, ok := o.(*instanceObject)
+	if !ok {
+		return nil, false, nil
+	}
+	if _, has := inst.cls.lookup(dunder); has {
+		res, defined, err := instanceSpecial(inst, dunder)
+		if defined {
+			return res, true, err
+		}
+	}
+	if inst.builtinData == nil {
+		return nil, false, nil
+	}
+	r, err := apply(inst.builtinData)
+	return r, true, err
+}
+
+// InstanceOverride runs a special method a user class defines on an instance,
+// for a caller in another package that must try an override before its own
+// builtin path. ok is false when o is not an instance or its class defines no
+// such method, so the caller keeps its default behavior.
+func InstanceOverride(o Object, name string, args ...Object) (Object, bool, error) {
+	inst, ok := o.(*instanceObject)
+	if !ok {
+		return nil, false, nil
+	}
+	return instanceSpecial(inst, name, args...)
 }
 
 // dictBacked returns the mapping store of a dict subclass instance, ok true only

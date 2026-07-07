@@ -92,6 +92,11 @@ func TruthOf(o Object) (bool, error) {
 	if d, ok := dictBacked(x); ok {
 		return len(d.entries) != 0, nil
 	}
+	if v, ok := builtinUnwrap(x); ok {
+		// A value subclass with neither __bool__ nor __len__ is truthy exactly
+		// when its payload is, so an int subclass member of value 0 is falsy.
+		return Truth(v), nil
+	}
 	return true, nil
 }
 
@@ -109,6 +114,9 @@ func Not(o Object) Object { return NewBool(!Truth(o)) }
 
 // Neg implements unary minus.
 func Neg(o Object) (Object, error) {
+	if r, ok, err := builtinUnary(o, "__neg__", Neg); ok || err != nil {
+		return r, err
+	}
 	if d, ok := o.(*dictObject); ok && d.kind == counterDict {
 		return counterNeg(d)
 	}
@@ -132,6 +140,9 @@ func Neg(o Object) (Object, error) {
 
 // Pos implements unary plus.
 func Pos(o Object) (Object, error) {
+	if r, ok, err := builtinUnary(o, "__pos__", Pos); ok || err != nil {
+		return r, err
+	}
 	if d, ok := o.(*dictObject); ok && d.kind == counterDict {
 		return counterPos(d)
 	}
@@ -549,6 +560,9 @@ func Pow(a, b Object) (Object, error) {
 	if res, ok, err := binaryDunder("__pow__", "__rpow__", a, b); ok || err != nil {
 		return res, err
 	}
+	if res, ok, err := valueSubclassBinary("**", a, b); ok || err != nil {
+		return res, err
+	}
 	return nil, Raise(TypeError, "unsupported operand type(s) for ** or pow(): '%s' and '%s'",
 		a.TypeName(), b.TypeName())
 }
@@ -723,6 +737,9 @@ func RShift(a, b Object) (Object, error) {
 // Invert implements unary ~. Probed: ~True is int -2, ~ on bool never
 // stays bool.
 func Invert(o Object) (Object, error) {
+	if r, ok, err := builtinUnary(o, "__invert__", Invert); ok || err != nil {
+		return r, err
+	}
 	if i, ok := AsInt(o); ok {
 		return NewInt(-i - 1), nil
 	}
@@ -1072,6 +1089,20 @@ func seqIndex(i int64, n int, msg string) (int, error) {
 	return int(i), nil
 }
 
+// seqIndexKey extracts an integer sequence index, unwrapping an int subclass
+// instance to its payload so a value subclass indexes as its int. It is the
+// sequence-only counterpart to AsInt: a mapping keys by hash and equality
+// instead, so a dict subscript keeps the instance and never routes here.
+func seqIndexKey(key Object) (int64, bool) {
+	if i, ok := AsInt(key); ok {
+		return i, true
+	}
+	if v, ok := builtinUnwrap(key); ok {
+		return AsInt(v)
+	}
+	return 0, false
+}
+
 // GetItem implements subscription: o[key].
 func GetItem(o, key Object) (Object, error) {
 	// A slice object handed to a builtin sequence reads the same span the
@@ -1086,7 +1117,7 @@ func GetItem(o, key Object) (Object, error) {
 	case *memoryviewObject:
 		return mvGetItem(x, key)
 	case *strObject:
-		i, ok := AsInt(key)
+		i, ok := seqIndexKey(key)
 		if !ok {
 			if IsBigInt(key) {
 				return nil, errIndexFit()
@@ -1100,7 +1131,7 @@ func GetItem(o, key Object) (Object, error) {
 		}
 		return NewStr(string(runes[j])), nil
 	case *bytesObject:
-		i, ok := AsInt(key)
+		i, ok := seqIndexKey(key)
 		if !ok {
 			if IsBigInt(key) {
 				return nil, errIndexFit()
@@ -1115,7 +1146,7 @@ func GetItem(o, key Object) (Object, error) {
 		}
 		return NewInt(int64(x.v[j])), nil
 	case *bytearrayObject:
-		i, ok := AsInt(key)
+		i, ok := seqIndexKey(key)
 		if !ok {
 			if IsBigInt(key) {
 				return nil, errIndexFit()
@@ -1131,7 +1162,7 @@ func GetItem(o, key Object) (Object, error) {
 		}
 		return NewInt(int64(v[j])), nil
 	case *listObject:
-		i, ok := AsInt(key)
+		i, ok := seqIndexKey(key)
 		if !ok {
 			if IsBigInt(key) {
 				return nil, errIndexFit()
@@ -1149,7 +1180,7 @@ func GetItem(o, key Object) (Object, error) {
 	case *dequeObject:
 		return dequeGetItem(x, key)
 	case *tupleObject:
-		i, ok := AsInt(key)
+		i, ok := seqIndexKey(key)
 		if !ok {
 			if IsBigInt(key) {
 				return nil, errIndexFit()
@@ -1168,7 +1199,7 @@ func GetItem(o, key Object) (Object, error) {
 	case *matchObject:
 		return matchGetItem(x, key)
 	case *rangeObject:
-		i, ok := AsInt(key)
+		i, ok := seqIndexKey(key)
 		if !ok {
 			if IsBigInt(key) {
 				return nil, errIndexFit()
@@ -1214,7 +1245,7 @@ func SetItem(o, key, val Object) error {
 	case *memoryviewObject:
 		return mvSetItem(x, key, val)
 	case *listObject:
-		i, ok := AsInt(key)
+		i, ok := seqIndexKey(key)
 		if !ok {
 			if IsBigInt(key) {
 				return errIndexFit()
@@ -1231,7 +1262,7 @@ func SetItem(o, key, val Object) error {
 	case *dequeObject:
 		return dequeSetItem(x, key, val)
 	case *bytearrayObject:
-		i, ok := AsInt(key)
+		i, ok := seqIndexKey(key)
 		if !ok {
 			if IsBigInt(key) {
 				return errIndexFit()

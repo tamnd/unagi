@@ -300,7 +300,7 @@ func DelItem(o, key Object) error {
 	case *memoryviewObject:
 		return mvDelItem(x)
 	case *bytearrayObject:
-		i, ok := AsInt(key)
+		i, ok := seqIndexKey(key)
 		if !ok {
 			if IsBigInt(key) {
 				return errIndexFit()
@@ -316,7 +316,7 @@ func DelItem(o, key Object) error {
 		x.v = append(x.v[:j], x.v[j+1:]...)
 		return nil
 	case *listObject:
-		i, ok := AsInt(key)
+		i, ok := seqIndexKey(key)
 		if !ok {
 			// Probed: del xs[2**100] raises the same index-fit error as
 			// reading, not the type error.

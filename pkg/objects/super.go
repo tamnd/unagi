@@ -172,7 +172,22 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 				if isExcClass(cls) {
 					return &Exception{Kind: cls.name, Class: cls, Args: append([]Object{}, args[1:]...)}, true, nil
 				}
-				return &instanceObject{cls: cls, attrs: newAttrs()}, true, nil
+				inst := &instanceObject{cls: cls, attrs: newAttrs()}
+				switch cls.builtinBase {
+				case "dict":
+					inst.dictData = &dictObject{index: map[string]int{}}
+				case "int":
+					// int.__new__(cls, value) reached through a user __new__ chain
+					// builds the immutable payload from the value argument the way
+					// int.__new__ sets it, so a subclass that scales its value in
+					// __new__ still ends up with the right underlying int.
+					v, err := Call(cls.builtinBaseFn, args[1:])
+					if err != nil {
+						return nil, true, err
+					}
+					inst.builtinData = v
+				}
+				return inst, true, nil
 			}
 		}
 	case "__call__":

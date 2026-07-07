@@ -19,6 +19,11 @@ func asIndex(o objects.Object) (int64, error) {
 	if i, ok := objects.AsInt(o); ok {
 		return i, nil
 	}
+	if v, ok := objects.BuiltinValue(o); ok {
+		// An int subclass indexes as its payload, so range(MyInt(3)) and the base
+		// reprs read the underlying int.
+		return asIndex(v)
+	}
 	if objects.IsBigInt(o) {
 		return 0, objects.Raise(objects.OverflowError, "Python int too large to convert to C ssize_t")
 	}

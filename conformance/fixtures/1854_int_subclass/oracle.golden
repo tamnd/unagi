@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+8 2 15 1 2 125
+int
+1 7 6 -6 10 2
+-5 5 7
+True True True True False
+True True MyInt
+5 5.0 False True
+True
+one
+5 5 5 0005
+0b101 0xff 101
+2
+[0, 1, 2]
+20 25 Scaled
+5 Flag
+== exception:
+== stderr:
