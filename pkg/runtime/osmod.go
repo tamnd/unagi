@@ -94,7 +94,15 @@ func initOS(m *objects.Module) error {
 			return err
 		}
 	}
-	return nil
+
+	// Importing os makes os.path available as an attribute, the way CPython
+	// binds the platform path module onto os. The submodule is also registered
+	// on its own, so `import os.path` and `from os import path` resolve too.
+	pathMod, err := ImportModule("os.path")
+	if err != nil {
+		return err
+	}
+	return set("path", pathMod)
 }
 
 func osGetcwd(args []objects.Object) (objects.Object, error) {
