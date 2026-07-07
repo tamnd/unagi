@@ -1,0 +1,46 @@
+== exit: 0
+== stdout:
+pi: 3.14159265359
+e: 2.718281828459
+tau: 6.28318530718
+inf: inf nan: nan
+sqrt4: 2.0
+sqrt2: 1.414213562373
+exp0: 1.0
+log_e: 1.0
+log_8_2: 3.0
+log2_8: 3.0
+log10_1000: 3.0
+sin0: 0.0 cos0: 1.0
+sin_pi6: 0.5
+atan2: 0.785398163397
+floor: 3 -4
+ceil: 4 -3
+trunc: 3 -3
+gcd: 6 0 5
+lcm: 12 1 0
+factorial5: 120
+factorial20: 2432902008176640000
+isqrt: 4 0
+isnan: True False
+isinf: True False
+isfinite: True False
+hypot: 5.0
+copysign: -3.0
+fmod: 1.0
+remainder: 1.0
+pow: 1024.0 2.0
+degrees: 180.0
+radians: 3.14159265359
+modf: (0.5, 3.0)
+frexp: (0.5, 4)
+ldexp: 8.0
+ValueError: expected a nonnegative input, got -1.0
+ValueError: expected a positive input
+ValueError: expected a number in range from -1 up to 1, got 2.0
+ValueError: math domain error
+OverflowError: math range error
+ValueError: factorial() not defined for negative values
+ValueError: isqrt() argument must be nonnegative
+== exception:
+== stderr:
