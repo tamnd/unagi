@@ -1086,6 +1086,26 @@ func classMetaIter(c *classObject) (Iterator, bool, error) {
 	return it, true, err
 }
 
+// classMetaLen runs a metaclass __len__ for len(cls), the way EnumType.__len__
+// counts a Color enum's members. handled is false when the metaclass carries no
+// __len__, so the caller falls through to the not-sized TypeError.
+func classMetaLen(c *classObject) (Object, bool, error) {
+	meta, ok := userMetaclass(c)
+	if !ok {
+		return nil, false, nil
+	}
+	v, ok := meta.lookup("__len__")
+	if !ok {
+		return nil, false, nil
+	}
+	fn, ok := v.(*functionObject)
+	if !ok {
+		return nil, false, nil
+	}
+	r, err := fn.bind([]Object{c}, nil, nil)
+	return r, true, err
+}
+
 // IsInstance implements isinstance(obj, cls). cls is a class, a builtin type, or
 // a tuple of those; anything else raises the arg 2 TypeError probed on 3.14. A
 // user instance matches when cls is in its MRO or is the object root; a builtin
