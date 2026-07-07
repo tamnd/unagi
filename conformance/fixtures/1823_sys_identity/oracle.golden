@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+ge 3.8: True
+lt 4: True
+triple: 3 14 6
+level: final 0
+len: 5
+hexversion: True
+maxsize: 9223372036854775807
+maxunicode: 1114111
+byteorder: little
+== exception:
+== stderr:
