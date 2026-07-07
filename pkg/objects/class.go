@@ -650,6 +650,95 @@ func objectDefaultRepr(o Object) string {
 	return fmt.Sprintf("<%s object at %p>", o.TypeName(), o)
 }
 
+// BuiltinTypeResolver returns the type object registered under a builtin type
+// name, so this package can name int or bool as an element of another builtin
+// type's linearization. The runtime installs it in its init because that is
+// where the builtin constructors live; a nil resolver just means only the
+// object tail resolves, which is enough for the common (T, object) chain.
+var BuiltinTypeResolver func(name string) (Object, bool)
+
+// builtinTypeBaseNames maps a builtin type to its direct base names. Every
+// builtin type in builtinTypeReprs derives straight from object except bool,
+// whose base is int, so only the exceptions are listed and the rest default to
+// object.
+var builtinTypeBaseNames = map[string][]string{
+	"bool": {"int"},
+}
+
+// builtinTypeChain is the linearization of a builtin type by name, from the type
+// itself up through its bases to object: int gives [int, object] and bool gives
+// [bool, int, object].
+func builtinTypeChain(name string) []string {
+	chain := []string{name}
+	cur := name
+	for {
+		bases, ok := builtinTypeBaseNames[cur]
+		if !ok || len(bases) == 0 {
+			break
+		}
+		cur = bases[0]
+		chain = append(chain, cur)
+	}
+	return append(chain, "object")
+}
+
+// builtinTypeElem resolves one name in a builtin type's chain to its type
+// object: object is the root singleton, the type itself is x, and an
+// intermediate base comes from the runtime resolver. A name that does not
+// resolve is left out so the tuple still forms.
+func builtinTypeElem(name string, x *funcObject) (Object, bool) {
+	if name == "object" {
+		return objectClass, true
+	}
+	if name == x.name {
+		return x, true
+	}
+	if BuiltinTypeResolver != nil {
+		return BuiltinTypeResolver(name)
+	}
+	return nil, false
+}
+
+// builtinTypeIntrospect answers the type-object attributes a builtin type
+// constructor carries: __mro__ is the linearization tuple, __bases__ the direct
+// bases, __base__ the primary base, and __qualname__ the type name.
+func builtinTypeIntrospect(x *funcObject, name string) (Object, bool) {
+	switch name {
+	case "__mro__":
+		var elts []Object
+		for _, n := range builtinTypeChain(x.name) {
+			if e, ok := builtinTypeElem(n, x); ok {
+				elts = append(elts, e)
+			}
+		}
+		return NewTuple(elts), true
+	case "__bases__":
+		bases := builtinTypeBaseNames[x.name]
+		if len(bases) == 0 {
+			bases = []string{"object"}
+		}
+		var elts []Object
+		for _, n := range bases {
+			if e, ok := builtinTypeElem(n, x); ok {
+				elts = append(elts, e)
+			}
+		}
+		return NewTuple(elts), true
+	case "__base__":
+		base := "object"
+		if bases := builtinTypeBaseNames[x.name]; len(bases) > 0 {
+			base = bases[0]
+		}
+		if e, ok := builtinTypeElem(base, x); ok {
+			return e, true
+		}
+		return nil, false
+	case "__qualname__":
+		return NewStr(x.name), true
+	}
+	return nil, false
+}
+
 // classDictProxy is __dict__, the read-only mappingproxy over the class
 // namespace. The entries come back in definition order, the order enum's
 // classdict.update(cls.__dict__) folds them in, over a snapshot dict so a write
@@ -1287,6 +1376,13 @@ func LoadAttr(o Object, name string) (Object, error) {
 		// A builtin may attach its own attributes, such as chain.from_iterable.
 		if v, ok := x.attrs[name]; ok {
 			return v, nil
+		}
+		// A constructor that doubles as a type object answers the type
+		// introspection attributes: int.__mro__, str.__bases__, bool.__base__.
+		if builtinTypeReprs[x.name] {
+			if v, ok := builtinTypeIntrospect(x, name); ok {
+				return v, nil
+			}
 		}
 	case *typeObject:
 		if name == "__name__" || name == "__qualname__" {
