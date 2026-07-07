@@ -143,7 +143,20 @@ func (f *fnCtx) comp(e *frontend.Comp) (ast.Expr, error) {
 		f.add(&ast.ForStmt{Body: f.pop()})
 		return nil
 	}
-	if err := clause(0, first); err != nil {
+	// A comprehension body runs in an implicit function scope that skips the
+	// class namespace: only the leftmost iterable, already evaluated above in
+	// the enclosing scope, may read a class variable. Clear the class-body mode
+	// for the clause nest so an inner iterable, a condition, or the element
+	// reads a class-only name as the runtime NameError CPython raises, while a
+	// module global still resolves. The mode restores once the nest is emitted.
+	savedBld, savedFall := f.classBld, f.classFall
+	if f.classBld != "" {
+		f.classBld = ""
+		f.classFall = true
+	}
+	err = clause(0, first)
+	f.classBld, f.classFall = savedBld, savedFall
+	if err != nil {
 		return nil, err
 	}
 
@@ -179,13 +192,19 @@ func (f *fnCtx) genexp(e *frontend.Comp) (ast.Expr, error) {
 	// error) return shape of a generator body. Save the enclosing generator and
 	// return state so a genexp nested inside a generator function or at module
 	// scope restores cleanly.
-	savedYielder, savedInFunc, savedClosure, savedFname := f.genYielder, f.inFunc, f.closure, f.fname
+	// The closure body is a real function scope, so it skips the class
+	// namespace the same way an inlined comprehension does: clearing classBld
+	// keeps a class-only name out of the body, where inFunc already defers an
+	// unresolved read to the runtime NameError. The leftmost iterator above was
+	// taken with the class scope still live, so it alone sees a class variable.
+	savedYielder, savedInFunc, savedClosure, savedFname, savedBld := f.genYielder, f.inFunc, f.closure, f.fname, f.classBld
 	f.genYielder = "gy"
 	f.inFunc = true
 	f.closure = 0
 	f.fname = "<genexpr>"
+	f.classBld = ""
 	defer func() {
-		f.genYielder, f.inFunc, f.closure, f.fname = savedYielder, savedInFunc, savedClosure, savedFname
+		f.genYielder, f.inFunc, f.closure, f.fname, f.classBld = savedYielder, savedInFunc, savedClosure, savedFname, savedBld
 	}()
 
 	// Clause variables rename to fresh temporaries the same way an inlined
