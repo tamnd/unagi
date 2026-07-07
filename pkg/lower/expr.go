@@ -241,6 +241,43 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		f.fallible(tmp, f.e.obj("NewSet"), f.objSlice(elts))
 		return ident(tmp), nil
 	case *frontend.DictLit:
+		unpack := false
+		for _, k := range e.Keys {
+			if k == nil {
+				unpack = true
+				break
+			}
+		}
+		if unpack {
+			// A `**mapping` entry parses to a nil key. Evaluate each entry left
+			// to right, keeping key then value order, and let NewDictUnpack merge
+			// the marked mappings and keep later keys winning.
+			var keys, vals []ast.Expr
+			for i, k := range e.Keys {
+				if k == nil {
+					v, err := f.expr(e.Vals[i])
+					if err != nil {
+						return nil, err
+					}
+					keys = append(keys, ident("nil"))
+					vals = append(vals, v)
+					continue
+				}
+				ke, err := f.expr(k)
+				if err != nil {
+					return nil, err
+				}
+				v, err := f.expr(e.Vals[i])
+				if err != nil {
+					return nil, err
+				}
+				keys = append(keys, ke)
+				vals = append(vals, v)
+			}
+			tmp := f.tmpVar()
+			f.fallible(tmp, f.e.obj("NewDictUnpack"), f.objSlice(keys), f.objSlice(vals))
+			return ident(tmp), nil
+		}
 		keys, err := f.exprList(e.Keys)
 		if err != nil {
 			return nil, err

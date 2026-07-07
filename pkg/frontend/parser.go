@@ -2077,12 +2077,17 @@ func (p *parser) parseBraces() Expr {
 		return node
 	}
 	if p.isOp("**") {
-		dstar := p.advance()
-		p.parseOr()
+		// A leading ** commits to a dict with an unpacked mapping as its first
+		// entry, stored as a nil key beside the mapping value the way CPython's
+		// AST marks a `**` in a dict display.
+		p.advance()
+		val := p.parseOr()
 		if p.isKw("for") || p.isAsyncFor() {
-			p.errf(dstar.pos, "dict unpacking cannot be used in dict comprehension")
+			p.errf(val.Span(), "dict unpacking cannot be used in dict comprehension")
 		}
-		p.errf(dstar.pos, "dict unpacking is not supported yet")
+		node.Keys = append(node.Keys, nil)
+		node.Vals = append(node.Vals, val)
+		return p.parseDictTail(node)
 	}
 	if p.isOp("*") {
 		// A starred first element can only be a set: a dict key is never
@@ -2119,12 +2124,23 @@ func (p *parser) parseBraces() Expr {
 	}
 	node.Keys = append(node.Keys, key)
 	node.Vals = append(node.Vals, val)
+	return p.parseDictTail(node)
+}
+
+// parseDictTail parses the comma-separated remainder of a dict display once the
+// first entry has committed it to a dict, and closes the brace. Each remaining
+// entry is either a `key: value` pair or a `**mapping` unpack, which is stored
+// as a nil key beside the mapping value.
+func (p *parser) parseDictTail(node *DictLit) Expr {
 	for p.eatOp(",") {
 		if p.isOp("}") {
 			break
 		}
 		if p.isOp("**") {
-			p.errf(p.cur().pos, "dict unpacking is not supported yet")
+			p.advance()
+			node.Keys = append(node.Keys, nil)
+			node.Vals = append(node.Vals, p.parseOr())
+			continue
 		}
 		k := p.parseTest()
 		if !p.isOp(":") {

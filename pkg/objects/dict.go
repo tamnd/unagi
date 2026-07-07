@@ -166,6 +166,74 @@ func NewDict(keys, vals []Object) (Object, error) {
 	return d, nil
 }
 
+// NewDictUnpack builds a dict display that contains one or more `**mapping`
+// unpackings. A nil key marks its value as a mapping to merge; any other key
+// is an ordinary entry. Entries apply left to right and a later key wins, the
+// order CPython's BUILD_MAP and DICT_UPDATE give a display. Unlike a `**` in a
+// call, a duplicate key is not an error and a key may be any hashable, not
+// just a string; a value that is not a mapping raises TypeError.
+func NewDictUnpack(keys, vals []Object) (Object, error) {
+	d := &dictObject{index: make(map[string]int, len(keys))}
+	for i := range keys {
+		if keys[i] == nil {
+			if err := d.mergeMapping(vals[i]); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if err := d.set(keys[i], vals[i]); err != nil {
+			return nil, err
+		}
+	}
+	return d, nil
+}
+
+// mergeMapping folds another mapping's items into d, later keys winning. A dict
+// source merges its entries directly; any other object must satisfy the mapping
+// protocol, a keys() method whose results index the source, and anything else
+// raises the "'T' object is not a mapping" TypeError DICT_UPDATE reports.
+func (d *dictObject) mergeMapping(src Object) error {
+	if s, ok := src.(*dictObject); ok {
+		for _, e := range s.entries {
+			if err := d.set(e.key, e.val); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	keysFn, err := LoadAttr(src, "keys")
+	if err != nil {
+		if isAttrError(err) {
+			return Raise(TypeError, "'%s' object is not a mapping", src.TypeName())
+		}
+		return err
+	}
+	keys, err := Call(keysFn, nil)
+	if err != nil {
+		return err
+	}
+	it, err := Iter(keys)
+	if err != nil {
+		return err
+	}
+	for {
+		k, ok, err := it.Next()
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+		v, err := GetItem(src, k)
+		if err != nil {
+			return err
+		}
+		if err := d.set(k, v); err != nil {
+			return err
+		}
+	}
+}
+
 func (d *dictObject) set(key, val Object) error {
 	k, err := dictKey(key)
 	if err != nil {

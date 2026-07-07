@@ -291,6 +291,10 @@ func de(e Expr) string {
 	case *DictLit:
 		parts := []string{"dict"}
 		for i := range e.Keys {
+			if e.Keys[i] == nil {
+				parts = append(parts, "(** "+de(e.Vals[i])+")")
+				continue
+			}
 			parts = append(parts, "("+de(e.Keys[i])+" "+de(e.Vals[i])+")")
 		}
 		return "(" + strings.Join(parts, " ") + ")"
@@ -517,6 +521,10 @@ func TestParse(t *testing.T) {
 		{"list trailing comma", "[1, 2,]", "(expr (list 1 2))"},
 		{"empty dict", "{}", "(expr (dict))"},
 		{"dict", "{1: 'a', 'b': 2,}", `(expr (dict (1 "a") ("b" 2)))`},
+		{"dict unpack only", "{**a}", "(expr (dict (** a)))"},
+		{"dict unpack leading", "{**a, 'b': 2}", `(expr (dict (** a) ("b" 2)))`},
+		{"dict unpack trailing", "{'a': 1, **b}", `(expr (dict ("a" 1) (** b)))`},
+		{"dict unpack multiple", "{**a, 'k': v, **b}", `(expr (dict (** a) ("k" v) (** b)))`},
 		{"set single", "{1}", "(expr (set 1))"},
 		{"set multiple", "{1, 'a', x}", `(expr (set 1 "a" x))`},
 		{"set trailing comma", "{1, 2,}", "(expr (set 1 2))"},
@@ -947,7 +955,6 @@ func TestParseErrors(t *testing.T) {
 		{"await", "x = await f()", "await is not supported yet"},
 		{"generator arg unparenthesized", "f(a, x for x in y)", "Generator expression must be parenthesized"},
 		{"generator arg trailing", "f(x for x in y, z)", "Generator expression must be parenthesized"},
-		{"dict unpacking", "{**a}", "dict unpacking is not supported yet"},
 		{"dict then set element", "{1: 2, 3}", "':' expected after dictionary key"},
 		{"set then dict entry", "{1, 2: 3}", "invalid syntax"},
 		{"set double star element", "{1, **x}", "invalid syntax"},
