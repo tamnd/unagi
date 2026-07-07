@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/token"
 	"strconv"
+	"strings"
 
 	"github.com/tamnd/unagi/pkg/frontend"
 )
@@ -240,6 +241,87 @@ func (e *emitter) emitMain(body []frontend.Stmt) (*ast.FuncDecl, error) {
 
 func (e *emitter) emitFunc(d *frontend.FuncDef) (*ast.FuncDecl, error) {
 	return e.emitFuncDecl(d, e.defName(d.Name), d.Name, d.Name)
+}
+
+// docstringOf returns the function docstring, the value of a leading bare string
+// literal in the body, and whether the body has one. A generator or async def
+// carries its docstring the same way, so the check is on the plain statement
+// shape and not on the function kind.
+func docstringOf(body []frontend.Stmt) (string, bool) {
+	if len(body) == 0 {
+		return "", false
+	}
+	es, ok := body[0].(*frontend.ExprStmt)
+	if !ok {
+		return "", false
+	}
+	sl, ok := es.X.(*frontend.StrLit)
+	if !ok {
+		return "", false
+	}
+	return sl.Val, true
+}
+
+// withDoc wraps a freshly built function-object expression so its initial
+// __doc__ is the def's cleaned docstring; a def with no docstring is left
+// untouched.
+func (e *emitter) withDoc(obj ast.Expr, body []frontend.Stmt) ast.Expr {
+	if doc, ok := docstringOf(body); ok {
+		return callExpr(e.obj("WithFuncDoc"), obj, strLit(cleanDoc(doc)))
+	}
+	return obj
+}
+
+// cleanDoc dedents a docstring the way the CPython 3.13+ compiler does before it
+// stores __doc__. The first line loses its leading whitespace. For the remaining
+// lines the compiler expands leading tabs to spaces at an eight-column tabstop,
+// finds the smallest indentation among the non-blank lines, and strips that many
+// leading columns from every line. Trailing and interior whitespace is left
+// alone, so only the shared left margin goes away.
+func cleanDoc(doc string) string {
+	lines := strings.Split(doc, "\n")
+	lines[0] = strings.TrimLeft(lines[0], " \t")
+	if len(lines) == 1 {
+		return lines[0]
+	}
+	// Expand each later line's leading whitespace to a column count and split off
+	// the text after it; the margin is the least indent among the non-blank ones.
+	indents := make([]int, len(lines))
+	rests := make([]string, len(lines))
+	margin := -1
+	for i := 1; i < len(lines); i++ {
+		col, j := 0, 0
+		for j < len(lines[i]) {
+			switch lines[i][j] {
+			case ' ':
+				col++
+			case '\t':
+				col += 8 - col%8
+			default:
+				goto done
+			}
+			j++
+		}
+	done:
+		indents[i] = col
+		rests[i] = lines[i][j:]
+		if rests[i] != "" && (margin < 0 || col < margin) {
+			margin = col
+		}
+	}
+	if margin < 0 {
+		margin = 0
+	}
+	var b strings.Builder
+	b.WriteString(lines[0])
+	for i := 1; i < len(lines); i++ {
+		b.WriteByte('\n')
+		if keep := indents[i] - margin; keep > 0 {
+			b.WriteString(strings.Repeat(" ", keep))
+		}
+		b.WriteString(rests[i])
+	}
+	return b.String()
 }
 
 // emitFuncDecl lowers one function body to a Go function declaration. declName

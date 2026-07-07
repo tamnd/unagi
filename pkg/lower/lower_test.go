@@ -73,6 +73,40 @@ func TestModuleDocstring(t *testing.T) {
 	}
 }
 
+func TestFunctionDocstringLowering(t *testing.T) {
+	mod := &frontend.Module{Body: []frontend.Stmt{
+		&frontend.FuncDef{Name: "f", Params: params("x"), Body: []frontend.Stmt{
+			&frontend.ExprStmt{X: &frontend.StrLit{Val: "does a thing"}},
+			&frontend.Return{Value: &frontend.Name{Id: "x"}},
+		}},
+	}}
+	src, err := Module(mod, "f.py", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), `objects.WithFuncDoc(objects.NewFunction(`) {
+		t.Errorf("a def with a docstring should wrap NewFunction in WithFuncDoc:\n%s", src)
+	}
+	if !strings.Contains(string(src), `"does a thing"`) {
+		t.Errorf("the docstring value should reach the emit:\n%s", src)
+	}
+}
+
+func TestFunctionNoDocstringNoWrap(t *testing.T) {
+	mod := &frontend.Module{Body: []frontend.Stmt{
+		&frontend.FuncDef{Name: "f", Params: params("x"), Body: []frontend.Stmt{
+			&frontend.Return{Value: &frontend.Name{Id: "x"}},
+		}},
+	}}
+	src, err := Module(mod, "f.py", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(src), "WithFuncDoc") {
+		t.Errorf("a def with no docstring should not wrap NewFunction:\n%s", src)
+	}
+}
+
 func TestFunctionLowering(t *testing.T) {
 	mod := &frontend.Module{Body: []frontend.Stmt{
 		&frontend.FuncDef{Name: "add", Params: params("a", "b"), Body: []frontend.Stmt{
