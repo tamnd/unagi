@@ -630,18 +630,36 @@ func init() {
 	// resolves to the same object as object's is one the type inherited.
 	builtinTypeDunders = map[string]map[string]Object{
 		"int": {
+			"__new__":       NewFunc("__new__", -1, builtinNewDunder),
 			"__repr__":      NewFunc("__repr__", 1, builtinReprDunder),
 			"__format__":    NewFunc("__format__", 2, builtinFormatDunder),
 			"__str__":       objectDunders["__str__"],
 			"__reduce_ex__": objectDunders["__reduce_ex__"],
 		},
 		"str": {
+			"__new__":       NewFunc("__new__", -1, builtinNewDunder),
 			"__repr__":      NewFunc("__repr__", 1, builtinReprDunder),
 			"__str__":       NewFunc("__str__", 1, builtinStrDunder),
 			"__format__":    NewFunc("__format__", 2, builtinFormatDunder),
 			"__reduce_ex__": objectDunders["__reduce_ex__"],
 		},
 	}
+}
+
+// builtinNewDunder is int.__new__ and str.__new__ read off the type object: a
+// distinct allocator from object.__new__, so int.__new__ is not object.__new__.
+// Called as str.__new__(subclass, value) it builds an instance of the subclass
+// carrying the payload, reusing the value-subclass allocation the cooperative
+// super().__new__ chain ends on.
+func builtinNewDunder(args []Object) (Object, error) {
+	r, ok, err := objectDefaultCall(None, "__new__", args)
+	if err != nil {
+		return nil, err
+	}
+	if !ok || r == nil {
+		return nil, Raise(TypeError, "__new__(): not enough arguments")
+	}
+	return r, nil
 }
 
 // builtinTypeDunders maps a builtin type name to the string dunder methods it
