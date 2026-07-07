@@ -10,10 +10,13 @@ import (
 
 // json is a built-in module here: CPython ships it as pure Python with a C
 // accelerator, and the runtime provides the same surface in Go behind the json
-// import. This slice is the encoder, json.dumps and json.dump; the decoder,
-// json.loads, is the next slice. The encoder follows json.encoder: the scalar
-// spellings, the escaping rules that ensure_ascii toggles, the key coercion for
-// object keys, and the indent and separator handling for pretty output.
+// import. The encoder is json.dumps and json.dump; the decoder is json.loads and
+// json.load. The encoder follows json.encoder: the scalar spellings, the escaping
+// rules that ensure_ascii toggles, the key coercion for object keys, and the
+// indent and separator handling for pretty output. The decoder follows the C
+// scanner: the error wording and positions match what CPython emits by default,
+// and JSONDecodeError is a real ValueError subclass carrying msg, doc, pos,
+// lineno, and colno.
 
 func init() {
 	moduleTable["json"] = &moduleEntry{builtin: true, exec: initJSON}
@@ -71,7 +74,57 @@ func initJSON(m *objects.Module) error {
 		}
 		return objects.None, nil
 	})
-	return objects.StoreAttr(m, "dump", dump)
+	if err := objects.StoreAttr(m, "dump", dump); err != nil {
+		return err
+	}
+
+	// JSONDecodeError is a ValueError subclass so a program catching either name
+	// sees the same object; the decoder builds and raises it directly from Go.
+	veCls, ok := objects.ExcClassValue("ValueError")
+	if !ok {
+		return objects.Raise(objects.RuntimeError, "json: ValueError class unavailable")
+	}
+	decErr, err := objects.NewClass("JSONDecodeError", "json.JSONDecodeError",
+		[]objects.Object{veCls}, nil, nil, nil, nil)
+	if err != nil {
+		return err
+	}
+	jsonDecodeErrorClass = decErr
+	if err := objects.StoreAttr(m, "JSONDecodeError", decErr); err != nil {
+		return err
+	}
+
+	loads := objects.NewFunction("loads",
+		[]objects.Param{{Name: "s", Kind: objects.ParamPlain}}, nil,
+		func(args []objects.Object) (objects.Object, error) {
+			s, ok := objects.AsStr(args[0])
+			if !ok {
+				return nil, objects.Raise(objects.TypeError,
+					"the JSON object must be str, bytes or bytearray, not %s", args[0].TypeName())
+			}
+			return jsonLoads(s)
+		})
+	if err := objects.StoreAttr(m, "loads", loads); err != nil {
+		return err
+	}
+
+	// load(fp) reads the whole document from a file-like object and decodes it,
+	// the way json.load defers to json.loads on fp.read().
+	load := objects.NewFunction("load",
+		[]objects.Param{{Name: "fp", Kind: objects.ParamPlain}}, nil,
+		func(args []objects.Object) (objects.Object, error) {
+			data, err := objects.CallMethod(args[0], "read", nil)
+			if err != nil {
+				return nil, err
+			}
+			s, ok := objects.AsStr(data)
+			if !ok {
+				return nil, objects.Raise(objects.TypeError,
+					"the JSON object must be str, bytes or bytearray, not %s", data.TypeName())
+			}
+			return jsonLoads(s)
+		})
+	return objects.StoreAttr(m, "load", load)
 }
 
 // jsonOpts holds the resolved encoder settings. indent is nil for compact
