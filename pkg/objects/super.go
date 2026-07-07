@@ -99,6 +99,11 @@ func superLoadAttr(s *superObject, name string) (Object, error) {
 		}
 		return v, nil
 	}
+	// A dict subclass reaches its inherited methods through super() even though
+	// the builtin base is not on the MRO.
+	if v, ok := builtinBaseAttr(s.obj, name); ok {
+		return v, nil
+	}
 	return nil, Raise(AttributeError, "'super' object has no attribute '%s'", name)
 }
 
@@ -119,6 +124,9 @@ func superCallMethod(s *superObject, name string, args []Object) (Object, error)
 			return Call(classmethodBind(fn.fn, s.objCls), args)
 		}
 		return Call(v, args)
+	}
+	if r, ok, err := builtinBaseCall(s.obj, name, args, nil, nil); ok {
+		return r, err
 	}
 	if r, ok, err := objectDefaultCall(s.obj, name, args); ok {
 		return r, err
@@ -227,6 +235,9 @@ func superCallMethodKw(s *superObject, name string, pos []Object, kwNames []stri
 		if cls, ok := s.obj.(*classObject); ok {
 			return instantiateCore(cls, pos, kwNames, kwVals)
 		}
+	}
+	if r, ok, err := builtinBaseCall(s.obj, name, pos, kwNames, kwVals); ok {
+		return r, err
 	}
 	if len(kwNames) == 0 {
 		if r, ok, err := objectDefaultCall(s.obj, name, pos); ok {

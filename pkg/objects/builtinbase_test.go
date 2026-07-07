@@ -97,6 +97,64 @@ func TestDictSubclassInheritedMethodsAndTypeChecks(t *testing.T) {
 	}
 }
 
+func TestSuperReachesBuiltinDictBase(t *testing.T) {
+	c := buildDictSubclass(t, "Recorder", nil, nil)
+	inst, err := Instantiate(c, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("instantiate: %v", err)
+	}
+	if !IsDictBackedInstance(inst) {
+		t.Fatal("instance not reported as dict-backed")
+	}
+	sup, err := NewSuper(c, inst)
+	if err != nil {
+		t.Fatalf("new super: %v", err)
+	}
+	s := sup.(*superObject)
+
+	// super().__setitem__ stores into the builtin base, the cooperative walk
+	// falling past the last user class onto the recorded dict layout.
+	if _, err := superCallMethod(s, "__setitem__", []Object{NewStr("a"), NewInt(1)}); err != nil {
+		t.Fatalf("super setitem: %v", err)
+	}
+	if v, err := GetItem(inst, NewStr("a")); err != nil || Str(v) != "1" {
+		t.Fatalf("stored a = %v, %v", v, err)
+	}
+	// super().__len__ and super().__contains__ read the same store.
+	if n, err := superCallMethod(s, "__len__", nil); err != nil || Str(n) != "1" {
+		t.Fatalf("super len = %v, %v", n, err)
+	}
+	got, err := superCallMethod(s, "__contains__", []Object{NewStr("a")})
+	if err != nil || got != True {
+		t.Fatalf("super contains a = %v, %v", got, err)
+	}
+	// super().update takes a mapping and keyword items.
+	if _, err := superCallMethodKw(s, "update",
+		[]Object{mustDict(NewStr("b"), NewInt(2))}, []string{"c"}, []Object{NewInt(3)}); err != nil {
+		t.Fatalf("super update: %v", err)
+	}
+	if v, _ := GetItem(inst, NewStr("b")); Str(v) != "2" {
+		t.Fatalf("update b = %v", v)
+	}
+	if v, _ := GetItem(inst, NewStr("c")); Str(v) != "3" {
+		t.Fatalf("update c = %v", v)
+	}
+	// super().__delitem__ of a missing key raises KeyError, not a crash.
+	if _, err := superCallMethod(s, "__delitem__", []Object{NewStr("zzz")}); err == nil {
+		t.Fatal("super delitem missing: want KeyError, got nil")
+	}
+	// The attribute-read form binds a callable to the store.
+	setter, err := superLoadAttr(s, "__setitem__")
+	if err != nil {
+		t.Fatalf("super load setitem: %v", err)
+	}
+	if _, err := Call(setter, []Object{NewStr("x"), NewInt(9)}); err != nil {
+		t.Fatalf("bound setter call: %v", err)
+	}
+	if v, _ := GetItem(inst, NewStr("x")); Str(v) != "9" {
+		t.Fatalf("bound setter stored x = %v", v)
+	}
+}
 func TestDictSubclassInheritsBuiltinBase(t *testing.T) {
 	base := buildDictSubclass(t, "Plain", nil, nil)
 	deeper, err := buildClass(nil, "Deeper", "__main__.Deeper", []Object{base}, nil, nil, nil, nil)

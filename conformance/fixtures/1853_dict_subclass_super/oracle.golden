@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+{'RED': 1, 'GREEN': 2, '_hidden': 3}
+1 2
+['RED', 'GREEN']
+3
+True False
+['RED', 'GREEN', '_hidden']
+[('RED', 1), ('GREEN', 2), ('_hidden', 3)]
+{'RED': 1, 'GREEN': 2, '_hidden': 3}
+True
+{'b': 2}
+{'x': 10, 'y': 20}
+{'a': 1, 'b': 2}
+== exception:
+== stderr:
