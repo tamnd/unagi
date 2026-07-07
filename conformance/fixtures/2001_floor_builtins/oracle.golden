@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+4 7 9 2
+0b1010 0o12 0xff
+[1, 2, 3] [0, 1, 2]
+12 42 1.5
+True True
+True KeyError
+True True False
+True NotImplemented True
+static C 99
+typeerror caught
+== exception:
+== stderr:
