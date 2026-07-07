@@ -24,6 +24,11 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 	case *frozensetObject:
 		return frozensetMethod(x, name, args)
 	case *tupleObject:
+		if x.named != nil {
+			if v, handled, err := namedTupleMethod(x, name, args); handled {
+				return v, err
+			}
+		}
 		return tupleMethod(x, name, args)
 	case *bytesObject:
 		return bytesReadMethod(x.v, "bytes", name, args)
@@ -51,11 +56,12 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 		return memoryviewMethod(x, name, args)
 	case *dequeObject:
 		return dequeMethod(x, name, args)
-	case *boundMethod, *functionObject, *funcObject:
+	case *boundMethod, *functionObject, *funcObject, *namedTupleType:
 		// A function or bound method has no method surface of its own, so
 		// obj.attr(args) reads the attribute and calls it, the way CPython does
 		// for b.__func__(self) or a builtin that carries a helper such as
-		// chain.from_iterable.
+		// chain.from_iterable. The namedtuple class object is the same case:
+		// Point._make(it) reads _make off the type and calls it.
 		v, err := LoadAttr(o, name)
 		if err != nil {
 			return nil, err
@@ -88,6 +94,10 @@ func CallMethodKw(o Object, name string, pos []Object, kwNames []string, kwVals 
 	case *dictObject:
 		if x.kind == orderedDict {
 			return orderedMethodKw(x, name, pos, kwNames, kwVals)
+		}
+	case *tupleObject:
+		if x.named != nil && name == "_replace" && len(pos) == 0 {
+			return namedTupleReplace(x, kwNames, kwVals)
 		}
 	case *instanceObject:
 		return instanceCallMethodKw(x, name, pos, kwNames, kwVals)

@@ -532,3 +532,164 @@ func TestDequeEqualityAndLen(t *testing.T) {
 		t.Fatal("deque should not equal a list")
 	}
 }
+
+// newNamedType builds a namedtuple class through the collections constructor,
+// the path compiled code takes for collections.namedtuple(...).
+func newNamedType(t *testing.T, args ...objects.Object) objects.Object {
+	t.Helper()
+	nt, err := objects.Call(collFn(t, "namedtuple"), args)
+	if err != nil {
+		t.Fatalf("namedtuple call: %v", err)
+	}
+	return nt
+}
+
+// errText pulls the message text out of a raised exception, without the Kind
+// prefix, so a test can match the exact wording CPython prints.
+func errText(err error) string {
+	if e, ok := err.(*objects.Exception); ok {
+		return e.Text()
+	}
+	return err.Error()
+}
+
+func strs(vals ...string) objects.Object {
+	elts := make([]objects.Object, len(vals))
+	for i, v := range vals {
+		elts[i] = objects.NewStr(v)
+	}
+	return objects.NewList(elts)
+}
+
+func TestNamedTupleConstructAndAccess(t *testing.T) {
+	Point := newNamedType(t, objects.NewStr("Point"), strs("x", "y"))
+	p, err := objects.Call(Point, []objects.Object{objects.NewInt(1), objects.NewInt(2)})
+	if err != nil {
+		t.Fatalf("Point(1, 2): %v", err)
+	}
+	if got := objects.Repr(p); got != "Point(x=1, y=2)" {
+		t.Fatalf("repr = %q", got)
+	}
+	// Field access by name and by index both read the tuple slots.
+	x, _ := objects.LoadAttr(p, "x")
+	if objects.Repr(x) != "1" {
+		t.Fatalf("p.x = %s", objects.Repr(x))
+	}
+	first, _ := objects.GetItem(p, objects.NewInt(0))
+	if objects.Repr(first) != "1" {
+		t.Fatalf("p[0] = %s", objects.Repr(first))
+	}
+	// An instance is a tuple subclass: equal to the bare tuple and same hash.
+	res, _ := objects.Compare(objects.OpEq, p, objects.NewTuple([]objects.Object{objects.NewInt(1), objects.NewInt(2)}))
+	if !objects.Truth(res) {
+		t.Fatal("Point(1, 2) should equal (1, 2)")
+	}
+}
+
+func TestNamedTupleKeywordAndFields(t *testing.T) {
+	Point := newNamedType(t, objects.NewStr("Point"), objects.NewStr("x y"))
+	p, err := objects.CallKw(Point, nil, []string{"y", "x"}, []objects.Object{objects.NewInt(5), objects.NewInt(6)})
+	if err != nil {
+		t.Fatalf("Point(y=5, x=6): %v", err)
+	}
+	if got := objects.Repr(p); got != "Point(x=6, y=5)" {
+		t.Fatalf("keyword repr = %q", got)
+	}
+	fields, _ := objects.LoadAttr(Point, "_fields")
+	if got := objects.Repr(fields); got != "('x', 'y')" {
+		t.Fatalf("_fields = %q", got)
+	}
+	name, _ := objects.LoadAttr(Point, "__name__")
+	if objects.Repr(name) != "'Point'" {
+		t.Fatalf("__name__ = %s", objects.Repr(name))
+	}
+}
+
+func TestNamedTupleAsDictReplaceMake(t *testing.T) {
+	Point := newNamedType(t, objects.NewStr("Point"), strs("x", "y"))
+	p, _ := objects.Call(Point, []objects.Object{objects.NewInt(1), objects.NewInt(2)})
+
+	d := method(t, p, "_asdict")
+	if got := objects.Repr(d); got != "{'x': 1, 'y': 2}" || d.TypeName() != "dict" {
+		t.Fatalf("_asdict = %q type %s", got, d.TypeName())
+	}
+	r, err := objects.CallMethodKw(p, "_replace", nil, []string{"y"}, []objects.Object{objects.NewInt(9)})
+	if err != nil {
+		t.Fatalf("_replace(y=9): %v", err)
+	}
+	if got := objects.Repr(r); got != "Point(x=1, y=9)" {
+		t.Fatalf("_replace = %q", got)
+	}
+	m := method(t, Point, "_make", nums(3, 4))
+	if got := objects.Repr(m); got != "Point(x=3, y=4)" {
+		t.Fatalf("_make = %q", got)
+	}
+	// An unknown field name in _replace is a TypeError spelling the names.
+	if _, err := objects.CallMethodKw(p, "_replace", nil, []string{"z"}, []objects.Object{objects.NewInt(0)}); err == nil {
+		t.Fatal("_replace with an unknown field should raise")
+	}
+	// _make with the wrong count is a TypeError.
+	if _, err := objects.CallMethod(Point, "_make", []objects.Object{nums(1)}); err == nil {
+		t.Fatal("_make with the wrong count should raise")
+	}
+}
+
+func TestNamedTupleDefaults(t *testing.T) {
+	P3, err := objects.CallKw(collFn(t, "namedtuple"),
+		[]objects.Object{objects.NewStr("P3"), objects.NewStr("a b c")},
+		[]string{"defaults"}, []objects.Object{nums(10, 20)})
+	if err != nil {
+		t.Fatalf("namedtuple defaults: %v", err)
+	}
+	p, err := objects.Call(P3, []objects.Object{objects.NewInt(1)})
+	if err != nil {
+		t.Fatalf("P3(1): %v", err)
+	}
+	if got := objects.Repr(p); got != "P3(a=1, b=10, c=20)" {
+		t.Fatalf("defaults repr = %q", got)
+	}
+	fd, _ := objects.LoadAttr(P3, "_field_defaults")
+	if got := objects.Repr(fd); got != "{'b': 10, 'c': 20}" {
+		t.Fatalf("_field_defaults = %q", got)
+	}
+}
+
+func TestNamedTupleRename(t *testing.T) {
+	R, err := objects.CallKw(collFn(t, "namedtuple"),
+		[]objects.Object{objects.NewStr("R"), strs("abc", "def", "abc", "x")},
+		[]string{"rename"}, []objects.Object{objects.True})
+	if err != nil {
+		t.Fatalf("namedtuple rename: %v", err)
+	}
+	fields, _ := objects.LoadAttr(R, "_fields")
+	if got := objects.Repr(fields); got != "('abc', '_1', '_2', 'x')" {
+		t.Fatalf("renamed _fields = %q", got)
+	}
+}
+
+func TestNamedTupleValidation(t *testing.T) {
+	cases := []struct {
+		args []objects.Object
+		want string
+	}{
+		{[]objects.Object{objects.NewStr("P"), objects.NewStr("a 1b")},
+			"Type names and field names must be valid identifiers: '1b'"},
+		{[]objects.Object{objects.NewStr("P"), objects.NewStr("a def")},
+			"Type names and field names cannot be a keyword: 'def'"},
+		{[]objects.Object{objects.NewStr("P"), objects.NewStr("a a")},
+			"Encountered duplicate field name: 'a'"},
+		{[]objects.Object{objects.NewStr("P"), objects.NewStr("a _b")},
+			"Field names cannot start with an underscore: '_b'"},
+		{[]objects.Object{objects.NewStr("class"), objects.NewStr("a b")},
+			"Type names and field names cannot be a keyword: 'class'"},
+	}
+	for _, tc := range cases {
+		_, err := objects.Call(collFn(t, "namedtuple"), tc.args)
+		if err == nil {
+			t.Fatalf("namedtuple%v should raise", tc.args)
+		}
+		if got := errText(err); got != tc.want {
+			t.Fatalf("error = %q want %q", got, tc.want)
+		}
+	}
+}
