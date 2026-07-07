@@ -411,6 +411,14 @@ func register(m map[string]objects.Object) {
 }
 
 func init() {
+	// Let the objects package name a builtin type object by name when it builds
+	// one type's linearization out of another, the way bool.__mro__ has to reach
+	// int. The lookup is lazy, so it sees the fully populated map at call time
+	// rather than depending on init order.
+	objects.BuiltinTypeResolver = func(name string) (objects.Object, bool) {
+		v, ok := builtins[name]
+		return v, ok
+	}
 	register(map[string]objects.Object{
 		"print": objects.NewFunc("print", -1, func(args []objects.Object) (objects.Object, error) {
 			if err := Print(args...); err != nil {

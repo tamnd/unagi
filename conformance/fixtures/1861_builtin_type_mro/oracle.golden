@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+(<class 'int'>, <class 'object'>)
+(<class 'object'>,)
+<class 'object'>
+(<class 'str'>, <class 'object'>)
+(<class 'object'>,)
+<class 'object'>
+(<class 'bool'>, <class 'int'>, <class 'object'>)
+(<class 'int'>,)
+<class 'int'>
+True
+True
+True
+True
+int
+bool
+== exception:
+== stderr:
