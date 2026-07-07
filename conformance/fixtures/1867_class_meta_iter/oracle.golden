@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+['red', 'green', 'blue']
+red
+green
+blue
+red green blue
+1 2 3 4
+TypeError True
+== exception:
+== stderr:
