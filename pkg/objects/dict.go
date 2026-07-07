@@ -132,6 +132,10 @@ func hashKey(o Object) (string, error) {
 			b.WriteString(k)
 		}
 		return b.String(), nil
+	case *kwMarkObject:
+		// The lru_cache keyword sentinel is one shared, opaque value, so it
+		// keys stably under a private prefix and never collides with a real key.
+		return "\x00K", nil
 	case *funcObject, *functionObject, *Exception, *dictValuesObject,
 		*ellipsisObject, *notImplementedObject, *classObject, *typeObject:
 		// Identity types: the same objects PyHash hashes by pointer key

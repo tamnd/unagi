@@ -56,12 +56,13 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 		return memoryviewMethod(x, name, args)
 	case *dequeObject:
 		return dequeMethod(x, name, args)
-	case *boundMethod, *functionObject, *funcObject, *namedTupleType:
+	case *boundMethod, *functionObject, *funcObject, *namedTupleType, *lruCacheObject:
 		// A function or bound method has no method surface of its own, so
 		// obj.attr(args) reads the attribute and calls it, the way CPython does
 		// for b.__func__(self) or a builtin that carries a helper such as
 		// chain.from_iterable. The namedtuple class object is the same case:
-		// Point._make(it) reads _make off the type and calls it.
+		// Point._make(it) reads _make off the type and calls it. The lru_cache
+		// wrapper follows suit for sq.cache_info() and sq.cache_clear().
 		v, err := LoadAttr(o, name)
 		if err != nil {
 			return nil, err

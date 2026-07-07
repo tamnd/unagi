@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+4 9 4
+CacheInfo(hits=1, misses=2, maxsize=2, currsize=2)
+CacheInfo(hits=1, misses=4, maxsize=2, currsize=2)
+[2, 3, 4, 3]
+11 11
+CacheInfo(hits=1, misses=1, maxsize=128, currsize=1)
+CacheInfo(hits=1, misses=2, maxsize=None, currsize=2)
+50 50
+CacheInfo(hits=1, misses=1, maxsize=None, currsize=1)
+CacheInfo(hits=0, misses=0, maxsize=None, currsize=0)
+CacheInfo(hits=1, misses=2, maxsize=128, currsize=2)
+CacheInfo(hits=0, misses=2, maxsize=128, currsize=2)
+CacheInfo(hits=0, misses=2, maxsize=128, currsize=2)
+True
+CacheInfo(hits=0, misses=2, maxsize=0, currsize=0)
+== exception:
+== stderr:
