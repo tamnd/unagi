@@ -351,12 +351,14 @@ func (e *emitter) emitMethodDecl(d *frontend.FuncDef, declName, coName, qual, cl
 
 func (e *emitter) fillFuncDecl(f *fnCtx, d *frontend.FuncDef, declName string) (*ast.FuncDecl, error) {
 	if d.Async {
-		if hasYield(d.Body) {
-			// An async def that also yields is an async generator, a distinct
-			// object type with its own protocol; it is a later milestone.
-			return nil, f.e.errf(d.Span(), "async generators are not supported yet")
-		}
 		f.inAsync = true
+		if hasYield(d.Body) {
+			// An async def that also yields is an async generator: it runs on
+			// the same frame, so a yield surfaces to __anext__ and an await
+			// still delegates through the yielder, and the constructor gives it
+			// the async-generator protocol instead of the coroutine one.
+			return e.fillFrameDecl(f, d, declName, "NewAsyncGenerator")
+		}
 		return e.fillFrameDecl(f, d, declName, "NewCoroutine")
 	}
 	if hasYield(d.Body) {

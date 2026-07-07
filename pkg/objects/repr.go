@@ -355,7 +355,10 @@ func reprCore(o Object, strict bool) (string, error) {
 		return bytesIORepr(x), nil
 	case *generatorObject:
 		kind := "generator"
-		if x.isCoro {
+		switch {
+		case x.isAsyncGen:
+			kind = "async_generator"
+		case x.isCoro:
 			kind = "coroutine"
 		}
 		return fmt.Sprintf("<%s object %s at %p>", kind, x.qual, x), nil
