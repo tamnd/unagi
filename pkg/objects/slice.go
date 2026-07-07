@@ -360,6 +360,16 @@ func DelItem(o, key Object) error {
 		if defined {
 			return nil
 		}
+		if d, ok := dictBacked(x); ok {
+			_, found, err := d.delete(key)
+			if err != nil {
+				return err
+			}
+			if !found {
+				return NewException(KeyError, []Object{key})
+			}
+			return nil
+		}
 	}
 	// Probed on 3.14: del (1, 2)[0] -> TypeError: 'tuple' object doesn't
 	// support item deletion. Note "doesn't"; slices say "does not".

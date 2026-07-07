@@ -344,6 +344,11 @@ func reprCore(o Object, strict bool) (string, error) {
 			return "", err
 		}
 		if !defined {
+			// A dict subclass inherits dict.__repr__, so it prints as its
+			// mapping body with no class name, the same as CPython.
+			if d, ok := dictBacked(x); ok {
+				return dictBodyRepr(d, strict)
+			}
 			return instanceRepr(x), nil
 		}
 		s, ok := res.(*strObject)
