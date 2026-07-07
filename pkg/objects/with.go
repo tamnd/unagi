@@ -19,6 +19,19 @@ func ExcType(kind string) Object {
 func WithEnter(mgr Object) (exitFn Object, entered Object, err error) {
 	inst, ok := mgr.(*instanceObject)
 	if !ok {
+		// A native manager like io.StringIO exposes __enter__ and __exit__
+		// through CallMethod rather than a class dict, so drive the protocol
+		// off those: enter now, and hand back a callable that runs __exit__.
+		if supportsNativeCM(mgr) {
+			entered, err := CallMethod(mgr, "__enter__", nil)
+			if err != nil {
+				return nil, nil, err
+			}
+			exit := NewFunc("__exit__", -1, func(args []Object) (Object, error) {
+				return CallMethod(mgr, "__exit__", args)
+			})
+			return exit, entered, nil
+		}
 		return nil, nil, Raise(TypeError,
 			"'%s' object does not support the context manager protocol (missed __exit__ method)",
 			mgr.TypeName())
