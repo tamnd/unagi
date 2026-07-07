@@ -1,0 +1,42 @@
+== exit: 0
+== stdout:
+abc
+abc
+(0, 3)
+0 3
+abcdef 0 6
+None
+(0, 3)
+None
+(2, 5)
+None
+ab
+a b
+('b', 'a')
+('a', 'b')
+(0, 1) (1, 2)
+ab a b
+2 None
+((0, 2), (0, 1), (1, 2))
+b
+b
+{'second': 'b'}
+2 second
+a ('a',)
+None
+(None,)
+('-',)
+(-1, -1) -1 -1
+aaa
+None
+(1, 4)
+(3, 6)
+123
+world
+(5, 10)
+cannot use a bytes pattern on a string-like object
+cannot use a string pattern on a bytes-like object
+no such group
+no such group
+== exception:
+== stderr:

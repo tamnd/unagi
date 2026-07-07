@@ -1095,6 +1095,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return partialAttr(x, name)
 	case *patternObject:
 		return patternAttr(x, name)
+	case *matchObject:
+		return matchAttr(x, name)
 	case *lruCacheObject:
 		return lruAttr(x, name)
 	case *keyObject:

@@ -1,7 +1,7 @@
 // Package build drives a compile end to end: parse the Python source, emit
 // the Go program, lay out a self-contained Go module next to it, and run the
-// Go toolchain. The generated module carries its own copy of pkg/objects and
-// pkg/runtime with a dependency-free go.mod, so building it never resolves
+// Go toolchain. The generated module carries its own copy of pkg/objects,
+// pkg/runtime, and pkg/sre with a dependency-free go.mod, so building it never resolves
 // unagi's CLI dependencies and never needs the network.
 package build
 
@@ -363,7 +363,7 @@ func writeModule(genDir string, goSrc []byte, mods []pymod) error {
 	if err := os.WriteFile(filepath.Join(slim, "go.mod"), []byte(slimMod), 0o644); err != nil {
 		return err
 	}
-	for _, pkg := range []string{"objects", "runtime"} {
+	for _, pkg := range []string{"objects", "runtime", "sre"} {
 		if err := copyPkg(filepath.Join(src, "pkg", pkg), filepath.Join(slim, "pkg", pkg)); err != nil {
 			return err
 		}
