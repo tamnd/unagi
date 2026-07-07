@@ -1,0 +1,22 @@
+== exit: 0
+== stdout:
+True
+True
+True
+<class 'staticmethod'>
+<class 'classmethod'>
+<class 'property'>
+True
+True
+True
+True
+False
+True
+True
+True
+True
+True
+True
+42
+== exception:
+== stderr:

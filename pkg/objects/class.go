@@ -1083,6 +1083,16 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return classGet(x, v)
 		}
 		return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
+	case *staticmethodObject:
+		if name == "__func__" || name == "__wrapped__" {
+			return x.fn, nil
+		}
+		return nil, Raise(AttributeError, "'staticmethod' object has no attribute '%s'", name)
+	case *classmethodObject:
+		if name == "__func__" || name == "__wrapped__" {
+			return x.fn, nil
+		}
+		return nil, Raise(AttributeError, "'classmethod' object has no attribute '%s'", name)
 	case *propertyObject:
 		return propertyGetAttr(x, name)
 	case *cachedPropertyObject:
