@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+hello world str
+hellohello hellohello
+say hello hello!
+True True True False False
+True True True MyStr
+hello 'hello' hello 'hello'    hello
+hello/z
+True
+v
+1 2 2
+5 True True h el ['h', 'e', 'l', 'l', 'o']
+HELLO Hello heLLo hello-world
+True ['he', '', 'o'] str
+False True
+1
+ABC ABC! Up
+hithere! Shout
+== exception:
+== stderr:

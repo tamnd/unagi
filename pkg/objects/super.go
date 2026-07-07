@@ -176,11 +176,12 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 				switch cls.builtinBase {
 				case "dict":
 					inst.dictData = &dictObject{index: map[string]int{}}
-				case "int":
-					// int.__new__(cls, value) reached through a user __new__ chain
-					// builds the immutable payload from the value argument the way
-					// int.__new__ sets it, so a subclass that scales its value in
-					// __new__ still ends up with the right underlying int.
+				case "int", "str":
+					// int.__new__(cls, value) or str.__new__(cls, value) reached
+					// through a user __new__ chain builds the immutable payload from
+					// the value argument the way the builtin __new__ sets it, so a
+					// subclass that transforms its value in __new__ still ends up with
+					// the right underlying builtin.
 					v, err := Call(cls.builtinBaseFn, args[1:])
 					if err != nil {
 						return nil, true, err

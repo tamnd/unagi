@@ -194,8 +194,8 @@ func bothFloat(a, b Object) (float64, float64, bool, error) {
 func Add(a, b Object) (Object, error) {
 	switch x := a.(type) {
 	case *strObject:
-		if y, ok := b.(*strObject); ok {
-			return NewStr(x.v + y.v), nil
+		if y, ok := AsStr(b); ok {
+			return NewStr(x.v + y), nil
 		}
 		return nil, Raise(TypeError, "can only concatenate str (not %q) to str", b.TypeName())
 	case *bytesObject:
@@ -788,8 +788,8 @@ func equals(a, b Object) bool {
 		_, ok := b.(*noneObject)
 		return ok
 	case *strObject:
-		y, ok := b.(*strObject)
-		return ok && x.v == y.v
+		y, ok := AsStr(b)
+		return ok && x.v == y
 	case *bytesObject:
 		yv, ok := mvBytesLike(b)
 		return ok && string(x.v) == string(yv)
@@ -903,8 +903,8 @@ func order(op CmpOp, a, b Object) (bool, error) {
 		return !unordered && applyOrder(op, c), nil
 	}
 	if x, ok := a.(*strObject); ok {
-		if y, ok2 := b.(*strObject); ok2 {
-			return applyOrder(op, strings.Compare(x.v, y.v)), nil
+		if y, ok2 := AsStr(b); ok2 {
+			return applyOrder(op, strings.Compare(x.v, y)), nil
 		}
 	} else if xv, ok := asBytesLike(a); ok {
 		// bytes and bytearray order lexicographically against either type.
@@ -985,12 +985,12 @@ func Contains(container, item Object) (Object, error) {
 		}
 		return seqContains(elts, item), nil
 	case *strObject:
-		sub, ok := item.(*strObject)
+		sub, ok := AsStr(item)
 		if !ok {
 			return nil, Raise(TypeError, "'in <string>' requires string as left operand, not %s",
 				item.TypeName())
 		}
-		return NewBool(strings.Contains(x.v, sub.v)), nil
+		return NewBool(strings.Contains(x.v, sub)), nil
 	case *bytesObject:
 		return bytesContainsItem(x.v, item)
 	case *bytearrayObject:
@@ -1054,6 +1054,9 @@ func Contains(container, item Object) (Object, error) {
 				return nil, err
 			}
 			return NewBool(found), nil
+		}
+		if v, ok := builtinUnwrap(x); ok {
+			return Contains(v, item)
 		}
 		return containsByIter(container, item)
 	}
@@ -1227,6 +1230,9 @@ func GetItem(o, key Object) (Object, error) {
 		if d, ok := dictBacked(x); ok {
 			return d.get(key)
 		}
+		if v, ok := builtinUnwrap(x); ok {
+			return GetItem(v, key)
+		}
 	}
 	return nil, Raise(TypeError, "'%s' object is not subscriptable", o.TypeName())
 }
@@ -1342,6 +1348,9 @@ func Len(o Object) (int, error) {
 		if d, ok := dictBacked(x); ok {
 			return len(d.entries), nil
 		}
+		if v, ok := builtinUnwrap(x); ok {
+			return Len(v)
+		}
 	}
 	return 0, Raise(TypeError, "object of type '%s' has no len()", o.TypeName())
 }
@@ -1437,6 +1446,9 @@ func Iter(o Object) (Iterator, error) {
 			if _, ok := x.cls.lookup("__getitem__"); !ok {
 				if d, backed := dictBacked(x); backed {
 					return &sliceIter{elts: d.keySlice()}, nil
+				}
+				if v, ok := builtinUnwrap(x); ok {
+					return Iter(v)
 				}
 			}
 		}

@@ -533,6 +533,15 @@ func AsStr(o Object) (string, bool) {
 	if x, ok := o.(*strObject); ok {
 		return x.v, true
 	}
+	// A str subclass instance is a str everywhere a str value is read: as the
+	// right operand of a str operator, a str method argument, or a string key.
+	// The left-operand fast paths assert *strObject directly, so a subclass on
+	// the left still falls through to its own override dispatch first.
+	if v, ok := builtinUnwrap(o); ok {
+		if x, ok := v.(*strObject); ok {
+			return x.v, true
+		}
+	}
 	return "", false
 }
 

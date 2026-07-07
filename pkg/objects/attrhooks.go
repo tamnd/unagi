@@ -105,6 +105,11 @@ func genericGetAttr(x *instanceObject, name string) (Object, error) {
 	if v, ok := dictSubclassAttr(x, name); ok {
 		return v, nil
 	}
+	// A value subclass inherits its builtin's methods bound to the payload, the
+	// way a str subclass answers x.upper() from the underlying str.
+	if v, ok := valueSubclassAttr(x, name); ok {
+		return v, nil
+	}
 	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", x.cls.name, name)
 }
 
