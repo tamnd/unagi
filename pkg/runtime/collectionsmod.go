@@ -45,6 +45,71 @@ func initCollections(m *objects.Module) error {
 		return err
 	}
 
+	// defaultdict(default_factory=None, *args, **kwargs): the first positional is
+	// the factory, which must be callable or None, and the rest seed the
+	// underlying dict exactly like dict(*args, **kwargs).
+	defaultdict := objects.NewFunction("defaultdict",
+		[]objects.Param{
+			{Name: "default_factory", Kind: objects.ParamPlain},
+			{Name: "args", Kind: objects.ParamStar},
+			{Name: "kwargs", Kind: objects.ParamStarStar},
+		},
+		[]objects.Object{objects.None, nil, nil},
+		func(a []objects.Object) (objects.Object, error) {
+			factory := a[0]
+			if factory != objects.None && !objects.Callable(factory) {
+				return nil, objects.Raise(objects.TypeError, "first argument must be callable or None")
+			}
+			rest, err := materialize(a[1])
+			if err != nil {
+				return nil, err
+			}
+			base, err := DictOf(rest)
+			if err != nil {
+				return nil, err
+			}
+			if err := mergeKwargs(base, a[2]); err != nil {
+				return nil, err
+			}
+			keys, err := materialize(base)
+			if err != nil {
+				return nil, err
+			}
+			vals := make([]objects.Object, len(keys))
+			for i, k := range keys {
+				vals[i], err = objects.GetItem(base, k)
+				if err != nil {
+					return nil, err
+				}
+			}
+			return objects.NewDefaultDict(factory, keys, vals)
+		})
+	if err := set("defaultdict", defaultdict); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// mergeKwargs folds the keyword arguments captured by a **kwargs parameter into
+// the base dict, so defaultdict(list, a=1) puts a under the key "a".
+func mergeKwargs(base, kwargs objects.Object) error {
+	if kwargs == nil || kwargs == objects.None {
+		return nil
+	}
+	keys, err := materialize(kwargs)
+	if err != nil {
+		return err
+	}
+	for _, k := range keys {
+		v, err := objects.GetItem(kwargs, k)
+		if err != nil {
+			return err
+		}
+		if err := objects.SetItem(base, k, v); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

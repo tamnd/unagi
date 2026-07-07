@@ -431,6 +431,14 @@ func Callable(f Object) bool {
 	return false
 }
 
+// IsDict reports whether o is a dict or a dict subclass such as
+// collections.defaultdict, so a caller that special-cases a mapping catches
+// every dict-backed object regardless of its type name.
+func IsDict(o Object) bool {
+	_, ok := o.(*dictObject)
+	return ok
+}
+
 // AsInt extracts an int64-sized integer value from an int or bool
 // object. Spilled big ints return false; callers that must handle any
 // magnitude go through AsBigInt.

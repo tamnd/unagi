@@ -228,7 +228,9 @@ func jsonEncode(b *strings.Builder, o objects.Object, opt *jsonOpts, level int, 
 		return nil
 	case "list", "tuple":
 		return jsonEncodeArray(b, o, opt, level, seen)
-	case "dict":
+	}
+	// A dict or a dict subclass such as defaultdict encodes as a JSON object.
+	if objects.IsDict(o) {
 		return jsonEncodeObject(b, o, opt, level, seen)
 	}
 	if opt.defaultFn != nil {

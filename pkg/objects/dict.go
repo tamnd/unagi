@@ -14,13 +14,24 @@ import (
 type dictObject struct {
 	entries []dictEntry
 	index   map[string]int
+	// isDefault marks a collections.defaultdict, whose factory fills a missing
+	// key on subscript. A plain dict leaves both zero. factory is the
+	// default_factory: None disables the fill so a miss raises KeyError like an
+	// ordinary dict, matching CPython.
+	isDefault bool
+	factory   Object
 }
 
 type dictEntry struct {
 	key, val Object
 }
 
-func (*dictObject) TypeName() string { return "dict" }
+func (d *dictObject) TypeName() string {
+	if d.isDefault {
+		return "collections.defaultdict"
+	}
+	return "dict"
+}
 
 type dictKeysObject struct{ d *dictObject }
 

@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+{'m': 1, 'i': 4, 's': 4, 'p': 2}
+defaultdict(<class 'int'>, {'m': 1, 'i': 4, 's': 4, 'p': 2})
+{'a': [1, 3], 'b': [2, 5], 'c': [4]}
+5 0
+defaultdict(<class 'int'>, {'x': 5, 'y': 0})
+<class 'int'>
+{'z': 0}
+None
+'nope'
+first argument must be callable or None
+defaultdict(<class 'list'>, {'k': [1]})
+defaultdict(<class 'list'>, {'p': [1]}) defaultdict(<class 'list'>, {'p': [1], 'q': [2]})
+True
+{'a': 1, 'b': 2}
+== exception:
+== stderr:

@@ -540,8 +540,10 @@ func DictOf(args []objects.Object) (objects.Object, error) {
 			"dict expected at most 1 argument, got %d", len(args))
 	}
 	src := args[0]
-	if src.TypeName() == "dict" {
-		// Copy preserving insertion order: iteration yields keys.
+	if objects.IsDict(src) {
+		// Copy preserving insertion order: iteration yields keys. A dict
+		// subclass such as defaultdict copies through the same mapping path,
+		// producing a plain dict.
 		keys, err := materialize(src)
 		if err != nil {
 			return nil, err

@@ -1025,6 +1025,14 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return x.step, nil
 		}
 		return nil, Raise(AttributeError, "'slice' object has no attribute '%s'", name)
+	case *dictObject:
+		// default_factory is the one data attribute a defaultdict exposes; a
+		// plain dict has no attribute of that name. It reads the stored factory
+		// or None.
+		if x.isDefault && name == "default_factory" {
+			return dictDefaultFactory(x), nil
+		}
+		return nil, noAttr(x, name)
 	case *dequeObject:
 		// maxlen reads the bound as an int, or None for an unbounded deque; it is
 		// the one data attribute CPython's deque exposes.
@@ -1111,6 +1119,17 @@ func StoreAttr(o Object, name string, val Object) error {
 	case *Exception:
 		if handled, err := excStoreAttr(x, name, val); handled {
 			return err
+		}
+	case *dictObject:
+		// A defaultdict's default_factory is writable: assigning None or a
+		// callable changes what a later missing key produces. Any other value is
+		// the "must be callable or None" TypeError CPython raises.
+		if x.isDefault && name == "default_factory" {
+			if val != None && !Callable(val) {
+				return Raise(TypeError, "default_factory must be callable or None")
+			}
+			x.factory = val
+			return nil
 		}
 	}
 	return Raise(AttributeError,
