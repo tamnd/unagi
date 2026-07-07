@@ -70,6 +70,20 @@ func functionLoadAttr(fn *functionObject, name string) (Object, error) {
 		return funcAnnotations(fn), nil
 	case "__dict__":
 		return funcDict(fn), nil
+	case "__get__":
+		// A function is a descriptor: reading it off an instance binds self.
+		// f.__get__(instance, owner=None) returns a bound method for a real
+		// instance and the function itself for None, the way CPython lets a class
+		// body distinguish a method from data by the descriptor protocol.
+		return NewFunc("__get__", -1, func(args []Object) (Object, error) {
+			if len(args) < 1 || len(args) > 2 {
+				return nil, Raise(TypeError, "__get__ expected at most 2 arguments, got %d", len(args))
+			}
+			if _, isNone := args[0].(*noneObject); isNone {
+				return fn, nil
+			}
+			return &boundMethod{fn: fn, self: args[0]}, nil
+		}), nil
 	case "__wrapped__":
 		// __wrapped__ is an ordinary __dict__ entry, so it reads from there when
 		// update_wrapper set it and is otherwise absent.

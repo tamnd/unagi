@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+True
+False
+False
+method
+True
+True
+('c', 10)
+True
+True ('c', 20)
+== exception:
+== stderr:
