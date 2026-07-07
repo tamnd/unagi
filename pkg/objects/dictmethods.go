@@ -169,6 +169,15 @@ func dictMethod(x *dictObject, name string, args []Object) (Object, error) {
 // value. Both operands are dicts, so the merge never fails.
 func dictOr(a, b *dictObject) (Object, error) {
 	out := &dictObject{index: make(map[string]int, len(a.entries)+len(b.entries))}
+	// dict.__or__ returns type(self), so a defaultdict or an OrderedDict union
+	// stays that subclass and a defaultdict carries its factory over. Counter is
+	// the exception: its own __or__ falls back to the plain dict union, and it
+	// reaches this path only when the right operand is not a Counter, so its kind
+	// is dropped.
+	if a.kind != counterDict {
+		out.kind = a.kind
+		out.factory = a.factory
+	}
 	if err := dictUpdate(out, a); err != nil {
 		return nil, err
 	}

@@ -8,8 +8,13 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 	case *listObject:
 		return listMethod(x, name, args)
 	case *dictObject:
-		if x.kind == counterDict {
+		switch x.kind {
+		case counterDict:
 			if v, handled, err := counterMethod(x, name, args); handled {
+				return v, err
+			}
+		case orderedDict:
+			if v, handled, err := orderedMethod(x, name, args); handled {
 				return v, err
 			}
 		}
@@ -80,6 +85,10 @@ func CallMethodKw(o Object, name string, pos []Object, kwNames []string, kwVals 
 		return CallMethod(o, name, pos)
 	}
 	switch x := o.(type) {
+	case *dictObject:
+		if x.kind == orderedDict {
+			return orderedMethodKw(x, name, pos, kwNames, kwVals)
+		}
 	case *instanceObject:
 		return instanceCallMethodKw(x, name, pos, kwNames, kwVals)
 	case *classObject:

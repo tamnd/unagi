@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+OrderedDict({'a': 1, 'b': 2, 'c': 3})
+OrderedDict({'b': 2, 'c': 3, 'a': 1})
+OrderedDict({'c': 3, 'b': 2, 'a': 1})
+('a', 1)
+('c', 3)
+OrderedDict({'b': 2})
+OrderedDict({'x': 1, 'y': 2})
+OrderedDict({'p': 1, 'q': 2})
+['c', 'b', 'a']
+False
+True
+True
+OrderedDict({'a': 1, 'b': 2}) OrderedDict
+OrderedDict OrderedDict({'a': 1, 'b': 2}) OrderedDict({'a': 1, 'b': 2, 'c': 3})
+{'a': 1}
+'dictionary is empty'
+'z'
+== exception:
+== stderr:
