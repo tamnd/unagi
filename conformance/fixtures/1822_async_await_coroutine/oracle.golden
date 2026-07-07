@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+type: coroutine
+repr ok: True
+total: 20
+iter: 'coroutine' object is not iterable
+driven: 2
+await int: 'int' object can't be awaited
+== exception:
+== stderr:

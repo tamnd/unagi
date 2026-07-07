@@ -73,7 +73,11 @@ func ds(s Stmt) string {
 		}
 		return "(with (" + strings.Join(items, " ") + ") " + dbody(s.Body) + ")"
 	case *FuncDef:
-		return "(def " + ddecos(s.Decorators) + s.Name + " (" + strings.Join(dparams(s.Params), " ") + ") " + dbody(s.Body) + ")"
+		kw := "def"
+		if s.Async {
+			kw = "async-def"
+		}
+		return "(" + kw + " " + ddecos(s.Decorators) + s.Name + " (" + strings.Join(dparams(s.Params), " ") + ") " + dbody(s.Body) + ")"
 	case *ClassDef:
 		bases := make([]string, len(s.Bases))
 		for i, b := range s.Bases {
@@ -362,6 +366,8 @@ func de(e Expr) string {
 		return "(lambda (" + strings.Join(dparams(e.Params), " ") + ") " + de(e.Body) + ")"
 	case *Starred:
 		return "(* " + de(e.X) + ")"
+	case *Await:
+		return "(await " + de(e.X) + ")"
 	case *FStr:
 		parts := []string{"fstr"}
 		for _, part := range e.Parts {
@@ -550,6 +556,13 @@ func TestParse(t *testing.T) {
 		{"def default complex exprs", "def f(a=[1, 2], b=x if y else z): pass",
 			"(def f (a=(list 1 2) b=(ifexp y x z)) [(pass)])"},
 		{"def default call expr", "def f(a=g(1) + 2): pass", "(def f (a=(+ (call g 1) 2)) [(pass)])"},
+		{"async def", "async def f(): pass", "(async-def f () [(pass)])"},
+		{"async def params", "async def f(a, b): return a", "(async-def f (a b) [(return a)])"},
+		{"async def decorated", "@d\nasync def f(): pass", "(async-def @[d] f () [(pass)])"},
+		{"await call", "async def f():\n    return await g()", "(async-def f () [(return (await (call g)))])"},
+		{"await attribute", "async def f():\n    x = await a.b()", "(async-def f () [(= x (await (call (. a b))))])"},
+		{"await binds tighter than power", "async def f():\n    return await a ** b",
+			"(async-def f () [(return (** (await a) b))])"},
 		{"def posonly", "def f(a, b, /, c): pass", "(def f (a b / c) [(pass)])"},
 		{"def posonly only", "def f(a, /): pass", "(def f (a /) [(pass)])"},
 		{"def posonly trailing comma", "def f(a, /,): pass", "(def f (a /) [(pass)])"},
@@ -946,13 +959,13 @@ func TestParseErrors(t *testing.T) {
 			"name 'x' is used prior to global declaration"},
 		{"decorator walrus binds enclosing global", "def outer():\n    @(d := deco)\n    def f(): pass\n    global d",
 			"name 'd' is assigned to before global declaration"},
-		{"async def", "async def f(): pass", "async is not supported yet"},
 		{"lambda duplicate param", "f = lambda x, x: x", "duplicate argument 'x' in function definition"},
 		{"lambda default order", "f = lambda x=1, y: x", "parameter without a default follows parameter with a default"},
 		{"lambda double star param", "f = lambda *a, *b: 1", "* argument may appear only once"},
 		{"lambda param after kwargs", "f = lambda **k, x: 1", "arguments cannot follow var-keyword argument"},
 		{"lambda operand position", "x = 1 + lambda: 2", "invalid syntax"},
-		{"await", "x = await f()", "await is not supported yet"},
+		{"async for statement", "async for x in y: pass", "async for is not supported yet"},
+		{"async with statement", "async with a: pass", "async with is not supported yet"},
 		{"generator arg unparenthesized", "f(a, x for x in y)", "Generator expression must be parenthesized"},
 		{"generator arg trailing", "f(x for x in y, z)", "Generator expression must be parenthesized"},
 		{"dict then set element", "{1: 2, 3}", "':' expected after dictionary key"},

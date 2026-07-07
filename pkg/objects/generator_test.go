@@ -417,6 +417,33 @@ func TestGeneratorTypeAndRepr(t *testing.T) {
 	}
 }
 
+func TestCoroutineTypeAndRepr(t *testing.T) {
+	c := NewCoroutine("myqual", func(y Yielder) (Object, error) { return None, nil })
+	if c.TypeName() != "coroutine" {
+		t.Fatalf("type = %q, want coroutine", c.TypeName())
+	}
+	r := Repr(c)
+	if want := "<coroutine object myqual at 0x"; len(r) < len(want) || r[:len(want)] != want {
+		t.Fatalf("repr = %q, want prefix %q", r, want)
+	}
+	if _, err := Iter(c); err == nil {
+		t.Fatal("iter(coroutine) should raise TypeError")
+	}
+}
+
+func TestAwaitDispatch(t *testing.T) {
+	// A coroutine is awaitable as itself, so Await hands it straight back.
+	c := NewCoroutine("q", func(y Yielder) (Object, error) { return None, nil })
+	if got, err := Await(c); err != nil || got != c {
+		t.Fatalf("Await(coroutine) = %v, %v, want the coroutine", got, err)
+	}
+	// A non-awaitable is the TypeError CPython raises at GET_AWAITABLE.
+	_, err := Await(NewInt(3))
+	if err == nil || err.Error() != "TypeError: 'int' object can't be awaited" {
+		t.Fatalf("Await(int) error = %v, want can't be awaited", err)
+	}
+}
+
 func TestStopIterationValueAttr(t *testing.T) {
 	v, err := LoadAttr(&Exception{Kind: "StopIteration", Args: []Object{NewInt(7)}}, "value")
 	if err != nil {

@@ -69,6 +69,37 @@ func TestNestedYieldDoesNotMakeOuterGenerator(t *testing.T) {
 	}
 }
 
+func TestAsyncDefLowersToCoroutine(t *testing.T) {
+	src := "async def f(x):\n    return await g(x)\n"
+	got, err := lowerSrc(t, src)
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	for _, want := range []string{
+		"objects.NewCoroutine(\"f\", func(gy objects.Yielder) (objects.Object, error) {",
+		"objects.Await(",
+		"gy.YieldFrom(",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("emitted source missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestAwaitOutsideAsyncRejected(t *testing.T) {
+	_, err := lowerSrc(t, "def f():\n    return await g()\n")
+	if err == nil || !strings.Contains(err.Error(), "'await' outside async function") {
+		t.Fatalf("want await-outside-async error, got %v", err)
+	}
+}
+
+func TestAsyncGeneratorRejected(t *testing.T) {
+	_, err := lowerSrc(t, "async def f():\n    yield 1\n")
+	if err == nil || !strings.Contains(err.Error(), "async generators are not supported yet") {
+		t.Fatalf("want async-generator error, got %v", err)
+	}
+}
+
 func TestYieldOutsideFunctionRejected(t *testing.T) {
 	_, err := lowerSrc(t, "yield 5\n")
 	if err == nil || !strings.Contains(err.Error(), "'yield' outside function") {

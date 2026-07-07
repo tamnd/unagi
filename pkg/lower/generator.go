@@ -47,6 +47,27 @@ func (f *fnCtx) yield(e *frontend.Yield) (ast.Expr, error) {
 	return ident(tmp), nil
 }
 
+// await lowers an await expression. A coroutine runs on the generator frame, so
+// `await x` is `yield from type(x).__await__(x)`: objects.Await turns the
+// operand into the iterator to drive, and delegating to it through the yielder's
+// YieldFrom runs a bare coroutine to completion and suspends a real one. await
+// outside an async def is the compile-time error CPython raises from the
+// symtable, not a parse error, so the check lands here.
+func (f *fnCtx) await(e *frontend.Await) (ast.Expr, error) {
+	if !f.inAsync {
+		return nil, f.e.errf(e.Span(), "'await' outside async function")
+	}
+	x, err := f.expr(e.X)
+	if err != nil {
+		return nil, err
+	}
+	aw := f.tmpVar()
+	f.fallible(aw, f.e.obj("Await"), x)
+	tmp := f.tmpVar()
+	f.fallible(tmp, sel(f.genYielder, "YieldFrom"), ident(aw))
+	return ident(tmp), nil
+}
+
 // hasYield reports whether a function body is a generator: whether its own
 // scope contains a yield. Nested defs, lambdas, classes, and comprehensions
 // start their own scope, so a yield inside one belongs to that scope and does
@@ -110,6 +131,8 @@ func hasYield(body []frontend.Stmt) bool {
 		case *frontend.NamedExpr:
 			walkExpr(e.Value)
 		case *frontend.Starred:
+			walkExpr(e.X)
+		case *frontend.Await:
 			walkExpr(e.X)
 		case *frontend.FStr:
 			for _, in := range frontend.FInterps(e.Parts) {
@@ -180,12 +203,13 @@ func hasYield(body []frontend.Stmt) bool {
 	return found
 }
 
-// fillGeneratorDecl builds the Go declaration for a generator function. The
-// outer function keeps the ordinary boxed signature and its whole body is a
-// single return that constructs the generator; the Python body lands in the
-// closure the constructor drives, so each call mints a fresh generator with its
-// own locals captured from the outer parameters.
-func (e *emitter) fillGeneratorDecl(f *fnCtx, d *frontend.FuncDef, declName string) (*ast.FuncDecl, error) {
+// fillFrameDecl builds the Go declaration for a function that runs on the
+// generator frame: an ordinary generator (ctor NewGenerator) or a coroutine
+// (ctor NewCoroutine). The outer function keeps the ordinary boxed signature and
+// its whole body is a single return that constructs the frame; the Python body
+// lands in the closure the constructor drives, so each call mints a fresh frame
+// with its own locals captured from the outer parameters.
+func (e *emitter) fillFrameDecl(f *fnCtx, d *frontend.FuncDef, declName, ctor string) (*ast.FuncDecl, error) {
 	params := &ast.FieldList{}
 	for _, p := range d.Params {
 		f.locals[p.Name] = true
@@ -222,7 +246,7 @@ func (e *emitter) fillGeneratorDecl(f *fnCtx, d *frontend.FuncDef, declName stri
 		Body: f.pop(),
 	}
 	body := block(&ast.ReturnStmt{Results: []ast.Expr{
-		callExpr(e.obj("NewGenerator"), strLit(f.qual), closure),
+		callExpr(e.obj(ctor), strLit(f.qual), closure),
 		ident("nil"),
 	}})
 	return &ast.FuncDecl{

@@ -341,6 +341,8 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		return ident(mangle(e.Target)), nil
 	case *frontend.Yield:
 		return f.yield(e)
+	case *frontend.Await:
+		return f.await(e)
 	case *frontend.Lambda:
 		return f.lambda(e)
 	case *frontend.Comp:
