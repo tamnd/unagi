@@ -93,10 +93,20 @@ func TestAwaitOutsideAsyncRejected(t *testing.T) {
 	}
 }
 
-func TestAsyncGeneratorRejected(t *testing.T) {
-	_, err := lowerSrc(t, "async def f():\n    yield 1\n")
-	if err == nil || !strings.Contains(err.Error(), "async generators are not supported yet") {
-		t.Fatalf("want async-generator error, got %v", err)
+func TestAsyncGeneratorLowersToFrame(t *testing.T) {
+	got, err := lowerSrc(t, "async def f():\n    yield 1\n")
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	// An async def with a yield builds an async generator on the frame, so the
+	// constructor is NewAsyncGenerator and the yield goes through the yielder.
+	for _, want := range []string{
+		"objects.NewAsyncGenerator(",
+		"gy.Yield(",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("emitted source missing %q:\n%s", want, got)
+		}
 	}
 }
 

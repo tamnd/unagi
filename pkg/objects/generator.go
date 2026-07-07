@@ -36,15 +36,16 @@ type genEvent struct {
 }
 
 type generatorObject struct {
-	qual    string
-	body    func(Yielder) (Object, error)
-	isCoro  bool // true for a coroutine: reports "coroutine", reprs and awaits as one
-	started bool
-	done    bool
-	running bool
-	ret     Object // StopIteration value once the body has returned
-	resume  chan genSignal
-	out     chan genEvent
+	qual       string
+	body       func(Yielder) (Object, error)
+	isCoro     bool // true for a coroutine: reports "coroutine", reprs and awaits as one
+	isAsyncGen bool // true for an async generator: driven through the async protocol
+	started    bool
+	done       bool
+	running    bool
+	ret        Object // StopIteration value once the body has returned
+	resume     chan genSignal
+	out        chan genEvent
 	// excSeg stashes the handled-stack entries the body pushed and had not yet
 	// popped when it last suspended, CPython's gi_exc_state: a yield inside an
 	// except block takes its in-flight exception off the shared stack while the
@@ -53,10 +54,14 @@ type generatorObject struct {
 }
 
 func (g *generatorObject) TypeName() string {
-	if g.isCoro {
+	switch {
+	case g.isAsyncGen:
+		return "async_generator"
+	case g.isCoro:
 		return "coroutine"
+	default:
+		return "generator"
 	}
-	return "generator"
 }
 
 // NewGenerator wraps a lowered generator body as a generator object. qual is
@@ -107,7 +112,12 @@ func (g *generatorObject) start() {
 		<-g.resume // first resume just wakes the body; its value is discarded
 		ret, err := g.body(g)
 		if err != nil {
-			g.out <- genEvent{err: pep479(err)}
+			if g.isAsyncGen {
+				err = asyncGenPep479(err)
+			} else {
+				err = pep479(err)
+			}
+			g.out <- genEvent{err: err}
 			return
 		}
 		g.out <- genEvent{val: ret, done: true}
@@ -237,6 +247,12 @@ func (g *generatorObject) Iterate() (Iterator, error) {
 	if g.isCoro {
 		return nil, Raise(TypeError, "'coroutine' object is not iterable")
 	}
+	if g.isAsyncGen {
+		// An async generator is driven with async for through __aiter__, not the
+		// plain iterator protocol, so iter() over one is the TypeError CPython
+		// raises.
+		return nil, Raise(TypeError, "'async_generator' object is not iterable")
+	}
 	return g, nil
 }
 
@@ -312,8 +328,12 @@ func (g *generatorObject) closeGen() (Object, error) {
 	return nil, Raise(RuntimeError, "generator ignored GeneratorExit")
 }
 
-// genMethod dispatches g.send, g.throw, and g.close.
+// genMethod dispatches g.send, g.throw, and g.close, or the async-generator
+// protocol when the frame is an async generator.
 func genMethod(g *generatorObject, name string, args []Object) (Object, error) {
+	if g.isAsyncGen {
+		return asyncGenMethod(g, name, args)
+	}
 	switch name {
 	case "send":
 		if len(args) != 1 {

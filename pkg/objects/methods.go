@@ -44,6 +44,8 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 		return superCallMethod(x, name, args)
 	case *generatorObject:
 		return genMethod(x, name, args)
+	case *asyncGenSend:
+		return asyncGenSendMethod(x, name, args)
 	case *stringIOObject:
 		return stringIOMethod(x, name, args)
 	case *bytesIOObject:
