@@ -1453,6 +1453,10 @@ func Iter(o Object) (Iterator, error) {
 			}
 		}
 		return iterInstance(x)
+	case *classObject:
+		if it, ok, err := classMetaIter(x); ok {
+			return it, err
+		}
 	}
 	return nil, Raise(TypeError, "'%s' object is not iterable", o.TypeName())
 }

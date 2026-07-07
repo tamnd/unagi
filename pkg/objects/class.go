@@ -998,6 +998,34 @@ func metaCheckHook(c *classObject, name string, arg Object) (Object, bool, error
 	return NewBool(t), true, nil
 }
 
+// classMetaIter dispatches iteration over a class object to its metaclass
+// __iter__, the hook a metaclass like EnumType defines so `for m in Cls` and
+// tuple unpacking walk the class rather than its instances. It reports
+// handled=false when the class rides the default type metatype or its metaclass
+// defines no __iter__, so Iter keeps the plain "type object is not iterable"
+// error. The result of __iter__ is run back through Iter, matching iter() which
+// takes the iterator the hook hands back.
+func classMetaIter(c *classObject) (Iterator, bool, error) {
+	meta, ok := userMetaclass(c)
+	if !ok {
+		return nil, false, nil
+	}
+	v, ok := meta.lookup("__iter__")
+	if !ok {
+		return nil, false, nil
+	}
+	fn, ok := v.(*functionObject)
+	if !ok {
+		return nil, false, nil
+	}
+	r, err := fn.bind([]Object{c}, nil, nil)
+	if err != nil {
+		return nil, true, err
+	}
+	it, err := Iter(r)
+	return it, true, err
+}
+
 // IsInstance implements isinstance(obj, cls). cls is a class, a builtin type, or
 // a tuple of those; anything else raises the arg 2 TypeError probed on 3.14. A
 // user instance matches when cls is in its MRO or is the object root; a builtin
