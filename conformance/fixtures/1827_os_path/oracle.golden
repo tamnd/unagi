@@ -1,0 +1,35 @@
+== exit: 0
+== stdout:
+join: a/b/c
+join abs: /b/c
+join trail: a/b
+join empty tail: 'a/'
+split: ('a/b', 'c')
+split root: ('/', '')
+split trail: ('a/b', '')
+splitext: ('a/b', '.txt')
+splitext none: ('a/b', '')
+splitext dotfile: ('.bashrc', '')
+splitext double: ('a.tar', '.gz')
+basename: c ''
+dirname: a/b ''
+isabs: True False
+normpath: a/c
+normpath slashes: a/b
+normpath up: ../a
+normpath dbl: '//a/b'
+normpath triple: '/a/b'
+normpath empty: '.'
+commonprefix: '/usr/l'
+commonprefix empty: ''
+as-alias join: x/y
+sep: /
+exists root: True
+isdir root: True
+isfile root: False
+exists devnull: True
+isfile devnull: False
+exists missing: False
+isdir missing: False
+== exception:
+== stderr:
