@@ -35,12 +35,12 @@ func TestPatternFlagRepr(t *testing.T) {
 		want    string
 	}{
 		{0, false, ""},
-		{SreFlagUnicode, false, ""},                                   // implied default for str, dropped
-		{SreFlagUnicode, true, "re.UNICODE"},                          // shown for bytes
+		{SreFlagUnicode, false, ""},          // implied default for str, dropped
+		{SreFlagUnicode, true, "re.UNICODE"}, // shown for bytes
 		{SreFlagIgnorecase, false, "re.IGNORECASE"},
 		{SreFlagIgnorecase | SreFlagMultiline, false, "re.IGNORECASE|re.MULTILINE"},
 		{SreFlagUnicode | SreFlagAscii, false, "re.UNICODE|re.ASCII"}, // locale or ascii present, keep unicode
-		{512, false, "0x200"},                                         // unknown bit as hex
+		{512, false, "0x200"}, // unknown bit as hex
 	}
 	for _, c := range cases {
 		if got := patternFlagRepr(c.flags, c.isbytes); got != c.want {
