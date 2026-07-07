@@ -1093,6 +1093,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return namedTupleTypeAttr(x, name)
 	case *partialObject:
 		return partialAttr(x, name)
+	case *patternObject:
+		return patternAttr(x, name)
 	case *lruCacheObject:
 		return lruAttr(x, name)
 	case *keyObject:
