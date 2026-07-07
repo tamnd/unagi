@@ -571,6 +571,85 @@ func init() {
 	})
 }
 
+// objectDunders holds object's default dunder methods as canonical builtins:
+// one shared object per name, stored so class-level access reads the same
+// object every time and every class that does not override the name inherits
+// it. That identity is what EnumType.__new__ leans on when it compares
+// getattr(enum_class, name) against getattr(object, name) to decide whether a
+// name is still the object default it should replace with the Enum method.
+var objectDunders map[string]Object
+
+func init() {
+	objectDunders = map[string]Object{
+		"__repr__": NewFunc("__repr__", 1, func(args []Object) (Object, error) {
+			if len(args) != 1 {
+				return nil, Raise(TypeError, "object.__repr__() takes no arguments")
+			}
+			return NewStr(objectDefaultRepr(args[0])), nil
+		}),
+		"__str__": NewFunc("__str__", 1, func(args []Object) (Object, error) {
+			if len(args) != 1 {
+				return nil, Raise(TypeError, "object.__str__() takes no arguments")
+			}
+			// object.__str__ falls back to the object-level repr.
+			return NewStr(objectDefaultRepr(args[0])), nil
+		}),
+		"__format__": NewFunc("__format__", 2, func(args []Object) (Object, error) {
+			if len(args) != 2 {
+				return nil, Raise(TypeError, "object.__format__() takes exactly one argument")
+			}
+			spec, ok := args[1].(*strObject)
+			if !ok {
+				return nil, Raise(TypeError, "__format__() argument must be str, not %s", args[1].TypeName())
+			}
+			if spec.v != "" {
+				return nil, Raise(TypeError, "unsupported format string passed to %s.__format__", args[0].TypeName())
+			}
+			s, err := StrE(args[0])
+			if err != nil {
+				return nil, err
+			}
+			return NewStr(s), nil
+		}),
+		"__reduce_ex__": NewFunc("__reduce_ex__", 2, func(args []Object) (Object, error) {
+			// Pickling support is not on the floor yet. The name has to resolve so
+			// EnumType.__new__ can read and reassign it, but a real call is out of
+			// scope until copyreg lands.
+			return nil, Raise(TypeError, "cannot pickle '%s' object yet", func() string {
+				if len(args) > 0 {
+					return args[0].TypeName()
+				}
+				return "object"
+			}())
+		}),
+	}
+}
+
+// objectDunderBound answers an object dunder read off an instance: the object
+// default bound to the instance, so a call supplies self and inst.__repr__()
+// works. The bound wrapper is a fresh builtin each read, which matches the
+// instance-method case where only the class-level attribute has stable identity.
+func objectDunderBound(self Object, name string) (Object, bool) {
+	base, ok := objectDunders[name]
+	if !ok {
+		return nil, false
+	}
+	fn := func(args []Object) (Object, error) {
+		return Call(base, append([]Object{self}, args...))
+	}
+	return NewFunc(name, -1, fn), true
+}
+
+// objectDefaultRepr is the object-root repr, the identity form a type that does
+// not override __repr__ reports. An instance reads its qualified name and
+// address; any other object falls back to its type name and address.
+func objectDefaultRepr(o Object) string {
+	if inst, ok := o.(*instanceObject); ok {
+		return instanceRepr(inst)
+	}
+	return fmt.Sprintf("<%s object at %p>", o.TypeName(), o)
+}
+
 // classDictProxy is __dict__, the read-only mappingproxy over the class
 // namespace. The entries come back in definition order, the order enum's
 // classdict.update(cls.__dict__) folds them in, over a snapshot dict so a write
@@ -1107,6 +1186,11 @@ func LoadAttr(o Object, name string) (Object, error) {
 		// C.__new__ reads back the one canonical allocator.
 		if name == "__new__" {
 			return objectNewBuiltin, nil
+		}
+		// A class that overrides none of the object dunders inherits them, so
+		// C.__repr__ is object.__repr__ the way CPython reports it.
+		if v, ok := objectDunders[name]; ok {
+			return v, nil
 		}
 		return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
 	case *staticmethodObject:

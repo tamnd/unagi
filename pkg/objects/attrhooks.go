@@ -110,6 +110,12 @@ func genericGetAttr(x *instanceObject, name string) (Object, error) {
 	if v, ok := valueSubclassAttr(x, name); ok {
 		return v, nil
 	}
+	// Every object inherits object's default dunder methods, so inst.__repr__()
+	// and inst.__format__(spec) resolve to the object-root implementation bound
+	// to the instance.
+	if v, ok := objectDunderBound(x, name); ok {
+		return v, nil
+	}
 	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", x.cls.name, name)
 }
 
