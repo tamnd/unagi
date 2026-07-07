@@ -1,0 +1,42 @@
+== exit: 0
+== stdout:
+null true false
+42 -7 1000000000000000000000000000000
+1.5 2.0 1e+20
+"hi"
+"a\"b\\c\n\td"
+[1, 2, 3]
+[1, "two", null]
+{"b": 1, "a": 2}
+{"nested": {"x": [1, {"y": 2}]}}
+"caf\u00e9"
+"café"
+"emoji \ud83d\ude00 here"
+{"a": 2, "b": 1}
+[
+  1,
+  2
+]
+{
+  "a": 1,
+  "b": [
+    2,
+    3
+  ]
+}
+{
+    "a": 1,
+    "b": 2
+}
+[1,2,3]
+{"a"=1;"b"=2}
+{"1": "bool", "2.5": "float", "null": "none"}
+{"keep": 1}
+Infinity NaN
+TypeError: Object of type set is not JSON serializable
+TypeError: Object of type object is not JSON serializable
+TypeError: keys must be str, int, float, bool or None, not tuple
+ValueError: Out of range float values are not JSON compliant: nan
+{"x": 1, "y": 2}
+== exception:
+== stderr:
