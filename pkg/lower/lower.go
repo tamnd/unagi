@@ -486,7 +486,7 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 		}
 		out.WriteString("\t\"github.com/tamnd/unagi/pkg/runtime\"\n)\n\n")
 	}
-	if e.usedTB || pkgMode {
+	if e.usedTB || pkgMode || e.usedGlobals {
 		fmt.Fprintf(&out, "// pyFile is the source path traceback frames cite.\nconst pyFile = %s\n\n", strconv.Quote(file))
 		// A module package registers unconditionally: the init call is also
 		// what keeps the runtime import used when the body needs nothing else.
@@ -494,8 +494,8 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 			fmt.Fprintf(&out, "// pySource is the embedded source, so tracebacks can quote the line\n// under each frame the way CPython does.\nconst pySource = %s\n\nfunc init() { runtime.RegisterSource(pyFile, pySource) }\n\n", strconv.Quote(string(source)))
 		}
 	}
-	if pkgMode {
-		out.WriteString("// thisModule is the module object, set by Exec before the body runs.\n// Reads of names this compile never saw route through it, so an attribute\n// an importer sets on the module is visible inside it.\nvar thisModule *objects.Module\n\n")
+	if pkgMode || e.usedGlobals {
+		out.WriteString("// thisModule is the module object, bound before the body runs. Reads of\n// names this compile never saw route through it, so an attribute an importer\n// sets on the module is visible inside it, and globals() reads its namespace.\nvar thisModule *objects.Module\n\n")
 	}
 	if len(e.slots) > 0 {
 		out.WriteString("// Parameter default slots, assigned when each def statement runs.\nvar (\n")
@@ -521,6 +521,20 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 	if pkgMode {
 		out.WriteString("// Exec binds every module-scope variable as a live slot on the module\n// object, then runs the body. The import machinery calls it at most once.\n")
 		if err := writeDecl(&out, execDecl(sortedNames(e.moduleVars))); err != nil {
+			return nil, err
+		}
+	} else if e.usedGlobals {
+		// A plain top-level def keeps the static fast path and is not a module
+		// variable, so it is bound through its function-object slot; every other
+		// module-scope name is a checked module variable already.
+		var plainDefs []string
+		for _, d := range defs {
+			if !e.moduleVars[d.Name] {
+				plainDefs = append(plainDefs, d.Name)
+			}
+		}
+		out.WriteString("// main builds the __main__ module and binds every module-scope name onto\n// it before the body runs, so globals() reads the same live storage the body\n// writes, then runs the body.\n")
+		if err := writeDecl(&out, e.mainGlobalsDecl(sortedNames(e.moduleVars), plainDefs)); err != nil {
 			return nil, err
 		}
 	} else {
@@ -584,6 +598,7 @@ type emitter struct {
 	escWarns    []frontend.EscapeWarning // invalid backslash-escape SyntaxWarnings from the lexer
 	usedObjects bool
 	usedTB      bool
+	usedGlobals bool // the body calls globals(), so main binds a __main__ module
 }
 
 // selfPackage is the module's __package__ resolved at compile time: the

@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+True
+True True False
+5 hi 4
+True
+True
+['C', 'foo', 'math', 'x', 'y', 'z']
+['C', 'foo', 'inside', 'math', 'x', 'y', 'z']
+['C', 'foo', 'inside', 'math', 'x', 'y', 'z']
+5 default
+KeyError: 'nope'
+False
+True
+== exception:
+== stderr:

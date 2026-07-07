@@ -151,6 +151,40 @@ func execDecl(vars []string) *ast.FuncDecl {
 	}
 }
 
+// mainGlobalsDecl is the entry point for a script that calls globals(): build
+// a __main__ module, remember it in thisModule, and bind every module-scope
+// name onto it as a live slot the way a module package's Exec does, so
+// globals() reads the same storage the body writes. moduleVars are the checked
+// module variables (already sorted); plainDefs are the top-level defs that kept
+// the static fast path and so are not module variables, bound through their
+// function-object slots. The body then runs exactly as the plain main does.
+func (e *emitter) mainGlobalsDecl(moduleVars, plainDefs []string) *ast.FuncDecl {
+	addr := func(name string) ast.Expr { return &ast.UnaryExpr{Op: token.AND, X: ident(name)} }
+	body := []ast.Stmt{
+		define(ident("m"), callExpr(sel("objects", "NewModule"), strLit("__main__"), ident("pyFile"))),
+		set(ident("thisModule"), ident("m")),
+	}
+	for _, n := range moduleVars {
+		body = append(body, exprStmt(callExpr(sel("m", "Bind"), strLit(n), addr(mangle(n)))))
+	}
+	for _, n := range plainDefs {
+		body = append(body, exprStmt(callExpr(sel("m", "Bind"), strLit(n), addr(e.fnObjName(n)))))
+	}
+	body = append(body, &ast.IfStmt{
+		Init: define(ident("err"), callExpr(ident("pymain"))),
+		Cond: errNotNil(),
+		Body: block(
+			exprStmt(callExpr(sel("os", "Exit"),
+				callExpr(sel("runtime", "ReportExit"), ident("err")))),
+		),
+	})
+	return &ast.FuncDecl{
+		Name: ident("main"),
+		Type: &ast.FuncType{Params: &ast.FieldList{}},
+		Body: block(body...),
+	}
+}
+
 // writeDecl prints one built declaration followed by a blank line. This is
 // the boundary between the node world and the text world: a print failure
 // means the emitter built a node the printer rejects, an emitter bug, so it

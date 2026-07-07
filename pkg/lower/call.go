@@ -23,6 +23,7 @@ var builtinNames = map[string]bool{
 	"any": true, "all": true, "callable": true, "ascii": true,
 	"iter": true, "map": true, "filter": true, "vars": true,
 	"type": true, "object": true, "slice": true, "memoryview": true,
+	"globals": true,
 }
 
 // descriptorBuiltins are the builtin names that resolve to a value: the three
@@ -482,6 +483,19 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		return f.runtimeSliceCall("Enumerate", e)
 	case "zip":
 		return f.runtimeSliceCall("Zip", e)
+	case "globals":
+		// globals() reads the module namespace through thisModule, the module
+		// object Exec (or main) binds every module-scope name onto before the
+		// body runs. It takes no arguments, so an argument is the same TypeError
+		// CPython reports, checked here at compile time like the other builtins.
+		if argc != 0 {
+			return nil, f.e.errf(e.Span(), "globals() takes no arguments (%d given)", argc)
+		}
+		f.e.usedGlobals = true
+		f.e.usedObjects = true
+		tmp := f.tmpVar()
+		f.add(define(ident(tmp), callExpr(sel("runtime", "Globals"), ident("thisModule"))))
+		return ident(tmp), nil
 	case "any", "all", "callable", "ascii", "vars":
 		if err := need1(); err != nil {
 			return nil, err

@@ -29,6 +29,16 @@ func Vars(o objects.Object) (objects.Object, error) {
 	return objects.InstanceDict(o)
 }
 
+// Globals implements the globals() builtin: the module namespace as a dict.
+// unagi keeps module globals in live Go variables rather than one dict object,
+// so the result is a snapshot of the names bound when the call runs. Reading,
+// iterating, and membership match CPython and type(globals()) is dict holds;
+// rebinding a name by writing to the returned dict is the one behavior that
+// does not carry back to the module.
+func Globals(m *objects.Module) objects.Object {
+	return m.GlobalsDict()
+}
+
 // Any implements any(iterable): True as soon as an element is truthy, else
 // False (True for no elements is impossible, so empty is False).
 func Any(o objects.Object) (objects.Object, error) {
