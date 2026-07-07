@@ -550,6 +550,27 @@ func classIntrospect(c *classObject, name string) (Object, bool) {
 	return nil, false
 }
 
+// objectNewBuiltin is the canonical object.__new__: one shared builtin so
+// object.__new__, an inherited class.__new__, and None.__new__ read back the
+// same object, which is what enum's `x is object.__new__` check and the set
+// membership in _find_new_ rely on. Called as object.__new__(cls) it allocates
+// a bare instance of cls through the object-root allocation path, the same one
+// a cooperative super().__new__ chain ends on.
+var objectNewBuiltin Object
+
+func init() {
+	objectNewBuiltin = NewFunc("__new__", -1, func(args []Object) (Object, error) {
+		r, ok, err := objectDefaultCall(None, "__new__", args)
+		if err != nil {
+			return nil, err
+		}
+		if !ok || r == nil {
+			return nil, Raise(TypeError, "object.__new__(): not enough arguments")
+		}
+		return r, nil
+	})
+}
+
 // classDictProxy is __dict__, the read-only mappingproxy over the class
 // namespace. The entries come back in definition order, the order enum's
 // classdict.update(cls.__dict__) folds them in, over a snapshot dict so a write
@@ -1082,6 +1103,11 @@ func LoadAttr(o Object, name string) (Object, error) {
 		if v, ok := x.lookup(name); ok {
 			return classGet(x, v)
 		}
+		// A class with no __new__ of its own inherits object.__new__, so
+		// C.__new__ reads back the one canonical allocator.
+		if name == "__new__" {
+			return objectNewBuiltin, nil
+		}
 		return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
 	case *staticmethodObject:
 		if name == "__func__" || name == "__wrapped__" {
@@ -1204,6 +1230,13 @@ func LoadAttr(o Object, name string) (Object, error) {
 	case *tupleObject:
 		if x.named != nil {
 			return namedTupleInstanceAttr(x, name)
+		}
+	case *noneObject:
+		// NoneType inherits object.__new__, so None.__new__ resolves to the
+		// same allocator every other type reports, which is what enum's
+		// _find_new_ set literal relies on when it names None.__new__.
+		if name == "__new__" {
+			return objectNewBuiltin, nil
 		}
 	}
 	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", o.TypeName(), name)

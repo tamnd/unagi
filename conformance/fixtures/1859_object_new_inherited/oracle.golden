@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+builtin_function_or_method
+True
+True
+True
+True
+True
+True
+True
+3
+True
+== exception:
+== stderr:
