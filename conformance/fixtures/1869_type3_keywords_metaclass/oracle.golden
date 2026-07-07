@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+new []
+init []
+new [('color', 'red'), ('n', 3)]
+init [('color', 'red'), ('n', 3)]
+Meta
+1
+[('color', 'red'), ('n', 3)]
+caught TypeError
+== exception:
+== stderr:

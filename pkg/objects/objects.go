@@ -193,6 +193,10 @@ type funcObject struct {
 	name  string
 	arity int // negative means variadic, no arity check
 	fn    func(args []Object) (Object, error)
+	// kwfn is set for the few builtins that accept keyword arguments, such as the
+	// three-argument type(). When present, CallKw routes the whole call through
+	// it so the keywords reach the builtin instead of being rejected.
+	kwfn func(pos []Object, kwNames []string, kwVals []Object) (Object, error)
 	// attrs holds attributes a builtin attaches to itself, the way itertools.chain
 	// carries chain.from_iterable. It stays nil for the ordinary builtins, which
 	// expose no attributes beyond __name__/__qualname__.
@@ -336,6 +340,19 @@ func NewTuple(elts []Object) Object { return &tupleObject{elts: elts} }
 // disables the positional argument count check; builtins use that.
 func NewFunc(name string, arity int, fn func(args []Object) (Object, error)) Object {
 	return &funcObject{name: name, arity: arity, fn: fn}
+}
+
+// NewFuncKw wraps a keyword-aware Go function as a variadic builtin. Every call,
+// with or without keywords, routes through kwfn; the positional-only path fills
+// in empty keyword slices. Only the handful of builtins that take keyword
+// arguments, such as the three-argument type(), need this.
+func NewFuncKw(name string, kwfn func(pos []Object, kwNames []string, kwVals []Object) (Object, error)) Object {
+	return &funcObject{
+		name:  name,
+		arity: -1,
+		kwfn:  kwfn,
+		fn:    func(args []Object) (Object, error) { return kwfn(args, nil, nil) },
+	}
 }
 
 // SetBuiltinAttr attaches an attribute to a builtin function object, the hook a
