@@ -735,8 +735,22 @@ func builtinTypeIntrospect(x *funcObject, name string) (Object, bool) {
 		return nil, false
 	case "__qualname__":
 		return NewStr(x.name), true
+	case "__dict__":
+		return builtinTypeDictProxy(x), true
 	}
 	return nil, false
+}
+
+// builtinTypeDictProxy is a builtin type's __dict__, a read-only mappingproxy
+// over its own namespace. A constructor type defines __new__, so the proxy
+// carries that name, which is the membership probe enum's _find_data_type_ uses
+// to recognize a data type among a new enum's bases. The value under the name is
+// the constructor itself, enough for the read-and-membership use the floor makes
+// of it.
+func builtinTypeDictProxy(x *funcObject) Object {
+	d := &dictObject{index: map[string]int{}}
+	_ = d.set(NewStr("__new__"), x)
+	return &mappingProxyObject{d: d}
 }
 
 // classDictProxy is __dict__, the read-only mappingproxy over the class
