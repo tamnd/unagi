@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+name: posix
+sep: '/'
+linesep: '\n'
+pathsep: ':'
+curdir: .
+pardir: ..
+extsep: .
+altsep: None
+devnull: /dev/null
+pid positive: True
+cwd is str: True
+cwd absolute: True
+getenv missing: None
+getenv default: fallback
+environ get: hello
+getenv after set: hello
+in environ: True
+environ.get default: d
+KeyError: 'NO_SUCH_KEY_ABC'
+== exception:
+== stderr:
