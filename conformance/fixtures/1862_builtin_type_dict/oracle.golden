@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+mappingproxy
+int True False
+str True False
+bool True False
+list True False
+dict True False
+tuple True False
+TypeError True
+== exception:
+== stderr:
