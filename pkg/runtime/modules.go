@@ -7,25 +7,60 @@ import (
 	"github.com/tamnd/unagi/pkg/objects"
 )
 
-// The import table. The generated modtable.go registers every sibling module
-// the build compiled, keyed by import name; ImportModule executes a body at
-// most once and every later import gets the same module object, the
-// sys.modules behavior without sys itself yet.
+// The import table and the live registry. The generated modtable.go registers
+// every compiled module in moduleTable, keyed by import name; the module
+// objects the imports created live in a real Python dict, the object
+// sys.modules exposes. The import machinery reads that dict before consulting
+// the table and re-reads it after a body runs, which is what makes pokes,
+// deletes, None entries, and sys.modules[__name__] = obj self-replacement
+// behave like CPython.
 
 // moduleEntry is one compiled module: its source path, whether it is a
-// package (__init__.py) rather than a plain module, its Exec, and the module
-// object once the first import created it. A namespace package (a directory
-// with no __init__.py) has no source and no exec: ns is true, file holds the
-// directory for its __path__, and importing it just seeds a bodyless module.
+// package (__init__.py) rather than a plain module, and its Exec. A namespace
+// package (a directory with no __init__.py) has no source and no exec: ns is
+// true and file holds the directory for its __path__. A builtin entry is a
+// module the runtime provides itself, like sys: no file, and its exec fills
+// in the attributes from Go.
 type moduleEntry struct {
-	file string
-	pkg  bool
-	ns   bool
-	exec func(*objects.Module) error
-	mod  *objects.Module
+	file    string
+	pkg     bool
+	ns      bool
+	builtin bool
+	exec    func(*objects.Module) error
 }
 
 var moduleTable = map[string]*moduleEntry{}
+
+// modules is the live registry dict. Deleting an entry makes the next import
+// run the body again, storing None halts the import, and storing any other
+// object makes the import hand that object out.
+var modules = newModulesDict()
+
+func newModulesDict() objects.Object {
+	d, err := objects.NewDict(nil, nil)
+	if err != nil {
+		panic(err)
+	}
+	return d
+}
+
+func modulesGet(name string) (objects.Object, bool) {
+	v, err := objects.GetItem(modules, objects.NewStr(name))
+	if err != nil {
+		// A str key cannot fail to hash, so the only error here is the
+		// KeyError for a missing entry.
+		return nil, false
+	}
+	return v, true
+}
+
+func modulesSet(name string, v objects.Object) {
+	_ = objects.SetItem(modules, objects.NewStr(name), v)
+}
+
+func modulesDel(name string) {
+	_ = objects.DelItem(modules, objects.NewStr(name))
+}
 
 // RegisterModule adds one compiled module to the import table. The generated
 // modtable.go calls it from init for every module in the program.
@@ -42,15 +77,15 @@ func RegisterNamespace(name, dir string) {
 }
 
 // ImportModule is the import statement: walk the dotted name outward-in,
-// importing each ancestor once, and return the leaf module. Each module
-// object is in the table before its body starts, CPython's insert-before-exec
-// order, so a circular import sees the partial module rather than recursing;
-// a body that raises removes the entry again so a later import retries from
-// scratch. A finished submodule is bound as an attribute on its parent, which
-// is why import a.b.c makes a.b.c reachable from a.
+// importing each ancestor once, and return the leaf. Each module object is in
+// the registry before its body starts, CPython's insert-before-exec order, so
+// a circular import sees the partial module rather than recursing; a body
+// that raises removes the entry again so a later import retries from scratch.
+// A finished submodule is bound as an attribute on its parent, which is why
+// import a.b.c makes a.b.c reachable from a.
 func ImportModule(name string) (objects.Object, error) {
-	var parent *objects.Module
-	var m *objects.Module
+	var parent objects.Object
+	var m objects.Object
 	prefix := ""
 	for _, seg := range strings.Split(name, ".") {
 		if prefix == "" {
@@ -69,21 +104,33 @@ func ImportModule(name string) (objects.Object, error) {
 }
 
 // importOne imports a single dotted prefix whose ancestors are already
-// imported, binding the result on the parent module when this call ran the
-// body. The registry-hit path skips the parent bind, matching CPython where a
-// cycle can read the submodule through sys.modules before the parent
-// attribute exists.
-func importOne(name, seg string, parent *objects.Module) (*objects.Module, error) {
+// imported, binding the result on the parent when this call ran the body. The
+// registry-hit path skips the parent bind, matching CPython where a cycle can
+// read the submodule through sys.modules before the parent attribute exists.
+// The value bound and returned is whatever the registry holds after the body
+// finished, so a body that replaced its own entry hands out the replacement.
+func importOne(name, seg string, parent objects.Object) (objects.Object, error) {
+	if v, ok := modulesGet(name); ok {
+		if v == objects.None {
+			// A None entry means an earlier import was deliberately stopped;
+			// wording probed on 3.14.
+			return nil, objects.Raise(objects.ImportError,
+				"import of %s halted; None in sys.modules", name)
+		}
+		return v, nil
+	}
 	ent, ok := moduleTable[name]
 	if !ok {
 		return nil, moduleMissing(name)
 	}
-	if ent.mod != nil {
-		return ent.mod, nil
+	var m *objects.Module
+	if ent.builtin {
+		m = objects.NewBuiltinModule(name)
+	} else {
+		m = objects.NewModule(name, ent.file)
+		seedModuleAttrs(m, name, ent)
 	}
-	m := objects.NewModule(name, ent.file)
-	seedModuleAttrs(m, name, ent)
-	ent.mod = m
+	modulesSet(name, m)
 	if ent.ns {
 		// A namespace package has no body. Its module object is already
 		// complete once the identity attributes are seeded, so bind it on the
@@ -97,16 +144,23 @@ func importOne(name, seg string, parent *objects.Module) (*objects.Module, error
 	}
 	m.StartInit()
 	if err := ent.exec(m); err != nil {
-		ent.mod = nil
+		modulesDel(name)
 		return nil, err
 	}
 	m.FinishInit()
+	final, ok := modulesGet(name)
+	if !ok {
+		// The body deleted its own registry entry. CPython surfaces the raw
+		// KeyError from its post-exec re-read, probed on 3.14; the key object
+		// is the single argument so str(e) is the repr of the name.
+		return nil, objects.NewException(objects.KeyError, []objects.Object{objects.NewStr(name)})
+	}
 	if parent != nil {
-		if err := objects.StoreAttr(parent, seg, m); err != nil {
+		if err := objects.StoreAttr(parent, seg, final); err != nil {
 			return nil, err
 		}
 	}
-	return m, nil
+	return final, nil
 }
 
 // seedModuleAttrs sets the identity attributes a body can read about itself:
@@ -151,7 +205,9 @@ func moduleMissing(name string) error {
 }
 
 // ImportRoot is the plain import statement without as: import a.b.c executes
-// the whole chain but binds the root module a in the importing scope.
+// the whole chain but binds the root module a in the importing scope. The
+// binding comes off the registry, so a root that replaced its own entry binds
+// the replacement.
 func ImportRoot(name string) (objects.Object, error) {
 	if _, err := ImportModule(name); err != nil {
 		return nil, err
@@ -160,7 +216,12 @@ func ImportRoot(name string) (objects.Object, error) {
 	if i := strings.IndexByte(name, '.'); i >= 0 {
 		root = name[:i]
 	}
-	return moduleTable[root].mod, nil
+	if v, ok := modulesGet(root); ok {
+		return v, nil
+	}
+	// A deeper body deleted the root's entry between exec and this read; the
+	// raw KeyError matches CPython's registry lookup.
+	return nil, objects.NewException(objects.KeyError, []objects.Object{objects.NewStr(root)})
 }
 
 // ImportFrom is `from module import name`: import the module, then read one
@@ -175,7 +236,10 @@ func ImportFrom(module, name string) (objects.Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := mo.(*objects.Module)
+	m, ok := mo.(*objects.Module)
+	if !ok {
+		return importFromObject(mo, name)
+	}
 	if v, ok := m.Get(name); ok {
 		return v, nil
 	}
@@ -189,6 +253,36 @@ func ImportFrom(module, name string) (objects.Object, error) {
 	}
 	return nil, objects.Raise(objects.ImportError,
 		"cannot import name '%s' from '%s' (%s)", name, module, m.File())
+}
+
+// importFromObject is from-import off a registry entry that is not a module:
+// a body replaced sys.modules[__name__] with an arbitrary object, and the
+// import reads the name as a plain attribute of it. The miss wording takes
+// the object's own __name__ and __file__, falling back to CPython's
+// unknown-module placeholders, probed on 3.14 against an instance carrying
+// neither attribute.
+func importFromObject(mo objects.Object, name string) (objects.Object, error) {
+	v, err := objects.LoadAttr(mo, name)
+	if err == nil {
+		return v, nil
+	}
+	if !isAttributeError(err) {
+		return nil, err
+	}
+	shown := "<unknown module name>"
+	if nv, nerr := objects.LoadAttr(mo, "__name__"); nerr == nil {
+		if s, ok := objects.AsStr(nv); ok {
+			shown = s
+		}
+	}
+	location := "unknown location"
+	if fv, ferr := objects.LoadAttr(mo, "__file__"); ferr == nil {
+		if s, ok := objects.AsStr(fv); ok {
+			location = s
+		}
+	}
+	return nil, objects.Raise(objects.ImportError,
+		"cannot import name '%s' from '%s' (%s)", name, shown, location)
 }
 
 // RelativeImportError raises the ImportError for a relative import the

@@ -37,6 +37,18 @@ func NewModule(name, file string) *Module {
 	return m
 }
 
+// NewBuiltinModule builds a module the runtime provides itself, like sys.
+// A built-in module has no source file, so __file__ is never seeded and
+// reading it raises AttributeError the way CPython's sys.__file__ does;
+// __package__ is the empty string since built-ins live at top level.
+func NewBuiltinModule(name string) *Module {
+	m := &Module{name: name, slots: map[string]*Object{}, extra: map[string]Object{}}
+	m.setExtra("__name__", NewStr(name))
+	m.setExtra("__doc__", None)
+	m.setExtra("__package__", NewStr(""))
+	return m
+}
+
 // Name is the module's import name, for error messages.
 func (m *Module) Name() string { return m.name }
 

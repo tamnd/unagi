@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+name: sys
+has file: False
+package: ''
+modules is dict: dict
+sys registered: True
+counter body runs
+n: 1
+still: 1
+counter body runs
+again: 1
+halted: import of halted halted; None in sys.modules
+poked: 99
+from poked: 99
+selfdel: KeyError 'selfdel'
+== exception:
+== stderr:

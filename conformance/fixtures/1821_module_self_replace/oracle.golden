@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+type: API
+tag: replacement
+call: hello from replacement
+from: hello from replacement
+miss: cannot import name 'absent' from '<unknown module name>' (unknown location)
+sub type: Repl
+sub tag: replaced sub
+registry type: Repl
+== exception:
+== stderr:
