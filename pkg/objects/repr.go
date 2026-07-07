@@ -413,6 +413,11 @@ func strCore(o Object, strict bool) (string, error) {
 			return "", err
 		}
 		if !defined {
+			// A str subclass answers str() with its payload string unquoted, str's
+			// own __str__, rather than delegating to __repr__.
+			if v, ok := builtinUnwrap(x); ok {
+				return strCore(v, strict)
+			}
 			// object.__str__ delegates to __repr__, which reprCore dispatches.
 			return reprCore(x, strict)
 		}

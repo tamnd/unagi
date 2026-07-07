@@ -18,7 +18,7 @@ package objects
 func builtinBaseName(b Object) (string, bool) {
 	if f, ok := b.(*funcObject); ok {
 		switch f.name {
-		case "dict", "int":
+		case "dict", "int", "str":
 			return f.name, true
 		}
 	}
@@ -64,6 +64,45 @@ func builtinUnary(o Object, dunder string, apply func(Object) (Object, error)) (
 	}
 	r, err := apply(inst.builtinData)
 	return r, true, err
+}
+
+// strSubclassMethods names the str methods a str subclass inherits, the set an
+// attribute read on a str-backed instance hands back as a callable bound to the
+// payload when the class defines no override. It mirrors the str method surface
+// CallMethod dispatches, so a StrEnum member answers upper(), split() and the
+// rest from its underlying str.
+var strSubclassMethods = map[string]bool{
+	"capitalize": true, "casefold": true, "center": true, "count": true,
+	"encode": true, "endswith": true, "expandtabs": true, "find": true,
+	"format": true, "format_map": true, "index": true, "isalnum": true,
+	"isalpha": true, "isascii": true, "isdecimal": true, "isdigit": true,
+	"isidentifier": true, "islower": true, "isnumeric": true, "isprintable": true,
+	"isspace": true, "istitle": true, "isupper": true, "join": true,
+	"ljust": true, "lower": true, "lstrip": true, "maketrans": true,
+	"partition": true, "removeprefix": true, "removesuffix": true, "replace": true,
+	"rfind": true, "rindex": true, "rjust": true, "rpartition": true,
+	"rsplit": true, "rstrip": true, "split": true, "splitlines": true,
+	"startswith": true, "strip": true, "swapcase": true, "title": true,
+	"translate": true, "upper": true, "zfill": true,
+}
+
+// valueSubclassAttr resolves an inherited builtin method on a value subclass
+// instance, returning a callable bound to the payload. ok is false when the
+// instance is not value-backed or the name is not one of the builtin's methods,
+// so LoadAttr keeps its ordinary AttributeError. A user override lives in the
+// class dict and is found before this fallback runs, so it never shadows one.
+// Only str carries a method surface here; the int payload exposes no methods in
+// this tier, matching how the int subclass slice left them.
+func valueSubclassAttr(x *instanceObject, name string) (Object, bool) {
+	v, ok := builtinUnwrap(x)
+	if !ok {
+		return nil, false
+	}
+	if _, isStr := v.(*strObject); isStr && strSubclassMethods[name] {
+		fn := func(args []Object) (Object, error) { return CallMethod(v, name, args) }
+		return NewFunc(name, -1, fn), true
+	}
+	return nil, false
 }
 
 // InstanceOverride runs a special method a user class defines on an instance,
