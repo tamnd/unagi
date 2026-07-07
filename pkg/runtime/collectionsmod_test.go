@@ -397,6 +397,95 @@ func TestCounterEqualsDictAndTotal(t *testing.T) {
 	}
 }
 
+// newOrdered builds an OrderedDict from alternating string keys and int values.
+func newOrdered(t *testing.T, kv ...any) objects.Object {
+	t.Helper()
+	o, err := objects.Call(collFn(t, "OrderedDict"), []objects.Object{dictOf(t, kv...)})
+	if err != nil {
+		t.Fatalf("OrderedDict call: %v", err)
+	}
+	return o
+}
+
+func TestOrderedDictReprAndMoveToEnd(t *testing.T) {
+	o := newOrdered(t, "a", 1, "b", 2, "c", 3)
+	if got := objects.Repr(o); got != "OrderedDict({'a': 1, 'b': 2, 'c': 3})" {
+		t.Fatalf("ordered repr = %q", got)
+	}
+	method(t, o, "move_to_end", objects.NewStr("a"))
+	if got := objects.Repr(o); got != "OrderedDict({'b': 2, 'c': 3, 'a': 1})" {
+		t.Fatalf("move_to_end = %q", got)
+	}
+	method(t, o, "move_to_end", objects.NewStr("c"), objects.NewBool(false))
+	if got := objects.Repr(o); got != "OrderedDict({'c': 3, 'b': 2, 'a': 1})" {
+		t.Fatalf("move_to_end front = %q", got)
+	}
+	if _, err := objects.CallMethod(o, "move_to_end", []objects.Object{objects.NewStr("z")}); err == nil {
+		t.Fatal("move_to_end on a missing key should raise KeyError")
+	}
+}
+
+func TestOrderedDictPopitem(t *testing.T) {
+	o := newOrdered(t, "a", 1, "b", 2, "c", 3)
+	if got := objects.Repr(method(t, o, "popitem")); got != "('c', 3)" {
+		t.Fatalf("popitem = %s", got)
+	}
+	if got := objects.Repr(method(t, o, "popitem", objects.NewBool(false))); got != "('a', 1)" {
+		t.Fatalf("popitem front = %s", got)
+	}
+	if got := objects.Repr(o); got != "OrderedDict({'b': 2})" {
+		t.Fatalf("after popitems = %q", got)
+	}
+	method(t, o, "popitem")
+	if _, err := objects.CallMethod(o, "popitem", nil); err == nil {
+		t.Fatal("popitem on an empty OrderedDict should raise KeyError")
+	}
+}
+
+func TestOrderedDictPopitemKeyword(t *testing.T) {
+	o := newOrdered(t, "a", 1, "b", 2)
+	v, err := objects.CallMethodKw(o, "popitem", nil, []string{"last"}, []objects.Object{objects.NewBool(false)})
+	if err != nil {
+		t.Fatalf("popitem(last=False): %v", err)
+	}
+	if objects.Repr(v) != "('a', 1)" {
+		t.Fatalf("popitem(last=False) = %s", objects.Repr(v))
+	}
+}
+
+func TestOrderedDictEquality(t *testing.T) {
+	a := newOrdered(t, "a", 1, "b", 2)
+	b := newOrdered(t, "b", 2, "a", 1)
+	// Two OrderedDicts compare order-sensitively.
+	res, _ := objects.Compare(objects.OpEq, a, b)
+	if objects.Truth(res) {
+		t.Fatal("OrderedDicts in a different order should be unequal")
+	}
+	// Against a plain dict the comparison ignores order.
+	plain, _ := objects.NewDict(
+		[]objects.Object{objects.NewStr("b"), objects.NewStr("a")},
+		[]objects.Object{objects.NewInt(2), objects.NewInt(1)})
+	res, _ = objects.Compare(objects.OpEq, a, plain)
+	if !objects.Truth(res) {
+		t.Fatal("an OrderedDict should equal a plain dict with the same items in any order")
+	}
+}
+
+func TestOrderedDictUnionKeepsKind(t *testing.T) {
+	o := newOrdered(t, "a", 1)
+	plain, _ := objects.NewDict([]objects.Object{objects.NewStr("b")}, []objects.Object{objects.NewInt(2)})
+	u, err := objects.BitOr(o, plain)
+	if err != nil {
+		t.Fatalf("OrderedDict | dict: %v", err)
+	}
+	if u.TypeName() != "OrderedDict" {
+		t.Fatalf("union kind = %s", u.TypeName())
+	}
+	if got := objects.Repr(u); got != "OrderedDict({'a': 1, 'b': 2})" {
+		t.Fatalf("union = %q", got)
+	}
+}
+
 // dictOf builds a plain dict from alternating string keys and int values, a
 // compact way to seed a Counter in the tests.
 func dictOf(t *testing.T, kv ...any) objects.Object {

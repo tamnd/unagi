@@ -119,6 +119,45 @@ func initCollections(m *objects.Module) error {
 		return err
 	}
 
+	// OrderedDict(mapping-or-iterable=(), **kwds): seeds like dict(*args,
+	// **kwargs) and keeps insertion order, with the order-aware extras
+	// (move_to_end, popitem's end flag, order-sensitive equality) living on the
+	// object itself.
+	ordered := objects.NewFunction("OrderedDict",
+		[]objects.Param{
+			{Name: "args", Kind: objects.ParamStar},
+			{Name: "kwds", Kind: objects.ParamStarStar},
+		},
+		[]objects.Object{nil, nil},
+		func(a []objects.Object) (objects.Object, error) {
+			rest, err := materialize(a[0])
+			if err != nil {
+				return nil, err
+			}
+			base, err := DictOf(rest)
+			if err != nil {
+				return nil, err
+			}
+			if err := mergeKwargs(base, a[1]); err != nil {
+				return nil, err
+			}
+			keys, err := materialize(base)
+			if err != nil {
+				return nil, err
+			}
+			vals := make([]objects.Object, len(keys))
+			for i, k := range keys {
+				vals[i], err = objects.GetItem(base, k)
+				if err != nil {
+					return nil, err
+				}
+			}
+			return objects.NewOrderedDict(keys, vals)
+		})
+	if err := set("OrderedDict", ordered); err != nil {
+		return err
+	}
+
 	return nil
 }
 

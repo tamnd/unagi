@@ -239,6 +239,8 @@ func reprCore(o Object, strict bool) (string, error) {
 			return defaultDictRepr(x, strict)
 		case counterDict:
 			return counterRepr(x, strict)
+		case orderedDict:
+			return orderedDictRepr(x, strict)
 		}
 		return dictBodyRepr(x, strict)
 	case *setObject:

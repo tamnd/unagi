@@ -31,6 +31,7 @@ const (
 	plainDict dictKind = iota
 	defaultDict
 	counterDict
+	orderedDict
 )
 
 type dictEntry struct {
@@ -45,6 +46,8 @@ func (d *dictObject) TypeName() string {
 	case counterDict:
 		// A pure-Python class in CPython, so its tp_name is the bare class name.
 		return "Counter"
+	case orderedDict:
+		return "OrderedDict"
 	}
 	return "dict"
 }
@@ -321,6 +324,18 @@ func (d *dictObject) delete(key Object) (Object, bool, error) {
 	return val, true, nil
 }
 
+// reindex rebuilds the key-to-position map after the entries slice is reordered
+// in place, as OrderedDict's move_to_end and popitem(last=False) do. The keys
+// hashed cleanly on insert, so the encoding cannot fail now.
+func (d *dictObject) reindex() {
+	d.index = make(map[string]int, len(d.entries))
+	for i, e := range d.entries {
+		if k, err := dictKey(e.key); err == nil {
+			d.index[k] = i
+		}
+	}
+}
+
 func (d *dictObject) keySlice() []Object {
 	out := make([]Object, len(d.entries))
 	for i, e := range d.entries {
@@ -348,6 +363,17 @@ func (d *dictObject) itemSlice() []Object {
 func dictEquals(a, b *dictObject) bool {
 	if len(a.entries) != len(b.entries) {
 		return false
+	}
+	// Two OrderedDicts compare order-sensitively, so the same items in a
+	// different order are unequal. Against a plain dict or any other kind an
+	// OrderedDict falls back to the order-insensitive dict test.
+	if a.kind == orderedDict && b.kind == orderedDict {
+		for i := range a.entries {
+			if !equals(a.entries[i].key, b.entries[i].key) || !equals(a.entries[i].val, b.entries[i].val) {
+				return false
+			}
+		}
+		return true
 	}
 	for k, i := range a.index {
 		j, ok := b.index[k]
