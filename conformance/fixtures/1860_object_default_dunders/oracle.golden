@@ -1,0 +1,22 @@
+== exit: 0
+== stdout:
+__repr__ True
+__repr__ True
+__str__ True
+__str__ True
+__format__ True
+__format__ True
+__reduce_ex__ True
+__reduce_ex__ True
+True
+True
+True
+True
+True
+True
+True
+True
+True
+TypeError True
+== exception:
+== stderr:
