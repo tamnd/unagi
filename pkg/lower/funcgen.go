@@ -56,13 +56,20 @@ type fnCtx struct {
 	// context is not a generator, so a yield there is the "'yield' outside
 	// function" error CPython raises at module or class scope.
 	genYielder string
-	// classLocals maps a name the current class body has already bound to the
-	// Go temporary holding its value, set only while a class body lowers. A
-	// class-variable initializer or a method decorator (@x.setter) that names
-	// an earlier class-body binding reads it here, matching CPython where the
-	// class namespace is visible to later class-body code but not to method
-	// bodies, which lower with a fresh context that carries no classLocals.
-	classLocals map[string]ast.Expr
+	// classBld is the Go identifier of the ClassBuilder the current class body
+	// writes through, set only while a class body's own statements lower (not
+	// its method bodies, which lower in a fresh context). A name bound in the
+	// body stores through bld.Set and reads through bld.Load with a fall-through
+	// to the enclosing module and builtin scopes, CPython's STORE_NAME and
+	// LOAD_NAME against the class namespace. It is empty everywhere else, so a
+	// method body, a lambda, or a comprehension does not see the class scope,
+	// matching CPython where only the class body's own code reads that namespace.
+	classBld string
+	// classFall is set only while a class-body name read resolves its
+	// enclosing-scope fall-through. It marks an unresolved name for a runtime
+	// load rather than a compile error, since a class body raises NameError
+	// when it runs, the same as a function or the module body does.
+	classFall bool
 	// globals holds the names a global statement declares in this def.
 	// They are excluded from locals, so reads and writes hit the package
 	// variable; every read is checked because the global may be unbound

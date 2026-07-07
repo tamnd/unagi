@@ -401,6 +401,12 @@ func (f *fnCtx) assignTo(target frontend.Expr, v ast.Expr) error {
 			f.add(set(ident(tmp), v))
 			return nil
 		}
+		// A class body stores every name into the class namespace through the
+		// builder, CPython's STORE_NAME, not into a Go variable.
+		if f.classBld != "" {
+			f.fallibleVoid(sel(f.classBld, "Set"), strLit(t.Id), v)
+			return nil
+		}
 		f.add(set(ident(mangle(t.Id)), v))
 		return nil
 	case *frontend.Subscript:
@@ -547,6 +553,21 @@ func (f *fnCtx) augAssign(s *frontend.AugAssign) error {
 	}
 	switch t := s.Target.(type) {
 	case *frontend.Name:
+		// A class body reads and writes the augmented name through the class
+		// namespace: LOAD_NAME for the current value, then STORE_NAME for the
+		// result, so `count += 1` against an earlier class binding works.
+		if f.classBld != "" {
+			cur, err := f.classLoad(t)
+			if err != nil {
+				return err
+			}
+			v, err := f.expr(s.Value)
+			if err != nil {
+				return err
+			}
+			f.fallibleVoid(sel(f.classBld, "Set"), strLit(t.Id), inPlace(cur, v))
+			return nil
+		}
 		// The target reads before the value evaluates, so an unbound name
 		// raises before any value side effects, like CPython's LOAD_FAST.
 		cur := f.loadName(t.Id)

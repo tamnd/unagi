@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+/
+['aa', 'bb', 'cc']
+10
+5
+-1
+8
+7
+107
+== exception:
+== stderr:
