@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+20230612
+4
+4294967295
+1073741823
+a
+0
+0
+{}
+re.compile('a')
+2
+{'x': 1}
+re.compile('(?P<x>a)(b)')
+re.compile(b'a', re.IGNORECASE)
+re.compile('a', re.IGNORECASE|re.MULTILINE|re.DOTALL)
+'re.Pattern' object has no attribute 'bogus'
+== exception:
+== stderr:
