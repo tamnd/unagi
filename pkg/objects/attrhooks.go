@@ -94,6 +94,13 @@ func genericGetAttr(x *instanceObject, name string) (Object, error) {
 	if tok && isDataDescriptor(tv) {
 		return instanceGet(x, name, tv)
 	}
+	// __class__ answers the instance's type through object's getset descriptor,
+	// which is a data descriptor, so it outranks the instance dict and only a
+	// class-level override (found above) beats it. Every instance reports its
+	// type, the read enum's __str__/__repr__ make with self.__class__.__name__.
+	if name == "__class__" {
+		return x.cls, nil
+	}
 	if v, ok := x.attrGet(name); ok {
 		return v, nil
 	}

@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+<class '__main__.C'>
+C
+True
+True
+True
+True
+== exception:
+== stderr:
