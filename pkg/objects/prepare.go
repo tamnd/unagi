@@ -143,8 +143,12 @@ func nsIsMapping(o Object) bool {
 	case *dictObject:
 		return true
 	case *instanceObject:
-		_, ok := x.cls.lookup("__getitem__")
-		return ok
+		if _, ok := x.cls.lookup("__getitem__"); ok {
+			return true
+		}
+		// A dict subclass inherits dict's __getitem__ through the builtin base
+		// layout rather than the MRO, so it is a mapping the way EnumDict is.
+		return x.cls.builtinBase == "dict"
 	}
 	return false
 }

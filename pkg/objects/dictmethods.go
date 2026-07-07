@@ -202,6 +202,12 @@ func dictUpdate(d *dictObject, src Object) error {
 		}
 		return nil
 	}
+	// A source that defines keys() is a mapping, copied key by key through the
+	// item protocol the way CPython's dict.update branches on hasattr(src,
+	// "keys"). A mappingproxy and a dict subclass both land here.
+	if handled, err := dictUpdateMapping(d, src); handled {
+		return err
+	}
 	it, err := Iter(src)
 	if err != nil {
 		return err
@@ -235,6 +241,64 @@ func dictUpdate(d *dictObject, src Object) error {
 		}
 		if err := d.set(pair[0], pair[1]); err != nil {
 			return err
+		}
+	}
+}
+
+// dictUpdateMapping copies src into d by keys when src is a mapping, the branch
+// CPython's dict.update takes when the source defines keys(). handled is false
+// for a source with no keys() method, so the caller falls back to the
+// pair-sequence path. A mappingproxy and a dict-backed subclass carry their
+// store directly; any other source that offers keys() is copied through the
+// item protocol, so a user mapping copies the same way.
+func dictUpdateMapping(d *dictObject, src Object) (bool, error) {
+	switch s := src.(type) {
+	case *mappingProxyObject:
+		for _, e := range s.d.entries {
+			if err := d.set(e.key, e.val); err != nil {
+				return true, err
+			}
+		}
+		return true, nil
+	case *instanceObject:
+		if store, ok := dictBacked(s); ok {
+			for _, e := range store.entries {
+				if err := d.set(e.key, e.val); err != nil {
+					return true, err
+				}
+			}
+			return true, nil
+		}
+	}
+	keysFn, err := LoadAttr(src, "keys")
+	if err != nil {
+		if isAttrError(err) {
+			return false, nil
+		}
+		return true, err
+	}
+	keys, err := Call(keysFn, nil)
+	if err != nil {
+		return true, err
+	}
+	it, err := Iter(keys)
+	if err != nil {
+		return true, err
+	}
+	for {
+		k, ok, err := it.Next()
+		if err != nil {
+			return true, err
+		}
+		if !ok {
+			return true, nil
+		}
+		v, err := GetItem(src, k)
+		if err != nil {
+			return true, err
+		}
+		if err := d.set(k, v); err != nil {
+			return true, err
 		}
 	}
 }
