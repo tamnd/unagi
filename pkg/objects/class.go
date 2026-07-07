@@ -544,8 +544,22 @@ func classIntrospect(c *classObject, name string) (Object, bool) {
 		return NewTuple(classMroChain(c)), true
 	case "__base__":
 		return classBase(c), true
+	case "__dict__":
+		return classDictProxy(c), true
 	}
 	return nil, false
+}
+
+// classDictProxy is __dict__, the read-only mappingproxy over the class
+// namespace. The entries come back in definition order, the order enum's
+// classdict.update(cls.__dict__) folds them in, over a snapshot dict so a write
+// through the proxy is the TypeError CPython raises for a mappingproxy.
+func classDictProxy(c *classObject) Object {
+	d := &dictObject{index: map[string]int{}}
+	for _, name := range c.order {
+		_ = d.set(NewStr(name), c.dict[name])
+	}
+	return &mappingProxyObject{d: d}
 }
 
 // classBases is the __bases__ tuple: the direct bases in written order, with
