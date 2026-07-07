@@ -95,6 +95,14 @@ func (s *state) resetCaptureGroup() {
 	s.lastindex = -1
 }
 
+// rejectSuccess reports whether a success at ptr must be turned away at the top
+// level: a fullmatch that stopped short of endpos, or an empty match the
+// mustAdvance flag forbids at the start position.
+func (s *state) rejectSuccess(toplevel bool, ptr int) bool {
+	return toplevel && ((s.matchAll && ptr != s.end) ||
+		(s.mustAdvance && ptr == s.start))
+}
+
 // ---------------------------------------------------------------------------
 // Character predicates.
 
@@ -514,8 +522,7 @@ func match(s *state, codeIdx int, toplevel bool) (int, error) {
 			ptr++
 
 		case OpSuccess:
-			if toplevel && ((s.matchAll && ptr != s.end) ||
-				(s.mustAdvance && ptr == s.start)) {
+			if s.rejectSuccess(toplevel, ptr) {
 				return 0, nil
 			}
 			s.ptr = ptr
@@ -684,7 +691,7 @@ func match(s *state, codeIdx int, toplevel bool) (int, error) {
 			}
 			tailIdx := pat + int(code[pat])
 			if code[tailIdx] == OpSuccess && ptr == s.end &&
-				!(toplevel && s.mustAdvance && ptr == s.start) {
+				!s.rejectSuccess(toplevel, ptr) {
 				s.ptr = ptr
 				return 1, nil
 			}
@@ -774,9 +781,7 @@ func match(s *state, codeIdx int, toplevel bool) (int, error) {
 				ptr += cnt
 			}
 			tailIdx := pat + int(code[pat])
-			if code[tailIdx] == OpSuccess &&
-				!(toplevel && ((s.matchAll && ptr != s.end) ||
-					(s.mustAdvance && ptr == s.start))) {
+			if code[tailIdx] == OpSuccess && !s.rejectSuccess(toplevel, ptr) {
 				s.ptr = ptr
 				return 1, nil
 			}
@@ -841,7 +846,7 @@ func match(s *state, codeIdx int, toplevel bool) (int, error) {
 			}
 			codeIdx = pat + int(code[pat])
 			if code[codeIdx] == OpSuccess && ptr == s.end &&
-				!(toplevel && s.mustAdvance && ptr == s.start) {
+				!s.rejectSuccess(toplevel, ptr) {
 				s.ptr = ptr
 				return 1, nil
 			}
