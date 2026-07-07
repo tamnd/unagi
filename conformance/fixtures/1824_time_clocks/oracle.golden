@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+mono nondec: True
+perf nonneg: True
+proc nonneg: True
+time is float: True
+time after 2020: True
+time_ns is int: True
+time_ns big: True
+mono_ns is int: True
+sleep0: None
+TE: 'str' object cannot be interpreted as an integer or float
+VE: sleep length must be non-negative
+== exception:
+== stderr:
