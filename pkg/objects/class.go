@@ -611,6 +611,13 @@ func init() {
 			}
 			return NewStr(s), nil
 		}),
+		"__init__": NewFunc("__init__", -1, func(args []Object) (Object, error) {
+			// object.__init__ is a no-op that returns None. When a class defines its
+			// own __new__ but no __init__, CPython lets object.__init__ swallow the
+			// extra constructor arguments, which is the shape enum member creation
+			// runs when it calls enum_member.__init__(*args) on a value-only member.
+			return None, nil
+		}),
 		"__reduce_ex__": NewFunc("__reduce_ex__", 2, func(args []Object) (Object, error) {
 			// Pickling support is not on the floor yet. The name has to resolve so
 			// EnumType.__new__ can read and reassign it, but a real call is out of
