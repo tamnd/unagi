@@ -180,6 +180,10 @@ type funcObject struct {
 	name  string
 	arity int // negative means variadic, no arity check
 	fn    func(args []Object) (Object, error)
+	// attrs holds attributes a builtin attaches to itself, the way itertools.chain
+	// carries chain.from_iterable. It stays nil for the ordinary builtins, which
+	// expose no attributes beyond __name__/__qualname__.
+	attrs map[string]Object
 }
 
 func (*funcObject) TypeName() string { return "function" }
@@ -319,6 +323,23 @@ func NewTuple(elts []Object) Object { return &tupleObject{elts: elts} }
 // disables the positional argument count check; builtins use that.
 func NewFunc(name string, arity int, fn func(args []Object) (Object, error)) Object {
 	return &funcObject{name: name, arity: arity, fn: fn}
+}
+
+// SetBuiltinAttr attaches an attribute to a builtin function object, the hook a
+// runtime module uses to hang a helper off a builtin, such as
+// chain.from_iterable. It is distinct from StoreAttr, which still refuses
+// attribute assignment on a builtin the way user code sees it. fn must be a
+// builtin function value from NewFunc.
+func SetBuiltinAttr(fn Object, name string, v Object) error {
+	f, ok := fn.(*funcObject)
+	if !ok {
+		return Raise(TypeError, "SetBuiltinAttr expects a builtin function, got %s", fn.TypeName())
+	}
+	if f.attrs == nil {
+		f.attrs = make(map[string]Object)
+	}
+	f.attrs[name] = v
+	return nil
 }
 
 // builtinTypeReprs and builtinFuncReprs split the builtins that can be read as

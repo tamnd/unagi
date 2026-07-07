@@ -39,10 +39,11 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 		return sliceMethod(x, name, args)
 	case *memoryviewObject:
 		return memoryviewMethod(x, name, args)
-	case *boundMethod, *functionObject:
+	case *boundMethod, *functionObject, *funcObject:
 		// A function or bound method has no method surface of its own, so
 		// obj.attr(args) reads the attribute and calls it, the way CPython does
-		// for b.__func__(self) or a function's introspection dunders.
+		// for b.__func__(self) or a builtin that carries a helper such as
+		// chain.from_iterable.
 		v, err := LoadAttr(o, name)
 		if err != nil {
 			return nil, err
