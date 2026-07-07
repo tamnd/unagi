@@ -1066,6 +1066,10 @@ func LoadAttr(o Object, name string) (Object, error) {
 		if name == "__name__" || name == "__qualname__" {
 			return NewStr(x.name), nil
 		}
+		// A builtin may attach its own attributes, such as chain.from_iterable.
+		if v, ok := x.attrs[name]; ok {
+			return v, nil
+		}
 	case *typeObject:
 		if name == "__name__" || name == "__qualname__" {
 			return NewStr(x.name), nil
