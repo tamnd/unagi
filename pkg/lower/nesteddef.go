@@ -102,7 +102,7 @@ func (f *fnCtx) nestedDef(s *frontend.FuncDef) error {
 		if err != nil {
 			return nil, err
 		}
-		return callExpr(f.e.obj("NewFunction"), strLit(qual), f.e.paramSpecLit(s.Params), dfltsExpr, impl), nil
+		return f.e.withDoc(callExpr(f.e.obj("NewFunction"), strLit(qual), f.e.paramSpecLit(s.Params), dfltsExpr, impl), s.Body), nil
 	}
 
 	// The def statement binds the name in the enclosing scope; the enclosing

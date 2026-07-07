@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+double the argument
+None
+a method summary
+None
+the inner one
+a generator function
+changed
+None
+'first line\nsecond line'
+== exception:
+== stderr:

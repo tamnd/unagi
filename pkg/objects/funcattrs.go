@@ -7,6 +7,18 @@ package objects
 // overlay so an ordinary called function pays nothing; the slot defaults derive
 // from the qualname or are None or an empty dict until something overrides them.
 
+// WithFuncDoc sets a function's initial __doc__ from its docstring, the leading
+// bare string literal in the def body, and returns the function so a def or
+// method emit site can wrap the freshly built object. It is the ordinary __doc__
+// value, so a later assignment overrides it and a del reverts it to None, the
+// same shape CPython gives a function that carries a docstring.
+func WithFuncDoc(fn Object, doc string) Object {
+	if f, ok := fn.(*functionObject); ok {
+		f.overlay().doc = NewStr(doc)
+	}
+	return fn
+}
+
 // funcDict returns the function __dict__, allocating it on first use so the dict
 // identity is stable across reads (f.__dict__ is f.__dict__).
 func funcDict(fn *functionObject) *dictObject {
