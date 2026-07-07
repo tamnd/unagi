@@ -364,7 +364,8 @@ var builtinTypeReprs = map[string]bool{
 	"complex": true, "reversed": true, "enumerate": true, "zip": true,
 	"list": true, "tuple": true, "dict": true, "set": true, "frozenset": true,
 	"bytes": true, "bytearray": true, "type": true, "slice": true,
-	"memoryview": true,
+	"memoryview": true, "staticmethod": true, "classmethod": true,
+	"property": true,
 }
 
 var builtinFuncReprs = map[string]bool{

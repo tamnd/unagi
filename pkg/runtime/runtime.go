@@ -488,6 +488,12 @@ func init() {
 		"iter":     objects.NewFunc("iter", -1, Iter),
 		"map":      objects.NewFunc("map", -1, Map),
 		"filter":   objects.NewFunc("filter", -1, Filter),
+		// The three descriptor constructors are type values: type() on one reports
+		// the metatype and reads its name back here, so they live in the callable
+		// registry alongside the other builtin type constructors.
+		"staticmethod": objects.StaticMethodBuiltin,
+		"classmethod":  objects.ClassMethodBuiltin,
+		"property":     objects.PropertyBuiltin,
 	})
 }
 
