@@ -348,6 +348,10 @@ func DelItem(o, key Object) error {
 			return NewException(KeyError, []Object{key})
 		}
 		return nil
+	case *mappingProxyObject:
+		// A read-only proxy has no deletion surface. Probed on 3.14: the
+		// mappingproxy wording is "does not", unlike the generic "doesn't".
+		return Raise(TypeError, "'mappingproxy' object does not support item deletion")
 	case *instanceObject:
 		_, defined, err := instanceSpecial(x, "__delitem__", key)
 		if err != nil {

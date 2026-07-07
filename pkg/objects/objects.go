@@ -403,6 +403,9 @@ func Call(f Object, args []Object) (Object, error) {
 	if c, ok := f.(*classObject); ok {
 		return Instantiate(c, args, nil, nil)
 	}
+	if t, ok := f.(*typeObject); ok {
+		return callTypeObject(t, args)
+	}
 	if inst, ok := f.(*instanceObject); ok {
 		res, defined, err := instanceSpecial(inst, "__call__", args...)
 		if err != nil {
@@ -450,6 +453,10 @@ func Callable(f Object) bool {
 	case *namedTupleType, *partialObject, *lruCacheObject, *keyObject:
 		return true
 	case *quitterObject, *printerObject:
+		return true
+	case *typeObject:
+		// A constructor-less type value is callable even when the call only
+		// raises, the same way callable(types.GeneratorType) is True.
 		return true
 	case *instanceObject:
 		_, ok := x.cls.lookup("__call__")

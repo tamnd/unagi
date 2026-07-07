@@ -84,6 +84,25 @@ type StarExports struct {
 	Names []string
 }
 
+// BuiltinStarExports is the star-import surface of the built-in modules the
+// runtime provides in Go rather than compiling from source. A compiled module
+// exposes its names through its parsed body, but a built-in module has no body
+// the compiler can read, so `from _types import *` needs the export list
+// spelled out here to bind the whole set. The list mirrors the names the
+// matching runtime module registers; keep the two in step.
+var BuiltinStarExports = map[string]StarExports{
+	"_types": {All: []string{
+		"AsyncGeneratorType", "BuiltinFunctionType", "BuiltinMethodType",
+		"CapsuleType", "CellType", "ClassMethodDescriptorType", "CodeType",
+		"CoroutineType", "EllipsisType", "FrameType", "FunctionType",
+		"GeneratorType", "GenericAlias", "GetSetDescriptorType", "LambdaType",
+		"MappingProxyType", "MemberDescriptorType", "MethodDescriptorType",
+		"MethodType", "MethodWrapperType", "ModuleType", "NoneType",
+		"NotImplementedType", "SimpleNamespace", "TracebackType", "UnionType",
+		"WrapperDescriptorType",
+	}},
+}
+
 // ModuleExports computes a module's star-import surface: a literal top-level
 // __all__ of plain strings when present, else every module-scope bound name
 // that does not start with an underscore. A non-literal __all__ is not modeled
