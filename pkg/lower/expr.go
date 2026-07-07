@@ -2,6 +2,7 @@ package lower
 
 import (
 	"go/ast"
+	"go/token"
 	"strconv"
 
 	"github.com/tamnd/unagi/pkg/frontend"
@@ -94,11 +95,13 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		if t, ok := f.compVars[e.Id]; ok {
 			return ident(t), nil
 		}
-		// A name the current class body already bound is visible to a later
-		// class-variable initializer or method decorator, the same class
-		// namespace CPython exposes; it outranks a like-named module variable.
-		if t, ok := f.classLocals[e.Id]; ok {
-			return t, nil
+		// Inside a class body a name resolves against the class namespace first
+		// and only then the enclosing module and builtin scopes, CPython's
+		// LOAD_NAME. The runtime namespace read and its fall-through lower
+		// together, so a name the body bound earlier (even conditionally) reads
+		// its live value while an unbound one raises the same NameError.
+		if f.classBld != "" {
+			return f.classLoad(e)
 		}
 		if f.locals[e.Id] || f.globals[e.Id] {
 			return f.loadName(e.Id), nil
@@ -180,13 +183,15 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 			f.fallible(tmp, sel("runtime", "LoadModuleName"), ident("thisModule"), strLit(e.Id))
 			return ident(tmp), nil
 		}
-		if f.inFunc || f.e.hasStar {
+		if f.inFunc || f.e.hasStar || f.classFall {
 			// Inside a function an unresolved name is a global lookup deferred
 			// to call time: CPython raises NameError then, not at compile
 			// time, so a def can reference a module name defined later or
 			// never. A module with a star import defers every unknown name the
-			// same way, since the star can bind it at runtime. LoadName on a
-			// nil value produces exactly that error when the name stays unbound.
+			// same way, since the star can bind it at runtime. A class-body
+			// read whose name the namespace missed also defers here, the class
+			// suite raising NameError as it runs. LoadName on a nil value
+			// produces exactly that error when the name stays unbound.
 			tmp := f.tmpVar()
 			f.fallible(tmp, sel("runtime", "LoadName"), ident("nil"), strLit(e.Id))
 			return ident(tmp), nil
@@ -364,6 +369,39 @@ func (f *fnCtx) loadName(id string) ast.Expr {
 		return ident(tmp)
 	}
 	return ident(mangle(id))
+}
+
+// classLoad lowers a name read inside a class body. It asks the builder for
+// the namespace binding first; on a hit the value is used directly, on a miss
+// the read falls through to the resolution any other scope would use, so a
+// module global, an import, a builtin, or an as-yet-unbound name all keep
+// their normal behavior. The two arms assign a single result variable so the
+// caller sees one expression whichever path ran.
+func (f *fnCtx) classLoad(e *frontend.Name) (ast.Expr, error) {
+	dst := f.tmpVar()
+	f.add(varDecl(dst, sel("objects", "Object")))
+	v := f.tmpVar()
+	ok := f.tmpVar()
+	f.add(assign(token.DEFINE, []ast.Expr{ident(v), ident(ok), ident("err")},
+		callExpr(sel(f.classBld, "Load"), strLit(e.Id))))
+	f.check(nil)
+	thenBlk := block(set(ident(dst), ident(v)))
+	// The fall-through lowers with the class namespace switched off so the
+	// same name resolves against the enclosing scope instead of recursing.
+	f.push()
+	saved := f.classBld
+	f.classBld = ""
+	f.classFall = true
+	fb, err := f.expr(e)
+	f.classFall = false
+	f.classBld = saved
+	if err != nil {
+		return nil, err
+	}
+	f.add(set(ident(dst), fb))
+	elseBlk := f.pop()
+	f.add(&ast.IfStmt{Cond: ident(ok), Body: thenBlk, Else: elseBlk})
+	return ident(dst), nil
 }
 
 // ifExp lowers the conditional expression. Exactly one arm may evaluate, so

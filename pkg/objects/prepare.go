@@ -155,6 +155,26 @@ func (b *ClassBuilder) Set(name string, v Object) error {
 	return SetItem(b.ns, NewStr(name), v)
 }
 
+// Load reads a name the class body may have bound in the namespace. ok is
+// false when the namespace holds no such key, the class body's cue to fall
+// through to the enclosing module and builtin scopes, matching the LOAD_NAME
+// lookup order. The default dict namespace answers directly; a custom
+// __prepare__ mapping is read through the item protocol so its __getitem__
+// observes the read, and a KeyError there is the same not-found fall-through.
+func (b *ClassBuilder) Load(name string) (Object, bool, error) {
+	if d, ok := b.ns.(*dictObject); ok {
+		return d.lookup(NewStr(name))
+	}
+	v, err := GetItem(b.ns, NewStr(name))
+	if err != nil {
+		if e, ok := err.(*Exception); ok && e.Kind == KeyError {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	return v, true, nil
+}
+
 // Finish writes the trailing synthesized member and runs the metaclass call.
 // staticAttrs are the names the class's methods assign on self, already
 // sorted; CPython's compiler synthesizes them as __static_attributes__ after

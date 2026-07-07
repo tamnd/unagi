@@ -105,6 +105,7 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 		// lands in the namespace right after the header members, where CPython
 		// writes it; the body walk below still discards the bare literal.
 		docExpr := ast.Expr(ident("nil"))
+		hasDoc := false
 		if len(s.Body) > 0 {
 			if es, ok := s.Body[0].(*frontend.ExprStmt); ok {
 				if sl, ok := es.X.(*frontend.StrLit); ok {
@@ -113,6 +114,7 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 						return nil, err
 					}
 					docExpr = d
+					hasDoc = true
 				}
 			}
 		}
@@ -132,29 +134,32 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 			strSliceLit(kwNames),
 			f.objSlice(kwVals))
 
-		// bind spills a class-body value to a temp, records it under name so a
-		// later class-var initializer or method decorator can read it, and
-		// writes it into the class namespace, where a custom __prepare__
-		// mapping's __setitem__ observes it. A name written twice keeps its
-		// last value, the plain dict overwrite a class body performs.
-		bind := func(name string, v ast.Expr) {
+		// The class body now runs as real statements against the builder: a
+		// name store routes to bld.Set and a name read to bld.Load, so control
+		// flow, expression statements, and augmented or unpacked assignment all
+		// behave the way CPython runs a class suite. The mode is scoped to this
+		// build, so method bodies and any nested lambda or comprehension lower
+		// without it and never see the class namespace.
+		f.classBld = bld
+		defer func() { f.classBld = "" }()
+
+		// setName writes one method binding through the builder, the runtime
+		// STORE_NAME a class body performs. It spills the function object to a
+		// temp first so the Set call reads cleanly. A written-twice name keeps
+		// its last value, the plain dict overwrite a class body does.
+		setName := func(name string, v ast.Expr) {
 			t := f.tmpVar()
 			f.add(define(ident(t), v))
 			f.fallibleVoid(sel(bld, "Set"), strLit(name), ident(t))
-			f.classLocals[name] = ident(t)
 		}
-		// The class namespace is visible to later class-body code but not to
-		// method bodies, so it lives only for this build and is cleared after.
-		f.classLocals = map[string]ast.Expr{}
-		defer func() { f.classLocals = nil }()
 		mi := 0
-		for _, st := range s.Body {
+		for i, st := range s.Body {
 			switch st := st.(type) {
 			case *frontend.FuncDef:
 				// Defaults evaluate at class-definition time in the class body's
-				// enclosing scope, the same left-to-right slot fill a def or
-				// lambda uses; the values ride on the function object so bind
-				// fills a missing argument from them.
+				// scope, the same left-to-right slot fill a def or lambda uses;
+				// the values ride on the function object so a call fills a
+				// missing argument from them.
 				dflts, err := f.lambdaDefaults(st.Params)
 				if err != nil {
 					return nil, err
@@ -166,62 +171,36 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 					ident(f.e.methodImplName(s.Name, st.Name, mi)))
 				mi++
 				if len(st.Decorators) == 0 {
-					bind(st.Name, methodObj)
+					setName(st.Name, methodObj)
 					break
 				}
 				// A decorated method builds its function object then hands it to
 				// the decorators, the same shape a decorated def uses. The
-				// decorators lower with classLocals live, so @x.setter reads the
-				// property x this body bound earlier.
+				// decorators lower with the class namespace live, so @x.setter
+				// reads the property x this body bound earlier.
 				obj, err := f.decorate(st.Decorators, func() (ast.Expr, error) { return methodObj, nil })
 				if err != nil {
 					return nil, err
 				}
-				bind(st.Name, obj)
-			case *frontend.Assign:
-				if len(st.Targets) != 1 {
-					return nil, f.e.errf(st.Span(), "chained assignment in a class body is not supported yet")
-				}
-				nm, ok := st.Targets[0].(*frontend.Name)
-				if !ok {
-					return nil, f.e.errf(st.Span(), "only simple name assignments are supported in a class body")
-				}
-				v, err := f.expr(st.Value)
-				if err != nil {
-					return nil, err
-				}
-				bind(nm.Id, v)
-			case *frontend.AnnAssign:
-				// `a: int = 1` binds a in the class namespace exactly like a
-				// plain assignment; the annotation is deferred (PEP 649). A bare
-				// `b: str` binds nothing (it would only populate __annotations__,
-				// which is not modelled yet).
-				nm, ok := st.Target.(*frontend.Name)
-				if !ok {
-					return nil, f.e.errf(st.Span(), "only simple name annotations are supported in a class body")
-				}
-				if st.Value == nil {
+				setName(st.Name, obj)
+			case *frontend.ExprStmt:
+				// The leading docstring already reached StartClass, so drop it
+				// rather than re-evaluate it. Any other expression statement,
+				// a bare `...` stub included, runs for its effect.
+				if i == 0 && hasDoc {
 					break
 				}
-				v, err := f.expr(st.Value)
-				if err != nil {
+				if err := f.stmt(st); err != nil {
 					return nil, err
 				}
-				bind(nm.Id, v)
-			case *frontend.Pass:
-				// A pass just holds the block open.
-			case *frontend.ExprStmt:
-				// A leading string literal is the docstring and a bare `...` is
-				// the common stub body; both evaluate to a value the class
-				// namespace discards, so drop them. Anything else with a value
-				// in a class body is not modelled yet.
-				switch st.X.(type) {
-				case *frontend.StrLit, *frontend.EllipsisLit:
-				default:
-					return nil, f.e.errf(st.Span(), "expression statements in a class body are not supported yet")
+			case *frontend.Assign, *frontend.AnnAssign, *frontend.AugAssign,
+				*frontend.If, *frontend.For, *frontend.While, *frontend.Try,
+				*frontend.With, *frontend.Pass:
+				if err := f.stmt(st); err != nil {
+					return nil, err
 				}
 			default:
-				return nil, f.e.errf(st.Span(), "statement not supported in a class body yet")
+				return nil, f.e.errf(st.Span(), "this statement is not supported in a class body yet")
 			}
 		}
 		// Finish writes __static_attributes__ and runs C3 linearization and
