@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+True
+wrapped
+wrapped
+add two things
+__main__
+True
+['__wrapped__', 'only_wrapped', 'only_wrapper', 'shared']
+from_wrapped
+1 2
+wrapped
+add two things
+True
+from_wrapped
+plain
+None
+== exception:
+== stderr:

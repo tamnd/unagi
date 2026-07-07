@@ -166,7 +166,61 @@ func initFunctools(m *objects.Module) error {
 		return err
 	}
 
+	// update_wrapper(wrapper, wrapped, assigned=WRAPPER_ASSIGNMENTS,
+	// updated=WRAPPER_UPDATES): make wrapper look like wrapped by copying its
+	// module, name, qualname, annotations, and doc, merging wrapped's __dict__
+	// into wrapper's, and pointing wrapper.__wrapped__ at wrapped. A missing
+	// assigned attribute is skipped and a missing updated dict contributes
+	// nothing. The two tuple defaults are the CPython constants, exposed so a
+	// caller can pass narrower or wider sets.
+	assignedDefault := objects.NewTuple(strTuple(objects.WrapperAssignments))
+	updatedDefault := objects.NewTuple(strTuple(objects.WrapperUpdates))
+	updateWrapper := objects.NewFunction("update_wrapper",
+		[]objects.Param{
+			{Name: "wrapper", Kind: objects.ParamPlain},
+			{Name: "wrapped", Kind: objects.ParamPlain},
+			{Name: "assigned", Kind: objects.ParamPlain},
+			{Name: "updated", Kind: objects.ParamPlain},
+		},
+		[]objects.Object{nil, nil, assignedDefault, updatedDefault},
+		func(a []objects.Object) (objects.Object, error) {
+			return objects.UpdateWrapper(a[0], a[1], a[2], a[3])
+		})
+	if err := set("update_wrapper", updateWrapper); err != nil {
+		return err
+	}
+
+	// wraps(wrapped, assigned=..., updated=...): the decorator form, a partial
+	// of update_wrapper with wrapped frozen, so each decorated function arrives
+	// as the wrapper. It freezes the same three names by keyword, which is what
+	// CPython's wraps does.
+	wraps := objects.NewFunction("wraps",
+		[]objects.Param{
+			{Name: "wrapped", Kind: objects.ParamPlain},
+			{Name: "assigned", Kind: objects.ParamPlain},
+			{Name: "updated", Kind: objects.ParamPlain},
+		},
+		[]objects.Object{nil, assignedDefault, updatedDefault},
+		func(a []objects.Object) (objects.Object, error) {
+			return objects.NewPartial(updateWrapper, nil,
+				[]string{"wrapped", "assigned", "updated"},
+				[]objects.Object{a[0], a[1], a[2]}), nil
+		})
+	if err := set("wraps", wraps); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// strTuple lifts a slice of Go strings into a slice of string objects, the
+// elements of a names tuple like WRAPPER_ASSIGNMENTS.
+func strTuple(names []string) []objects.Object {
+	out := make([]objects.Object, len(names))
+	for i, n := range names {
+		out[i] = objects.NewStr(n)
+	}
+	return out
 }
 
 // lruMaxsize reads the maxsize argument lru_cache was given with arguments:
