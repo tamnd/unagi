@@ -137,6 +137,17 @@ func initFunctools(m *objects.Module) error {
 		return err
 	}
 
+	// cmp_to_key(mycmp): turn an old-style comparison function into a key
+	// function for sorted and friends. It returns an unbound wrapper over the
+	// comparison; sorted calls that wrapper on each element and orders the
+	// resulting bound wrappers through their rich comparisons.
+	cmpToKey := objects.NewFunc("cmp_to_key", 1, func(a []objects.Object) (objects.Object, error) {
+		return objects.NewCmpKey(a[0]), nil
+	})
+	if err := set("cmp_to_key", cmpToKey); err != nil {
+		return err
+	}
+
 	return nil
 }
 

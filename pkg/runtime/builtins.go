@@ -428,29 +428,45 @@ func Sorted(o objects.Object) (objects.Object, error) {
 	return objects.NewList(items), nil
 }
 
-// SortedKw implements sorted(iterable, key=..., reverse=...). M1 has no
-// function values, so a non-None key can only fail the callable check,
-// which CPython skips on empty input. reverse goes by truthiness and the
-// descending comparator keeps the stable-sort equal-element order, the
-// same result as CPython's reverse-sort-reverse dance.
+// SortedKw implements sorted(iterable, key=..., reverse=...). A non-None key is
+// called once per element and the elements sort by those keys, the
+// decorate-sort-undecorate CPython runs. reverse goes by truthiness and the
+// descending comparator keeps the stable-sort equal-element order, the same
+// result as CPython's reverse-sort-reverse dance.
 func SortedKw(o, key, reverse objects.Object) (objects.Object, error) {
 	items, err := materialize(o)
 	if err != nil {
 		return nil, err
 	}
-	if key != objects.None && len(items) > 0 {
-		return nil, objects.Raise(objects.TypeError, "'%s' object is not callable", key.TypeName())
+	keys := items
+	if key != objects.None {
+		if !objects.Callable(key) {
+			return nil, objects.Raise(objects.TypeError, "'%s' object is not callable", key.TypeName())
+		}
+		keys = make([]objects.Object, len(items))
+		for i, it := range items {
+			keys[i], err = objects.Call(key, []objects.Object{it})
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	desc, err := objects.TruthOf(reverse)
 	if err != nil {
 		return nil, err
 	}
+	// Sort an index permutation so the computed keys stay aligned with their
+	// items through the stable reordering.
+	order := make([]int, len(items))
+	for i := range order {
+		order[i] = i
+	}
 	var sortErr error
-	sort.SliceStable(items, func(i, j int) bool {
+	sort.SliceStable(order, func(i, j int) bool {
 		if sortErr != nil {
 			return false
 		}
-		a, b := items[i], items[j]
+		a, b := keys[order[i]], keys[order[j]]
 		if desc {
 			a, b = b, a
 		}
@@ -464,7 +480,11 @@ func SortedKw(o, key, reverse objects.Object) (objects.Object, error) {
 	if sortErr != nil {
 		return nil, sortErr
 	}
-	return objects.NewList(items), nil
+	out := make([]objects.Object, len(items))
+	for i, idx := range order {
+		out[i] = items[idx]
+	}
+	return objects.NewList(out), nil
 }
 
 // ListOf implements list() and list(iterable).

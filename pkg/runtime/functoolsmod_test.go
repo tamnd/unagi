@@ -288,6 +288,74 @@ func TestCacheUnbounded(t *testing.T) {
 	}
 }
 
+// intCmp is the classic three-way comparison over two ints, the shape
+// cmp_to_key adapts.
+func intCmp(t *testing.T) objects.Object {
+	t.Helper()
+	return objects.NewFunc("cmp", 2, func(a []objects.Object) (objects.Object, error) {
+		lt, _ := objects.Compare(objects.OpLt, a[0], a[1])
+		gt, _ := objects.Compare(objects.OpGt, a[0], a[1])
+		return objects.Sub(gt, lt)
+	})
+}
+
+func TestCmpToKeyOrder(t *testing.T) {
+	K, err := objects.Call(ftFn(t, "cmp_to_key"), []objects.Object{intCmp(t)})
+	if err != nil {
+		t.Fatalf("cmp_to_key: %v", err)
+	}
+	a, err := objects.Call(K, []objects.Object{objects.NewInt(1)})
+	if err != nil {
+		t.Fatalf("bind: %v", err)
+	}
+	b, _ := objects.Call(K, []objects.Object{objects.NewInt(2)})
+	c, _ := objects.Call(K, []objects.Object{objects.NewInt(1)})
+	for _, tc := range []struct {
+		op   objects.CmpOp
+		l, r objects.Object
+		want bool
+	}{
+		{objects.OpLt, a, b, true},
+		{objects.OpGt, a, b, false},
+		{objects.OpEq, a, c, true},
+		{objects.OpLe, a, c, true},
+		{objects.OpGe, b, a, true},
+		{objects.OpNe, a, b, true},
+	} {
+		got, err := objects.Compare(tc.op, tc.l, tc.r)
+		if err != nil {
+			t.Fatalf("compare %v: %v", tc.op, err)
+		}
+		if objects.Truth(got) != tc.want {
+			t.Fatalf("compare op %v = %v, want %v", tc.op, objects.Truth(got), tc.want)
+		}
+	}
+	// obj reads back the bound value.
+	v, _ := objects.LoadAttr(a, "obj")
+	if objects.Repr(v) != "1" {
+		t.Fatalf("obj = %s, want 1", objects.Repr(v))
+	}
+}
+
+func TestCmpToKeyErrors(t *testing.T) {
+	K, _ := objects.Call(ftFn(t, "cmp_to_key"), []objects.Object{intCmp(t)})
+	a, _ := objects.Call(K, []objects.Object{objects.NewInt(1)})
+	// Comparing a wrapper to a bare value is the wrapper-only TypeError.
+	_, err := objects.Compare(objects.OpLt, a, objects.NewInt(5))
+	if err == nil || errText(err) != "other argument must be K instance" {
+		t.Fatalf("wrapper vs int error = %v", err)
+	}
+	// Binding takes exactly one argument.
+	_, err = objects.Call(K, []objects.Object{objects.NewInt(1), objects.NewInt(2)})
+	if err == nil || errText(err) != "K() takes at most 1 argument (2 given)" {
+		t.Fatalf("two-arg error = %v", err)
+	}
+	_, err = objects.Call(K, nil)
+	if err == nil || errText(err) != "K() missing required argument 'obj' (pos 1)" {
+		t.Fatalf("zero-arg error = %v", err)
+	}
+}
+
 func TestLRUCacheDisabled(t *testing.T) {
 	var seen []objects.Object
 	wrap, _ := objects.CallKw(ftFn(t, "lru_cache"), nil,
