@@ -1029,7 +1029,7 @@ func LoadAttr(o Object, name string) (Object, error) {
 		// default_factory is the one data attribute a defaultdict exposes; a
 		// plain dict has no attribute of that name. It reads the stored factory
 		// or None.
-		if x.isDefault && name == "default_factory" {
+		if x.kind == defaultDict && name == "default_factory" {
 			return dictDefaultFactory(x), nil
 		}
 		return nil, noAttr(x, name)
@@ -1124,7 +1124,7 @@ func StoreAttr(o Object, name string, val Object) error {
 		// A defaultdict's default_factory is writable: assigning None or a
 		// callable changes what a later missing key produces. Any other value is
 		// the "must be callable or None" TypeError CPython raises.
-		if x.isDefault && name == "default_factory" {
+		if x.kind == defaultDict && name == "default_factory" {
 			if val != None && !Callable(val) {
 				return Raise(TypeError, "default_factory must be callable or None")
 			}

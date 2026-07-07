@@ -286,6 +286,143 @@ func TestDefaultDictCopy(t *testing.T) {
 	}
 }
 
+// newCounter builds a Counter through the collections module constructor.
+func newCounter(t *testing.T, args ...objects.Object) objects.Object {
+	t.Helper()
+	c, err := objects.Call(collFn(t, "Counter"), args)
+	if err != nil {
+		t.Fatalf("Counter call: %v", err)
+	}
+	return c
+}
+
+func TestCounterCountAndRepr(t *testing.T) {
+	c := newCounter(t, objects.NewStr("mississippi"))
+	if got := objects.Repr(c); got != "Counter({'i': 4, 's': 4, 'p': 2, 'm': 1})" {
+		t.Fatalf("counter repr = %q", got)
+	}
+	// A missing element reads zero without growing the mapping.
+	v, err := objects.GetItem(c, objects.NewStr("z"))
+	if err != nil || objects.Repr(v) != "0" {
+		t.Fatalf("missing element = %s err %v", objects.Repr(v), err)
+	}
+	if n, _ := objects.Len(c); n != 4 {
+		t.Fatalf("len after missing read = %d", n)
+	}
+	if got := objects.Repr(newCounter(t)); got != "Counter()" {
+		t.Fatalf("empty counter repr = %q", got)
+	}
+}
+
+func TestCounterMostCommonAndElements(t *testing.T) {
+	c := newCounter(t, objects.NewStr("mississippi"))
+	mc := method(t, c, "most_common", objects.NewInt(2))
+	if got := objects.Repr(mc); got != "[('i', 4), ('s', 4)]" {
+		t.Fatalf("most_common(2) = %q", got)
+	}
+	elts := builtinList(t, method(t, c, "elements"))
+	method(t, elts, "sort")
+	if got := objects.Repr(elts); got != "['i', 'i', 'i', 'i', 'm', 'p', 'p', 's', 's', 's', 's']" {
+		t.Fatalf("sorted elements = %q", got)
+	}
+}
+
+func TestCounterArithmetic(t *testing.T) {
+	mk := func(a, b int) objects.Object {
+		return newCounter(t, dictOf(t, "a", a, "b", b))
+	}
+	cases := []struct {
+		op   func(x, y objects.Object) (objects.Object, error)
+		want string
+	}{
+		{objects.Add, "Counter({'a': 4, 'b': 3})"},
+		{objects.Sub, "Counter({'a': 2})"},
+		{objects.BitAnd, "Counter({'a': 1, 'b': 1})"},
+		{objects.BitOr, "Counter({'a': 3, 'b': 2})"},
+	}
+	for _, tc := range cases {
+		v, err := tc.op(mk(3, 1), mk(1, 2))
+		if err != nil {
+			t.Fatalf("op: %v", err)
+		}
+		if got := objects.Repr(v); got != tc.want {
+			t.Fatalf("op result = %q want %q", got, tc.want)
+		}
+	}
+}
+
+func TestCounterUnary(t *testing.T) {
+	c := newCounter(t, dictOf(t, "a", 1, "b", -1))
+	pos, _ := objects.Pos(c)
+	if got := objects.Repr(pos); got != "Counter({'a': 1})" {
+		t.Fatalf("+counter = %q", got)
+	}
+	neg, _ := objects.Neg(c)
+	if got := objects.Repr(neg); got != "Counter({'b': 1})" {
+		t.Fatalf("-counter = %q", got)
+	}
+}
+
+func TestCounterUpdateSubtract(t *testing.T) {
+	c := newCounter(t, objects.NewStr("aab"))
+	method(t, c, "subtract", objects.NewStr("ab"))
+	if got := objects.Repr(c); got != "Counter({'a': 1, 'b': 0})" {
+		t.Fatalf("after subtract = %q", got)
+	}
+	method(t, c, "update", nums())
+	method(t, c, "update", objects.NewList([]objects.Object{objects.NewStr("a"), objects.NewStr("x")}))
+	if got := objects.Repr(c); got != "Counter({'a': 2, 'x': 1, 'b': 0})" {
+		t.Fatalf("after update = %q", got)
+	}
+}
+
+func TestCounterEqualsDictAndTotal(t *testing.T) {
+	c := newCounter(t, dictOf(t, "a", 1))
+	plain, _ := objects.NewDict([]objects.Object{objects.NewStr("a")}, []objects.Object{objects.NewInt(1)})
+	res, _ := objects.Compare(objects.OpEq, c, plain)
+	if !objects.Truth(res) {
+		t.Fatal("Counter should equal a plain dict with the same items")
+	}
+	c2 := newCounter(t, dictOf(t, "x", 5, "y", 2))
+	if got := objects.Repr(method(t, c2, "total")); got != "7" {
+		t.Fatalf("total = %s", got)
+	}
+	// Counter | plain dict falls back to the dict union, a plain dict.
+	u, err := objects.BitOr(newCounter(t, dictOf(t, "a", 1)), plain)
+	if err != nil {
+		t.Fatalf("counter | dict: %v", err)
+	}
+	if got := objects.Repr(u); got != "{'a': 1}" || u.TypeName() != "dict" {
+		t.Fatalf("counter | dict = %q type %s", got, u.TypeName())
+	}
+}
+
+// dictOf builds a plain dict from alternating string keys and int values, a
+// compact way to seed a Counter in the tests.
+func dictOf(t *testing.T, kv ...any) objects.Object {
+	t.Helper()
+	var keys, vals []objects.Object
+	for i := 0; i < len(kv); i += 2 {
+		keys = append(keys, objects.NewStr(kv[i].(string)))
+		vals = append(vals, objects.NewInt(int64(kv[i+1].(int))))
+	}
+	d, err := objects.NewDict(keys, vals)
+	if err != nil {
+		t.Fatalf("NewDict: %v", err)
+	}
+	return d
+}
+
+// builtinList materializes an iterable into a list so the test can sort it.
+func builtinList(t *testing.T, it objects.Object) objects.Object {
+	t.Helper()
+	elts, err := materialize(it)
+	if err != nil {
+		t.Fatalf("materialize: %v", err)
+	}
+	return objects.NewList(elts)
+}
+
 func TestDequeEqualityAndLen(t *testing.T) {
 	a := newDeque(t, nums(1, 2, 3))
 	b := newDeque(t, nums(1, 2, 3))

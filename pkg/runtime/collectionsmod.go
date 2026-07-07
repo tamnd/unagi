@@ -88,6 +88,37 @@ func initCollections(m *objects.Module) error {
 		return err
 	}
 
+	// Counter(iterable=None, /, **kwds): a dict subclass that counts. A mapping
+	// argument seeds the counts from its values, an iterable counts occurrences,
+	// and each keyword adds to a count, so Counter('ab', a=1) is {'a': 2, 'b': 1}.
+	// Both paths are the update method, which starts from an empty Counter here.
+	counter := objects.NewFunction("Counter",
+		[]objects.Param{
+			{Name: "iterable", Kind: objects.ParamPosOnly},
+			{Name: "kwds", Kind: objects.ParamStarStar},
+		},
+		[]objects.Object{objects.None, nil},
+		func(a []objects.Object) (objects.Object, error) {
+			c, err := objects.NewCounter(nil, nil)
+			if err != nil {
+				return nil, err
+			}
+			if a[0] != objects.None {
+				if _, err := objects.CallMethod(c, "update", []objects.Object{a[0]}); err != nil {
+					return nil, err
+				}
+			}
+			if a[1] != nil && a[1] != objects.None {
+				if _, err := objects.CallMethod(c, "update", []objects.Object{a[1]}); err != nil {
+					return nil, err
+				}
+			}
+			return c, nil
+		})
+	if err := set("Counter", counter); err != nil {
+		return err
+	}
+
 	return nil
 }
 

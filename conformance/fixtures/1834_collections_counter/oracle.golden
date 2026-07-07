@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+Counter({'i': 4, 's': 4, 'p': 2, 'm': 1})
+4 0
+4
+[('i', 4), ('s', 4)]
+['i', 'i', 'i', 'i', 'm', 'p', 'p', 's', 's', 's', 's']
+Counter({'x': 5, 'y': 2})
+Counter({'a': 2, 'b': 1})
+Counter()
+Counter({'c': 5, 'b': 3, 'a': 1})
+Counter({'a': 2})
+Counter({'a': 1, 'b': 1})
+Counter({'a': 3, 'b': 2})
+Counter({'a': 1})
+Counter({'b': 1})
+Counter({'a': 1, 'b': 0})
+Counter({'a': 2, 'x': 1, 'b': 0})
+7
+True
+{'a': 2, 'b': 1}
+unsupported operand type(s) for +: 'Counter' and 'dict'
+{'a': 2} dict
+== exception:
+== stderr:

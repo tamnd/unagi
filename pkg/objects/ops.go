@@ -104,6 +104,9 @@ func Not(o Object) Object { return NewBool(!Truth(o)) }
 
 // Neg implements unary minus.
 func Neg(o Object) (Object, error) {
+	if d, ok := o.(*dictObject); ok && d.kind == counterDict {
+		return counterNeg(d)
+	}
 	if i, ok := AsInt(o); ok {
 		if i == math.MinInt64 {
 			return NewIntFromBig(new(big.Int).Neg(big.NewInt(i))), nil
@@ -124,6 +127,9 @@ func Neg(o Object) (Object, error) {
 
 // Pos implements unary plus.
 func Pos(o Object) (Object, error) {
+	if d, ok := o.(*dictObject); ok && d.kind == counterDict {
+		return counterPos(d)
+	}
 	if i, ok := AsInt(o); ok {
 		return NewInt(i), nil
 	}
@@ -212,6 +218,10 @@ func Add(a, b Object) (Object, error) {
 			return NewTuple(out), nil
 		}
 		return nil, Raise(TypeError, "can only concatenate tuple (not %q) to tuple", b.TypeName())
+	case *dictObject:
+		if x.kind == counterDict {
+			return counterAdd(a, b)
+		}
 	}
 	if ai, bi, ok := bothInt(a, b); ok {
 		if r, fits := addChk(ai, bi); fits {
@@ -238,6 +248,9 @@ func Add(a, b Object) (Object, error) {
 // Sub implements the - operator. On set operands it is set difference,
 // with the result type following the left operand.
 func Sub(a, b Object) (Object, error) {
+	if x, ok := a.(*dictObject); ok && x.kind == counterDict {
+		return counterSub(a, b)
+	}
 	if ac, ok := asSetCore(a); ok {
 		bc, ok2 := asSetCore(b)
 		if !ok2 {
@@ -539,6 +552,11 @@ func Pow(a, b Object) (Object, error) {
 // (PEP 584). Probed on 3.14: True | False is bool True, but mixing bool with
 // int gives int; d1 | d2 needs both operands to be dicts.
 func BitOr(a, b Object) (Object, error) {
+	if x, ok := a.(*dictObject); ok && x.kind == counterDict {
+		if y, ok := b.(*dictObject); ok && y.kind == counterDict {
+			return counterOr(a, b)
+		}
+	}
 	if da, ok := a.(*dictObject); ok {
 		db, ok := b.(*dictObject)
 		if !ok {
@@ -598,6 +616,11 @@ func BitXor(a, b Object) (Object, error) {
 // BitAnd implements the & operator: int bitwise and, set intersection.
 // bool & bool stays bool like |.
 func BitAnd(a, b Object) (Object, error) {
+	if x, ok := a.(*dictObject); ok && x.kind == counterDict {
+		if y, ok := b.(*dictObject); ok && y.kind == counterDict {
+			return counterAnd(a, b)
+		}
+	}
 	if ac, ok := asSetCore(a); ok {
 		bc, ok2 := asSetCore(b)
 		if !ok2 {

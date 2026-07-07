@@ -234,8 +234,11 @@ func reprCore(o Object, strict bool) (string, error) {
 		}
 		return reprSeqCore(x.elts, "(", ")", strict)
 	case *dictObject:
-		if x.isDefault {
+		switch x.kind {
+		case defaultDict:
 			return defaultDictRepr(x, strict)
+		case counterDict:
+			return counterRepr(x, strict)
 		}
 		return dictBodyRepr(x, strict)
 	case *setObject:

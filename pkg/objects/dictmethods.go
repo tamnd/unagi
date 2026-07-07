@@ -67,13 +67,14 @@ func dictMethod(x *dictObject, name string, args []Object) (Object, error) {
 		}
 		// Shallow copy with independent storage: same key and value
 		// objects, but inserts into either dict never touch the other. A
-		// defaultdict copies its subclass and factory, so d.copy() is another
-		// defaultdict with the same default_factory, matching CPython.
+		// subclass copies its kind and factory, so a defaultdict's copy is
+		// another defaultdict with the same default_factory and a Counter's copy
+		// is another Counter, matching CPython.
 		out := &dictObject{
-			entries:   append([]dictEntry(nil), x.entries...),
-			index:     make(map[string]int, len(x.index)),
-			isDefault: x.isDefault,
-			factory:   x.factory,
+			entries: append([]dictEntry(nil), x.entries...),
+			index:   make(map[string]int, len(x.index)),
+			kind:    x.kind,
+			factory: x.factory,
 		}
 		for k, i := range x.index {
 			out.index[k] = i
