@@ -304,6 +304,26 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 		body = append(body, s)
 	}
 
+	// __doc__ is the module docstring: the value of a leading bare string
+	// literal, otherwise None. CPython stores it before the rest of the body
+	// runs and leaves it an ordinary rebindable variable, so a synthetic
+	// __doc__ = <docstring or None> at the front of the body gives it exactly
+	// that shape. The leading literal is consumed here rather than left to
+	// emit a discarded expression statement.
+	var docValue frontend.Expr = &frontend.NoneLit{}
+	if len(body) > 0 {
+		if es, ok := body[0].(*frontend.ExprStmt); ok {
+			if sl, ok := es.X.(*frontend.StrLit); ok {
+				docValue = sl
+				body = body[1:]
+			}
+		}
+	}
+	body = append([]frontend.Stmt{&frontend.Assign{
+		Targets: []frontend.Expr{&frontend.Name{Id: "__doc__"}},
+		Value:   docValue,
+	}}, body...)
+
 	// A def name assigned or deleted anywhere at module scope, or declared
 	// global by some def, becomes an ordinary checked module variable: the
 	// def statement binds it to the function object, later statements can
