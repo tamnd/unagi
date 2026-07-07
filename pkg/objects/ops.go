@@ -1149,6 +1149,8 @@ func GetItem(o, key Object) (Object, error) {
 		return x.elts[j], nil
 	case *dictObject:
 		return dictSubscript(x, key)
+	case *matchObject:
+		return matchGetItem(x, key)
 	case *rangeObject:
 		i, ok := AsInt(key)
 		if !ok {

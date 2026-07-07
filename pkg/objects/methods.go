@@ -48,6 +48,10 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 		return stringIOMethod(x, name, args)
 	case *bytesIOObject:
 		return bytesIOMethod(x, name, args)
+	case *patternObject:
+		return patternMethod(x, name, args)
+	case *matchObject:
+		return matchMethod(x, name, args)
 	case *complexObject:
 		return complexMethod(x, name, args)
 	case *sliceObject:
