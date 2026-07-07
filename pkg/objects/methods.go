@@ -3,6 +3,8 @@ package objects
 // CallMethod dispatches o.name(args...) for the built-in types.
 func CallMethod(o Object, name string, args []Object) (Object, error) {
 	switch x := o.(type) {
+	case *intObject, *boolObject:
+		return intMethod(o, name, args)
 	case *strObject:
 		return strMethod(x, name, args)
 	case *listObject:
