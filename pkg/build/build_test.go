@@ -74,6 +74,44 @@ func TestResolvePy(t *testing.T) {
 	}
 }
 
+// TestResolveModule covers the floor fallback: a name that is not next to the
+// entry file resolves in the floor root, and a local module of the same name
+// shadows the floor one.
+func TestResolveModule(t *testing.T) {
+	entry := t.TempDir()
+	floorRoot := t.TempDir()
+	writeFile(t, filepath.Join(floorRoot, "onlyfloor.py"), "a = 1\n")
+	writeFile(t, filepath.Join(floorRoot, "shared.py"), "b = 2\n")
+	writeFile(t, filepath.Join(entry, "shared.py"), "c = 3\n")
+
+	file, _, _, ok := resolveModule(entry, floorRoot, "onlyfloor")
+	if !ok || filepath.Dir(file) != floorRoot {
+		t.Errorf("onlyfloor resolved to %q, ok=%v; want the floor root", file, ok)
+	}
+	file, _, _, ok = resolveModule(entry, floorRoot, "shared")
+	if !ok || filepath.Dir(file) != entry {
+		t.Errorf("shared resolved to %q, ok=%v; want the entry dir to shadow the floor", file, ok)
+	}
+	if _, _, _, ok := resolveModule(entry, floorRoot, "absent"); ok {
+		t.Error("absent name resolved")
+	}
+	if _, _, _, ok := resolveModule(entry, "", "onlyfloor"); ok {
+		t.Error("empty floor root should resolve nothing beyond the entry dir")
+	}
+}
+
+// TestFloorDirFindsStat checks the floor is located under the source tree and
+// carries the pinned stat module the pipeline is proven on.
+func TestFloorDirFindsStat(t *testing.T) {
+	root := floorDir()
+	if root == "" {
+		t.Skip("floor sources not on disk in this build")
+	}
+	if _, _, _, ok := resolvePy(root, "stat"); !ok {
+		t.Errorf("floor at %q does not carry stat", root)
+	}
+}
+
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
