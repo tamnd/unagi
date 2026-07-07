@@ -159,6 +159,15 @@ func counter(seen *[]objects.Object) objects.Object {
 	})
 }
 
+// prime calls a wrapper for its caching side effect, failing the test if the
+// call itself errors.
+func prime(t *testing.T, wrapper objects.Object, n int64) {
+	t.Helper()
+	if _, err := objects.Call(wrapper, []objects.Object{objects.NewInt(n)}); err != nil {
+		t.Fatalf("call(%d): %v", n, err)
+	}
+}
+
 // info reads a field off the CacheInfo namedtuple cache_info returns.
 func info(t *testing.T, wrapper objects.Object, field string) string {
 	t.Helper()
@@ -185,9 +194,7 @@ func TestLRUCacheHitsMisses(t *testing.T) {
 		t.Fatalf("decorate: %v", err)
 	}
 	for _, n := range []int64{2, 3, 2} {
-		if _, err := objects.Call(sq, []objects.Object{objects.NewInt(n)}); err != nil {
-			t.Fatalf("call sq(%d): %v", n, err)
-		}
+		prime(t, sq, n)
 	}
 	if got := info(t, sq, "hits"); got != "1" {
 		t.Fatalf("hits = %s, want 1", got)
@@ -210,7 +217,7 @@ func TestLRUCacheEviction(t *testing.T) {
 	sq, _ := objects.Call(wrap, []objects.Object{counter(&seen)})
 	// Fill with 2 and 3, touch 2 so 3 is the least recent, then 4 evicts 3.
 	for _, n := range []int64{2, 3, 2, 4, 3} {
-		objects.Call(sq, []objects.Object{objects.NewInt(n)})
+		prime(t, sq, n)
 	}
 	if got := info(t, sq, "misses"); got != "4" {
 		t.Fatalf("misses = %s, want 4 (3 recomputed after eviction)", got)
@@ -227,8 +234,8 @@ func TestLRUCacheBareAndClear(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bare lru_cache: %v", err)
 	}
-	objects.Call(sq, []objects.Object{objects.NewInt(5)})
-	objects.Call(sq, []objects.Object{objects.NewInt(5)})
+	prime(t, sq, 5)
+	prime(t, sq, 5)
 	if got := info(t, sq, "maxsize"); got != "128" {
 		t.Fatalf("bare maxsize = %s, want 128", got)
 	}
@@ -252,9 +259,11 @@ func TestLRUCacheTyped(t *testing.T) {
 		[]string{"typed"}, []objects.Object{objects.True})
 	f, _ := objects.Call(wrap, []objects.Object{counter(&seen)})
 	// 3 and 3.0 are distinct keys when typed, so both compute; the repeated 3 hits.
-	objects.Call(f, []objects.Object{objects.NewInt(3)})
-	objects.Call(f, []objects.Object{objects.NewFloat(3.0)})
-	objects.Call(f, []objects.Object{objects.NewInt(3)})
+	prime(t, f, 3)
+	if _, err := objects.Call(f, []objects.Object{objects.NewFloat(3.0)}); err != nil {
+		t.Fatalf("call(3.0): %v", err)
+	}
+	prime(t, f, 3)
 	if got := info(t, f, "misses"); got != "2" {
 		t.Fatalf("typed misses = %s, want 2", got)
 	}
@@ -269,8 +278,8 @@ func TestCacheUnbounded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cache: %v", err)
 	}
-	objects.Call(f, []objects.Object{objects.NewInt(1)})
-	objects.Call(f, []objects.Object{objects.NewInt(1)})
+	prime(t, f, 1)
+	prime(t, f, 1)
 	if got := info(t, f, "maxsize"); got != "None" {
 		t.Fatalf("cache maxsize = %s, want None", got)
 	}
@@ -284,8 +293,8 @@ func TestLRUCacheDisabled(t *testing.T) {
 	wrap, _ := objects.CallKw(ftFn(t, "lru_cache"), nil,
 		[]string{"maxsize"}, []objects.Object{objects.NewInt(0)})
 	f, _ := objects.Call(wrap, []objects.Object{counter(&seen)})
-	objects.Call(f, []objects.Object{objects.NewInt(1)})
-	objects.Call(f, []objects.Object{objects.NewInt(1)})
+	prime(t, f, 1)
+	prime(t, f, 1)
 	if got := info(t, f, "misses"); got != "2" {
 		t.Fatalf("disabled misses = %s, want 2", got)
 	}
