@@ -623,6 +623,75 @@ func init() {
 			}())
 		}),
 	}
+
+	// int and str carry their own string dunders and inherit the rest from
+	// object, which is the identity EnumType.__new__ reads when it borrows the
+	// member type's __repr__/__str__/__format__ onto the enum class. A name that
+	// resolves to the same object as object's is one the type inherited.
+	builtinTypeDunders = map[string]map[string]Object{
+		"int": {
+			"__repr__":      NewFunc("__repr__", 1, builtinReprDunder),
+			"__format__":    NewFunc("__format__", 2, builtinFormatDunder),
+			"__str__":       objectDunders["__str__"],
+			"__reduce_ex__": objectDunders["__reduce_ex__"],
+		},
+		"str": {
+			"__repr__":      NewFunc("__repr__", 1, builtinReprDunder),
+			"__str__":       NewFunc("__str__", 1, builtinStrDunder),
+			"__format__":    NewFunc("__format__", 2, builtinFormatDunder),
+			"__reduce_ex__": objectDunders["__reduce_ex__"],
+		},
+	}
+}
+
+// builtinTypeDunders maps a builtin type name to the string dunder methods it
+// resolves off the type object. An own method is a fresh builtin; an inherited
+// name points at object's canonical builtin so the identity check against
+// object matches CPython.
+var builtinTypeDunders map[string]map[string]Object
+
+// unwrapForDunder reads the builtin payload of a value subclass instance so a
+// type dunder like int.__repr__ works on the underlying int rather than the
+// subclass, and passes any other value straight through.
+func unwrapForDunder(o Object) Object {
+	if v, ok := builtinUnwrap(o); ok {
+		return v
+	}
+	return o
+}
+
+// builtinReprDunder is int.__repr__ and str.__repr__: the type's own repr of the
+// underlying value, bypassing any subclass override.
+func builtinReprDunder(args []Object) (Object, error) {
+	if len(args) != 1 {
+		return nil, Raise(TypeError, "expected 1 argument, got %d", len(args))
+	}
+	return NewStr(Repr(unwrapForDunder(args[0]))), nil
+}
+
+// builtinStrDunder is str.__str__: the underlying string value.
+func builtinStrDunder(args []Object) (Object, error) {
+	if len(args) != 1 {
+		return nil, Raise(TypeError, "expected 1 argument, got %d", len(args))
+	}
+	s, err := StrE(unwrapForDunder(args[0]))
+	if err != nil {
+		return nil, err
+	}
+	return NewStr(s), nil
+}
+
+// builtinFormatDunder is int.__format__ and str.__format__: the type's format of
+// the underlying value against the given spec.
+func builtinFormatDunder(args []Object) (Object, error) {
+	if len(args) != 2 {
+		return nil, Raise(TypeError, "__format__() takes exactly one argument")
+	}
+	spec, ok := args[1].(*strObject)
+	if !ok {
+		return nil, Raise(TypeError, "__format__() argument must be str, not %s", args[1].TypeName())
+	}
+	return Format(unwrapForDunder(args[0]), spec.v)
 }
 
 // objectDunderBound answers an object dunder read off an instance: the object
@@ -1391,9 +1460,15 @@ func LoadAttr(o Object, name string) (Object, error) {
 		if v, ok := x.attrs[name]; ok {
 			return v, nil
 		}
-		// A constructor that doubles as a type object answers the type
-		// introspection attributes: int.__mro__, str.__bases__, bool.__base__.
+		// A constructor that doubles as a type object answers its string dunder
+		// methods and the type introspection attributes: int.__format__,
+		// int.__mro__, str.__bases__, bool.__base__.
 		if builtinTypeReprs[x.name] {
+			if tbl, ok := builtinTypeDunders[x.name]; ok {
+				if v, ok := tbl[name]; ok {
+					return v, nil
+				}
+			}
 			if v, ok := builtinTypeIntrospect(x, name); ok {
 				return v, nil
 			}
