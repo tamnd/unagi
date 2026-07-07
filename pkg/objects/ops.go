@@ -926,6 +926,14 @@ func seqOrder(op CmpOp, a, b []Object) (bool, error) {
 
 // Compare implements the six rich comparison operators.
 func Compare(op CmpOp, a, b Object) (Object, error) {
+	// A cmp_to_key wrapper compares through its stored comparison function, and
+	// its "other must be a wrapper" TypeError fires when only one side is one.
+	if _, ok := a.(*keyObject); ok {
+		return keyCompare(op, a, b)
+	}
+	if _, ok := b.(*keyObject); ok {
+		return keyCompare(op, a, b)
+	}
 	// A user instance on either side runs the full do_richcompare protocol so
 	// its comparison dunders decide; two builtins keep the fast path below.
 	if isInstance(a) || isInstance(b) {

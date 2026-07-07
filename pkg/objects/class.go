@@ -1099,6 +1099,14 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return partialAttr(x, name)
 	case *lruCacheObject:
 		return lruAttr(x, name)
+	case *keyObject:
+		if name == "obj" {
+			if x.obj == nil {
+				return None, nil
+			}
+			return x.obj, nil
+		}
+		return nil, Raise(AttributeError, "'functools.KeyWrapper' object has no attribute '%s'", name)
 	case *tupleObject:
 		if x.named != nil {
 			return namedTupleInstanceAttr(x, name)

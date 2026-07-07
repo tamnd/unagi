@@ -397,6 +397,9 @@ func Call(f Object, args []Object) (Object, error) {
 	if c, ok := f.(*lruCacheObject); ok {
 		return lruCall(c, args, nil, nil)
 	}
+	if k, ok := f.(*keyObject); ok {
+		return keyCall(k, args)
+	}
 	if c, ok := f.(*classObject); ok {
 		return Instantiate(c, args, nil, nil)
 	}
@@ -444,7 +447,7 @@ func Callable(f Object) bool {
 	switch x := f.(type) {
 	case *functionObject, *boundMethod, *classObject, *funcObject:
 		return true
-	case *namedTupleType, *partialObject, *lruCacheObject:
+	case *namedTupleType, *partialObject, *lruCacheObject, *keyObject:
 		return true
 	case *quitterObject, *printerObject:
 		return true
