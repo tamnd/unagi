@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+True True False False
+True True True
+True True
+True False
+[Num(1), Num(1), Num(2), Num(3)]
+True False True False
+True False False True
+TypeError '>' not supported between instances of 'Num' and 'str'
+ValueError must define at least one ordering operation: < > <= >=
+== exception:
+== stderr:
