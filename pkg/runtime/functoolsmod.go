@@ -158,6 +158,14 @@ func initFunctools(m *objects.Module) error {
 		return err
 	}
 
+	// cached_property(func): a non-data descriptor that computes its value from
+	// func the first time it is read off an instance and caches the result in the
+	// instance dict, so the function runs once per instance and later reads hit
+	// the dict directly.
+	if err := set("cached_property", objects.CachedPropertyBuiltin); err != nil {
+		return err
+	}
+
 	return nil
 }
 

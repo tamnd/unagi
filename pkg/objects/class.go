@@ -1001,6 +1001,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
 	case *propertyObject:
 		return propertyGetAttr(x, name)
+	case *cachedPropertyObject:
+		return cachedPropertyAttr(x, name)
 	case *superObject:
 		return superLoadAttr(x, name)
 	case *Exception:

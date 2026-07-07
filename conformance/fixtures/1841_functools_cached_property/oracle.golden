@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+12
+12
+1
+12
+27
+1 1
+area
+TypeError No '__dict__' attribute on 'Slotted' instance to cache 'area' property.
+== exception:
+== stderr:

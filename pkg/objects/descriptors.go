@@ -117,6 +117,8 @@ func instanceGet(x *instanceObject, name string, v Object) (Object, error) {
 			return nil, Raise(AttributeError, "property '%s' of '%s' object has no getter", name, x.cls.name)
 		}
 		return Call(d.fget, []Object{x})
+	case *cachedPropertyObject:
+		return cachedPropertyGet(x, name, d)
 	case *memberDescriptor:
 		return slotGet(x, d)
 	case *instanceObject:
@@ -285,6 +287,8 @@ func descriptorRepr(o Object) string {
 		return "<classmethod object>"
 	case *propertyObject:
 		return "<property object>"
+	case *cachedPropertyObject:
+		return "<cached_property object>"
 	}
 	return fmt.Sprintf("<%s object>", o.TypeName())
 }
