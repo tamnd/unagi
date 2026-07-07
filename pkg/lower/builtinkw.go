@@ -59,11 +59,31 @@ func (f *fnCtx) builtinKwCall(name string, e *frontend.Call) (ast.Expr, error) {
 		return f.dictKw(pos, kws, e)
 	case "complex":
 		return f.complexKw(pos, kws, temps)
+	case "type":
+		return f.typeKw(pos, kws)
 	}
 	// Probed across len, abs, range, bool, list, tuple, set, frozenset,
 	// divmod, repr, bin, oct, hex, ord, chr, reversed, format and float:
 	// every one answers with the same TypeError.
 	return f.raiseBindError(temps, fmt.Sprintf("%s() takes no keyword arguments", name)), nil
+}
+
+// typeKw lowers the three-argument type(name, bases, ns, **kwds). The
+// keyword form only means the class-creation call, so the runtime helper
+// takes the positional slice and the parallel keyword name/value groups,
+// checks the three-argument requirement itself so the arity TypeError stays
+// catchable, and forwards the keywords to the winning metaclass; an
+// unexpected keyword then surfaces as that metaclass's own error.
+func (f *fnCtx) typeKw(pos []ast.Expr, kws []kwVal) (ast.Expr, error) {
+	names := make([]string, len(kws))
+	vals := make([]ast.Expr, len(kws))
+	for i, kw := range kws {
+		names[i] = kw.name
+		vals[i] = kw.val
+	}
+	tmp := f.tmpVar()
+	f.fallible(tmp, sel("runtime", "TypeCallKw"), f.objSlice(pos), strSliceLit(names), f.objSlice(vals))
+	return ident(tmp), nil
 }
 
 // complexKw lowers complex(real=..., imag=...). Both slots are position-or-

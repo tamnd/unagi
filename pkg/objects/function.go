@@ -102,6 +102,9 @@ func CallKw(f Object, pos []Object, kwNames []string, kwVals []Object) (Object, 
 	case *classObject:
 		return Instantiate(fn, pos, kwNames, kwVals)
 	case *funcObject:
+		if fn.kwfn != nil {
+			return fn.kwfn(pos, kwNames, kwVals)
+		}
 		if len(kwNames) > 0 {
 			return nil, Raise(TypeError, "%s() takes no keyword arguments", fn.name)
 		}

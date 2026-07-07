@@ -382,10 +382,9 @@ func TypeOf(o objects.Object) objects.Object {
 	return objects.TypeSingleton(name)
 }
 
-// TypeCall implements the type() builtin. The one-argument form returns a
-// value's type; the three-argument dynamic-class form is not built yet, so it
-// raises rather than silently misbehaving; any other count is the arity
-// TypeError CPython gives.
+// TypeCall implements the positional type() builtin. The one-argument form
+// returns a value's type; the three-argument form builds a dynamic class; any
+// other count is the arity TypeError CPython gives.
 func TypeCall(args []objects.Object) (objects.Object, error) {
 	switch len(args) {
 	case 1:
@@ -395,6 +394,20 @@ func TypeCall(args []objects.Object) (objects.Object, error) {
 	default:
 		return nil, objects.Raise(objects.TypeError, "type() takes 1 or 3 arguments")
 	}
+}
+
+// TypeCallKw is the keyword-aware type() entry. Without keywords it is the plain
+// positional builtin; with keywords only the three-argument dynamic-class form
+// accepts them, and they flow to the winning metaclass and __init_subclass__ the
+// way type(name, bases, ns, **kwds) does.
+func TypeCallKw(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if len(kwNames) == 0 {
+		return TypeCall(pos)
+	}
+	if len(pos) != 3 {
+		return nil, objects.Raise(objects.TypeError, "type() takes 1 or 3 arguments")
+	}
+	return objects.NewType3Kw(pos[0], pos[1], pos[2], kwNames, kwVals)
 }
 
 // builtins maps names to function objects for the case where a builtin
@@ -487,7 +500,7 @@ func init() {
 		"callable": objects.NewFunc("callable", 1, func(args []objects.Object) (objects.Object, error) { return Callable(args[0]) }),
 		"ascii":    objects.NewFunc("ascii", 1, func(args []objects.Object) (objects.Object, error) { return Ascii(args[0]) }),
 		"vars":     objects.NewFunc("vars", 1, func(args []objects.Object) (objects.Object, error) { return Vars(args[0]) }),
-		"type":     objects.NewFunc("type", -1, TypeCall),
+		"type":     objects.NewFuncKw("type", TypeCallKw),
 		"object":   objects.ObjectType(),
 		"getattr":  objects.NewFunc("getattr", -1, GetAttr),
 		"hasattr":  objects.NewFunc("hasattr", -1, HasAttr),

@@ -279,6 +279,42 @@ func NewType3(nameArg, basesArg, nsArg Object) (Object, error) {
 	return typeNewCore(nil, nameArg, basesArg, nsArg)
 }
 
+// NewType3Kw builds a class from the four-argument type(name, bases, namespace,
+// **kwds) form. It derives the winning metaclass from the bases the way
+// type.__new__ does, so a base carrying a metaclass such as EnumType drives
+// creation through that metaclass, and forwards the class keywords to it and to
+// __init_subclass__. With no metaclass among the bases the winner is the default
+// type metatype and the keywords reach __init_subclass__. This is the shape
+// enum's convert_class runs: type(name, (StrEnum,), body, boundary=..., _simple=True).
+func NewType3Kw(nameArg, basesArg, nsArg Object, kwNames []string, kwVals []Object) (Object, error) {
+	if len(kwNames) == 0 {
+		return typeNewCore(nil, nameArg, basesArg, nsArg)
+	}
+	name, ok := nameArg.(*strObject)
+	if !ok {
+		return nil, Raise(TypeError, "type.__new__() argument 1 must be str, not %s", nameArg.TypeName())
+	}
+	bases, ok := basesArg.(*tupleObject)
+	if !ok {
+		return nil, Raise(TypeError, "type.__new__() argument 2 must be tuple, not %s", basesArg.TypeName())
+	}
+	ns, ok := nsArg.(*dictObject)
+	if !ok {
+		return nil, Raise(TypeError, "type.__new__() argument 3 must be dict, not %s", nsArg.TypeName())
+	}
+	winner, err := determineMeta(typeClass, bases.elts)
+	if err != nil {
+		return nil, err
+	}
+	module := "__main__"
+	if m, ok, err := ns.lookup(NewStr("__module__")); err == nil && ok {
+		if ms, ok := m.(*strObject); ok {
+			module = ms.v
+		}
+	}
+	return callMetaclass(winner, name.v, module+"."+name.v, bases.elts, ns, kwNames, kwVals)
+}
+
 // typeNew is type.__new__, the metatype constructor a metaclass inherits and
 // reaches through super().__new__(mcs, name, bases, ns). The leading argument
 // is the metaclass the resulting class is created on; the rest are the same
