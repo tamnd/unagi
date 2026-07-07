@@ -687,10 +687,10 @@ func builtinTypeChain(name string) []string {
 // intermediate base comes from the runtime resolver. A name that does not
 // resolve is left out so the tuple still forms.
 func builtinTypeElem(name string, x *funcObject) (Object, bool) {
-	switch {
-	case name == "object":
+	if name == "object" {
 		return objectClass, true
-	case name == x.name:
+	}
+	if name == x.name {
 		return x, true
 	}
 	if BuiltinTypeResolver != nil {
