@@ -1708,6 +1708,17 @@ func InstanceDict(o Object) (Object, error) {
 // classmethod, so cls is prepended whether it was written plain or with an
 // explicit @classmethod. A class without the hook is not subscriptable.
 func classSubscript(c *classObject, item Object) (Object, error) {
+	// cls[key] resolves through the type's type first, so a metaclass
+	// __getitem__ runs with the class as self before the __class_getitem__
+	// fallback; enum's EnumType.__getitem__ is the member-by-name lookup that
+	// makes Color['GREEN'] work.
+	if meta, ok := userMetaclass(c); ok {
+		if v, ok := meta.lookup("__getitem__"); ok {
+			if fn, ok := v.(*functionObject); ok {
+				return Call(fn, []Object{c, item})
+			}
+		}
+	}
 	v, ok := c.lookup("__class_getitem__")
 	if !ok {
 		return nil, Raise(TypeError, "type '%s' is not subscriptable", c.name)
