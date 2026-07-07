@@ -1,0 +1,28 @@
+== exit: 0
+== stdout:
+True
+True
+True
+True
+True
+True
+True
+False
+False
+0o100000
+0o40000
+0o644
+0o4755
+0o700 0o400 0o200 0o100
+0o4000 0o2000 0o1000
+-rw-r--r--
+drwxr-xr-x
+lrwxrwxrwx
+-rwsr-xr-x
+drwxr-sr-x
+-rwSr-Sr--
+prw-r--r--
+0o400000
+1
+== exception:
+== stderr:

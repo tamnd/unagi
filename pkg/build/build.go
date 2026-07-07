@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/tamnd/unagi/pkg/floor"
 	"github.com/tamnd/unagi/pkg/frontend"
 	"github.com/tamnd/unagi/pkg/lower"
 )
@@ -122,15 +123,17 @@ type pymod struct {
 
 // collectModules compiles every module the program can import: the static
 // import graph from the entry module, each dotted name resolved next to the
-// entry file, package directories through their __init__.py. Every
-// resolvable prefix of a dotted name compiles as its own module, since
-// CPython executes each ancestor on the way to the leaf; the walk down a
-// dotted name stops at the first prefix that is missing on disk or resolves
-// to a plain module, and the import raises ModuleNotFoundError at runtime
-// the way CPython does. The result is ordered by first discovery, breadth
-// within one module sorted by name, so the generated table is deterministic.
+// entry file or in the bundled stdlib floor, package directories through their
+// __init__.py. Every resolvable prefix of a dotted name compiles as its own
+// module, since CPython executes each ancestor on the way to the leaf; the
+// walk down a dotted name stops at the first prefix that is missing or
+// resolves to a plain module, and the import raises ModuleNotFoundError at
+// runtime the way CPython does. The result is ordered by first discovery,
+// breadth within one module sorted by name, so the generated table is
+// deterministic.
 func collectModules(pyPath string, entry *frontend.Module) ([]pymod, map[string]lower.StarExports, error) {
 	dir := filepath.Dir(pyPath)
+	floorRoot := floorDir()
 	seen := map[string]bool{}
 	seenPkg := map[string]bool{}
 	// Discover and parse the whole import graph first, in first-seen order,
@@ -197,7 +200,7 @@ func collectModules(pyPath string, entry *frontend.Module) ([]pymod, map[string]
 					}
 					continue
 				}
-				file, pkg, ns, ok := resolvePy(dir, prefix)
+				file, pkg, ns, ok := resolveModule(dir, floorRoot, prefix)
 				if !ok {
 					break
 				}
@@ -259,6 +262,38 @@ func resolvePy(dir, name string) (file string, pkg, ns, ok bool) {
 		return base, true, true, true
 	}
 	return "", false, false, false
+}
+
+// resolveModule resolves a dotted name next to the entry file first, then in
+// the bundled stdlib floor. A local module shadows a floor module of the same
+// name, matching CPython where the script directory precedes the stdlib on the
+// path. floorRoot is empty when the floor sources cannot be located, which
+// leaves resolution exactly as it was before the floor existed.
+func resolveModule(dir, floorRoot, name string) (file string, pkg, ns, ok bool) {
+	if file, pkg, ns, ok = resolvePy(dir, name); ok {
+		return file, pkg, ns, ok
+	}
+	if floorRoot != "" {
+		return resolvePy(floorRoot, name)
+	}
+	return "", false, false, false
+}
+
+// floorDir locates the bundled stdlib floor sources under the unagi source
+// tree, the same tree the runtime packages are copied from. It returns an
+// empty string when the tree or the floor directory cannot be found, so a
+// build without the floor on disk falls back to entry-file resolution alone
+// rather than failing.
+func floorDir() string {
+	root, err := sourceDir()
+	if err != nil {
+		return ""
+	}
+	d := filepath.Join(root, filepath.FromSlash(floor.LibSubdir))
+	if st, err := os.Stat(d); err == nil && st.IsDir() {
+		return d
+	}
+	return ""
 }
 
 // importNames gathers every dotted module name the statements import, at any
