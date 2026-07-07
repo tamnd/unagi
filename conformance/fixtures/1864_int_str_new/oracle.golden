@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+False
+False
+True
+True
+MyStr 'hi' True
+MyInt 42 True
+hi there
+43
+== exception:
+== stderr:
