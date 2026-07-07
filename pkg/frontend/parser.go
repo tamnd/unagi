@@ -159,6 +159,8 @@ func (p *parser) parseStatement() []Stmt {
 			return []Stmt{p.parseTry()}
 		case "with":
 			return []Stmt{p.parseWith()}
+		case "async":
+			return []Stmt{p.parseAsync()}
 		}
 	}
 	// match is a soft keyword: only a header that reads as `match subject:` at
@@ -270,8 +272,6 @@ func (p *parser) parseSimpleStmt() Stmt {
 					return nl
 				}
 			}
-		case "async":
-			p.errf(t.pos, "async is not supported yet")
 		case "yield":
 			// A bare `yield ...` statement, the common driver-free generator
 			// form. It is never an assignment target, so it stands as its own
@@ -803,6 +803,12 @@ func (p *parser) parseDecorated() Stmt {
 			c := p.parseClass().(*ClassDef)
 			c.Decorators = decos
 			return c
+		case "async":
+			if d, ok := p.parseAsync().(*FuncDef); ok {
+				d.Decorators = decos
+				return d
+			}
+			p.errf(t.pos, "invalid syntax")
 		}
 	}
 	p.errf(t.pos, "invalid syntax")
@@ -825,6 +831,26 @@ func (p *parser) parseDef() Stmt {
 		p.parseTest()
 	}
 	return &FuncDef{Pos_: t.pos, Name: nt.text, Params: params, Body: p.parseSuite()}
+}
+
+// parseAsync parses a statement that opens with `async`. Only `async def` is
+// accepted for now; it parses as an ordinary def with the Async flag set. An
+// `async for` or `async with` at statement head is a later milestone, so each
+// reports its own not-supported message rather than a generic syntax error.
+func (p *parser) parseAsync() Stmt {
+	at := p.advance() // async
+	switch {
+	case p.isKw("def"):
+		d := p.parseDef().(*FuncDef)
+		d.Async = true
+		return d
+	case p.isKw("for"):
+		p.errf(at.pos, "async for is not supported yet")
+	case p.isKw("with"):
+		p.errf(at.pos, "async with is not supported yet")
+	}
+	p.errf(at.pos, "invalid syntax")
+	return nil
 }
 
 // parseClass parses `class Name(bases): suite`. The base list is the
@@ -1452,11 +1478,25 @@ func (p *parser) parseFactor() Expr {
 // parsePower parses ** right-associatively; the right side re-enters factor
 // so 2**-1 is legal.
 func (p *parser) parsePower() Expr {
-	e := p.parsePostfix()
+	e := p.parseAwaitPrimary()
 	if p.eatOp("**") {
 		return &BinOp{Pos_: e.Span(), Left: e, Op: BinPow, Right: p.parseFactor()}
 	}
 	return e
+}
+
+// parseAwaitPrimary parses the await_primary grammar rule, an optional `await`
+// in front of a primary. await binds tighter than ** so `await a ** b` is
+// `(await a) ** b`, and it wraps the whole trailer chain so `await f().x` awaits
+// the attribute. Whether the enclosing function is async is checked later, at
+// lowering, matching CPython where `await` is always a keyword and the misuse is
+// a compile-time error rather than a parse error.
+func (p *parser) parseAwaitPrimary() Expr {
+	if p.isKw("await") {
+		t := p.advance()
+		return &Await{Pos_: t.pos, X: p.parsePostfix()}
+	}
+	return p.parsePostfix()
 }
 
 func (p *parser) parsePostfix() Expr {
@@ -1678,7 +1718,9 @@ func (p *parser) parseAtom() Expr {
 			// parenthesized forms are handled before descending here.
 			p.errf(t.pos, "invalid syntax")
 		case "await":
-			p.errf(t.pos, "await is not supported yet")
+			// await reaches the atom parser only where the grammar forbids it,
+			// like `lambda: await x`; parseAwaitPrimary owns the valid position.
+			p.errf(t.pos, "invalid syntax")
 		default:
 			p.errf(t.pos, "invalid syntax")
 		}
@@ -2054,6 +2096,8 @@ func walkNamed(e Expr, fn func(*NamedExpr)) {
 		walkNamed(e.Then, fn)
 		walkNamed(e.Else, fn)
 	case *Starred:
+		walkNamed(e.X, fn)
+	case *Await:
 		walkNamed(e.X, fn)
 	case *Lambda:
 		for _, pr := range e.Params {

@@ -38,6 +38,7 @@ type genEvent struct {
 type generatorObject struct {
 	qual    string
 	body    func(Yielder) (Object, error)
+	isCoro  bool // true for a coroutine: reports "coroutine", reprs and awaits as one
 	started bool
 	done    bool
 	running bool
@@ -51,12 +52,49 @@ type generatorObject struct {
 	excSeg []*Exception
 }
 
-func (*generatorObject) TypeName() string { return "generator" }
+func (g *generatorObject) TypeName() string {
+	if g.isCoro {
+		return "coroutine"
+	}
+	return "generator"
+}
 
 // NewGenerator wraps a lowered generator body as a generator object. qual is
 // the function's __qualname__, used only for repr.
 func NewGenerator(qual string, body func(Yielder) (Object, error)) Object {
 	return &generatorObject{qual: qual, body: body, ret: None}
+}
+
+// NewCoroutine wraps a lowered async def body as a coroutine object. A coroutine
+// runs on the same frame as a generator, so calling an async def returns one of
+// these; it differs only in type name, repr, that it is not iterable, and that
+// await drives it. Real suspension against an event loop is a later milestone;
+// a coroutine that never awaits runs to completion on the first send(None).
+func NewCoroutine(qual string, body func(Yielder) (Object, error)) Object {
+	return &generatorObject{qual: qual, body: body, ret: None, isCoro: true}
+}
+
+// Await turns an await operand into the object to delegate to, CPython's
+// GET_AWAITABLE. A coroutine is awaitable as itself, so the delegating YieldFrom
+// drives it directly. Any other object must supply __await__ returning an
+// iterator; a plain generator or a value with neither is the TypeError CPython
+// raises.
+func Await(o Object) (Object, error) {
+	if g, ok := o.(*generatorObject); ok && g.isCoro {
+		return g, nil
+	}
+	aw, err := LoadAttr(o, "__await__")
+	if err != nil {
+		if isAttrError(err) {
+			return nil, Raise(TypeError, "'%s' object can't be awaited", o.TypeName())
+		}
+		return nil, err
+	}
+	it, err := Call(aw, nil)
+	if err != nil {
+		return nil, err
+	}
+	return it, nil
 }
 
 // start launches the body goroutine, which blocks until the first resume so the
@@ -192,8 +230,15 @@ func (g *generatorObject) step(sig genSignal) (val, ret Object, done bool, err e
 	return ev.val, nil, false, nil
 }
 
-// Iterate makes a generator its own iterator, so iter(g) is g.
-func (g *generatorObject) Iterate() (Iterator, error) { return g, nil }
+// Iterate makes a generator its own iterator, so iter(g) is g. A coroutine is
+// not iterable: iter(coro) is the TypeError CPython raises, since a coroutine is
+// driven by await, not by the iterator protocol.
+func (g *generatorObject) Iterate() (Iterator, error) {
+	if g.isCoro {
+		return nil, Raise(TypeError, "'coroutine' object is not iterable")
+	}
+	return g, nil
+}
 
 // Next advances the generator for the iterator protocol: a for loop or list()
 // sees ordinary exhaustion when it finishes, and the carried return value stays

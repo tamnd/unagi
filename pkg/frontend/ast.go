@@ -173,6 +173,7 @@ type FuncDef struct {
 	Params     []Param
 	Body       []Stmt
 	Decorators []Expr
+	Async      bool
 }
 
 // ClassDef is `class Name(bases): body`. Bases holds the base-class
@@ -535,6 +536,14 @@ type UnaryOp struct {
 	X    Expr
 }
 
+// Await is `await X`, valid only inside an async function. X is the awaitable
+// primary; PEP 492 makes await bind to a primary with its trailers, so
+// `await a.b()` awaits the call result.
+type Await struct {
+	Pos_ Pos
+	X    Expr
+}
+
 // BoolKind selects and/or.
 type BoolKind int
 
@@ -745,6 +754,7 @@ func (e *SliceExpr) Span() Pos   { return e.Pos_ }
 func (e *IfExp) Span() Pos       { return e.Pos_ }
 func (e *NamedExpr) Span() Pos   { return e.Pos_ }
 func (e *Starred) Span() Pos     { return e.Pos_ }
+func (e *Await) Span() Pos       { return e.Pos_ }
 func (e *Lambda) Span() Pos      { return e.Pos_ }
 func (e *FStr) Span() Pos        { return e.Pos_ }
 
@@ -773,6 +783,7 @@ func (*SliceExpr) expr()   {}
 func (*IfExp) expr()       {}
 func (*NamedExpr) expr()   {}
 func (*Starred) expr()     {}
+func (*Await) expr()       {}
 func (*Lambda) expr()      {}
 func (*FStr) expr()        {}
 

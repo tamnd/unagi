@@ -299,6 +299,8 @@ func boundNames(body []Stmt, params []Param) map[string]bool {
 			walrus(e.Else)
 		case *Starred:
 			walrus(e.X)
+		case *Await:
+			walrus(e.X)
 		case *Yield:
 			walrus(e.Value)
 		case *Comp:
@@ -513,6 +515,8 @@ func (c *globalScope) use(e Expr) {
 		c.use(e.Else)
 	case *Starred:
 		c.use(e.X)
+	case *Await:
+		c.use(e.X)
 	case *Yield:
 		c.use(e.Value)
 	case *FStr:
@@ -623,6 +627,8 @@ func (c *globalScope) bindOnly(e Expr) {
 		c.bindOnly(e.Then)
 		c.bindOnly(e.Else)
 	case *Starred:
+		c.bindOnly(e.X)
+	case *Await:
 		c.bindOnly(e.X)
 	case *Yield:
 		c.bindOnly(e.Value)

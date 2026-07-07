@@ -327,7 +327,11 @@ func reprCore(o Object, strict bool) (string, error) {
 	case *superObject:
 		return superRepr(x), nil
 	case *generatorObject:
-		return fmt.Sprintf("<generator object %s at %p>", x.qual, x), nil
+		kind := "generator"
+		if x.isCoro {
+			kind = "coroutine"
+		}
+		return fmt.Sprintf("<%s object %s at %p>", kind, x.qual, x), nil
 	}
 	return fmt.Sprintf("<%s object>", o.TypeName()), nil
 }

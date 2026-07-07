@@ -56,6 +56,12 @@ type fnCtx struct {
 	// context is not a generator, so a yield there is the "'yield' outside
 	// function" error CPython raises at module or class scope.
 	genYielder string
+	// inAsync is set only while an async def body lowers. An await expression is
+	// legal only when it is true; anywhere else await lowers to the "'await'
+	// outside async function" error CPython raises. A coroutine reuses the
+	// generator frame, so genYielder is set alongside it and await lowers to a
+	// YieldFrom on that yielder.
+	inAsync bool
 	// classBld is the Go identifier of the ClassBuilder the current class body
 	// writes through, set only while a class body's own statements lower (not
 	// its method bodies, which lower in a fresh context). A name bound in the
@@ -262,8 +268,17 @@ func (e *emitter) emitMethodDecl(d *frontend.FuncDef, declName, coName, qual, cl
 }
 
 func (e *emitter) fillFuncDecl(f *fnCtx, d *frontend.FuncDef, declName string) (*ast.FuncDecl, error) {
+	if d.Async {
+		if hasYield(d.Body) {
+			// An async def that also yields is an async generator, a distinct
+			// object type with its own protocol; it is a later milestone.
+			return nil, f.e.errf(d.Span(), "async generators are not supported yet")
+		}
+		f.inAsync = true
+		return e.fillFrameDecl(f, d, declName, "NewCoroutine")
+	}
 	if hasYield(d.Body) {
-		return e.fillGeneratorDecl(f, d, declName)
+		return e.fillFrameDecl(f, d, declName, "NewGenerator")
 	}
 	params := &ast.FieldList{}
 	for _, p := range d.Params {
@@ -377,6 +392,8 @@ func collectAssigned(body []frontend.Stmt, out map[string]bool) {
 			walkExpr(e.Then)
 			walkExpr(e.Else)
 		case *frontend.Starred:
+			walkExpr(e.X)
+		case *frontend.Await:
 			walkExpr(e.X)
 		case *frontend.Lambda:
 			// A lambda is its own scope: a walrus in the body binds there.
