@@ -148,6 +148,16 @@ func initFunctools(m *objects.Module) error {
 		return err
 	}
 
+	// total_ordering(cls): fill in the ordering methods a class leaves out,
+	// deriving them from the one it defines. A class with no ordering operation
+	// is the ValueError.
+	totalOrdering := objects.NewFunc("total_ordering", 1, func(a []objects.Object) (objects.Object, error) {
+		return objects.TotalOrdering(a[0])
+	})
+	if err := set("total_ordering", totalOrdering); err != nil {
+		return err
+	}
+
 	return nil
 }
 
