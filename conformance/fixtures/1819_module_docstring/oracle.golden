@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+main: "The entry script's own docstring."
+withdoc: 'A module docstring.'
+nodoc: None
+reassign: 'rebound'
+assignonly: 'assigned without a leading literal'
+pkgdoc: 'A package docstring.'
+selfread: seen from inside
+main after rebind: 'changed at runtime'
+== exception:
+== stderr:

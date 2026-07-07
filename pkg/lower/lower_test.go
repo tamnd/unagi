@@ -46,13 +46,30 @@ func TestHelloLowering(t *testing.T) {
 	}
 }
 
-func TestEmptyModuleSkipsObjectsImport(t *testing.T) {
+// Every module sets __doc__ before its body runs, None when there is no
+// docstring, so even an empty module materializes it and references objects.
+func TestEmptyModuleSetsDocNone(t *testing.T) {
 	src, err := Module(&frontend.Module{}, "empty.py", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(src), "pkg/objects") {
-		t.Errorf("empty module should not import pkg/objects:\n%s", src)
+	if !strings.Contains(string(src), "u___doc__ = objects.None") {
+		t.Errorf("empty module should set __doc__ to None:\n%s", src)
+	}
+}
+
+// A leading bare string literal is the module docstring: it becomes the
+// __doc__ value rather than a discarded expression statement.
+func TestModuleDocstring(t *testing.T) {
+	mod := &frontend.Module{Body: []frontend.Stmt{
+		&frontend.ExprStmt{X: &frontend.StrLit{Val: "the doc"}},
+	}}
+	src, err := Module(mod, "doc.py", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), `u___doc__ = objects.NewStr("the doc")`) {
+		t.Errorf("docstring should bind __doc__:\n%s", src)
 	}
 }
 

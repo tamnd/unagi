@@ -30,6 +30,10 @@ func NewModule(name, file string) *Module {
 	m := &Module{name: name, file: file, slots: map[string]*Object{}, extra: map[string]Object{}}
 	m.setExtra("__name__", NewStr(name))
 	m.setExtra("__file__", NewStr(file))
+	// __doc__ starts None, CPython's default for a module with no docstring.
+	// A module with a body overwrites the slot the moment its synthetic
+	// __doc__ assignment runs; a bodyless namespace package keeps this None.
+	m.setExtra("__doc__", None)
 	return m
 }
 
