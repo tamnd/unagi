@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+42
+50
+15
+3
+hi
+never is unbound
+== exception:
+== stderr:
