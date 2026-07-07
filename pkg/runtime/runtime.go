@@ -105,6 +105,9 @@ func Range(args ...objects.Object) (objects.Object, error) {
 	}
 	vals := make([]int64, len(args))
 	for i, a := range args {
+		if bv, ok := objects.BuiltinValue(a); ok {
+			a = bv
+		}
 		v, ok := objects.AsInt(a)
 		if !ok {
 			// CPython handles range(2**100); this runtime keeps range on
@@ -162,6 +165,10 @@ func ReprOf(o objects.Object) (objects.Object, error) {
 
 // IntOf implements int(o) for str, float, bool and int arguments.
 func IntOf(o objects.Object) (objects.Object, error) {
+	if v, ok := objects.BuiltinValue(o); ok {
+		// int(x) on an int subclass reads its payload and returns a plain int.
+		return IntOf(v)
+	}
 	if s, ok := objects.AsStr(o); ok {
 		return intFromStr(o, s, 10, 10)
 	}
@@ -220,6 +227,9 @@ func IntOfBase(x, base objects.Object) (objects.Object, error) {
 
 // FloatOf implements float(o) for str, int, bool and float arguments.
 func FloatOf(o objects.Object) (objects.Object, error) {
+	if v, ok := objects.BuiltinValue(o); ok {
+		return FloatOf(v)
+	}
 	if s, ok := objects.AsStr(o); ok {
 		trimmed := strings.TrimFunc(s, unicode.IsSpace)
 		// Python accepts any Unicode decimal digit: float("１２") is 12.0.
@@ -295,6 +305,13 @@ func BoolOf(o objects.Object) (objects.Object, error) {
 
 // Abs implements abs(o) for int, bool and float arguments.
 func Abs(o objects.Object) (objects.Object, error) {
+	if r, ok, err := objects.InstanceOverride(o, "__abs__"); ok || err != nil {
+		return r, err
+	}
+	if v, ok := objects.BuiltinValue(o); ok {
+		// abs(x) on an int subclass with no __abs__ override acts on its payload.
+		return Abs(v)
+	}
 	if objects.IsBigInt(o) {
 		b, _ := objects.AsBigInt(o)
 		if b.Sign() < 0 {

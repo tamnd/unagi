@@ -82,6 +82,21 @@ func richSlot(x Object, op CmpOp, other Object) (res Object, ok bool, err error)
 		}
 		return res, true, nil
 	}
+	// A value subclass with no comparison override compares as its payload, so an
+	// int subclass member equals and orders against ints the way its value does.
+	// The other operand unwraps too when it is a value subclass, leaving two
+	// builtins for the fast comparison path.
+	if v, ok := builtinUnwrap(x); ok {
+		ov := other
+		if uv, ok := builtinUnwrap(other); ok {
+			ov = uv
+		}
+		r, err := Compare(op, v, ov)
+		if err != nil {
+			return nil, false, err
+		}
+		return r, true, nil
+	}
 	if op == OpNe {
 		// object.__ne__ negates __eq__ unless __eq__ itself declines.
 		eq, hasEq, err := instanceSpecial(inst, "__eq__", other)

@@ -173,6 +173,11 @@ func Format(o Object, spec string) (Object, error) {
 			}
 			return res, nil
 		}
+		// A value subclass with no __format__ override formats as its payload, so
+		// an int subclass member honors an integer format spec.
+		if v, ok := builtinUnwrap(inst); ok {
+			return Format(v, spec)
+		}
 	}
 	// An empty spec is str(o) for every type. Probed on 3.14:
 	// format(True, '') is 'True' and format(None, '') is 'None'. The

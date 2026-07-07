@@ -168,6 +168,14 @@ func hashKey(o Object) (string, error) {
 		if eqDefined && hasVal {
 			return "H" + strconv.FormatInt(val, 10), nil
 		}
+		// A value subclass with no user __eq__ inherits the builtin's equality
+		// and hash, so it keys by its payload and collides with the equal plain
+		// int the way MyInt(1) and 1 share a dict slot in CPython.
+		if !eqDefined {
+			if bv, ok := builtinUnwrap(x); ok {
+				return hashKey(bv)
+			}
+		}
 		return fmt.Sprintf("p%p", x), nil
 	}
 	return "", Raise(TypeError, "unhashable type: '%s'", o.TypeName())

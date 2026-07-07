@@ -87,6 +87,11 @@ func PyHash(o Object) (int64, error) {
 		if hasVal {
 			return val, nil
 		}
+		if v, ok := builtinUnwrap(x); ok {
+			// A value subclass with no __hash__ override hashes as its payload, so
+			// hash(MyInt(5)) equals hash(5) and keys the same dict slot.
+			return PyHash(v)
+		}
 		return pyHashPointer(o), nil
 	}
 	return 0, Raise(TypeError, "unhashable type: '%s'", o.TypeName())

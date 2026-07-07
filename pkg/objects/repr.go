@@ -349,6 +349,11 @@ func reprCore(o Object, strict bool) (string, error) {
 			if d, ok := dictBacked(x); ok {
 				return dictBodyRepr(d, strict)
 			}
+			// A value subclass with no __repr__ override reprs as its payload, so
+			// an int subclass member prints as its int value.
+			if v, ok := builtinUnwrap(x); ok {
+				return reprCore(v, strict)
+			}
 			return instanceRepr(x), nil
 		}
 		s, ok := res.(*strObject)

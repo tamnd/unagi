@@ -100,9 +100,14 @@ type classObject struct {
 	// builtinBase names the builtin type this class derives from, empty for a
 	// plain object-rooted class. A dict base makes instances dict-backed: the
 	// mapping protocol and dict methods route to the instance's dictData store
-	// unless the class overrides them. It is inherited, so a subclass of a dict
-	// subclass stays dict-backed.
+	// unless the class overrides them. An int base makes instances int-backed:
+	// numeric, comparison, hash, conversion, and format route to the payload the
+	// same way. It is inherited, so a subclass of such a subclass keeps the base.
 	builtinBase string
+	// builtinBaseFn is the builtin type object the base named, kept so the value
+	// subclasses (int, str) can construct their payload through it, reusing the
+	// builtin's own conversion. It is nil for a dict base and a plain class.
+	builtinBaseFn *funcObject
 }
 
 func (*classObject) TypeName() string { return "type" }
@@ -123,6 +128,11 @@ type instanceObject struct {
 	// self[key] and the inherited dict methods read and write. It is nil for an
 	// ordinary instance whose class has no dict base.
 	dictData *dictObject
+	// builtinData is the immutable payload of a value subclass instance: the
+	// intObject an int subclass wraps or the strObject a str subclass wraps, set
+	// once at construction. It is nil for an instance whose class has no such
+	// base. The operators unwrap to it after an override lookup misses.
+	builtinData Object
 }
 
 func (o *instanceObject) TypeName() string { return o.cls.name }
@@ -191,8 +201,13 @@ func newClassCore(meta *classObject, name, qual string, bases []Object, names []
 		}
 		if name, ok := builtinBaseName(b); ok {
 			// A builtin type base like dict is not a classObject, so it never
-			// joins the MRO; it is recorded as the layout the instances take.
+			// joins the MRO; it is recorded as the layout the instances take. A
+			// value base (int, str) keeps its type object too, so construction
+			// can build the payload through the builtin's own conversion.
 			c.builtinBase = name
+			if fn, ok := b.(*funcObject); ok {
+				c.builtinBaseFn = fn
+			}
 			continue
 		}
 		bc, ok := asBaseClass(b)
@@ -208,6 +223,9 @@ func newClassCore(meta *classObject, name, qual string, bases []Object, names []
 		}
 		if bc.builtinBase != "" {
 			c.builtinBase = bc.builtinBase
+			if bc.builtinBaseFn != nil {
+				c.builtinBaseFn = bc.builtinBaseFn
+			}
 		}
 		c.bases = append(c.bases, bc)
 	}
@@ -930,8 +948,19 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 		return e, nil
 	}
 	inst := &instanceObject{cls: c, attrs: newAttrs()}
-	if c.builtinBase == "dict" {
+	switch c.builtinBase {
+	case "dict":
 		inst.dictData = &dictObject{index: map[string]int{}}
+	case "int":
+		// A value subclass builds its immutable payload through the builtin base's
+		// own conversion, the way int.__new__ sets the value from the constructor
+		// arguments before __init__ runs. The keyword arguments belong to a user
+		// __init__, so only the positional ones reach the value.
+		v, err := Call(c.builtinBaseFn, pos)
+		if err != nil {
+			return nil, err
+		}
+		inst.builtinData = v
 	}
 	init, ok := c.lookup("__init__")
 	if !ok {
@@ -941,6 +970,11 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 			if err := dictInit(inst.dictData, pos, kwNames, kwVals); err != nil {
 				return nil, err
 			}
+			return inst, nil
+		}
+		if inst.builtinData != nil {
+			// A value subclass with no __init__ override: the payload was set from
+			// the arguments and the inherited __init__ ignores them.
 			return inst, nil
 		}
 		if len(pos) > 0 || len(kwNames) > 0 {
