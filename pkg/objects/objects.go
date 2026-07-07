@@ -473,6 +473,19 @@ func IsDict(o Object) bool {
 	return ok
 }
 
+// IsDictBackedInstance reports whether o is an instance of a dict subclass with
+// an allocated mapping store, so dict(o) and other mapping copies treat it as a
+// mapping to read by keys rather than an iterable of pairs, the way CPython
+// copies a dict subclass through PyDict_Merge.
+func IsDictBackedInstance(o Object) bool {
+	inst, ok := o.(*instanceObject)
+	if !ok {
+		return false
+	}
+	_, backed := dictBacked(inst)
+	return backed
+}
+
 // AsInt extracts an int64-sized integer value from an int or bool
 // object. Spilled big ints return false; callers that must handle any
 // magnitude go through AsBigInt.

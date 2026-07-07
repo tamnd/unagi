@@ -560,10 +560,11 @@ func DictOf(args []objects.Object) (objects.Object, error) {
 			"dict expected at most 1 argument, got %d", len(args))
 	}
 	src := args[0]
-	if objects.IsDict(src) {
+	if objects.IsDict(src) || objects.IsDictBackedInstance(src) {
 		// Copy preserving insertion order: iteration yields keys. A dict
 		// subclass such as defaultdict copies through the same mapping path,
-		// producing a plain dict.
+		// producing a plain dict. A user dict subclass whose instances carry a
+		// mapping store copies the same way, by its keys.
 		keys, err := materialize(src)
 		if err != nil {
 			return nil, err
