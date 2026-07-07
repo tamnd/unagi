@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+mappingproxy
+1 True 2
+['a', 'b'] [('a', 1), ('b', 2)]
+1 -1
+3 3
+'mappingproxy' object does not support item assignment
+'mappingproxy' object does not support item deletion
+True
+True
+True
+True
+True
+<class 'function'>
+<class 'generator'>
+<class 'mappingproxy'>
+True
+D True
+cannot create 'generator' instances
+mappingproxy() argument must be a mapping, not list
+== exception:
+== stderr:

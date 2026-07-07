@@ -45,6 +45,8 @@ func Truth(o Object) bool {
 		return len(x.d.entries) > 0
 	case *dictItemsObject:
 		return len(x.d.entries) > 0
+	case *mappingProxyObject:
+		return len(x.d.entries) > 0
 	case *complexObject:
 		return x.re != 0 || x.im != 0
 	case *Exception:
@@ -986,6 +988,8 @@ func Contains(container, item Object) (Object, error) {
 		}
 		_, ok := x.index[k]
 		return NewBool(ok), nil
+	case *mappingProxyObject:
+		return Contains(x.d, item)
 	case *setObject:
 		return setContains(&x.setCore, item)
 	case *frozensetObject:
@@ -1149,6 +1153,8 @@ func GetItem(o, key Object) (Object, error) {
 		return x.elts[j], nil
 	case *dictObject:
 		return dictSubscript(x, key)
+	case *mappingProxyObject:
+		return dictSubscript(x.d, key)
 	case *matchObject:
 		return matchGetItem(x, key)
 	case *rangeObject:
@@ -1276,6 +1282,8 @@ func Len(o Object) (int, error) {
 		return len(x.d.entries), nil
 	case *dictItemsObject:
 		return len(x.d.entries), nil
+	case *mappingProxyObject:
+		return len(x.d.entries), nil
 	case *instanceObject:
 		res, defined, err := instanceSpecial(x, "__len__")
 		if err != nil {
@@ -1370,6 +1378,8 @@ func Iter(o Object) (Iterator, error) {
 		return &sliceIter{elts: x.d.valSlice()}, nil
 	case *dictItemsObject:
 		return &sliceIter{elts: x.d.itemSlice()}, nil
+	case *mappingProxyObject:
+		return &sliceIter{elts: x.d.keySlice()}, nil
 	case Iterable:
 		return x.Iterate()
 	case *instanceObject:

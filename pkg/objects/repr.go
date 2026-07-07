@@ -246,6 +246,12 @@ func reprCore(o Object, strict bool) (string, error) {
 			return orderedDictRepr(x, strict)
 		}
 		return dictBodyRepr(x, strict)
+	case *mappingProxyObject:
+		body, err := dictBodyRepr(x.d, strict)
+		if err != nil {
+			return "", err
+		}
+		return "mappingproxy(" + body + ")", nil
 	case *setObject:
 		// Probed: repr(set()) is "set()", repr({1,2}) is "{1, 2}".
 		if len(x.elts) == 0 {

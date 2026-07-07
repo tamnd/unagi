@@ -8,6 +8,7 @@ package build
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -220,6 +221,10 @@ func collectModules(pyPath string, entry *frontend.Module) ([]pymod, map[string]
 		return nil, nil, err
 	}
 	stars := map[string]lower.StarExports{}
+	// A built-in module has no source to read its exports from, so seed the
+	// star surface for the ones a floor module star-imports, like _types
+	// behind types.
+	maps.Copy(stars, lower.BuiltinStarExports)
 	for _, p := range found {
 		if p.ns {
 			continue
