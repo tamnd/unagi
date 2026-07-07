@@ -91,6 +91,28 @@ func (m *Module) Get(name string) (Object, bool) {
 	return nil, false
 }
 
+// GlobalsDict returns the module namespace as a fresh dict, the value Python's
+// globals() builtin gives. unagi keeps module globals in live Go variables
+// rather than one dict object, so this is a snapshot of the names bound when it
+// is called: reads, iteration, and membership match CPython, and
+// type(globals()) is dict holds because the result is an ordinary dict. The one
+// behavior that does not carry over is rebinding a global by writing back to
+// the returned dict. Order is the identity attributes first, then the
+// module-scope names in the order they were bound; a name held in both a slot
+// and the overflow store keeps its live slot value.
+func (m *Module) GlobalsDict() Object {
+	d := &dictObject{index: map[string]int{}}
+	for _, n := range m.extraOrder {
+		_ = d.set(NewStr(n), m.extra[n])
+	}
+	for _, n := range m.slotOrder {
+		if slot := m.slots[n]; slot != nil && *slot != nil {
+			_ = d.set(NewStr(n), *slot)
+		}
+	}
+	return d
+}
+
 // missingAttr is the AttributeError for a read of an unbound module name. A
 // module still executing its body reports the consider-renaming hint, the
 // message CPython 3.14 gives when the unfinished module is a script-adjacent
