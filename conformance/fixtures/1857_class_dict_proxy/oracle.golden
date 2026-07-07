@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+mappingproxy
+1 two
+True
+False
+1 -1
+1
+1 two
+['method', 'x', 'y']
+TypeError: 'mappingproxy' object does not support item assignment
+True False
+3
+== exception:
+== stderr:
