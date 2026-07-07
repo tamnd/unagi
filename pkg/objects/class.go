@@ -699,6 +699,30 @@ func init() {
 			"__reduce_ex__": objectDunders["__reduce_ex__"],
 		},
 	}
+
+	// The string dunders are instance-method wrappers: read off an instance they
+	// bind it as self, so a class that reassigns one to another slot (Enum sets
+	// __str__ = int.__repr__) still calls it with self. __new__ stays a
+	// staticmethod, so it is left unbound.
+	for _, name := range []string{"__repr__", "__str__", "__format__", "__reduce_ex__"} {
+		markSelfBound(objectDunders[name])
+	}
+	for _, tbl := range builtinTypeDunders {
+		for name, d := range tbl {
+			if name == "__new__" {
+				continue
+			}
+			markSelfBound(d)
+		}
+	}
+}
+
+// markSelfBound flags a builtin funcObject as an instance-method wrapper so a
+// read off an instance binds self.
+func markSelfBound(o Object) {
+	if f, ok := o.(*funcObject); ok {
+		f.selfBound = true
+	}
 }
 
 // builtinNewDunder is int.__new__ and str.__new__ read off the type object: a

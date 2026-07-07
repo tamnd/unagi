@@ -201,6 +201,12 @@ type funcObject struct {
 	// carries chain.from_iterable. It stays nil for the ordinary builtins, which
 	// expose no attributes beyond __name__/__qualname__.
 	attrs map[string]Object
+	// selfBound marks a builtin that is an instance-method wrapper, like the
+	// string dunder int.__repr__: read off an instance it binds that instance as
+	// self, the way a CPython wrapper_descriptor does, so a class reassigning it
+	// to another slot still calls it with self. A plain builtin leaves this false
+	// and reads back unbound.
+	selfBound bool
 }
 
 func (*funcObject) TypeName() string { return "function" }
