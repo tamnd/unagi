@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+boom
+unbound
+False
+reraised
+unbound
+False
+== exception:
+== stderr:

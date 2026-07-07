@@ -175,6 +175,26 @@ func (b *ClassBuilder) Load(name string) (Object, bool, error) {
 	return v, true, nil
 }
 
+// Delete removes a name the class body bound, the STORE_NAME namespace's
+// DELETE_NAME. An except handler's as-name is bound on entry and deleted here
+// on exit, so a later read of it in the body falls through and raises
+// NameError. A missing key is a NameError the caller surfaces at the delete
+// site; the default dict namespace reports it directly, and a custom
+// __prepare__ mapping reports whatever its __delitem__ raises.
+func (b *ClassBuilder) Delete(name string) error {
+	if d, ok := b.ns.(*dictObject); ok {
+		_, found, err := d.delete(NewStr(name))
+		if err != nil {
+			return err
+		}
+		if !found {
+			return Raise(NameError, "name '%s' is not defined", name)
+		}
+		return nil
+	}
+	return DelItem(b.ns, NewStr(name))
+}
+
 // Finish writes the trailing synthesized member and runs the metaclass call.
 // staticAttrs are the names the class's methods assign on self, already
 // sorted; CPython's compiler synthesizes them as __static_attributes__ after

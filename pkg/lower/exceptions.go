@@ -282,7 +282,11 @@ func (f *fnCtx) matcherValues(t frontend.Expr) ([]ast.Expr, error) {
 func (f *fnCtx) handlerBody(h *frontend.ExceptHandler, tExc string) (*ast.BlockStmt, error) {
 	f.push()
 	if h.Name != "" {
-		f.add(set(ident(mangle(h.Name)), callExpr(sel("runtime", "ExcObj"), ident(tExc))))
+		if f.classBld != "" {
+			f.fallibleVoid(sel(f.classBld, "Set"), strLit(h.Name), callExpr(sel("runtime", "ExcObj"), ident(tExc)))
+		} else {
+			f.add(set(ident(mangle(h.Name)), callExpr(sel("runtime", "ExcObj"), ident(tExc))))
+		}
 	}
 	f.add(exprStmt(callExpr(sel("runtime", "PushHandled"), ident(tExc))))
 	call, err := f.closureCall(h.Body)
@@ -294,8 +298,16 @@ func (f *fnCtx) handlerBody(h *frontend.ExceptHandler, tExc string) (*ast.BlockS
 	f.add(define(ident(tH), call))
 	f.add(exprStmt(callExpr(sel("runtime", "PopHandled"))))
 	if h.Name != "" {
-		// CPython unbinds the as-name when the handler exits.
-		f.add(set(ident(mangle(h.Name)), ident("nil")))
+		// CPython unbinds the as-name when the handler exits, compiling it as
+		// `name = None; del name` so the delete always has a binding to drop even
+		// when the body reassigned or deleted it. A class body threads that unbind
+		// through the namespace; a function body clears the Go local.
+		if f.classBld != "" {
+			f.fallibleVoid(sel(f.classBld, "Set"), strLit(h.Name), f.e.obj("None"))
+			f.fallibleVoid(sel(f.classBld, "Delete"), strLit(h.Name))
+		} else {
+			f.add(set(ident(mangle(h.Name)), ident("nil")))
+		}
 	}
 	f.add(set(ident(tExc), callExpr(sel("runtime", "ChainContext"), ident(tH), ident(tExc))))
 	return f.pop(), nil
