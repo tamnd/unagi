@@ -149,3 +149,159 @@ func TestPartialErrors(t *testing.T) {
 		t.Fatalf("non-callable error = %v", err)
 	}
 }
+
+// counter returns a single-argument function that squares its input and records
+// each call, so a test can watch the cache stop calls from reaching it.
+func counter(seen *[]objects.Object) objects.Object {
+	return objects.NewFunc("sq", 1, func(a []objects.Object) (objects.Object, error) {
+		*seen = append(*seen, a[0])
+		return objects.Mul(a[0], a[0])
+	})
+}
+
+// prime calls a wrapper for its caching side effect, failing the test if the
+// call itself errors.
+func prime(t *testing.T, wrapper objects.Object, n int64) {
+	t.Helper()
+	if _, err := objects.Call(wrapper, []objects.Object{objects.NewInt(n)}); err != nil {
+		t.Fatalf("call(%d): %v", n, err)
+	}
+}
+
+// info reads a field off the CacheInfo namedtuple cache_info returns.
+func info(t *testing.T, wrapper objects.Object, field string) string {
+	t.Helper()
+	ci, err := objects.CallMethod(wrapper, "cache_info", nil)
+	if err != nil {
+		t.Fatalf("cache_info: %v", err)
+	}
+	v, err := objects.LoadAttr(ci, field)
+	if err != nil {
+		t.Fatalf("cache_info.%s: %v", field, err)
+	}
+	return objects.Repr(v)
+}
+
+func TestLRUCacheHitsMisses(t *testing.T) {
+	var seen []objects.Object
+	wrap, err := objects.CallKw(ftFn(t, "lru_cache"), nil,
+		[]string{"maxsize"}, []objects.Object{objects.NewInt(2)})
+	if err != nil {
+		t.Fatalf("lru_cache(maxsize=2): %v", err)
+	}
+	sq, err := objects.Call(wrap, []objects.Object{counter(&seen)})
+	if err != nil {
+		t.Fatalf("decorate: %v", err)
+	}
+	for _, n := range []int64{2, 3, 2} {
+		prime(t, sq, n)
+	}
+	if got := info(t, sq, "hits"); got != "1" {
+		t.Fatalf("hits = %s, want 1", got)
+	}
+	if got := info(t, sq, "misses"); got != "2" {
+		t.Fatalf("misses = %s, want 2", got)
+	}
+	if got := info(t, sq, "currsize"); got != "2" {
+		t.Fatalf("currsize = %s, want 2", got)
+	}
+	if len(seen) != 2 {
+		t.Fatalf("underlying calls = %d, want 2", len(seen))
+	}
+}
+
+func TestLRUCacheEviction(t *testing.T) {
+	var seen []objects.Object
+	wrap, _ := objects.CallKw(ftFn(t, "lru_cache"), nil,
+		[]string{"maxsize"}, []objects.Object{objects.NewInt(2)})
+	sq, _ := objects.Call(wrap, []objects.Object{counter(&seen)})
+	// Fill with 2 and 3, touch 2 so 3 is the least recent, then 4 evicts 3.
+	for _, n := range []int64{2, 3, 2, 4, 3} {
+		prime(t, sq, n)
+	}
+	if got := info(t, sq, "misses"); got != "4" {
+		t.Fatalf("misses = %s, want 4 (3 recomputed after eviction)", got)
+	}
+	if got := info(t, sq, "currsize"); got != "2" {
+		t.Fatalf("currsize = %s, want 2", got)
+	}
+}
+
+func TestLRUCacheBareAndClear(t *testing.T) {
+	var seen []objects.Object
+	// Used bare, the first positional is the function and maxsize is 128.
+	sq, err := objects.Call(ftFn(t, "lru_cache"), []objects.Object{counter(&seen)})
+	if err != nil {
+		t.Fatalf("bare lru_cache: %v", err)
+	}
+	prime(t, sq, 5)
+	prime(t, sq, 5)
+	if got := info(t, sq, "maxsize"); got != "128" {
+		t.Fatalf("bare maxsize = %s, want 128", got)
+	}
+	if got := info(t, sq, "hits"); got != "1" {
+		t.Fatalf("hits = %s, want 1", got)
+	}
+	if _, err := objects.CallMethod(sq, "cache_clear", nil); err != nil {
+		t.Fatalf("cache_clear: %v", err)
+	}
+	if got := info(t, sq, "currsize"); got != "0" {
+		t.Fatalf("currsize after clear = %s, want 0", got)
+	}
+	if got := info(t, sq, "hits"); got != "0" {
+		t.Fatalf("hits after clear = %s, want 0", got)
+	}
+}
+
+func TestLRUCacheTyped(t *testing.T) {
+	var seen []objects.Object
+	wrap, _ := objects.CallKw(ftFn(t, "lru_cache"), nil,
+		[]string{"typed"}, []objects.Object{objects.True})
+	f, _ := objects.Call(wrap, []objects.Object{counter(&seen)})
+	// 3 and 3.0 are distinct keys when typed, so both compute; the repeated 3 hits.
+	prime(t, f, 3)
+	if _, err := objects.Call(f, []objects.Object{objects.NewFloat(3.0)}); err != nil {
+		t.Fatalf("call(3.0): %v", err)
+	}
+	prime(t, f, 3)
+	if got := info(t, f, "misses"); got != "2" {
+		t.Fatalf("typed misses = %s, want 2", got)
+	}
+	if got := info(t, f, "hits"); got != "1" {
+		t.Fatalf("typed hits = %s, want 1", got)
+	}
+}
+
+func TestCacheUnbounded(t *testing.T) {
+	var seen []objects.Object
+	f, err := objects.Call(ftFn(t, "cache"), []objects.Object{counter(&seen)})
+	if err != nil {
+		t.Fatalf("cache: %v", err)
+	}
+	prime(t, f, 1)
+	prime(t, f, 1)
+	if got := info(t, f, "maxsize"); got != "None" {
+		t.Fatalf("cache maxsize = %s, want None", got)
+	}
+	if got := info(t, f, "hits"); got != "1" {
+		t.Fatalf("cache hits = %s, want 1", got)
+	}
+}
+
+func TestLRUCacheDisabled(t *testing.T) {
+	var seen []objects.Object
+	wrap, _ := objects.CallKw(ftFn(t, "lru_cache"), nil,
+		[]string{"maxsize"}, []objects.Object{objects.NewInt(0)})
+	f, _ := objects.Call(wrap, []objects.Object{counter(&seen)})
+	prime(t, f, 1)
+	prime(t, f, 1)
+	if got := info(t, f, "misses"); got != "2" {
+		t.Fatalf("disabled misses = %s, want 2", got)
+	}
+	if got := info(t, f, "currsize"); got != "0" {
+		t.Fatalf("disabled currsize = %s, want 0", got)
+	}
+	if len(seen) != 2 {
+		t.Fatalf("disabled underlying calls = %d, want 2", len(seen))
+	}
+}

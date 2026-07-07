@@ -70,6 +70,8 @@ func CallKw(f Object, pos []Object, kwNames []string, kwVals []Object) (Object, 
 		return fn.build.bind(pos, kwNames, kwVals)
 	case *partialObject:
 		return partialCall(fn, pos, kwNames, kwVals)
+	case *lruCacheObject:
+		return lruCall(fn, pos, kwNames, kwVals)
 	case *boundMethod:
 		return fn.fn.bind(append([]Object{fn.self}, pos...), kwNames, kwVals)
 	case *classObject:
