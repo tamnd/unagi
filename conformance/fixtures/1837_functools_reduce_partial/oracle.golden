@@ -1,0 +1,24 @@
+== exit: 0
+== stdout:
+10
+110
+24
+42
+(1, 2, 3)
+True (1,) {'c': 3}
+(1, 2, 9)
+(1, 2, 3)
+(1, 2, 3)
+True (1, 2)
+(1, 9)
+functools.partial(<built-in function len>)
+functools.partial(<built-in function pow>, 2)
+8
+TypeError reduce() of empty iterable with no initial value
+TypeError reduce() takes at least 2 positional arguments (1 given)
+TypeError reduce() takes at most 3 arguments (4 given)
+TypeError the first argument must be callable
+TypeError type 'partial' takes at least one argument
+AttributeError 'functools.partial' object has no attribute 'missing'
+== exception:
+== stderr:

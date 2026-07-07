@@ -391,6 +391,9 @@ func Call(f Object, args []Object) (Object, error) {
 	if m, ok := f.(*boundMethod); ok {
 		return m.fn.bind(append([]Object{m.self}, args...), nil, nil)
 	}
+	if p, ok := f.(*partialObject); ok {
+		return partialCall(p, args, nil, nil)
+	}
 	if c, ok := f.(*classObject); ok {
 		return Instantiate(c, args, nil, nil)
 	}
@@ -437,6 +440,8 @@ func Call(f Object, args []Object) (Object, error) {
 func Callable(f Object) bool {
 	switch x := f.(type) {
 	case *functionObject, *boundMethod, *classObject, *funcObject:
+		return true
+	case *namedTupleType, *partialObject:
 		return true
 	case *quitterObject, *printerObject:
 		return true
