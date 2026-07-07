@@ -1427,6 +1427,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 	switch x := o.(type) {
 	case *instanceObject:
 		return instanceLoadAttr(x, name)
+	case *intObject, *boolObject:
+		return intLoadAttr(o, name)
 	case *Module:
 		return moduleLoadAttr(x, name)
 	case *classObject:
