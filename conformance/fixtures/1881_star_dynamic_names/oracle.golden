@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+{0: 'a', 1: 'b', 2: 'c'}
+kept
+3
+0 1 2
+False
+False
+== exception:
+== stderr:
