@@ -160,6 +160,13 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 			f.e.usedObjects = true
 			return f.e.obj("NotImplemented"), nil
 		}
+		if e.Id == "super" {
+			// super read as a value resolves to its type object, so it can be
+			// stored, passed around, and used as a dict key the way copyreg
+			// registers it. The super() call form keeps its own lowering, which
+			// threads in the calling method's class cell and self.
+			return callExpr(sel("runtime", "BuiltinFn"), strLit("super")), nil
+		}
 		if builtinNames[e.Id] || siteBuiltins[e.Id] {
 			// An unshadowed builtin read as a value resolves to its function
 			// object, so it can be passed around and called later. The site

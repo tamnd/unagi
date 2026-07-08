@@ -636,6 +636,26 @@ func Format(args []objects.Object) (objects.Object, error) {
 	return objects.Format(args[0], spec)
 }
 
+// Super is the super type read as a value: super(type, obj) builds the bound
+// proxy the same way the super() call form does, so a program that stores super
+// in a name or passes it around still gets a working two-argument super. The
+// zero-argument form needs the calling frame the compiler threads into the call
+// site, which a value call has lost, so it raises the RuntimeError CPython does;
+// the one-argument unbound form is not supported yet.
+func Super(args []objects.Object) (objects.Object, error) {
+	switch len(args) {
+	case 0:
+		return nil, objects.Raise(objects.RuntimeError, "super(): no arguments")
+	case 2:
+		return objects.NewSuper(args[0], args[1])
+	case 1:
+		return nil, objects.Raise(objects.TypeError, "super() with a single argument is not supported yet")
+	default:
+		return nil, objects.Raise(objects.TypeError,
+			"super() takes at most 2 arguments (%d given)", len(args))
+	}
+}
+
 func init() {
 	register(map[string]objects.Object{
 		"format":    objects.NewFunc("format", -1, Format),
@@ -652,6 +672,7 @@ func init() {
 		"dict":      objects.NewFunc("dict", -1, DictOf),
 		"set":       objects.NewFunc("set", -1, SetOf),
 		"frozenset": objects.NewFunc("frozenset", -1, FrozensetOf),
+		"super":     objects.NewFunc("super", -1, Super),
 		// The fixed-arity ones validate their own counts because funcObject's
 		// generic wording ("takes 1 positional argument but 2 were given")
 		// differs from the CPython strings probed for these, which the static
