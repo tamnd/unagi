@@ -2,6 +2,7 @@ package partition
 
 import (
 	"github.com/tamnd/unagi/pkg/frontend"
+	"github.com/tamnd/unagi/pkg/ir"
 	"github.com/tamnd/unagi/pkg/types"
 )
 
@@ -55,23 +56,46 @@ type scope struct {
 	qual string
 }
 
-// enter registers a new unit at pos and returns its scope. Every enumerated
-// body is registered with an empty profile, so a unit the walk records no fact
-// against decides boxed on the cost model, the honest M4 verdict for code the
-// typed tier has not yet proven anything about.
+// enter registers a new unit at pos with an empty profile and returns its
+// scope, the front door for a body the typed tier has proven nothing about: with
+// no static work in its profile it decides boxed on the cost model, the honest
+// verdict for such a unit.
 func (d *driver) enter(qual string, pos frontend.Pos) scope {
+	return d.enterProfiled(qual, pos, Profile{})
+}
+
+// enterProfiled registers a new unit carrying a cost profile, the door a body
+// takes once a pass has measured its static work. The profile drives Decide, so
+// a unit with proven unboxed operations and an affordable guard count lands
+// static; one whose guards outweigh its operations still boxes on the cost model.
+func (d *driver) enterProfiled(qual string, pos frontend.Pos, prof Profile) scope {
 	u := Unit{
 		Module: d.module,
 		Name:   qual,
 		Span:   d.span(pos),
 		Offset: offset(pos),
 	}
-	d.p.Add(Input{Unit: u})
+	d.p.Add(Input{Unit: u, Profile: prof})
 	return scope{unit: u, qual: qual}
 }
 
 // child builds the qualified name of a body nested inside sc.
 func (sc scope) child(name string) string { return sc.qual + "." + name }
+
+// funcProfile measures a function's static work by lowering it through the ir
+// bridge. When the bridge lowers the whole body (a proven scalar function), its
+// cost census becomes the unit's profile, so Decide can judge the static form
+// against its boxed twin. When any part of the body falls outside the scalar
+// subset the bridge refuses it, and the empty profile keeps the unit boxed, so a
+// function the tier cannot yet lower is never scored as if it could.
+func funcProfile(fn *frontend.FuncDef) Profile {
+	f, err := ir.LowerFunc(fn)
+	if err != nil {
+		return Profile{}
+	}
+	c := ir.CostOf(f)
+	return Profile{UnboxedOps: c.UnboxedOps, EntryGuards: c.EntryGuards, LoopGuards: c.LoopGuards}
+}
 
 // span converts a frontend position to a report span in this module's file.
 func (d *driver) span(pos frontend.Pos) types.Span {
@@ -165,7 +189,7 @@ func (d *driver) scanStmt(sc scope, s frontend.Stmt) {
 			d.scanExpr(sc, pr.Default)
 		}
 		d.scanExpr(sc, s.Returns)
-		body := d.enter(sc.child(s.Name), s.Pos_)
+		body := d.enterProfiled(sc.child(s.Name), s.Pos_, funcProfile(s))
 		d.scanStmts(body, s.Body)
 	case *frontend.ClassDef:
 		for _, dec := range s.Decorators {
