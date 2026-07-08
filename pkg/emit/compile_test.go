@@ -77,7 +77,9 @@ func main() {
 		t.Fatal(err)
 	}
 
-	cmd := exec.Command("go", "run", ".")
+	// -trimpath keeps the per-run temp path out of the compiled objects so the
+	// build cache stays stable across runs (see pkg/ir/conform_test.go for detail).
+	cmd := exec.Command("go", "run", "-trimpath", ".")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	out, err := cmd.CombinedOutput()
