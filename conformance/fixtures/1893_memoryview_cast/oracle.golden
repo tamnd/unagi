@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+B 1 16 16
+I 4 4
+[1, 258, 65535, 16909060]
+1 16909060
+True False
+[1, 258, 65535, 16909060]
+[-1, -2, 0, 1]
+[-1, 256]
+B 1 16
+True
+badlen: memoryview: length is not a multiple of itemsize
+nonbyte: memoryview: cannot cast between two non-byte formats
+== exception:
+== stderr:
