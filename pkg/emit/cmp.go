@@ -142,7 +142,51 @@ func (b *Builder) lowerBoolBin(op token.Token, l, r Expr) (ast.Expr, Repr, error
 	if lr.Scalar != SBool || rr.Scalar != SBool {
 		return nil, Repr{}, fmt.Errorf("emit: boolean connective needs bool operands, got %s and %s", lr.Scalar, rr.Scalar)
 	}
+	// The right operand is evaluated only when the left does not decide the result,
+	// but any guard it carries hoists to the enclosing statement and would run even
+	// when the connective short-circuits. A raising guard (a division's zero check)
+	// would then raise where Python never evaluates the operand, a wrong answer, so
+	// the unit stays boxed. An overflow guard is exempt: it deopts to the boxed tier,
+	// which recomputes the whole connective with the correct short-circuit.
+	if HasRaisingGuard(r) {
+		return nil, Repr{}, fmt.Errorf("emit: an %s operand that can raise cannot short-circuit safely in the static tier", connName(op))
+	}
 	return binary(op, parenConn(lx), parenConn(rx)), boolRepr(), nil
+}
+
+// connName spells a connective token for a diagnostic.
+func connName(op token.Token) string {
+	if op == token.LOR {
+		return "or"
+	}
+	return "and"
+}
+
+// HasRaisingGuard reports whether an expression subtree contains an operation that
+// raises a semantic exception when it runs: today only true division, which raises
+// ZeroDivisionError on a zero divisor. A connective must not statically lower such
+// an operand into a short-circuit position, because the guard hoists to the
+// statement boundary and would raise even when the connective skips the operand.
+// An overflow guard is deliberately not counted: it deopts to the boxed tier
+// rather than raising, and the boxed tier recomputes the whole connective, so a
+// short-circuited overflow still yields the CPython-correct answer.
+func HasRaisingGuard(e Expr) bool {
+	switch n := e.(type) {
+	case Bin:
+		if n.Op == OpDiv {
+			return true
+		}
+		return HasRaisingGuard(n.L) || HasRaisingGuard(n.R)
+	case Cmp:
+		return HasRaisingGuard(n.L) || HasRaisingGuard(n.R)
+	case And:
+		return HasRaisingGuard(n.L) || HasRaisingGuard(n.R)
+	case Or:
+		return HasRaisingGuard(n.L) || HasRaisingGuard(n.R)
+	case Not:
+		return HasRaisingGuard(n.X)
+	}
+	return false
 }
 
 // lowerNot lowers `not x` on a bool operand to Go's !. A binary operand is
