@@ -47,6 +47,20 @@ func costStmt(s emit.Stmt, c *Cost) {
 		}
 	case emit.Return:
 		costExpr(n.Value, c)
+	case emit.If:
+		// The condition and both arms all emit their own guards, so the census walks
+		// every one: a guarded int operation in a condition or a branch still carries
+		// its overflow guard, and missing it would let a function that emits a guard
+		// and a deopt edge pass as guard-free static, the mislabel D4 forbids. A guard
+		// under an if sits at function entry, not in a loop back-edge, so it counts as
+		// an entry guard the same as one in a straight-line body.
+		costExpr(n.Cond, c)
+		for _, s := range n.Then {
+			costStmt(s, c)
+		}
+		for _, s := range n.Else {
+			costStmt(s, c)
+		}
 	}
 }
 

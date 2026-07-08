@@ -96,6 +96,30 @@ func TestCostGuardsIntOpNestedInConnectiveAndNot(t *testing.T) {
 	}
 }
 
+func TestCostGuardsIntOpInIfConditionAndArm(t *testing.T) {
+	// A guarded int add in an if condition contributes its overflow guard: the walk
+	// must descend into the condition, or a function that deopts on the condition
+	// would read as guard-free static, the mislabel D4 forbids.
+	if c := costOfSrc(t, "def f(a: int, b: int) -> int:\n    if a + b:\n        return 1\n    return 0\n"); c.EntryGuards != 1 {
+		t.Errorf("the int add in the if condition should contribute one guard, got %d", c.EntryGuards)
+	}
+	// A guarded int add inside a branch arm contributes its guard the same way, so
+	// the walk descends into both arms.
+	src := "def f(a: int, b: int) -> int:\n    if a > b:\n        return a + b\n    else:\n        return b\n"
+	if c := costOfSrc(t, src); c.EntryGuards != 1 {
+		t.Errorf("the int add inside the then arm should contribute one guard, got %d", c.EntryGuards)
+	}
+}
+
+func TestCostGuardFreeIfIsStatic(t *testing.T) {
+	// An if on a scalar condition with guard-free arms carries no guard, so it stays
+	// in the guard-free static set the differential runner and partitioner adopt.
+	c := costOfSrc(t, "def f(n: int) -> int:\n    if n:\n        return 1\n    return 0\n")
+	if c.EntryGuards != 0 || c.LoopGuards != 0 {
+		t.Errorf("a guard-free if should carry no guards, got entry=%d loop=%d", c.EntryGuards, c.LoopGuards)
+	}
+}
+
 // TestCostIgnoresUnknownNodes guards the walk against a node the bridge never
 // builds: a bare variable return contributes no operations.
 func TestCostIgnoresUnknownNodes(t *testing.T) {

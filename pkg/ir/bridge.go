@@ -83,12 +83,19 @@ func LowerFunc(fn *frontend.FuncDef) (emit.Func, error) {
 		sc[p.Name] = r
 	}
 
-	body, ret, err := lowerBody(fn.Body, sc)
+	body, ret, terminates, err := lowerBody(fn.Body, sc, true)
 	if err != nil {
 		return emit.Func{}, err
 	}
 	if ret == nil {
 		return emit.Func{}, unsupported("%s has no return the tier can type", fn.Name)
+	}
+	// Every path has to return a scalar. A body that can fall off its end returns
+	// Python None there, which is not a scalar this tier represents, and the emitted
+	// Go would also miss its terminating return, so a non-exhaustive body stays
+	// boxed rather than lowering to a shape that neither types nor compiles.
+	if !terminates {
+		return emit.Func{}, unsupported("%s can fall off its end without returning", fn.Name)
 	}
 
 	// A declared return annotation, when present and scalar, must agree with what
@@ -119,101 +126,186 @@ func annotationRepr(e frontend.Expr) (emit.Repr, bool) {
 }
 
 // lowerBody translates a statement block and reports the representation the block
-// returns. Every return in the block must agree on that representation, so the
-// emitted Go has one result type; a block that returns two different scalar
-// classes is beyond this seed and stays boxed.
-func lowerBody(stmts []frontend.Stmt, sc scope) ([]emit.Stmt, *emit.Repr, error) {
+// returns and whether the block is exhaustive, meaning control always returns
+// before running off its end. Every return in the block must agree on the
+// representation, so the emitted Go has one result type; a block that returns two
+// different scalar classes is beyond this seed and stays boxed. allowBind gates
+// name bindings: the function body binds locals, but an if or else arm does not,
+// because a `:=` inside a Go block shadows rather than reassigning an outer name,
+// which would silently drop the branch's write (doc 06 section 8, the join rule).
+func lowerBody(stmts []frontend.Stmt, sc scope, allowBind bool) ([]emit.Stmt, *emit.Repr, bool, error) {
 	var out []emit.Stmt
 	var ret *emit.Repr
+	var terminates bool
 	for _, s := range stmts {
-		es, rr, err := lowerStmt(s, sc)
+		es, rr, term, err := lowerStmt(s, sc, allowBind)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 		if rr != nil {
 			if ret != nil && ret.Scalar != rr.Scalar {
-				return nil, nil, unsupported("return type is %s on one path and %s on another", ret.Scalar, rr.Scalar)
+				return nil, nil, false, unsupported("return type is %s on one path and %s on another", ret.Scalar, rr.Scalar)
 			}
 			ret = rr
 		}
+		if term {
+			terminates = true
+		}
 		out = append(out, es...)
 	}
-	return out, ret, nil
+	return out, ret, terminates, nil
 }
 
 // lowerStmt translates one statement. The second result is non-nil only for a
-// return, carrying the representation of the returned value so lowerBody can pin
-// the function's result type.
-func lowerStmt(s frontend.Stmt, sc scope) ([]emit.Stmt, *emit.Repr, error) {
+// return or an if whose arms both return, carrying the representation the path
+// yields so lowerBody can pin the function's result type. The third result reports
+// whether the statement is exhaustive: a return always is, an if is exactly when it
+// has an else and both arms are, and every other form is not.
+func lowerStmt(s frontend.Stmt, sc scope, allowBind bool) ([]emit.Stmt, *emit.Repr, bool, error) {
 	switch n := s.(type) {
 	case *frontend.Pass:
-		return nil, nil, nil
+		return nil, nil, false, nil
 
 	case *frontend.Return:
 		if n.Value == nil {
-			return nil, nil, unsupported("a bare return has no scalar value")
+			return nil, nil, false, unsupported("a bare return has no scalar value")
 		}
 		v, r, err := lowerExpr(n.Value, sc)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
-		return []emit.Stmt{emit.Return{Value: v}}, &r, nil
+		return []emit.Stmt{emit.Return{Value: v}}, &r, true, nil
+
+	case *frontend.If:
+		return lowerIf(n, sc)
 
 	case *frontend.Assign:
+		if !allowBind {
+			return nil, nil, false, unsupported("assignment inside an if arm is not lowered yet; the branch join stays boxed")
+		}
 		if len(n.Targets) != 1 {
-			return nil, nil, unsupported("chained assignment")
+			return nil, nil, false, unsupported("chained assignment")
 		}
 		name, ok := n.Targets[0].(*frontend.Name)
 		if !ok {
-			return nil, nil, unsupported("assignment target is not a plain name")
+			return nil, nil, false, unsupported("assignment target is not a plain name")
 		}
 		v, r, err := lowerExpr(n.Value, sc)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 		sc[name.Id] = r
-		return []emit.Stmt{emit.Define{Name: name.Id, Value: v}}, nil, nil
+		return []emit.Stmt{emit.Define{Name: name.Id, Value: v}}, nil, false, nil
 
 	case *frontend.AnnAssign:
+		if !allowBind {
+			return nil, nil, false, unsupported("annotated assignment inside an if arm is not lowered yet; the branch join stays boxed")
+		}
 		name, ok := n.Target.(*frontend.Name)
 		if !ok {
-			return nil, nil, unsupported("annotated assignment target is not a plain name")
+			return nil, nil, false, unsupported("annotated assignment target is not a plain name")
 		}
 		if n.Value == nil {
-			return nil, nil, unsupported("bare annotation without a value binds nothing")
+			return nil, nil, false, unsupported("bare annotation without a value binds nothing")
 		}
 		v, r, err := lowerExpr(n.Value, sc)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 		if want, ok := annotationRepr(n.Annotation); ok && want.Scalar != r.Scalar {
-			return nil, nil, unsupported("%s is annotated %s but bound a %s", name.Id, want.Scalar, r.Scalar)
+			return nil, nil, false, unsupported("%s is annotated %s but bound a %s", name.Id, want.Scalar, r.Scalar)
 		}
 		sc[name.Id] = r
-		return []emit.Stmt{emit.Define{Name: name.Id, Value: v}}, nil, nil
+		return []emit.Stmt{emit.Define{Name: name.Id, Value: v}}, nil, false, nil
 
 	case *frontend.AugAssign:
+		if !allowBind {
+			return nil, nil, false, unsupported("augmented assignment inside an if arm is not lowered yet; the branch join stays boxed")
+		}
 		if n.Op != frontend.BinAdd {
-			return nil, nil, unsupported("augmented assignment other than +=")
+			return nil, nil, false, unsupported("augmented assignment other than +=")
 		}
 		name, ok := n.Target.(*frontend.Name)
 		if !ok {
-			return nil, nil, unsupported("augmented assignment target is not a plain name")
+			return nil, nil, false, unsupported("augmented assignment target is not a plain name")
 		}
 		tr, ok := sc[name.Id]
 		if !ok {
-			return nil, nil, unsupported("%s += reads %s before it is bound", name.Id, name.Id)
+			return nil, nil, false, unsupported("%s += reads %s before it is bound", name.Id, name.Id)
 		}
 		v, vr, err := lowerExpr(n.Value, sc)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 		if _, err := binResult(emit.OpAdd, tr, vr); err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
-		return []emit.Stmt{emit.AddAssign{Name: name.Id, Repr: tr, Value: v}}, nil, nil
+		return []emit.Stmt{emit.AddAssign{Name: name.Id, Repr: tr, Value: v}}, nil, false, nil
 	}
-	return nil, nil, unsupported("statement %T", s)
+	return nil, nil, false, unsupported("statement %T", s)
+}
+
+// lowerIf translates an if/elif/else chain. The condition is any scalar the
+// truthiness rule accepts; each arm lowers with binds disallowed, so an arm may
+// return or branch further but not rebind a name across the join. The chain is
+// exhaustive only when it has an else and both arms are, which is what lets the
+// function demand a return on every path. An elif rides in as a nested If in Else,
+// so the recursion here produces the nested emit.If the emitter folds to else-if.
+func lowerIf(n *frontend.If, sc scope) ([]emit.Stmt, *emit.Repr, bool, error) {
+	cond, cr, err := lowerExpr(n.Cond, sc)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if !truthy(cr) {
+		return nil, nil, false, unsupported("no truthiness form for a %s condition", cr.Scalar)
+	}
+	then, thenRet, thenTerm, err := lowerBody(n.Body, sc, false)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	var els []emit.Stmt
+	var elseRet *emit.Repr
+	elseTerm := false
+	hasElse := len(n.Else) > 0
+	if hasElse {
+		els, elseRet, elseTerm, err = lowerBody(n.Else, sc, false)
+		if err != nil {
+			return nil, nil, false, err
+		}
+	}
+	ret, err := joinReturns(thenRet, elseRet)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	return []emit.Stmt{emit.If{Cond: cond, Then: then, Else: els}}, ret, thenTerm && hasElse && elseTerm, nil
+}
+
+// truthy reports whether a representation has a static truthiness form, the rule
+// emit.truthyExpr lowers. Every scalar does; an aggregate does through its length,
+// though the bridge carries no aggregate condition operand yet.
+func truthy(r emit.Repr) bool {
+	switch r.Scalar {
+	case emit.SBool, emit.SInt, emit.SFloat, emit.SStr:
+		return true
+	}
+	return r.Elem != nil
+}
+
+// joinReturns reconciles the representations two branches return. A branch that
+// does not return contributes nothing; when both return they must agree on the
+// scalar class, since the function has one result type and a divergent join is the
+// case doc 06 keeps boxed rather than widening.
+func joinReturns(then, els *emit.Repr) (*emit.Repr, error) {
+	if then == nil {
+		return els, nil
+	}
+	if els == nil {
+		return then, nil
+	}
+	if then.Scalar != els.Scalar {
+		return nil, unsupported("if returns %s on one arm and %s on the other", then.Scalar, els.Scalar)
+	}
+	return then, nil
 }
 
 // lowerExpr translates one expression and returns its representation alongside
