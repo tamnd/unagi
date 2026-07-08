@@ -988,11 +988,7 @@ func Compare(op CmpOp, a, b Object) (Object, error) {
 func Contains(container, item Object) (Object, error) {
 	switch x := container.(type) {
 	case *memoryviewObject:
-		span := mvSpan(x)
-		elts := make([]Object, len(span))
-		for i, c := range span {
-			elts[i] = NewInt(int64(c))
-		}
+		elts := mvElements(x)
 		return seqContains(elts, item), nil
 	case *strObject:
 		sub, ok := AsStr(item)
@@ -1436,11 +1432,7 @@ func (it *rangeIter) Next() (Object, bool, error) {
 func Iter(o Object) (Iterator, error) {
 	switch x := o.(type) {
 	case *memoryviewObject:
-		span := mvSpan(x)
-		elts := make([]Object, len(span))
-		for i, c := range span {
-			elts[i] = NewInt(int64(c))
-		}
+		elts := mvElements(x)
 		return &sliceIter{elts: elts}, nil
 	case *strObject:
 		elts := make([]Object, 0, len(x.v))

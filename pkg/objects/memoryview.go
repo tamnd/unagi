@@ -13,13 +13,19 @@ import (
 // and two views of the same buffer alias. off and length carve out the span
 // this particular view exposes, which is how a contiguous slice shares the
 // parent's storage at an offset. readonly is set for a view over immutable
-// bytes and cleared for one over a bytearray. cast(), multi-dimensional shapes,
-// non-'B' formats and the release()/with lifecycle are later slices.
+// bytes and cleared for one over a bytearray. off is a byte offset into the root
+// buffer and length counts elements, so the byte span this view exposes is
+// length*itemsize wide. format is the struct code and itemsize its width: a
+// fresh view is the 'B' single-byte format, and cast() re-reads the same bytes
+// under a wider code. Multi-dimensional shapes and the release()/with lifecycle
+// are later slices.
 type memoryviewObject struct {
 	base     Object
 	readonly bool
 	off      int
 	length   int
+	format   string
+	itemsize int
 }
 
 func (*memoryviewObject) TypeName() string { return "memoryview" }
@@ -30,11 +36,11 @@ func (*memoryviewObject) TypeName() string { return "memoryview" }
 func NewMemoryView(o Object) (Object, error) {
 	switch b := o.(type) {
 	case *bytesObject:
-		return &memoryviewObject{base: b, readonly: true, off: 0, length: len(b.v)}, nil
+		return &memoryviewObject{base: b, readonly: true, off: 0, length: len(b.v), format: "B", itemsize: 1}, nil
 	case *bytearrayObject:
-		return &memoryviewObject{base: b, readonly: false, off: 0, length: len(b.snapshot())}, nil
+		return &memoryviewObject{base: b, readonly: false, off: 0, length: len(b.snapshot()), format: "B", itemsize: 1}, nil
 	case *memoryviewObject:
-		return &memoryviewObject{base: b.base, readonly: b.readonly, off: b.off, length: b.length}, nil
+		return &memoryviewObject{base: b.base, readonly: b.readonly, off: b.off, length: b.length, format: b.format, itemsize: b.itemsize}, nil
 	}
 	return nil, Raise(TypeError, "memoryview: a bytes-like object is required, not '%s'", o.TypeName())
 }
@@ -65,12 +71,27 @@ func mvBaseBytes(m *memoryviewObject) []byte {
 	return nil
 }
 
-// mvSpan copies out the bytes this view exposes: the length-long window that
+// mvByteLen is the width in bytes of the span this view exposes, length
+// elements each itemsize wide.
+func mvByteLen(m *memoryviewObject) int { return m.length * m.itemsize }
+
+// mvElements decodes the whole view into a list of int objects under its
+// format, the shape iteration and membership walk it element by element.
+func mvElements(m *memoryviewObject) []Object {
+	out := make([]Object, m.length)
+	for i := 0; i < m.length; i++ {
+		out[i] = NewInt(mvDecodeElem(m, i))
+	}
+	return out
+}
+
+// mvSpan copies out the bytes this view exposes: the byte-length window that
 // starts at off in the root buffer.
 func mvSpan(m *memoryviewObject) []byte {
 	full := mvBaseBytes(m)
-	out := make([]byte, m.length)
-	copy(out, full[m.off:m.off+m.length])
+	n := mvByteLen(m)
+	out := make([]byte, n)
+	copy(out, full[m.off:m.off+n])
 	return out
 }
 
@@ -112,8 +133,9 @@ func mvByteFromObj(o Object) (byte, error) {
 	return 0, Raise(TypeError, "memoryview: invalid type for format 'B'")
 }
 
-// mvGetItem reads mv[key]: an integer index returns the byte as an int, and any
-// non-integer key that is not a slice is the probed invalid-slice-key TypeError.
+// mvGetItem reads mv[key]: an integer index returns the element as an int,
+// decoded from itemsize bytes under the view's format, and any non-integer key
+// that is not a slice is the probed invalid-slice-key TypeError.
 func mvGetItem(m *memoryviewObject, key Object) (Object, error) {
 	i, ok := AsInt(key)
 	if !ok {
@@ -123,7 +145,52 @@ func mvGetItem(m *memoryviewObject, key Object) (Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewInt(int64(mvBaseBytes(m)[m.off+j])), nil
+	return NewInt(mvDecodeElem(m, j)), nil
+}
+
+// mvDecodeElem reads element e as a native little-endian integer of the view's
+// itemsize, signed when the format code is lower case. A 'B' view returns the
+// plain byte; a cast to 'I' packs four bytes into an unsigned word.
+func mvDecodeElem(m *memoryviewObject, e int) int64 {
+	full := mvBaseBytes(m)
+	base := m.off + e*m.itemsize
+	var u uint64
+	for k := 0; k < m.itemsize; k++ {
+		u |= uint64(full[base+k]) << (8 * k)
+	}
+	if mvSigned(m.format) && m.itemsize < 8 {
+		shift := uint(64 - 8*m.itemsize)
+		return int64(u<<shift) >> shift
+	}
+	return int64(u)
+}
+
+// mvSigned reports whether a struct format code is a signed integer, the lower
+// case letters in the set memoryview.cast accepts.
+func mvSigned(format string) bool {
+	switch format {
+	case "b", "h", "i", "q":
+		return true
+	}
+	return false
+}
+
+// mvFormatSize maps a struct format code to its byte width, the fixed-width
+// integer subset of codes memoryview.cast accepts. A code outside the set
+// reports not ok, the standard-size codes leaving out the platform-width l/L
+// and the float formats this tier does not decode.
+func mvFormatSize(format string) (int, bool) {
+	switch format {
+	case "b", "B", "c":
+		return 1, true
+	case "h", "H":
+		return 2, true
+	case "i", "I":
+		return 4, true
+	case "q", "Q":
+		return 8, true
+	}
+	return 0, false
 }
 
 // mvSetItem writes mv[key] = val. A read-only view rejects every write; a
@@ -159,14 +226,15 @@ func mvGetSlice(m *memoryviewObject, lo, hi, step Object) (Object, error) {
 		return nil, err
 	}
 	if st == 1 {
-		return &memoryviewObject{base: m.base, readonly: m.readonly, off: m.off + start, length: n}, nil
+		return &memoryviewObject{base: m.base, readonly: m.readonly, off: m.off + start*m.itemsize, length: n, format: m.format, itemsize: m.itemsize}, nil
 	}
 	full := mvBaseBytes(m)
-	out := make([]byte, 0, n)
+	out := make([]byte, 0, n*m.itemsize)
 	for i, j := 0, start; i < n; i, j = i+1, j+st {
-		out = append(out, full[m.off+j])
+		base := m.off + j*m.itemsize
+		out = append(out, full[base:base+m.itemsize]...)
 	}
-	return &memoryviewObject{base: NewBytes(out), readonly: true, off: 0, length: n}, nil
+	return &memoryviewObject{base: NewBytes(out), readonly: true, off: 0, length: n, format: m.format, itemsize: m.itemsize}, nil
 }
 
 // mvSetSlice writes mv[lo:hi:step] = val. A memoryview slice assignment needs an
@@ -227,16 +295,53 @@ func memoryviewMethod(m *memoryviewObject, name string, args []Object) (Object, 
 	case "tobytes":
 		return NewBytes(mvSpan(m)), nil
 	case "tolist":
-		span := mvSpan(m)
-		out := make([]Object, len(span))
-		for i, c := range span {
-			out[i] = NewInt(int64(c))
+		out := make([]Object, m.length)
+		for i := 0; i < m.length; i++ {
+			out[i] = NewInt(mvDecodeElem(m, i))
 		}
 		return NewList(out), nil
 	case "hex":
 		return NewStr(hex.EncodeToString(mvSpan(m))), nil
+	case "cast":
+		return mvCast(m, args)
 	}
 	return nil, noAttr(m, name)
+}
+
+// mvCast implements memoryview.cast(format): it re-reads the same contiguous
+// bytes under a new struct format, the reinterpret _compiler._bytes_to_codes
+// runs to pack a byte block index array into engine words with cast('I'). One
+// side must be the single-byte format, the byte span must divide evenly into
+// the new itemsize, and the result shares the root buffer so a writable view
+// still aliases.
+func mvCast(m *memoryviewObject, args []Object) (Object, error) {
+	if len(args) != 1 {
+		return nil, Raise(TypeError, "cast() takes exactly 1 argument (%d given)", len(args))
+	}
+	format, ok := AsStr(args[0])
+	if !ok {
+		return nil, Raise(TypeError, "cast() argument 1 must be str, not %s", args[0].TypeName())
+	}
+	size, ok := mvFormatSize(format)
+	if !ok {
+		return nil, Raise(ValueError,
+			"memoryview: destination format must be a native single character format prefixed with an optional '@'")
+	}
+	if m.itemsize != 1 && size != 1 {
+		return nil, Raise(TypeError, "memoryview: cannot cast between two non-byte formats")
+	}
+	byteLen := mvByteLen(m)
+	if byteLen%size != 0 {
+		return nil, Raise(TypeError, "memoryview: length is not a multiple of itemsize")
+	}
+	return &memoryviewObject{
+		base:     m.base,
+		readonly: m.readonly,
+		off:      m.off,
+		length:   byteLen / size,
+		format:   format,
+		itemsize: size,
+	}, nil
 }
 
 // memoryviewLoadAttr answers the read-only metadata attributes of a 'B' view:
@@ -245,17 +350,17 @@ func memoryviewMethod(m *memoryviewObject, name string, args []Object) (Object, 
 func memoryviewLoadAttr(m *memoryviewObject, name string) (Object, error) {
 	switch name {
 	case "format":
-		return NewStr("B"), nil
+		return NewStr(m.format), nil
 	case "itemsize":
-		return NewInt(1), nil
+		return NewInt(int64(m.itemsize)), nil
 	case "ndim":
 		return NewInt(1), nil
 	case "shape":
 		return NewTuple([]Object{NewInt(int64(m.length))}), nil
 	case "strides":
-		return NewTuple([]Object{NewInt(1)}), nil
+		return NewTuple([]Object{NewInt(int64(m.itemsize))}), nil
 	case "nbytes":
-		return NewInt(int64(m.length)), nil
+		return NewInt(int64(mvByteLen(m))), nil
 	case "readonly":
 		return NewBool(m.readonly), nil
 	case "contiguous", "c_contiguous", "f_contiguous":
