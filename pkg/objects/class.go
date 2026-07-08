@@ -1106,6 +1106,35 @@ func classMetaLen(c *classObject) (Object, bool, error) {
 	return r, true, err
 }
 
+// classMetaContains runs a metaclass __contains__ for item in cls, the way
+// EnumType.__contains__ decides Color.RED in Color. handled is false when the
+// metaclass carries no __contains__, so the caller falls back to iteration.
+func classMetaContains(c *classObject, item Object) (Object, bool, error) {
+	meta, ok := userMetaclass(c)
+	if !ok {
+		return nil, false, nil
+	}
+	v, ok := meta.lookup("__contains__")
+	if !ok {
+		return nil, false, nil
+	}
+	fn, ok := v.(*functionObject)
+	if !ok {
+		return nil, false, nil
+	}
+	res, err := fn.bind([]Object{c, item}, nil, nil)
+	if err != nil {
+		return nil, true, err
+	}
+	// CPython runs the __contains__ result through PyObject_IsTrue, so a returned
+	// object with a __bool__ decides membership.
+	t, err := TruthOf(res)
+	if err != nil {
+		return nil, true, err
+	}
+	return NewBool(t), true, nil
+}
+
 // IsInstance implements isinstance(obj, cls). cls is a class, a builtin type, or
 // a tuple of those; anything else raises the arg 2 TypeError probed on 3.14. A
 // user instance matches when cls is in its MRO or is the object root; a builtin
