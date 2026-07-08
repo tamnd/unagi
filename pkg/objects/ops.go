@@ -1059,6 +1059,23 @@ func Contains(container, item Object) (Object, error) {
 			return Contains(v, item)
 		}
 		return containsByIter(container, item)
+	case *classObject:
+		res, handled, err := classMetaContains(x, item)
+		if err != nil {
+			return nil, err
+		}
+		if handled {
+			return res, nil
+		}
+		// No metaclass __contains__, but a class iterable through its metaclass
+		// __iter__ still answers membership by scanning, the way CPython falls
+		// back from sq_contains to iteration.
+		if it, ok, err := classMetaIter(x); ok {
+			if err != nil {
+				return nil, err
+			}
+			return scanContains(it, item)
+		}
 	}
 	return nil, Raise(TypeError, "argument of type '%s' is not iterable", container.TypeName())
 }

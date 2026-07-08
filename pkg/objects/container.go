@@ -114,6 +114,13 @@ func containsByIter(container, item Object) (Object, error) {
 		return nil, Raise(TypeError, "argument of type '%s' is not a container or iterable",
 			container.TypeName())
 	}
+	return scanContains(it, item)
+}
+
+// scanContains walks an iterator comparing each element with == until it finds
+// the item or runs out, the shared body of the __iter__ membership fallback for
+// both an instance and a class iterable through its metaclass.
+func scanContains(it Iterator, item Object) (Object, error) {
 	for {
 		v, ok, err := it.Next()
 		if err != nil {
