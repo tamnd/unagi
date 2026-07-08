@@ -88,6 +88,21 @@ func costStmt(s emit.Stmt, c *Cost) {
 		}
 		c.UnboxedOps += bc.UnboxedOps
 		c.LoopGuards += bc.EntryGuards + bc.LoopGuards
+	case emit.ForCount:
+		// A counting loop runs its body once per iteration, so a body guard fires on the
+		// loop back-edge and counts as a loop guard, the same classification the while case
+		// makes. The induction `i++` and the bound test carry no overflow guard of their
+		// own: the bridge admits only an int64 bound, over which the int64 induction cannot
+		// overflow before the test fails, so the loop header contributes nothing. The bridge
+		// refuses a guarded body at M4, so this bucket is zero today.
+		var bc Cost
+		costExpr(n.Start, &bc)
+		costExpr(n.Stop, &bc)
+		for _, s := range n.Body {
+			costStmt(s, &bc)
+		}
+		c.UnboxedOps += bc.UnboxedOps
+		c.LoopGuards += bc.EntryGuards + bc.LoopGuards
 	}
 }
 

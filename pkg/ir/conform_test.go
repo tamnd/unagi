@@ -190,6 +190,22 @@ func TestStaticTierMatchesCPython(t *testing.T) {
 		// A continue skips the rest of an iteration: every step still runs the increment
 		// before the continue, so the loop counts up exactly as the plain form does.
 		{"while continue", "def f(n: float) -> float:\n    total = 0.0\n    while total < n:\n        total = total + 1.0\n        if total < 0.0:\n            continue\n    return total\n", "f(3.0)"},
+		// A counting for loop over range(n) (06 lines 44-45). The body accumulates
+		// through a total float add, so the loop stays guard-free and reaches this
+		// runner. One call iterates a handful of times and one call passes zero, so the
+		// zero-trip path (range(0) yields nothing) is checked against CPython too.
+		{"for range count", "def f(n: int) -> float:\n    total = 0.0\n    for i in range(n):\n        total = total + 1.0\n    return total\n", "f(5)"},
+		{"for range zero trips", "def f(n: int) -> float:\n    total = 0.0\n    for i in range(n):\n        total = total + 1.0\n    return total\n", "f(0)"},
+		// A two-argument range(a, b) counts from the start bound, so the trip count is
+		// b - a. One call spans a normal ascending range and one passes a >= b, which
+		// yields nothing, matching CPython's empty range.
+		{"for range from start", "def f(a: int, b: int) -> float:\n    total = 0.0\n    for i in range(a, b):\n        total = total + 1.0\n    return total\n", "f(2, 7)"},
+		{"for range empty span", "def f(a: int, b: int) -> float:\n    total = 0.0\n    for i in range(a, b):\n        total = total + 1.0\n    return total\n", "f(7, 2)"},
+		// The induction variable is a real int read inside the body: adding float(i) is
+		// a call the tier does not lower, so instead the body branches on i, and a total
+		// float accumulation makes the loop guard-free. This checks the loop variable
+		// counts up through the exact CPython sequence 0, 1, ... n-1.
+		{"for range reads index", "def f(n: int) -> float:\n    total = 0.0\n    for i in range(n):\n        if i < 2:\n            total = total + 1.0\n        else:\n            total = total + 10.0\n    return total\n", "f(4)"},
 	}
 
 	dir := t.TempDir()

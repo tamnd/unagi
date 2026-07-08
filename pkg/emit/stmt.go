@@ -72,6 +72,20 @@ type ForRange struct {
 	Body []Stmt
 }
 
+// ForCount is the counting loop `for i := start; i < stop; i++ { body }`, the shape
+// `for i in range(start, stop)` lowers to. The induction variable is int64, so the
+// body reads it as an int, and the loop runs while it is below the stop bound. The stop
+// bound is a plain value the bridge proves cheap to re-evaluate (a name or a literal),
+// so re-testing it each iteration is sound; a side-effecting bound would need a hoisted
+// temp (doc 06 line 50), which the bridge keeps boxed until that lands. The step is a
+// fixed +1: a range with an explicit step is a later slice (doc 06 line 46).
+type ForCount struct {
+	Var   string
+	Start Expr
+	Stop  Expr
+	Body  []Stmt
+}
+
 // While is a `for cond { body }` loop. Cond lowers through the shared truthiness
 // rule, the same one the if uses, so one scalar has one notion of falsy in a loop
 // test as everywhere else. Go's `for` with a single condition is Python's `while`:
@@ -109,6 +123,7 @@ func (Bind) isStmt()      {}
 func (AddAssign) isStmt() {}
 func (Return) isStmt()    {}
 func (ForRange) isStmt()  {}
+func (ForCount) isStmt()  {}
 func (While) isStmt()     {}
 func (Break) isStmt()     {}
 func (Continue) isStmt()  {}
@@ -247,6 +262,40 @@ func (b *Builder) lowerStmt(s Stmt) ([]ast.Stmt, error) {
 			Body:  block(body...),
 		}
 		return append(b.flush(), loop), nil
+
+	case ForCount:
+		start, sr, err := b.lowerExpr(n.Start)
+		if err != nil {
+			return nil, err
+		}
+		stop, _, err := b.lowerExpr(n.Stop)
+		if err != nil {
+			return nil, err
+		}
+		// The induction variable is int64, so an untyped int-literal start is pinned to
+		// int64 the same way a Define pins one, or the `i := 0` would infer Go int and the
+		// `i < stop` comparison against an int64 bound would not compile.
+		if sr.Scalar == SInt {
+			if lit, ok := start.(*ast.BasicLit); ok && lit.Kind == token.INT {
+				start = callExpr(ident("int64"), start)
+			}
+		}
+		// Any guards the bound expressions carry flush ahead of the loop, so the loop
+		// header itself is guard-free; the bridge only admits a guard-free bound, so this
+		// pending list is empty today, but flushing here keeps a bound guard at a clean
+		// statement boundary if one ever reaches this node.
+		pre := b.flush()
+		body, err := b.lowerBlock(n.Body)
+		if err != nil {
+			return nil, err
+		}
+		loop := &ast.ForStmt{
+			Init: define(n.Var, start),
+			Cond: binary(token.LSS, ident(n.Var), stop),
+			Post: &ast.IncDecStmt{X: ident(n.Var), Tok: token.INC},
+			Body: block(body...),
+		}
+		return append(pre, loop), nil
 
 	case While:
 		// The condition is guard-free (the bridge keeps a guarded loop condition boxed),
