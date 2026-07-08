@@ -1,0 +1,165 @@
+package ir
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/tamnd/unagi/pkg/emit"
+	"github.com/tamnd/unagi/pkg/frontend"
+)
+
+// parseFunc parses a single top-level def and returns it, failing the test if
+// the source does not parse to exactly one function.
+func parseFunc(t *testing.T, src string) *frontend.FuncDef {
+	t.Helper()
+	mod, err := frontend.Parse([]byte(src), "test.py")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(mod.Body) != 1 {
+		t.Fatalf("want one top-level statement, got %d", len(mod.Body))
+	}
+	fn, ok := mod.Body[0].(*frontend.FuncDef)
+	if !ok {
+		t.Fatalf("top-level statement is %T, want *frontend.FuncDef", mod.Body[0])
+	}
+	return fn
+}
+
+// emitOf lowers a parsed function through the bridge and prints it, returning the
+// emitted Go source.
+func emitOf(t *testing.T, src string) string {
+	t.Helper()
+	fn := parseFunc(t, src)
+	f, err := LowerFunc(fn)
+	if err != nil {
+		t.Fatalf("LowerFunc: %v", err)
+	}
+	out, err := emit.EmitFunc(f)
+	if err != nil {
+		t.Fatalf("EmitFunc: %v", err)
+	}
+	return out
+}
+
+func TestLowerIntArithmeticGuardsOverflow(t *testing.T) {
+	src := "def add(a: int, b: int) -> int:\n    return a + b\n"
+	got := emitOf(t, src)
+	// Two ints go through the overflow-checked helper, and the failure edge tail
+	// calls the unit's deopt handler.
+	for _, want := range []string{
+		"func add(a int64, b int64) (int64, error)",
+		"rt.AddInt64(a, b)",
+		"add_deopt0(a, b)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("emitted int add is missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestLowerFloatArithmeticIsTotal(t *testing.T) {
+	src := "def fadd(a: float, b: float) -> float:\n    return a + b\n"
+	got := emitOf(t, src)
+	if !strings.Contains(got, "func fadd(a float64, b float64) (float64, error)") {
+		t.Errorf("float signature missing:\n%s", got)
+	}
+	if !strings.Contains(got, "return a + b, nil") {
+		t.Errorf("float add should be a bare total operator:\n%s", got)
+	}
+	if strings.Contains(got, "AddInt64") || strings.Contains(got, "deopt") {
+		t.Errorf("float add must not guard overflow or deopt:\n%s", got)
+	}
+}
+
+func TestLowerTrueDivisionGuardsZero(t *testing.T) {
+	src := "def q(a: int, b: int) -> float:\n    return a / b\n"
+	got := emitOf(t, src)
+	// True division is float, so the int operands coerce, and a zero divisor is a
+	// semantic ZeroDivisionError, not a deopt.
+	for _, want := range []string{
+		"(float64, error)",
+		"float64(a) / float64(b)",
+		"ZeroDivisionError",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("emitted division is missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestLowerMixedArithmeticPromotesToFloat(t *testing.T) {
+	// An int local added to a float parameter promotes the result to float, so the
+	// function's return type is float64.
+	src := "def mix(x: float) -> float:\n    n = 2\n    return x + n\n"
+	got := emitOf(t, src)
+	if !strings.Contains(got, "(float64, error)") {
+		t.Errorf("mixed arithmetic should return float64:\n%s", got)
+	}
+	if !strings.Contains(got, "n := int64(2)") {
+		t.Errorf("the int local should bind as int64:\n%s", got)
+	}
+}
+
+func TestLowerAugAssignAccumulates(t *testing.T) {
+	src := "def acc(a: int, b: int) -> int:\n    a += b\n    return a\n"
+	got := emitOf(t, src)
+	// += on an int target accumulates through the guarded add, so the overflow
+	// helper appears and the result rebinds a.
+	if !strings.Contains(got, "rt.AddInt64(a, b)") {
+		t.Errorf("int += should route through the overflow helper:\n%s", got)
+	}
+	if !strings.Contains(got, "a = ") {
+		t.Errorf("int += should rebind the target:\n%s", got)
+	}
+}
+
+func TestLowerStringConcatenation(t *testing.T) {
+	src := "def greet(a: str, b: str) -> str:\n    return a + b\n"
+	got := emitOf(t, src)
+	if !strings.Contains(got, "(string, error)") {
+		t.Errorf("string concat should return string:\n%s", got)
+	}
+	if !strings.Contains(got, "return a + b, nil") {
+		t.Errorf("string concat should be a total +:\n%s", got)
+	}
+}
+
+func TestLowerReturnTypeInferredFromBody(t *testing.T) {
+	// No return annotation: the result type comes from the returned expression.
+	src := "def f(a: int, b: int):\n    return a * b\n"
+	fn := parseFunc(t, src)
+	f, err := LowerFunc(fn)
+	if err != nil {
+		t.Fatalf("LowerFunc: %v", err)
+	}
+	if f.Ret.Scalar != emit.SInt {
+		t.Errorf("inferred return repr = %s, want int", f.Ret.Scalar)
+	}
+}
+
+func TestLowerRejects(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+	}{
+		{"unannotated param", "def f(a, b: int) -> int:\n    return b\n"},
+		{"non-scalar annotation", "def f(a: list) -> int:\n    return 1\n"},
+		{"big int literal", "def f() -> int:\n    return 100000000000000000000\n"},
+		{"call expression", "def f(a: int) -> int:\n    return g(a)\n"},
+		{"floor division", "def f(a: int, b: int) -> int:\n    return a // b\n"},
+		{"attribute access", "def f(a: int) -> int:\n    return a.bit_length\n"},
+		{"async def", "async def f(a: int) -> int:\n    return a\n"},
+		{"no return", "def f(a: int) -> int:\n    a += 1\n"},
+		{"return annotation mismatch", "def f(a: float) -> int:\n    return a\n"},
+		{"forward reference", "def f(a: int) -> int:\n    return c\n"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fn := parseFunc(t, c.src)
+			if _, err := LowerFunc(fn); err == nil {
+				t.Fatalf("%s: LowerFunc should have refused the unit", c.name)
+			}
+		})
+	}
+}

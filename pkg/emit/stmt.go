@@ -65,9 +65,20 @@ func (b *Builder) lowerBlock(stmts []Stmt) ([]ast.Stmt, error) {
 func (b *Builder) lowerStmt(s Stmt) ([]ast.Stmt, error) {
 	switch n := s.(type) {
 	case Define:
-		x, _, err := b.lowerExpr(n.Value)
+		x, xr, err := b.lowerExpr(n.Value)
 		if err != nil {
 			return nil, err
+		}
+		// A short declaration infers the binding's Go type from the value, and an
+		// untyped integer constant infers Go int, not the int64 the int
+		// representation promises. That binding then fails to compile the moment it
+		// reaches rt.AddInt64, so an int literal on the right is pinned to int64 the
+		// way floatLit already pins a whole float literal. A value that is already
+		// typed (a Var, a helper temp) needs no cast.
+		if xr.Scalar == SInt {
+			if lit, ok := x.(*ast.BasicLit); ok && lit.Kind == token.INT {
+				x = callExpr(ident("int64"), x)
+			}
 		}
 		return append(b.flush(), define(n.Name, x)), nil
 
