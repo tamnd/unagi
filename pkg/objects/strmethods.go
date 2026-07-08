@@ -295,8 +295,40 @@ func strMethod(x *strObject, name string, args []Object) (Object, error) {
 		return strFormat(s, args)
 	case "translate":
 		return strTranslate(s, args)
+	case "encode":
+		return strEncode(s, args)
 	}
 	return nil, noAttr(x, name)
+}
+
+// strEncode encodes a str to bytes under the named codec, the inverse of
+// bytes.decode. It shares the encodeStr codec switch the two-argument bytes
+// constructor uses, so the utf-8, ascii and latin-1 families and their error
+// wording stay in one place. encoding defaults to utf-8 and errors defaults to
+// strict, the only error handler this build implements.
+func strEncode(s string, args []Object) (Object, error) {
+	enc := "utf-8"
+	if len(args) >= 1 && args[0] != None {
+		e, ok := AsStr(args[0])
+		if !ok {
+			return nil, Raise(TypeError, "encode() argument 'encoding' must be str, not %s", args[0].TypeName())
+		}
+		enc = e
+	}
+	if len(args) >= 2 && args[1] != None {
+		errh, ok := AsStr(args[1])
+		if !ok {
+			return nil, Raise(TypeError, "encode() argument 'errors' must be str, not %s", args[1].TypeName())
+		}
+		if errh != "strict" {
+			return nil, Raise("LookupError", "unknown error handler name '%s'", errh)
+		}
+	}
+	b, err := encodeStr(s, enc)
+	if err != nil {
+		return nil, err
+	}
+	return NewBytes(b), nil
 }
 
 // strTranslate maps each character through a table keyed by code point, the way

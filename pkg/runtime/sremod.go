@@ -14,6 +14,23 @@ import (
 
 func init() {
 	moduleTable["_sre"] = &moduleEntry{builtin: true, exec: initSre}
+
+	// re.sub compiles a string replacement into a template through the re
+	// package's own _compile_template, which runs _parser.parse_template and
+	// _sre.template. Wiring it here lets the native Pattern.sub reach that
+	// pipeline; a Pattern only exists after re has imported, so the hook is
+	// always in place by the time a substitution runs.
+	objects.CompileReTemplate = func(pattern, repl objects.Object) (objects.Object, error) {
+		re, err := ImportModule("re")
+		if err != nil {
+			return nil, err
+		}
+		fn, err := objects.LoadAttr(re, "_compile_template")
+		if err != nil {
+			return nil, err
+		}
+		return objects.Call(fn, []objects.Object{pattern, repl})
+	}
 }
 
 func initSre(m *objects.Module) error {
@@ -115,6 +132,25 @@ func initSre(m *objects.Module) error {
 			groupindex, indexgroup, isbytes), nil
 	})
 	if err := set("compile", compile); err != nil {
+		return err
+	}
+
+	// template(pattern, template): build the compiled replacement re._compiler
+	// hands sub. The second argument is the flat literal-and-index list
+	// _parser.parse_template produced, with every group index already checked
+	// against the pattern, so the template just carries it for expansion.
+	tmpl := objects.NewFunc("template", -1, func(a []objects.Object) (objects.Object, error) {
+		if len(a) != 2 {
+			return nil, objects.Raise(objects.TypeError,
+				"template() takes exactly 2 arguments (%d given)", len(a))
+		}
+		items, err := materialize(a[1])
+		if err != nil {
+			return nil, objects.Raise(objects.TypeError, "template argument must be a list")
+		}
+		return objects.NewReTemplate(items), nil
+	})
+	if err := set("template", tmpl); err != nil {
 		return err
 	}
 
