@@ -74,7 +74,7 @@ func TestFloatDivisionGuardsZero(t *testing.T) {
 	if !strings.Contains(src, "if b == 0.0") {
 		t.Fatalf("float division should guard the divisor without a coercion:\n%s", src)
 	}
-	if !strings.Contains(src, `rt.ZeroDivisionError("float division by zero")`) {
+	if !strings.Contains(src, `rt.ZeroDivisionError("division by zero")`) {
 		t.Fatalf("the zero guard should raise ZeroDivisionError:\n%s", src)
 	}
 	if !strings.Contains(src, "return a / b, nil") {

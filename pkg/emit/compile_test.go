@@ -85,7 +85,7 @@ func main() {
 		t.Fatalf("go run of the emitted static tier failed: %v\n%s", err, out)
 	}
 	got := string(out)
-	for _, want := range []string{"sum=3.75", "ZeroDivisionError: float division by zero", "quot=3.5"} {
+	for _, want := range []string{"sum=3.75", "ZeroDivisionError: division by zero", "quot=3.5"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("emitted program output is missing %q:\n%s", want, got)
 		}
