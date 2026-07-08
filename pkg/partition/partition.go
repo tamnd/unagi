@@ -87,9 +87,9 @@ func ByReason(ds []Decision) map[string]int {
 // DecisionHash is the section 9.3 decision hash: a SHA-256 over the ordered
 // (unit, state, score, reason-chain) records, rendered hex. Decisions are sorted
 // into the canonical unit order first, so the hash is independent of the order
-// they were produced in, and every field that could change a build is folded in.
-// The guard plan joins the record at slice 6; until then the guard segment is
-// empty and the hash still moves on state, score, and reasons.
+// they were produced in, and every field that could change a build is folded in:
+// the state, the score, the reason chain, and the placed guard plan (kind, site,
+// and failure edge per guard).
 func DecisionHash(ds []Decision) string {
 	sorted := append([]Decision(nil), ds...)
 	sort.Slice(sorted, func(i, j int) bool {
@@ -100,6 +100,10 @@ func DecisionHash(ds []Decision) string {
 		fmt.Fprintf(&b, "%s|%s|%d,%d|", d.Unit.Key(), d.State, d.Score.Static, d.Score.Boxed)
 		for _, r := range d.Reasons {
 			fmt.Fprintf(&b, "%s@%s;", r.Rule, r.Span)
+		}
+		b.WriteByte('|')
+		for _, g := range d.Guards {
+			fmt.Fprintf(&b, "%s@%s>%s;", g.Kind, g.Site, g.Edge)
 		}
 		b.WriteByte('\n')
 	}

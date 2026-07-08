@@ -23,8 +23,9 @@ type Reason struct {
 }
 
 // Decision is the per-unit result: the lattice state, the reason chain for a
-// boxed verdict, the cost scores, the excursion count, and the proofs inference
-// supplied, which are the fields doc 06 section 10.2's report record needs.
+// boxed verdict, the cost scores, the excursion count, the proofs inference
+// supplied, and the placed guard plan, which are the fields doc 06 section 10.2's
+// report record needs.
 type Decision struct {
 	Unit       Unit
 	State      State
@@ -32,6 +33,7 @@ type Decision struct {
 	Score      Score
 	Excursions int
 	Proofs     int
+	Guards     []Guard
 }
 
 // Tier is the report's coarse label for the decision.
@@ -39,13 +41,17 @@ func (d Decision) Tier() string { return d.State.Tier() }
 
 // Input is what the decision core needs beyond the census: the unit, its cost
 // profile from phases two and three, the count of proofs inference consumed for
-// the report, and the weights to score with. A zero Weights means the caller
-// wants the default M4 constants.
+// the report, the weights to score with, and the raw guard sites phase four will
+// place. A zero Weights means the caller wants the default M4 constants. When
+// Guards is non-empty the placed plan's entry and loop counts drive the guard
+// scoring, overriding the profile's guard fields; when it is empty the profile's
+// EntryGuards and LoopGuards are used, so a caller can score without planning.
 type Input struct {
 	Unit    Unit
 	Profile Profile
 	Proofs  int
 	Weights Weights
+	Guards  []Guard
 }
 
 // weights returns the input's weights or the default set when unset.
@@ -65,7 +71,19 @@ func (in Input) weights() Weights {
 func Decide(c *Census, in Input) Decision {
 	d := Decision{Unit: in.Unit, Excursions: in.Profile.Excursions, Proofs: in.Proofs}
 	w := in.weights()
-	d.Score = w.Score(in.Profile)
+
+	// Phase four placement runs first so the placed guard counts drive scoring and
+	// the guard plan is on the decision whatever tier it lands. The plan is empty
+	// when the caller supplied no raw guards, and the profile's guard fields stand
+	// in for scoring in that case.
+	plan := PlanGuards(in.Guards)
+	d.Guards = plan.Guards
+	prof := in.Profile
+	if len(in.Guards) > 0 {
+		prof.EntryGuards = plan.EntryCount()
+		prof.LoopGuards = plan.LoopCount()
+	}
+	d.Score = w.Score(prof)
 
 	// Phase one: hard census disqualifiers. Only unit- and program-scoped hard
 	// rules demote the recording unit itself; class-, module-, and binding-scoped
@@ -97,6 +115,17 @@ func Decide(c *Census, in Input) Decision {
 	// boxed twin's score.
 	if !d.Score.EmitStatic() {
 		r := MustRule(RuleCostModel)
+		d.State = BoxedByCost
+		d.Reasons = []Reason{{Rule: r.ID, Span: in.Unit.Span, Scope: r.Scope, Prose: r.Prose}}
+		return d
+	}
+
+	// Phase four budget: a unit whose planned guards cost more than 15 percent of
+	// its static operation score spends its time checking assumptions and is
+	// slower than its boxed twin, so it demotes.
+	guardScore := prof.EntryGuards*w.GuardEntry + prof.LoopGuards*w.GuardLoop
+	if !guardBudgetOK(guardScore, d.Score.Static-guardScore) {
+		r := MustRule(RuleGuardBudget)
 		d.State = BoxedByCost
 		d.Reasons = []Reason{{Rule: r.ID, Span: in.Unit.Span, Scope: r.Scope, Prose: r.Prose}}
 		return d
