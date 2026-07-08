@@ -37,6 +37,7 @@ type Builder struct {
 	ret    Repr
 	nTmp   int
 	nFlag  int
+	nErr   int
 	nDeopt int
 	pre    []ast.Stmt
 }
@@ -53,6 +54,14 @@ func (b *Builder) temp() string {
 func (b *Builder) flag() string {
 	n := fmt.Sprintf("ovf%d", b.nFlag)
 	b.nFlag++
+	return n
+}
+
+// errName returns a fresh error temporary name for a fallible call's error
+// binding, kept in its own series so it never collides with a value temporary.
+func (b *Builder) errName() string {
+	n := fmt.Sprintf("exc%d", b.nErr)
+	b.nErr++
 	return n
 }
 
