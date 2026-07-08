@@ -63,6 +63,39 @@ func TestCostCountsAugAssign(t *testing.T) {
 	}
 }
 
+func TestCostCountsComparisonAndConnective(t *testing.T) {
+	// A comparison and a connective each count one unboxed operation, and neither
+	// carries an overflow guard: reading two values to compare produces no new int.
+	c := costOfSrc(t, "def f(a: int, b: int, c: int) -> bool:\n    return a < b and b < c\n")
+	if c.UnboxedOps != 3 {
+		t.Errorf("two compares and one and should be three ops, got %d", c.UnboxedOps)
+	}
+	if c.EntryGuards != 0 || c.LoopGuards != 0 {
+		t.Errorf("a comparison and a connective carry no guards, got entry=%d loop=%d", c.EntryGuards, c.LoopGuards)
+	}
+}
+
+func TestCostGuardsIntOpNestedInComparison(t *testing.T) {
+	// The load-bearing case: an int add hidden inside a comparison still emits its
+	// overflow guard and a deopt edge, so the census must count it. Missing it would
+	// mark a function that actually deopts as guard-free static, which D4 forbids.
+	c := costOfSrc(t, "def f(a: int, b: int, c: int) -> bool:\n    return a + b < c\n")
+	if c.EntryGuards != 1 {
+		t.Errorf("the int add inside the comparison should contribute one guard, got %d", c.EntryGuards)
+	}
+}
+
+func TestCostGuardsIntOpNestedInConnectiveAndNot(t *testing.T) {
+	// The same guard must be seen through a connective and through not: `not (a + b
+	// < c)` wraps the guarded add under a Not, and the add under an And operand.
+	if c := costOfSrc(t, "def f(a: int, b: int, c: int) -> bool:\n    return not a + b < c\n"); c.EntryGuards != 1 {
+		t.Errorf("the int add under not should contribute one guard, got %d", c.EntryGuards)
+	}
+	if c := costOfSrc(t, "def f(a: int, b: int, c: int, d: int) -> bool:\n    return a + b < c and c < d\n"); c.EntryGuards != 1 {
+		t.Errorf("the int add under an and operand should contribute one guard, got %d", c.EntryGuards)
+	}
+}
+
 // TestCostIgnoresUnknownNodes guards the walk against a node the bridge never
 // builds: a bare variable return contributes no operations.
 func TestCostIgnoresUnknownNodes(t *testing.T) {

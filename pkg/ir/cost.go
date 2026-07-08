@@ -50,22 +50,40 @@ func costStmt(s emit.Stmt, c *Cost) {
 	}
 }
 
-// costExpr adds one expression's operations to the running census. Only a binary
-// operation carries a cost; a variable read or a literal is free, matching the
-// cost model, which charges operations, not operands.
+// costExpr adds one expression's operations to the running census. An arithmetic
+// binary, a comparison, and a connective each count one operation; a variable
+// read or a literal is free, matching the cost model, which charges operations,
+// not operands. The walk recurses into every operand, so a guarded int operation
+// nested inside a comparison or a connective (`a + b < c`) still contributes its
+// overflow guard: missing it would let a function that actually emits a guard and
+// a deopt edge pass as guard-free static, exactly the mislabel D4 forbids.
 func costExpr(e emit.Expr, c *Cost) {
-	bin, ok := e.(emit.Bin)
-	if !ok {
-		return
-	}
-	costExpr(bin.L, c)
-	costExpr(bin.R, c)
-	c.UnboxedOps++
-	// An int add, subtract, or multiply is the one operation this tier guards:
-	// its result stays int only when both operands are int and the operator is
-	// not true division, exactly the case binResult reports as an int result.
-	if r, err := binResult(bin.Op, reprOf(bin.L), reprOf(bin.R)); err == nil && r.Scalar == emit.SInt {
-		c.EntryGuards++
+	switch n := e.(type) {
+	case emit.Bin:
+		costExpr(n.L, c)
+		costExpr(n.R, c)
+		c.UnboxedOps++
+		// An int add, subtract, or multiply is the one operation this tier guards:
+		// its result stays int only when both operands are int and the operator is
+		// not true division, exactly the case binResult reports as an int result.
+		if r, err := binResult(n.Op, reprOf(n.L), reprOf(n.R)); err == nil && r.Scalar == emit.SInt {
+			c.EntryGuards++
+		}
+	case emit.Cmp:
+		costExpr(n.L, c)
+		costExpr(n.R, c)
+		c.UnboxedOps++
+	case emit.And:
+		costExpr(n.L, c)
+		costExpr(n.R, c)
+		c.UnboxedOps++
+	case emit.Or:
+		costExpr(n.L, c)
+		costExpr(n.R, c)
+		c.UnboxedOps++
+	case emit.Not:
+		costExpr(n.X, c)
+		c.UnboxedOps++
 	}
 }
 
@@ -91,6 +109,8 @@ func reprOf(e emit.Expr) emit.Repr {
 			return emit.Repr{}
 		}
 		return r
+	case emit.Cmp, emit.And, emit.Or, emit.Not:
+		return boolReprIR()
 	}
 	return emit.Repr{}
 }
