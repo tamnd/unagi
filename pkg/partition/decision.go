@@ -34,6 +34,7 @@ type Decision struct {
 	Excursions int
 	Proofs     int
 	Guards     []Guard
+	Deopts     []DeoptSite
 }
 
 // Tier is the report's coarse label for the decision.
@@ -52,6 +53,7 @@ type Input struct {
 	Proofs  int
 	Weights Weights
 	Guards  []Guard
+	Deopts  []DeoptSite
 }
 
 // weights returns the input's weights or the default set when unset.
@@ -131,6 +133,9 @@ func Decide(c *Census, in Input) Decision {
 		return d
 	}
 
+	// Deopt sites exist only on a static form, so they attach once the unit lands
+	// static; a boxed verdict has no native state to transfer.
+	d.Deopts = in.Deopts
 	if in.Profile.Excursions > 0 {
 		d.State = StaticWithExcursions
 	} else {
