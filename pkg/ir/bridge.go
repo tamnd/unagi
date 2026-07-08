@@ -440,6 +440,14 @@ func lowerBoolOp(n *frontend.BoolOp, sc scope) (emit.Expr, emit.Repr, error) {
 		if rr.Scalar != emit.SBool {
 			return nil, emit.Repr{}, unsupported("%s needs bool operands, got %s", boolName(n.Kind), rr.Scalar)
 		}
+		// Every operand past the first is evaluated only when the ones before it do
+		// not decide the result, so an operand that can raise (a division's zero
+		// check) cannot short-circuit safely once its guard hoists to the statement
+		// boundary. Keep the unit boxed rather than raise where Python would not; this
+		// mirrors emit's own refusal so the tier decision agrees with what emit emits.
+		if emit.HasRaisingGuard(r) {
+			return nil, emit.Repr{}, unsupported("a %s operand that can raise cannot short-circuit safely in the static tier", boolName(n.Kind))
+		}
 		if n.Kind == frontend.BoolAnd {
 			acc = emit.And{L: acc, R: r}
 		} else {
