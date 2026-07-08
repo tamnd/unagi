@@ -153,7 +153,7 @@ func TestIfGuardedConditionFlushesAhead(t *testing.T) {
 	if add < 0 || guard < 0 || test < 0 {
 		t.Fatalf("a guarded condition should bind the add, deopt on overflow, then test the value:\n%s", src)
 	}
-	if !(add < guard && guard < test) {
+	if add >= guard || guard >= test {
 		t.Fatalf("the guard should flush ahead of the if, order add<guard<test:\n%s", src)
 	}
 }
