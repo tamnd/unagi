@@ -53,6 +53,13 @@ func TestStaticTierMatchesCPython(t *testing.T) {
 		{"float mul then add", "def f(a: float, b: float, c: float) -> float:\n    return a * b + c\n", "f(2.5, 4.0, 1.5)"},
 		{"float subtract", "def f(a: float, b: float) -> float:\n    return a - b\n", "f(0.1, 0.2)"},
 		{"float divide", "def f(a: float, b: float) -> float:\n    return a / b\n", "f(1.0, 3.0)"},
+		// The float path never rounds or reformats: 0.1 + 0.2 must print CPython's
+		// exact 0.30000000000000004 through the repr path (03, line 13).
+		{"float rounding surprise", "def f(a: float, b: float) -> float:\n    return a + b\n", "f(0.1, 0.2)"},
+		// A float divide by zero, and by negative zero, both raise with the exact
+		// message on both tiers (03, lines 18-19).
+		{"float divide by zero", "def f(a: float, b: float) -> float:\n    return a / b\n", "f(1.0, 0.0)"},
+		{"float divide by negative zero", "def f(a: float, b: float) -> float:\n    return a / b\n", "f(1.0, -0.0)"},
 		// Mixed int-and-float promotes to float, int side coerced (02, mixed section).
 		{"mixed int plus float", "def f(a: int, b: float) -> float:\n    return a + b\n", "f(2, 0.5)"},
 		{"mixed float times int", "def f(a: float, b: int) -> float:\n    return a * b\n", "f(1.5, 4)"},
