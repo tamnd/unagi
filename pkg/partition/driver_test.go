@@ -62,14 +62,50 @@ f = lambda z: z + 1
 	}
 }
 
-func TestDriveBoxesEveryUnitAtM4(t *testing.T) {
-	// With no proof feed, every enumerated unit boxes. The typed tier proves
-	// nothing static through this path yet, and the driver reports that honestly.
+func TestDriveBoxesUnprovenUnits(t *testing.T) {
+	// A function the bridge cannot lower (an unannotated parameter) carries no
+	// static proof, so it boxes on the cost model. The module top level boxes too,
+	// as module bodies always do at M4.
 	ds := drive(t, "def f(a):\n    return a + 1\n")
 	for _, d := range ds {
 		if d.State.IsStatic() {
-			t.Errorf("unit %q went static at M4; nothing should be proven static yet", d.Unit.Name)
+			t.Errorf("unit %q went static without a proof; it should box", d.Unit.Name)
 		}
+	}
+}
+
+func TestDriveProvesScalarFunctionStatic(t *testing.T) {
+	// A proven scalar function with total float arithmetic clears the cost model
+	// and lands static, the first tier the partitioner proves through the bridge.
+	ds := byName(drive(t, "def f(a: float, b: float, c: float) -> float:\n    return a * b + c\n"))
+	d, ok := ds["<module>.f"]
+	if !ok {
+		t.Fatal("missing unit <module>.f")
+	}
+	if d.State != StaticProven {
+		t.Fatalf("a total float function should prove static, got %v with %+v", d.State, d.Reasons)
+	}
+	if d.Score.Static >= d.Score.Boxed {
+		t.Errorf("static score %d should beat boxed %d", d.Score.Static, d.Score.Boxed)
+	}
+	// The module unit that runs the def statement stays boxed; only the function
+	// body is proven.
+	if ds[ModuleUnitName].State.IsStatic() {
+		t.Errorf("the module body should stay boxed, got %v", ds[ModuleUnitName].State)
+	}
+}
+
+func TestDriveBoxesGuardHeavyIntFunction(t *testing.T) {
+	// A short int function is all guarded adds, so its overflow guards outweigh
+	// the unboxed work and the guard budget demotes it. The tier is honest that a
+	// tiny int computation is not worth leaving the boxed twin for.
+	ds := byName(drive(t, "def f(a: int, b: int) -> int:\n    return a + b\n"))
+	d := ds["<module>.f"]
+	if d.State.IsStatic() {
+		t.Errorf("a single guarded int add should not go static, got %v", d.State)
+	}
+	if d.State != BoxedByCost {
+		t.Errorf("it should box on the cost model, got %v", d.State)
 	}
 }
 
