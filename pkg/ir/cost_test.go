@@ -120,6 +120,22 @@ func TestCostGuardFreeIfIsStatic(t *testing.T) {
 	}
 }
 
+// TestCostBranchJoinIsGuardFree proves the join declaration adds nothing to the
+// census: a name both arms bind to a literal hoists to a `var x int64` and two
+// assignments, none of which is arithmetic, so the function stays guard-free static.
+func TestCostBranchJoinIsGuardFree(t *testing.T) {
+	src := "def f(c: int) -> int:\n    if c > 0:\n        x = 10\n    else:\n        x = 20\n    return x\n"
+	c := costOfSrc(t, src)
+	if c.EntryGuards != 0 || c.LoopGuards != 0 {
+		t.Errorf("a literal branch join should carry no guards, got entry=%d loop=%d", c.EntryGuards, c.LoopGuards)
+	}
+	// The one comparison in the condition is the only counted operation; the join
+	// declaration and the two assignments carry no arithmetic of their own.
+	if c.UnboxedOps != 1 {
+		t.Errorf("only the condition comparison should count, got %d ops", c.UnboxedOps)
+	}
+}
+
 // TestCostIgnoresUnknownNodes guards the walk against a node the bridge never
 // builds: a bare variable return contributes no operations.
 func TestCostIgnoresUnknownNodes(t *testing.T) {

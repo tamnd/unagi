@@ -84,13 +84,79 @@ func TestLowerIfRefusesDivergentReturnTypes(t *testing.T) {
 	}
 }
 
-func TestLowerIfRefusesBranchBinding(t *testing.T) {
-	// A `:=` inside a Go if-block shadows rather than reassigns an outer name, so a
-	// write inside a branch that a later statement reads would silently vanish. The
-	// bridge refuses a binding inside an arm rather than miscompile the join.
+// TestLowerIfRebindsOuterNameInArm proves an arm that writes a name the enclosing
+// scope already declared reassigns it (`x = 1`) rather than shadowing it with a fresh
+// `:=`, so the write survives past the branch (06 line 33). The name is declared once,
+// before the if, and never redeclared inside the arm.
+func TestLowerIfRebindsOuterNameInArm(t *testing.T) {
 	src := "def f(n: int) -> int:\n    x = 0\n    if n:\n        x = 1\n    return x\n"
+	got := emitOf(t, src)
+	if !strings.Contains(got, "x := int64(0)") {
+		t.Fatalf("the outer name should be declared once before the if:\n%s", got)
+	}
+	if !strings.Contains(got, "x = 1") {
+		t.Fatalf("the arm should reassign the outer name, not redeclare it:\n%s", got)
+	}
+	if strings.Count(got, "x :=") != 1 {
+		t.Fatalf("the name should be declared exactly once, not shadowed in the arm:\n%s", got)
+	}
+}
+
+// TestLowerIfJoinsBothArms proves the branch join of 06 line 33: a name both arms bind
+// to the same scalar is hoisted to one Go local declared ahead of the branch, and each
+// arm assigns it, so the value the taken arm writes is the one read after the block.
+func TestLowerIfJoinsBothArms(t *testing.T) {
+	src := "def f(c: int) -> int:\n" +
+		"    if c > 0:\n        x = 10\n" +
+		"    else:\n        x = 20\n" +
+		"    return x\n"
+	got := emitOf(t, src)
+	if !strings.Contains(got, "var x int64") {
+		t.Fatalf("the join name should be declared with its Go type ahead of the branch:\n%s", got)
+	}
+	if !strings.Contains(got, "x = 10") || !strings.Contains(got, "x = 20") {
+		t.Fatalf("each arm should assign the hoisted join local:\n%s", got)
+	}
+	if strings.Contains(got, "x :=") {
+		t.Fatalf("a join name must not be declared inside an arm:\n%s", got)
+	}
+}
+
+// TestLowerIfRefusesOneArmBindingUsedAfter proves 06 line 12: a name only one arm
+// binds does not outlive the branch, so a later read of it has no definite Go value
+// and the unit stays boxed rather than leak an untyped zero.
+func TestLowerIfRefusesOneArmBindingUsedAfter(t *testing.T) {
+	src := "def f(n: int) -> int:\n    if n:\n        x = 1\n    return x\n"
 	fn := parseFunc(t, src)
 	if _, err := LowerFunc(fn); err == nil {
-		t.Fatal("an assignment inside an if arm should be refused for now")
+		t.Fatal("a name bound on only one branch and read after should be refused")
+	}
+}
+
+// TestLowerIfRefusesTypeDivergentJoin proves the other half of 06 line 33: a name the
+// two arms bind to different scalar classes has no single Go type, so the join is
+// refused and the unit stays boxed rather than pick one type over the other.
+func TestLowerIfRefusesTypeDivergentJoin(t *testing.T) {
+	src := "def f(c: int) -> float:\n" +
+		"    if c > 0:\n        x = 1\n" +
+		"    else:\n        x = 2.0\n" +
+		"    return x\n"
+	fn := parseFunc(t, src)
+	if _, err := LowerFunc(fn); err == nil {
+		t.Fatal("a type-divergent branch join should be refused")
+	}
+}
+
+// TestLowerIfRefusesDeadBranchBinding proves the read-set guard: a name both arms bind
+// but nothing ever reads has no live static form, since its hoisted Go declaration
+// would be written and never used, so the unit stays boxed.
+func TestLowerIfRefusesDeadBranchBinding(t *testing.T) {
+	src := "def f(c: int) -> int:\n" +
+		"    if c > 0:\n        x = 10\n" +
+		"    else:\n        x = 20\n" +
+		"    return 0\n"
+	fn := parseFunc(t, src)
+	if _, err := LowerFunc(fn); err == nil {
+		t.Fatal("a branch binding nothing reads should be refused")
 	}
 }

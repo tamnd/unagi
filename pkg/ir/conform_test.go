@@ -157,6 +157,27 @@ func TestStaticTierMatchesCPython(t *testing.T) {
 		// with CPython.
 		{"tuple unpack float", "def f(a: float, b: float) -> float:\n    x, y = a * 2.0, b + 1.0\n    return x - y\n", "f(1.5, 0.5)"},
 		{"tuple swap str", "def f(a: str, b: str) -> str:\n    x = a\n    y = b\n    x, y = y, x\n    return x + y\n", `f("left", "right")`},
+		// Branch join (06, lines 12 and 33): a name both arms bind to the same scalar is
+		// hoisted to one Go local, so the value read after the block is whichever arm ran.
+		// Each shape runs both the then-arm call and the else-arm call so both writes are
+		// checked against CPython.
+		{"join int then", "def f(c: int) -> int:\n    if c > 0:\n        x = 10\n    else:\n        x = 20\n    return x\n", "f(1)"},
+		{"join int else", "def f(c: int) -> int:\n    if c > 0:\n        x = 10\n    else:\n        x = 20\n    return x\n", "f(-1)"},
+		{"join float then", "def f(c: int) -> float:\n    if c > 0:\n        x = 1.5\n    else:\n        x = 2.5\n    return x\n", "f(1)"},
+		{"join float else", "def f(c: int) -> float:\n    if c > 0:\n        x = 1.5\n    else:\n        x = 2.5\n    return x\n", "f(0)"},
+		{"join str then", "def f(c: int) -> str:\n    if c > 0:\n        s = \"pos\"\n    else:\n        s = \"nonpos\"\n    return s\n", "f(1)"},
+		{"join str else", "def f(c: int) -> str:\n    if c > 0:\n        s = \"pos\"\n    else:\n        s = \"nonpos\"\n    return s\n", "f(0)"},
+		// A join whose arm value is computed from the parameters, so the hoisted local
+		// carries an arithmetic result, not just a literal, and still reads back correctly.
+		// Float arithmetic is total, so the arms stay guard-free and reach this runner.
+		{"join computed then", "def f(a: float, b: float) -> float:\n    if a < b:\n        m = b - a\n    else:\n        m = a - b\n    return m\n", "f(2.0, 7.0)"},
+		{"join computed else", "def f(a: float, b: float) -> float:\n    if a < b:\n        m = b - a\n    else:\n        m = a - b\n    return m\n", "f(7.0, 2.0)"},
+		// A nested branch join: the inner if binds the name on both of its paths, so the
+		// outer join sees it bound on the then side and the plain else binds it too, and
+		// the single hoisted local still holds whichever of the three arms ran.
+		{"nested join a", "def f(c: int, d: int) -> int:\n    if c > 0:\n        if d > 0:\n            x = 1\n        else:\n            x = 2\n    else:\n        x = 3\n    return x\n", "f(1, 1)"},
+		{"nested join b", "def f(c: int, d: int) -> int:\n    if c > 0:\n        if d > 0:\n            x = 1\n        else:\n            x = 2\n    else:\n        x = 3\n    return x\n", "f(1, -1)"},
+		{"nested join c", "def f(c: int, d: int) -> int:\n    if c > 0:\n        if d > 0:\n            x = 1\n        else:\n            x = 2\n    else:\n        x = 3\n    return x\n", "f(-1, 0)"},
 	}
 
 	dir := t.TempDir()

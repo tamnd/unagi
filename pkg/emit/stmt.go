@@ -40,6 +40,15 @@ type Assign struct {
 	Value Expr
 }
 
+// VarDecl declares a local with its zero value and definite Go type, `var name T`.
+// It hoists a name that both arms of an if/else bind so the name is visible and
+// typed after the join. Both arms assign it on every path, so the zero the
+// declaration gives is never observed, and no untyped Go zero leaks past the branch.
+type VarDecl struct {
+	Name string
+	Repr Repr
+}
+
 // Bind is a parallel binding of several names to several values in one statement,
 // `a, b := x, y` when Define is true and `a, b = x, y` when it is false. It lowers a
 // Python tuple unpack: Go evaluates the whole right side before assigning any
@@ -76,6 +85,7 @@ type If struct {
 
 func (Define) isStmt()    {}
 func (Assign) isStmt()    {}
+func (VarDecl) isStmt()   {}
 func (Bind) isStmt()      {}
 func (AddAssign) isStmt() {}
 func (Return) isStmt()    {}
@@ -127,6 +137,14 @@ func (b *Builder) lowerStmt(s Stmt) ([]ast.Stmt, error) {
 			return nil, err
 		}
 		return append(b.flush(), setStmt(ident(n.Name), x)), nil
+
+	case VarDecl:
+		// A bare declaration carries no value and so no guards; it just names the local
+		// and its type ahead of the branch that assigns it.
+		decl := &ast.DeclStmt{Decl: &ast.GenDecl{Tok: token.VAR, Specs: []ast.Spec{
+			&ast.ValueSpec{Names: []*ast.Ident{ident(n.Name)}, Type: n.Repr.goType()},
+		}}}
+		return append(b.flush(), decl), nil
 
 	case Bind:
 		// A parallel binding lowers each value first, so every value's guards land in
