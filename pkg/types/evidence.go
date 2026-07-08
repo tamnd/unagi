@@ -158,8 +158,14 @@ func FromOperator(t *Type, span Span, operands ...*Evidence) *Evidence {
 	return &Evidence{Kind: EvOperator, Type: t, Span: span, Supports: operands}
 }
 
-// Narrowed builds a proof that refines an earlier fact on a branch edge.
+// Narrowed builds a proof that refines an earlier fact on a branch edge. The
+// runtime test is the evidence, so a narrowing whose place had no prior binding
+// still stands on its own: from may be nil, in which case the proof rests on the
+// test alone rather than on an earlier fact.
 func Narrowed(t *Type, span Span, from *Evidence) *Evidence {
+	if from == nil {
+		return &Evidence{Kind: EvNarrow, Type: t, Span: span}
+	}
 	return &Evidence{Kind: EvNarrow, Type: t, Span: span, Supports: []*Evidence{from}}
 }
 
