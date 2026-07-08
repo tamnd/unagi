@@ -100,6 +100,22 @@ func TestStaticTierMatchesCPython(t *testing.T) {
 		{"or of and", "def f(a: int, b: int, c: int) -> bool:\n    return a < b or b < c and c < a\n", "f(5, 1, 3)"},
 		// `not` is lower than `==`, so `not a == b` is `not (a == b)` (05, line 26).
 		{"not of equal", "def f(a: int, b: int) -> bool:\n    return not a == b\n", "f(3, 3)"},
+		// Scalar truthiness in an if condition (05 lines 32-36, 06 line 30): an int is
+		// falsy at zero, a float at zero, a string when empty, a bool directly. Each
+		// case runs both the truthy and the falsy call so the branch is exercised both
+		// ways against CPython.
+		{"if int truthy", "def f(n: int) -> int:\n    if n:\n        return 1\n    return 0\n", "f(5)"},
+		{"if int falsy", "def f(n: int) -> int:\n    if n:\n        return 1\n    return 0\n", "f(0)"},
+		{"if float truthy", "def f(x: float) -> int:\n    if x:\n        return 1\n    return 0\n", "f(2.5)"},
+		{"if float falsy", "def f(x: float) -> int:\n    if x:\n        return 1\n    return 0\n", "f(0.0)"},
+		{"if str truthy", "def f(s: str) -> int:\n    if s:\n        return 1\n    return 0\n", `f("x")`},
+		{"if str falsy", "def f(s: str) -> int:\n    if s:\n        return 1\n    return 0\n", `f("")`},
+		{"if bool direct", "def f(a: int, b: int) -> int:\n    if a < b:\n        return 1\n    return 0\n", "f(2, 3)"},
+		// An if/elif/else chain picks the matching arm (06 line 31). The three calls
+		// land on each arm in turn, so the whole chain is checked against CPython.
+		{"elif positive", "def sign(x: int) -> int:\n    if x > 0:\n        return 2\n    elif x < 0:\n        return 1\n    else:\n        return 0\n", "sign(7)"},
+		{"elif negative", "def sign(x: int) -> int:\n    if x > 0:\n        return 2\n    elif x < 0:\n        return 1\n    else:\n        return 0\n", "sign(-3)"},
+		{"elif zero", "def sign(x: int) -> int:\n    if x > 0:\n        return 2\n    elif x < 0:\n        return 1\n    else:\n        return 0\n", "sign(0)"},
 	}
 
 	dir := t.TempDir()
