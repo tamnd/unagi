@@ -60,7 +60,6 @@ func TestLowerForRangeRefuses(t *testing.T) {
 		{"explicit step", "def f(n: int) -> int:\n    for i in range(0, n, 2):\n        pass\n    return n\n"},
 		{"enumerate-style tuple target", "def f(xs: list) -> int:\n    for i, x in enumerate(xs):\n        pass\n    return 0\n"},
 		{"list iteration", "def f(xs: list) -> int:\n    for x in xs:\n        pass\n    return 0\n"},
-		{"computed bound", "def f(n: int) -> int:\n    for i in range(n + 1):\n        pass\n    return n\n"},
 		{"mutated bound", "def f(n: int) -> int:\n    for i in range(n):\n        n = 0\n    return n\n"},
 		{"mutated loop variable", "def f(n: int) -> int:\n    for i in range(n):\n        i = 0\n    return n\n"},
 		{"shadowing loop variable", "def f(i: int, n: int) -> int:\n    for i in range(n):\n        pass\n    return i\n"},
@@ -73,6 +72,56 @@ func TestLowerForRangeRefuses(t *testing.T) {
 				t.Fatalf("the static tier must keep %s boxed", c.name)
 			}
 		})
+	}
+}
+
+// TestLowerForRangeHoistsComputedBound proves a computed range bound is evaluated once
+// ahead of the loop into a fresh temp, so the loop header tests a plain int64 local and
+// the bound's overflow guard fires at function entry, not on the loop back-edge.
+func TestLowerForRangeHoistsComputedBound(t *testing.T) {
+	src := "def f(n: int) -> float:\n    total = 0.0\n    for i in range(n + 1):\n        total = total + 1.0\n    return total\n"
+	got := emitOf(t, src)
+	if !strings.Contains(got, "bound := ") {
+		t.Fatalf("a computed bound should hoist into a temp:\n%s", got)
+	}
+	if !strings.Contains(got, "for i := int64(0); i < bound; i++ {") {
+		t.Fatalf("the loop header should test the hoisted temp:\n%s", got)
+	}
+	// The bound's overflow guard must sit ahead of the loop: the guarded add and its
+	// deopt edge come before the `for`, so the loop back-edge carries no guard.
+	loop := strings.Index(got, "for i :=")
+	guard := strings.Index(got, "rt.AddInt64")
+	if guard < 0 || loop < 0 || guard > loop {
+		t.Fatalf("the bound guard should flush ahead of the loop:\n%s", got)
+	}
+}
+
+// TestLowerForRangeHoistAvoidsNameCollision proves the hoisted temp never shadows a name
+// already in scope: when the bound reads a parameter named bound, the temp takes the next
+// free name rather than colliding with the parameter.
+func TestLowerForRangeHoistAvoidsNameCollision(t *testing.T) {
+	src := "def f(bound: int) -> float:\n    total = 0.0\n    for i in range(bound + 1):\n        total = total + 1.0\n    return total\n"
+	got := emitOf(t, src)
+	if !strings.Contains(got, "bound1 := ") {
+		t.Fatalf("the temp should dodge the parameter name bound:\n%s", got)
+	}
+	if !strings.Contains(got, "for i := int64(0); i < bound1; i++ {") {
+		t.Fatalf("the loop should test the collision-free temp:\n%s", got)
+	}
+}
+
+// TestCostForRangeComputedBoundGuardsAtEntry proves the hoisted bound's guard is counted
+// at function entry, not in the loop bucket: the cost model sees exactly the one add guard
+// the bound carries, and the loop body stays guard-free, so the classification the deopt
+// story relies on holds.
+func TestCostForRangeComputedBoundGuardsAtEntry(t *testing.T) {
+	src := "def f(n: int) -> float:\n    total = 0.0\n    for i in range(n + 1):\n        total = total + 1.0\n    return total\n"
+	c := costOfSrc(t, src)
+	if c.EntryGuards != 1 {
+		t.Fatalf("the hoisted bound should carry exactly one entry guard, got %d", c.EntryGuards)
+	}
+	if c.LoopGuards != 0 {
+		t.Fatalf("hoisting keeps the bound guard out of the loop bucket, got %d loop guards", c.LoopGuards)
 	}
 }
 
