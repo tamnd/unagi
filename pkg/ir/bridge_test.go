@@ -114,6 +114,25 @@ func TestLowerAugAssignAccumulates(t *testing.T) {
 	}
 }
 
+// TestLowerPassEmitsNothing proves 06 line 54: `pass` is a no-op that lowers to no
+// statement at all, so it changes no control flow. A function whose body is a `pass`
+// followed by a return emits exactly the return, with no artifact standing in for the
+// pass.
+func TestLowerPassEmitsNothing(t *testing.T) {
+	got := emitOf(t, "def f(n: int) -> int:\n    pass\n    return n\n")
+	if !strings.Contains(got, "return n, nil") {
+		t.Fatalf("the body should lower to its return:\n%s", got)
+	}
+	// The only statement in the body is the return; a stray pass artifact would add a
+	// second line, so the emitted body carries exactly one statement.
+	if n := strings.Count(got, "\n\treturn n, nil"); n != 1 {
+		t.Fatalf("pass should emit nothing, leaving only the return:\n%s", got)
+	}
+	if strings.Contains(got, "pass") || strings.Contains(got, "_ = ") {
+		t.Fatalf("pass should leave no artifact in the emitted Go:\n%s", got)
+	}
+}
+
 func TestLowerStringConcatenation(t *testing.T) {
 	src := "def greet(a: str, b: str) -> str:\n    return a + b\n"
 	got := emitOf(t, src)

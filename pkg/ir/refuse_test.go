@@ -58,6 +58,17 @@ func TestStaticTierRefusesUnsafeForms(t *testing.T) {
 		// An int operand reaching a string operator (02, line 46): an inference bug
 		// must be refused, never miscompiled into a wrong-typed Go operation.
 		{"int meeting a string operator", "def f(a: int, b: str) -> str:\n    return a + b\n"},
+
+		// A bare `return` in a value-returning static function (06, line 24) yields
+		// Python None, which is not a scalar this tier represents, and the emitted Go
+		// would miss its typed result, so it stays boxed rather than mistype the return.
+		{"bare return", "def f(n: int) -> int:\n    if n:\n        return 1\n    return\n"},
+
+		// An augmented assignment to a subscript target (06, line 19) reads and writes
+		// a container element, which is not a plain scalar name and would evaluate the
+		// target twice if lowered naively, so it stays boxed; the plain-name form the
+		// tier does lower reads a single variable, which is evaluated once by construction.
+		{"augmented subscript target", "def f(xs: int, i: int) -> int:\n    xs[i] += 1\n    return xs\n"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
