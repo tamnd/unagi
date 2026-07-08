@@ -1695,6 +1695,9 @@ func LoadAttr(o Object, name string) (Object, error) {
 		// methods and the type introspection attributes: int.__format__,
 		// int.__mro__, str.__bases__, bool.__base__.
 		if builtinTypeReprs[x.name] {
+			if v, ok := builtinTypeClassmethod(x.name, name); ok {
+				return v, nil
+			}
 			if tbl, ok := builtinTypeDunders[x.name]; ok {
 				if v, ok := tbl[name]; ok {
 					return v, nil

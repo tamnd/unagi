@@ -1,5 +1,19 @@
 package objects
 
+// builtinTypeClassmethod resolves a classmethod read off a builtin type
+// constructor, the form dict.fromkeys(iterable) takes where the method is called
+// on the type rather than an instance. re._parser reaches dict.fromkeys this way
+// to deduplicate a character set in first-seen order. It builds on a fresh
+// receiver, matching the classmethod that ignores any instance contents.
+func builtinTypeClassmethod(typeName, name string) (Object, bool) {
+	if typeName == "dict" && name == "fromkeys" {
+		return NewFunc("fromkeys", -1, func(args []Object) (Object, error) {
+			return dictMethod(&dictObject{index: make(map[string]int)}, "fromkeys", args)
+		}), true
+	}
+	return nil, false
+}
+
 func dictMethod(x *dictObject, name string, args []Object) (Object, error) {
 	switch name {
 	case "get":

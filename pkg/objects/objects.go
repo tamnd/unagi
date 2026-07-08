@@ -529,6 +529,21 @@ func AsInt(o Object) (int64, bool) {
 	return 0, false
 }
 
+// AsIntValue reads an int64 from an int or bool, or from an int subclass
+// instance by unwrapping its payload. re._constants spells its opcodes as
+// _NamedIntConstant, an int subclass, and _compiler emits those as the
+// bytecode words _sre.compile decodes, so the decoder reaches through the
+// subclass the way AsInt alone cannot.
+func AsIntValue(o Object) (int64, bool) {
+	if v, ok := AsInt(o); ok {
+		return v, true
+	}
+	if v, ok := builtinUnwrap(o); ok {
+		return AsInt(v)
+	}
+	return 0, false
+}
+
 // AsFloat extracts a numeric value from a float, int or bool object.
 // A spilled int converts through big.Float and comes back as an
 // infinity when it is out of range; arithmetic paths that must raise

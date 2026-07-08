@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"unicode"
+
 	"github.com/tamnd/unagi/pkg/objects"
 )
 
@@ -38,6 +40,29 @@ func initSre(m *objects.Module) error {
 	// is the bytecode list; groups is the capture-group count; groupindex maps
 	// each named group to its number and indexgroup maps each number back to its
 	// name.
+	// The case helpers re._compiler reads when it optimises a case-insensitive
+	// literal prefix. iscased reports whether a code point has a case pairing and
+	// tolower folds it, in the unicode and ascii variants the IGNORECASE and
+	// ASCII flags select. They fold the same way the matcher does, so a prefix the
+	// compiler simplifies stays consistent with the run.
+	for name, fn := range map[string]func(int32) objects.Object{
+		"unicode_iscased": func(ch int32) objects.Object { return boolObj(uniIscased(ch)) },
+		"ascii_iscased":   func(ch int32) objects.Object { return boolObj(asciiIscased(ch)) },
+		"unicode_tolower": func(ch int32) objects.Object { return objects.NewInt(int64(uniTolower(ch))) },
+		"ascii_tolower":   func(ch int32) objects.Object { return objects.NewInt(int64(asciiTolower(ch))) },
+	} {
+		f := objects.NewFunc(name, 1, func(a []objects.Object) (objects.Object, error) {
+			ch, ok := objects.AsInt(a[0])
+			if !ok {
+				return nil, objects.Raise(objects.TypeError, "an integer is required")
+			}
+			return fn(int32(ch)), nil
+		})
+		if err := set(name, f); err != nil {
+			return err
+		}
+	}
+
 	compile := objects.NewFunc("compile", -1, func(a []objects.Object) (objects.Object, error) {
 		if len(a) > 6 {
 			return nil, objects.Raise(objects.TypeError,
@@ -106,7 +131,7 @@ func decodeCode(o objects.Object) ([]uint32, error) {
 	}
 	out := make([]uint32, len(elts))
 	for i, e := range elts {
-		v, ok := objects.AsInt(e)
+		v, ok := objects.AsIntValue(e)
 		if !ok {
 			return nil, objects.Raise(objects.TypeError, "code[%d] must be int", i)
 		}
@@ -116,6 +141,42 @@ func decodeCode(o objects.Object) ([]uint32, error) {
 		out[i] = uint32(v)
 	}
 	return out, nil
+}
+
+// boolObj wraps a Go bool as the interned True or False.
+func boolObj(b bool) objects.Object {
+	if b {
+		return objects.True
+	}
+	return objects.False
+}
+
+// uniTolower folds a code point to lower case the Unicode way, matching the
+// engine's Py_UNICODE_TOLOWER path so a compiler-simplified prefix stays in step
+// with the matcher.
+func uniTolower(ch int32) int32 { return int32(unicode.ToLower(rune(ch))) }
+
+// asciiTolower folds only the ASCII letters, leaving every other code point be,
+// the fold the ASCII flag selects.
+func asciiTolower(ch int32) int32 {
+	if ch >= 'A' && ch <= 'Z' {
+		return ch + ('a' - 'A')
+	}
+	return ch
+}
+
+// uniIscased reports whether a code point has a case pairing, so folding it can
+// change it: CPython's SRE_UNI_IS_CASED is true when the lower or the upper form
+// differs from the character.
+func uniIscased(ch int32) bool {
+	r := rune(ch)
+	return unicode.ToLower(r) != r || unicode.ToUpper(r) != r
+}
+
+// asciiIscased reports whether a code point is an ASCII letter, the only cased
+// characters under the ASCII flag.
+func asciiIscased(ch int32) bool {
+	return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')
 }
 
 // isStr reports whether o is a str object.
