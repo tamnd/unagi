@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+copyreg
+['add_extension', 'clear_extension_cache', 'constructor', 'pickle', 'remove_extension']
+dict
+True
+(<class 'complex'>, (3.0, 4.0))
+True
+True
+constructor: constructors must be callable
+240
+('mymod', 'MyClass')
+False
+Point
+False
+code: code out of range
+== exception:
+== stderr:
