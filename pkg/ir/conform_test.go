@@ -101,6 +101,11 @@ func TestStaticTierMatchesCPython(t *testing.T) {
 		// one case where the chain holds and one where the middle link breaks it.
 		{"chained true", "def f(a: int, b: int, c: int) -> bool:\n    return a < b < c\n", "f(1, 2, 3)"},
 		{"chained false", "def f(a: int, b: int, c: int) -> bool:\n    return a < b < c\n", "f(1, 5, 3)"},
+		// A four-term chain with mixed operators expands to the same left-to-right
+		// conjunction, each middle term a bare name read once (05, line 18). One call
+		// holds the whole chain, one breaks a middle link.
+		{"long chain true", "def f(a: int, b: int, c: int, d: int) -> bool:\n    return a < b <= c == d\n", "f(1, 2, 3, 3)"},
+		{"long chain false", "def f(a: int, b: int, c: int, d: int) -> bool:\n    return a < b <= c == d\n", "f(1, 2, 3, 4)"},
 		// Connectives on proven bool operands (05, lines 22-24). The bool operands
 		// come from comparisons so the call passes int args, which spell the same in
 		// Go and Python (a bare True/False literal would not).

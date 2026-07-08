@@ -388,6 +388,20 @@ func lowerExpr(e frontend.Expr, sc scope) (emit.Expr, emit.Repr, error) {
 // evaluation-order-safe; the single-evaluation temp the frontier needs for a
 // side-effecting middle term is a later slice, not this one.
 func lowerCompare(n *frontend.Compare, sc scope) (emit.Expr, emit.Repr, error) {
+	// In a chain, every term but the first and last is an operand of two adjacent
+	// pairs, so the expansion reads it twice. Python evaluates it once, so a term
+	// that reads twice must be single-evaluation-safe: a bare name or literal reads
+	// to the identical value with no side effect and no recomputed guard, so it is
+	// safe, but a computed term (arithmetic, a call) would evaluate twice, which
+	// duplicates its work and any guard it carries. Rather than emit that double
+	// evaluation, the chain with a computed middle term stays boxed, where the boxed
+	// tier binds the term to a temp and evaluates it once. A plain (unchained)
+	// comparison has no reused operand, so nothing here restricts it.
+	for i := 0; i < len(n.Ops)-1; i++ {
+		if !singleEvalSafe(n.Rights[i]) {
+			return nil, emit.Repr{}, unsupported("a chained comparison reuses a computed middle term that would evaluate twice; kept boxed")
+		}
+	}
 	left, leftR, err := lowerExpr(n.Left, sc)
 	if err != nil {
 		return nil, emit.Repr{}, err
@@ -455,6 +469,19 @@ func lowerBoolOp(n *frontend.BoolOp, sc scope) (emit.Expr, emit.Repr, error) {
 		}
 	}
 	return acc, boolReprIR(), nil
+}
+
+// singleEvalSafe reports whether an expression can be read more than once with no
+// change in value and no side effect, so a chained comparison may reuse it as a
+// shared middle term without a temp. A bare name reads a binding and a literal is
+// a constant, both side-effect-free and stable; anything computed (arithmetic, a
+// comparison, a call) is not, since re-reading it re-does the work and any guard.
+func singleEvalSafe(e frontend.Expr) bool {
+	switch e.(type) {
+	case *frontend.Name, *frontend.IntLit, *frontend.FloatLit, *frontend.BoolLit, *frontend.StrLit:
+		return true
+	}
+	return false
 }
 
 // cmpOp maps the frontend's comparison operators to emit's six. Membership
