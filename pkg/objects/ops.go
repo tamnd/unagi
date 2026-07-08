@@ -1351,6 +1351,14 @@ func Len(o Object) (int, error) {
 		if v, ok := builtinUnwrap(x); ok {
 			return Len(v)
 		}
+	case *classObject:
+		res, handled, err := classMetaLen(x)
+		if err != nil {
+			return 0, err
+		}
+		if handled {
+			return lenFromResult(res)
+		}
 	}
 	return 0, Raise(TypeError, "object of type '%s' has no len()", o.TypeName())
 }
