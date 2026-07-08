@@ -293,8 +293,49 @@ func strMethod(x *strObject, name string, args []Object) (Object, error) {
 		return NewStr(strExpandTabs(s, tabsize)), nil
 	case "format":
 		return strFormat(s, args)
+	case "translate":
+		return strTranslate(s, args)
 	}
 	return nil, noAttr(x, name)
+}
+
+// strTranslate maps each character through a table keyed by code point, the way
+// re.escape shifts the special characters to their backslash-escaped forms. A
+// key the table does not carry (KeyError) keeps the original character, a None
+// result deletes it, an int result becomes that code point, and a str result is
+// spliced in.
+func strTranslate(s string, args []Object) (Object, error) {
+	if len(args) != 1 {
+		return nil, Raise(TypeError, "translate() takes exactly one argument (%d given)", len(args))
+	}
+	table := args[0]
+	var b strings.Builder
+	for _, ch := range s {
+		v, err := GetItem(table, NewInt(int64(ch)))
+		if err != nil {
+			if e, ok := err.(*Exception); ok && e.Kind == KeyError {
+				b.WriteRune(ch)
+				continue
+			}
+			return nil, err
+		}
+		if v == None {
+			continue
+		}
+		if code, ok := AsInt(v); ok {
+			if code < 0 || code > 0x10FFFF {
+				return nil, Raise(ValueError, "character mapping must be in range(0x110000)")
+			}
+			b.WriteRune(rune(code))
+			continue
+		}
+		if rep, ok := AsStr(v); ok {
+			b.WriteString(rep)
+			continue
+		}
+		return nil, Raise(TypeError, "character mapping must return integer, None or str")
+	}
+	return NewStr(b.String()), nil
 }
 
 // strNoArgs is the zero-arity check shared by the case and predicate

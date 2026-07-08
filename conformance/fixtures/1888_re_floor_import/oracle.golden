@@ -1,0 +1,28 @@
+== exit: 0
+== stdout:
+re
+module
+re.compile('(\\d+)-(\\d+)')
+(\d+)-(\d+) 2
+('12', '34')
+ello
+user@host.com
+None
+None
+ac a c
+('a', None, 'c')
+(0, 2) 0 2
+2026 07
+{'year': '2026', 'mon': '07'}
+mon
+ABBBC
+bar
+a
+c
+re.compile('x', re.IGNORECASE|re.DOTALL)
+True
+a\.b\*c\+\(d\)
+color colour
+b'42' b'42'
+== exception:
+== stderr:
