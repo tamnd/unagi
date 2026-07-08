@@ -309,6 +309,32 @@ func StarLoad(mod objects.Object, name string) (objects.Object, bool) {
 	return m.Get(name)
 }
 
+// StarImportDynamic copies the public names a `from m import *` did not bind
+// statically from the source module into the importer, so a name the source
+// injected at runtime, the globals().update shape re._constants uses, is
+// visible in the importer too. The static names are already bound as module
+// variables, so they are skipped; everything else public lands in the
+// importer's overflow store, where its module-scope reads find it.
+func StarImportDynamic(dst *objects.Module, srcObj objects.Object, static []string) error {
+	src, ok := srcObj.(*objects.Module)
+	if !ok {
+		return nil
+	}
+	skip := make(map[string]bool, len(static))
+	for _, n := range static {
+		skip[n] = true
+	}
+	for _, n := range src.PublicNames() {
+		if skip[n] {
+			continue
+		}
+		if v, ok := src.Get(n); ok {
+			dst.SetGlobal(n, v)
+		}
+	}
+	return nil
+}
+
 // LoadModuleName reads a name the module's compile never saw statically: an
 // attribute an importer set on the module object after import. A miss falls
 // back to builtins and then raises NameError, the LOAD_GLOBAL order.

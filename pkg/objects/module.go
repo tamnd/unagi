@@ -1,5 +1,7 @@
 package objects
 
+import "strings"
+
 // Module is a Python module object. Its namespace is split in two: slots are
 // live pointers into the generated Go package's module-scope variables, bound
 // by the module's Exec before the body runs, so an attribute read or write
@@ -83,6 +85,40 @@ func (m *Module) setExtra(name string, v Object) {
 		m.extraOrder = append(m.extraOrder, name)
 	}
 	m.extra[name] = v
+}
+
+// SetGlobal binds a name in the module namespace from outside the body, the
+// entry a star import uses to copy a source module's names in. It writes
+// through a live slot when the name is one, so functions inside the module see
+// it, otherwise the name lands in the overflow store.
+func (m *Module) SetGlobal(name string, v Object) { _ = moduleStoreAttr(m, name, v) }
+
+// PublicNames lists the names a `from m import *` copies when the module
+// defines no __all__: every bound name that does not start with an underscore,
+// the overflow store first and then the live slots, each in binding order. It
+// is a runtime view, so a name the module injected through globals() is
+// included the same as a statically assigned one.
+func (m *Module) PublicNames() []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(n string) {
+		if strings.HasPrefix(n, "_") || seen[n] {
+			return
+		}
+		seen[n] = true
+		out = append(out, n)
+	}
+	for _, n := range m.extraOrder {
+		if _, ok := m.extra[n]; ok {
+			add(n)
+		}
+	}
+	for _, n := range m.slotOrder {
+		if slot := m.slots[n]; slot != nil && *slot != nil {
+			add(n)
+		}
+	}
+	return out
 }
 
 // Get reads one attribute, reporting whether it is currently bound.

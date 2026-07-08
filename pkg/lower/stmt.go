@@ -307,6 +307,14 @@ func (f *fnCtx) starImport(s *frontend.ImportFrom) error {
 			Body: block(set(ident(mangle(n)), ident("v"))),
 		})
 	}
+	// The static Names above are the source module's compile-time surface. In a
+	// module package, supplement them at runtime with the source's public names
+	// the compiler never saw, the ones it injected through globals(), binding
+	// them in this module's namespace so its later reads resolve.
+	if f.e.pkgMode {
+		f.fallibleVoid(sel("runtime", "StarImportDynamic"),
+			ident("thisModule"), ident(imp), strSliceLit(exp.Names))
+	}
 	return nil
 }
 
