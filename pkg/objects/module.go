@@ -181,6 +181,16 @@ func (m *Module) missingAttr(name string) error {
 
 // moduleLoadAttr is the LoadAttr arm for modules.
 func moduleLoadAttr(m *Module, name string) (Object, error) {
+	if name == "__dict__" {
+		// A module's __dict__ is its live namespace, the same dict globals()
+		// hands back: reads see every bound name and a write, __dict__.update(...)
+		// the way enum.global_enum hoists a flag's members, carries into the
+		// module. An explicit binding of __dict__ from outside still wins.
+		if v, ok := m.Get(name); ok {
+			return v, nil
+		}
+		return m.GlobalsDict(), nil
+	}
 	if v, ok := m.Get(name); ok {
 		return v, nil
 	}
