@@ -172,6 +172,11 @@ func IntOf(o objects.Object) (objects.Object, error) {
 	if s, ok := objects.AsStr(o); ok {
 		return intFromStr(o, s, 10, 10)
 	}
+	if raw, ok := objects.AsBytesLike(o); ok {
+		// int() with one bytes or bytearray argument parses it as base-10 text,
+		// each byte read as its latin-1 code point, so int(b'10') is 10.
+		return intFromStr(o, bytesLatin1(raw), 10, 10)
+	}
 	if o.TypeName() == "int" {
 		// Ints pass through whole, spilled or not.
 		return o, nil
@@ -198,6 +203,16 @@ func IntOf(o objects.Object) (objects.Object, error) {
 		"int() argument must be a string, a bytes-like object or a real number, not '%s'", o.TypeName())
 }
 
+// bytesLatin1 reads each byte of a bytes-like int() argument as its latin-1
+// code point, the decoding CPython applies before parsing the digits.
+func bytesLatin1(raw []byte) string {
+	rs := make([]rune, len(raw))
+	for i, c := range raw {
+		rs[i] = rune(c)
+	}
+	return string(rs)
+}
+
 // IntOfBase implements int(x, base). Probed check order on 3.14: the
 // base type first, then its range, then x must be a string.
 func IntOfBase(x, base objects.Object) (objects.Object, error) {
@@ -216,7 +231,14 @@ func IntOfBase(x, base objects.Object) (objects.Object, error) {
 	}
 	s, ok := objects.AsStr(x)
 	if !ok {
-		return nil, objects.Raise(objects.TypeError, "int() can't convert non-string with explicit base")
+		// int() also parses a bytes-like argument with an explicit base, reading
+		// each byte as its latin-1 code point the way CPython does, so int(b'101',
+		// 2) is 5. The original object stays the error repr, giving b'...'.
+		raw, okb := objects.AsBytesLike(x)
+		if !okb {
+			return nil, objects.Raise(objects.TypeError, "int() can't convert non-string with explicit base")
+		}
+		s = bytesLatin1(raw)
 	}
 	digitBase := b
 	if digitBase == 0 {

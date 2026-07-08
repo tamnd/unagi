@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+10
+255
+42
+-17
+511
+35
+7
+10
+-42
+1000
+bad: invalid literal for int() with base 2: b'12'
+mv: int() can't convert non-string with explicit base
+== exception:
+== stderr:
