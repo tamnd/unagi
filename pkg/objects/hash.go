@@ -73,6 +73,8 @@ func PyHash(o Object) (int64, error) {
 			r = -2
 		}
 		return r, nil
+	case *unionObject:
+		return pyHashUnion(x)
 	case *funcObject, *functionObject, *Exception, *dictValuesObject,
 		*ellipsisObject, *notImplementedObject, *classObject, *typeObject:
 		// A class and a builtin type value hash by identity: type does not

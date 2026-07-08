@@ -1165,6 +1165,20 @@ func IsInstance(obj, cls Object) (Object, error) {
 		}
 		return False, nil
 	}
+	if u, ok := cls.(*unionObject); ok {
+		// isinstance against a union checks membership in any of its types, the
+		// same way a tuple of types does.
+		for _, e := range u.args {
+			r, err := IsInstance(obj, e)
+			if err != nil {
+				return nil, err
+			}
+			if r == True {
+				return True, nil
+			}
+		}
+		return False, nil
+	}
 	if c, ok := cls.(*classObject); ok {
 		if r, handled, err := metaCheckHook(c, "__instancecheck__", obj); handled {
 			return r, err
@@ -1515,6 +1529,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return instanceLoadAttr(x, name)
 	case *intObject, *boolObject:
 		return intLoadAttr(o, name)
+	case *unionObject:
+		return unionLoadAttr(x, name)
 	case *Module:
 		return moduleLoadAttr(x, name)
 	case *classObject:

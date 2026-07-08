@@ -338,6 +338,9 @@ func reprCore(o Object, strict bool) (string, error) {
 	case *typeObject:
 		// A type value for a constructor-less kind, spelled the same as a class.
 		return fmt.Sprintf("<class '%s'>", x.name), nil
+	case *unionObject:
+		// A PEP 604 union prints its members joined by |, NoneType spelled None.
+		return unionRepr(x), nil
 	case *instanceObject:
 		res, defined, err := instanceSpecial(x, "__repr__")
 		if err != nil {

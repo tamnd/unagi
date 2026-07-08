@@ -603,6 +603,11 @@ func BitOr(a, b Object) (Object, error) {
 	if x, y, ok := bothBig(a, b); ok {
 		return NewIntFromBig(new(big.Int).Or(x, y)), nil
 	}
+	// A type on either side builds a PEP 604 union, so int | str and its
+	// extensions form the union types read as values.
+	if u, ok, err := unionOr(a, b); ok || err != nil {
+		return u, err
+	}
 	return binFallback("|", a, b)
 }
 
@@ -832,6 +837,11 @@ func equals(a, b Object) bool {
 		// c.n or c.m == C().m.
 		y, ok := b.(*boundMethod)
 		return ok && x.fn == y.fn && equals(x.self, y.self)
+	case *unionObject:
+		// Two unions are equal when they hold the same set of members, so int |
+		// str equals str | int but not int | bytes.
+		y, ok := b.(*unionObject)
+		return ok && unionArgsEqual(x, y)
 	}
 	return a == b
 }
