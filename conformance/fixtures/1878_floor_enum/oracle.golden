@@ -1,0 +1,22 @@
+== exit: 0
+== stdout:
+Color.RED RED 1
+[<Color.RED: 1>, <Color.GREEN: 2>, <Color.BLUE: 3>]
+Color.GREEN
+Color.GREEN
+3
+True
+BLUE=3
+{'RED': <Color.RED: 1>, 'GREEN': <Color.GREEN: 2>, 'BLUE': <Color.BLUE: 3>}
+3 True 2
+a True A
+6 6
+True
+[<Perm.R: 4>, <Perm.W: 2>]
+3
+[1, 2, 3]
+[<Uniq.ONE: 1>, <Uniq.TWO: 2>]
+[<Animal.CAT: 1>, <Animal.DOG: 2>, <Animal.BIRD: 3>] 2
+ValueError: 99 is not a valid Color
+== exception:
+== stderr:
