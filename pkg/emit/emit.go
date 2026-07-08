@@ -63,6 +63,10 @@ func binary(op token.Token, x, y ast.Expr) *ast.BinaryExpr {
 	return &ast.BinaryExpr{X: x, Op: op, Y: y}
 }
 
+// paren wraps an expression so operator precedence in the printed source matches
+// the tree the emitter built, since go/format does not add parentheses of its own.
+func paren(x ast.Expr) *ast.ParenExpr { return &ast.ParenExpr{X: x} }
+
 // define is `name := rhs`.
 func define(name string, rhs ast.Expr) *ast.AssignStmt {
 	return &ast.AssignStmt{Lhs: []ast.Expr{ident(name)}, Tok: token.DEFINE, Rhs: []ast.Expr{rhs}}

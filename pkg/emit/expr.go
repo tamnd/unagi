@@ -91,6 +91,12 @@ type Int struct{ V int64 }
 // Float is a float literal.
 type Float struct{ V float64 }
 
+// Bool is a boolean literal.
+type Bool struct{ V bool }
+
+// Str is a string literal.
+type Str struct{ V string }
+
 // Bin is a binary arithmetic node.
 type Bin struct {
 	Op   Op
@@ -100,6 +106,8 @@ type Bin struct {
 func (Var) isExpr()   {}
 func (Int) isExpr()   {}
 func (Float) isExpr() {}
+func (Bool) isExpr()  {}
+func (Str) isExpr()   {}
 func (Bin) isExpr()   {}
 
 // lowerExpr lowers one expression to a Go expression and its representation,
@@ -116,8 +124,26 @@ func (b *Builder) lowerExpr(e Expr) (ast.Expr, Repr, error) {
 		return intLit(n.V), Repr{Go: "int64", Scalar: SInt}, nil
 	case Float:
 		return floatLit(n.V), Repr{Go: "float64", Scalar: SFloat, Total: true}, nil
+	case Bool:
+		name := "false"
+		if n.V {
+			name = "true"
+		}
+		return ident(name), boolRepr(), nil
+	case Str:
+		return strLit(n.V), Repr{Go: "string", Scalar: SStr, Total: true}, nil
 	case Bin:
 		return b.lowerBin(n)
+	case Cmp:
+		return b.lowerCmp(n)
+	case And:
+		return b.lowerBoolBin(token.LAND, n.L, n.R)
+	case Or:
+		return b.lowerBoolBin(token.LOR, n.L, n.R)
+	case Not:
+		return b.lowerNot(n)
+	case Call:
+		return b.lowerCall(n)
 	}
 	return nil, Repr{}, fmt.Errorf("emit: unknown expression node %T", e)
 }
@@ -133,6 +159,15 @@ func (b *Builder) lowerBin(n Bin) (ast.Expr, Repr, error) {
 	if err != nil {
 		return nil, Repr{}, err
 	}
+	// String concatenation is the one non-numeric binary this tier lowers: two
+	// read-only strings join with Go's total + operator, no guard.
+	if lr.Scalar == SStr || rr.Scalar == SStr {
+		if n.Op != OpAdd || lr.Scalar != SStr || rr.Scalar != SStr {
+			return nil, Repr{}, fmt.Errorf("emit: %s on strings is not a static operation", n.Op)
+		}
+		return binary(token.ADD, lx, rx), Repr{Go: "string", Scalar: SStr, Total: true}, nil
+	}
+
 	if !arith(lr) || !arith(rr) {
 		return nil, Repr{}, fmt.Errorf("emit: %s needs numeric operands, got %s and %s", n.Op, lr.Scalar, rr.Scalar)
 	}
