@@ -535,15 +535,24 @@ func binResult(op emit.Op, l, r emit.Repr) (emit.Repr, error) {
 		}
 		return emit.Repr{Go: "string", Scalar: emit.SStr, Total: true}, nil
 	}
-	if !arith(l) || !arith(r) {
+	if !numeric(l) || !numeric(r) {
 		return emit.Repr{}, unsupported("%s needs numeric operands, got %s and %s", op, l.Scalar, r.Scalar)
 	}
 	if op == emit.OpDiv || l.Scalar == emit.SFloat || r.Scalar == emit.SFloat {
 		return emit.Repr{Go: "float64", Scalar: emit.SFloat, Total: true}, nil
 	}
+	// Two ints, or a bool with an int, or two bools: bool is a subtype of int, so the
+	// result is a plain int (`True + True` is `2`).
 	return emit.Repr{Go: "int64", Scalar: emit.SInt}, nil
 }
 
-// arith reports whether a representation is an int or float, the only operands
-// scalar arithmetic accepts.
+// arith reports whether a representation is an int or float, the only operands a
+// scalar comparison accepts.
 func arith(r emit.Repr) bool { return r.Scalar == emit.SInt || r.Scalar == emit.SFloat }
+
+// numeric reports whether a representation may be an arithmetic operand. It
+// mirrors emit's own rule: int and float are numeric, and bool joins them because
+// Python's bool is a subtype of int, so `True + 1.0` is `2.0`.
+func numeric(r emit.Repr) bool {
+	return r.Scalar == emit.SInt || r.Scalar == emit.SFloat || r.Scalar == emit.SBool
+}

@@ -56,6 +56,11 @@ func TestStaticTierMatchesCPython(t *testing.T) {
 		// The float path never rounds or reformats: 0.1 + 0.2 must print CPython's
 		// exact 0.30000000000000004 through the repr path (03, line 13).
 		{"float rounding surprise", "def f(a: float, b: float) -> float:\n    return a + b\n", "f(0.1, 0.2)"},
+		// Float overflow produces the IEEE-754 infinity, exactly as CPython does, not
+		// a deopt: infinity is the correct answer, so the multiply stays a guard-free
+		// float op and the repr path prints inf/-inf byte-for-byte (03, line 12).
+		{"float overflow to inf", "def f(a: float, b: float) -> float:\n    return a * b\n", "f(1e308, 10.0)"},
+		{"float overflow to negative inf", "def f(a: float, b: float) -> float:\n    return a * b\n", "f(-1e308, 10.0)"},
 		// A float divide by zero, and by negative zero, both raise with the exact
 		// message on both tiers (03, lines 18-19).
 		{"float divide by zero", "def f(a: float, b: float) -> float:\n    return a / b\n", "f(1.0, 0.0)"},
@@ -63,6 +68,13 @@ func TestStaticTierMatchesCPython(t *testing.T) {
 		// Mixed int-and-float promotes to float, int side coerced (02, mixed section).
 		{"mixed int plus float", "def f(a: int, b: float) -> float:\n    return a + b\n", "f(2, 0.5)"},
 		{"mixed float times int", "def f(a: float, b: int) -> float:\n    return a * b\n", "f(1.5, 4)"},
+		// A bool feeding arithmetic coerces as int, since Python's bool is a subtype of
+		// int (03, lines 25 and 31). The bool comes from a comparison so the call passes
+		// float args that spell the same in Go and Python; a bare True would not. The
+		// result is float, so the op stays guard-free and reaches this runner: `(a < b) +
+		// c` is `True + c` when the comparison holds and `False + c` when it does not.
+		{"compare plus float true", "def f(a: float, b: float, c: float) -> float:\n    return (a < b) + c\n", "f(1.0, 2.0, 0.5)"},
+		{"compare plus float false", "def f(a: float, b: float, c: float) -> float:\n    return (a < b) + c\n", "f(2.0, 1.0, 0.5)"},
 		// True division of ints always yields a float (02, division section).
 		{"int true division", "def f(a: int, b: int) -> float:\n    return a / b\n", "f(7, 2)"},
 		// Division by zero raises ZeroDivisionError with CPython's exact message
