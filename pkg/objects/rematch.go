@@ -76,8 +76,118 @@ func patternMethod(p *patternObject, name string, args []Object) (Object, error)
 		return patternRun(p, args, "fullmatch", true)
 	case "search":
 		return patternRun(p, args, "search", false)
+	case "findall":
+		return patternFindall(p, args)
+	case "finditer":
+		return patternFinditer(p, args)
 	}
 	return nil, noAttr(p, name)
+}
+
+// scanMatches walks the subject and collects every non-overlapping match the way
+// CPython's scanner does: search forward from the cursor, take the match, and
+// advance to its end, stepping one past an empty match so the walk cannot stall.
+// findall and finditer both build on this.
+func scanMatches(p *patternObject, args []Object, name string) ([]*matchObject, Object, bool, error) {
+	input, subject, isbytes, pos, endpos, err := patternSubject(p, args, name)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	var matches []*matchObject
+	for pos <= endpos {
+		r, err := sre.Search(input, p.code, p.groups, pos, endpos, false)
+		if err != nil {
+			return nil, nil, false, Raise(RuntimeError, "%s", err.Error())
+		}
+		if !r.Matched {
+			break
+		}
+		m := newMatch(p, subject, input, isbytes, pos, endpos, r).(*matchObject)
+		matches = append(matches, m)
+		start, end := r.Locs[0], r.Locs[1]
+		if end == start {
+			pos = end + 1
+		} else {
+			pos = end
+		}
+	}
+	return matches, subject, isbytes, nil
+}
+
+// patternFindall implements Pattern.findall: a list with one entry per match. A
+// pattern with no groups yields the whole match, one group yields that group,
+// and several yield a tuple of them, with an unmatched group reading as the
+// empty string rather than None the way findall alone does.
+func patternFindall(p *patternObject, args []Object) (Object, error) {
+	matches, _, isbytes, err := scanMatches(p, args, "findall")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Object, 0, len(matches))
+	for _, m := range matches {
+		switch p.groups {
+		case 0:
+			out = append(out, m.slice(m.locs[0], m.locs[1]))
+		case 1:
+			out = append(out, m.findallGroup(1, isbytes))
+		default:
+			grp := make([]Object, p.groups)
+			for g := 1; g <= p.groups; g++ {
+				grp[g-1] = m.findallGroup(g, isbytes)
+			}
+			out = append(out, NewTuple(grp))
+		}
+	}
+	return NewList(out), nil
+}
+
+// findallGroup reads group g for findall, giving the empty str or bytes for a
+// group that did not match instead of None.
+func (m *matchObject) findallGroup(g int, isbytes bool) Object {
+	lo, hi, _ := m.span(g)
+	if lo < 0 || hi < 0 {
+		if isbytes {
+			return NewBytes(nil)
+		}
+		return NewStr("")
+	}
+	return m.slice(lo, hi)
+}
+
+// matchIter is Pattern.finditer's result, an iterator of Match objects over the
+// non-overlapping matches. CPython names its type callable_iterator, and the
+// matches are fixed once the scan runs since the pattern has no side effect. It
+// carries its own cursor so next(it) and a for loop drive the one walk and it
+// exhausts the way an iterator does rather than restarting.
+type matchIter struct {
+	elts []Object
+	i    int
+}
+
+func (*matchIter) TypeName() string { return "callable_iterator" }
+
+func (it *matchIter) Iterate() (Iterator, error) { return it, nil }
+
+func (it *matchIter) Next() (Object, bool, error) {
+	if it.i >= len(it.elts) {
+		return nil, false, nil
+	}
+	v := it.elts[it.i]
+	it.i++
+	return v, true, nil
+}
+
+// patternFinditer implements Pattern.finditer over the same scan findall uses.
+func patternFinditer(p *patternObject, args []Object) (Object, error) {
+	matches, _, _, err := scanMatches(p, args, "finditer")
+	if err != nil {
+		return nil, err
+	}
+	elts := make([]Object, len(matches))
+	for i, m := range matches {
+		elts[i] = m
+	}
+	return &matchIter{elts: elts}, nil
 }
 
 // patternRun is the shared body of the three anchored-or-searching entry points.
