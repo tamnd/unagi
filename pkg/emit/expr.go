@@ -120,6 +120,8 @@ func (b *Builder) lowerExpr(e Expr) (ast.Expr, Repr, error) {
 	switch n := e.(type) {
 	case Var:
 		return ident(n.Name), n.Repr, nil
+	case Recv:
+		return sel(genRecv, n.Name), n.Repr, nil
 	case Int:
 		return intLit(n.V), Repr{Go: "int64", Scalar: SInt}, nil
 	case Float:
