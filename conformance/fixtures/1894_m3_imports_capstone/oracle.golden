@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+regpkg
+HI WORLD!
+GO!
+nspace.part value 42
+42
+left start
+right start
+attr: partially initialized module 'cyc.left' from 'cyc/left.py' has no attribute 'lval' (most likely due to a circular import)
+right done
+left resumed
+R
+R L
+cyc.left cyc.right
+missing: No module named 'nope_missing'
+== exception:
+== stderr:

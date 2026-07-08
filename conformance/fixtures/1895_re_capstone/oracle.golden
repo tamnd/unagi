@@ -1,0 +1,40 @@
+== exit: 0
+== stdout:
+['ab', 'ef']
+['a', 'b', 'c']
+abc
+1a 
+aaaa
+aaab
+aaa
+aa
+['1', '2', '3']
+True
+['word', 'word']
+['in']
+abc-42 abc 42 ('abc', '42') {'num': '42'}
+['ababab']
+True
+False
+abc
+['cat', 'dog', 'cat']
+color
+['5']
+['6']
+['5']
+['6']
+['AbC']
+['AbC']
+None
+True
+a
+b
+(3, 6)
+True
+False
+['a', 'b', 'c']
+a\.b\*c\+
+(\d+) 1 ['1', '22']
+re.compile('x', re.IGNORECASE|re.MULTILINE)
+== exception:
+== stderr:
