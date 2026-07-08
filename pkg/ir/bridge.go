@@ -14,6 +14,8 @@ package ir
 
 import (
 	"fmt"
+	"maps"
+	"sort"
 	"strconv"
 
 	"github.com/tamnd/unagi/pkg/emit"
@@ -83,7 +85,15 @@ func LowerFunc(fn *frontend.FuncDef) (emit.Func, error) {
 		sc[p.Name] = r
 	}
 
-	body, ret, terminates, err := lowerBody(fn.Body, sc, true)
+	// A join local is declared ahead of the branch that assigns it, so before lowering
+	// the body the bridge learns which names are read anywhere in the function. A name
+	// an arm binds but nothing ever reads has no live static form: its Go declaration
+	// would be written and never used, which does not compile, so lowerIf keeps such a
+	// unit boxed rather than emit a local Go rejects.
+	reads := map[string]bool{}
+	loadedNames(fn.Body, reads)
+
+	body, ret, terminates, err := lowerBody(fn.Body, sc, reads)
 	if err != nil {
 		return emit.Func{}, err
 	}
@@ -129,16 +139,16 @@ func annotationRepr(e frontend.Expr) (emit.Repr, bool) {
 // returns and whether the block is exhaustive, meaning control always returns
 // before running off its end. Every return in the block must agree on the
 // representation, so the emitted Go has one result type; a block that returns two
-// different scalar classes is beyond this seed and stays boxed. allowBind gates
-// name bindings: the function body binds locals, but an if or else arm does not,
-// because a `:=` inside a Go block shadows rather than reassigning an outer name,
-// which would silently drop the branch's write (doc 06 section 8, the join rule).
-func lowerBody(stmts []frontend.Stmt, sc scope, allowBind bool) ([]emit.Stmt, *emit.Repr, bool, error) {
+// different scalar classes is beyond this seed and stays boxed. An arm binds into
+// its own forked scope, and lowerIf reconciles the two arms at the join, so a name
+// both arms bind becomes one hoisted Go local rather than two shadowing `:=` writes
+// (doc 06 section 8, the join rule).
+func lowerBody(stmts []frontend.Stmt, sc scope, reads map[string]bool) ([]emit.Stmt, *emit.Repr, bool, error) {
 	var out []emit.Stmt
 	var ret *emit.Repr
 	var terminates bool
 	for _, s := range stmts {
-		es, rr, term, err := lowerStmt(s, sc, allowBind)
+		es, rr, term, err := lowerStmt(s, sc, reads)
 		if err != nil {
 			return nil, nil, false, err
 		}
@@ -161,7 +171,7 @@ func lowerBody(stmts []frontend.Stmt, sc scope, allowBind bool) ([]emit.Stmt, *e
 // yields so lowerBody can pin the function's result type. The third result reports
 // whether the statement is exhaustive: a return always is, an if is exactly when it
 // has an else and both arms are, and every other form is not.
-func lowerStmt(s frontend.Stmt, sc scope, allowBind bool) ([]emit.Stmt, *emit.Repr, bool, error) {
+func lowerStmt(s frontend.Stmt, sc scope, reads map[string]bool) ([]emit.Stmt, *emit.Repr, bool, error) {
 	switch n := s.(type) {
 	case *frontend.Pass:
 		return nil, nil, false, nil
@@ -177,12 +187,9 @@ func lowerStmt(s frontend.Stmt, sc scope, allowBind bool) ([]emit.Stmt, *emit.Re
 		return []emit.Stmt{emit.Return{Value: v}}, &r, true, nil
 
 	case *frontend.If:
-		return lowerIf(n, sc)
+		return lowerIf(n, sc, reads)
 
 	case *frontend.Assign:
-		if !allowBind {
-			return nil, nil, false, unsupported("assignment inside an if arm is not lowered yet; the branch join stays boxed")
-		}
 		if len(n.Targets) != 1 {
 			return nil, nil, false, unsupported("chained assignment")
 		}
@@ -212,9 +219,6 @@ func lowerStmt(s frontend.Stmt, sc scope, allowBind bool) ([]emit.Stmt, *emit.Re
 		return []emit.Stmt{emit.Define{Name: name.Id, Value: v}}, nil, false, nil
 
 	case *frontend.AnnAssign:
-		if !allowBind {
-			return nil, nil, false, unsupported("annotated assignment inside an if arm is not lowered yet; the branch join stays boxed")
-		}
 		name, ok := n.Target.(*frontend.Name)
 		if !ok {
 			return nil, nil, false, unsupported("annotated assignment target is not a plain name")
@@ -243,9 +247,6 @@ func lowerStmt(s frontend.Stmt, sc scope, allowBind bool) ([]emit.Stmt, *emit.Re
 		return []emit.Stmt{emit.Define{Name: name.Id, Value: v}}, nil, false, nil
 
 	case *frontend.AugAssign:
-		if !allowBind {
-			return nil, nil, false, unsupported("augmented assignment inside an if arm is not lowered yet; the branch join stays boxed")
-		}
 		if n.Op != frontend.BinAdd {
 			return nil, nil, false, unsupported("augmented assignment other than +=")
 		}
@@ -333,13 +334,19 @@ func lowerTupleAssign(tgt *frontend.TupleLit, value frontend.Expr, sc scope) ([]
 	return []emit.Stmt{emit.Bind{Names: names, Values: vals, Define: fresh > 0}}, nil, false, nil
 }
 
-// lowerIf translates an if/elif/else chain. The condition is any scalar the
-// truthiness rule accepts; each arm lowers with binds disallowed, so an arm may
-// return or branch further but not rebind a name across the join. The chain is
-// exhaustive only when it has an else and both arms are, which is what lets the
-// function demand a return on every path. An elif rides in as a nested If in Else,
-// so the recursion here produces the nested emit.If the emitter folds to else-if.
-func lowerIf(n *frontend.If, sc scope) ([]emit.Stmt, *emit.Repr, bool, error) {
+// lowerIf translates an if/elif/else chain, materializing the branch join doc 06
+// section 8 describes. The condition is any scalar the truthiness rule accepts. Each
+// arm lowers into its own forked scope, so a name an arm binds does not leak into the
+// sibling arm or the condition. A name both arms bind to the same scalar joins to one
+// Go local hoisted ahead of the branch, and each arm assigns it rather than
+// redeclaring, so the value the taken arm writes is the one read after the block. A
+// name only one arm binds stays inside that arm and is not visible after; a later read
+// of it is refused as an unbound name, so no untyped Go zero leaks past the branch. A
+// scalar that disagrees across the arms has no single Go type and keeps the unit boxed.
+// The chain is exhaustive only when it has an else and both arms are, which is what
+// lets the function demand a return on every path. An elif rides in as a nested If in
+// Else, so the recursion here produces the nested emit.If the emitter folds to else-if.
+func lowerIf(n *frontend.If, sc scope, reads map[string]bool) ([]emit.Stmt, *emit.Repr, bool, error) {
 	cond, cr, err := lowerExpr(n.Cond, sc)
 	if err != nil {
 		return nil, nil, false, err
@@ -347,25 +354,187 @@ func lowerIf(n *frontend.If, sc scope) ([]emit.Stmt, *emit.Repr, bool, error) {
 	if !truthy(cr) {
 		return nil, nil, false, unsupported("no truthiness form for a %s condition", cr.Scalar)
 	}
-	then, thenRet, thenTerm, err := lowerBody(n.Body, sc, false)
+	hasElse := len(n.Else) > 0
+
+	// Discovery pass: lower both arms into forked scopes to learn which names each
+	// binds. The lowered statements are discarded; only the bound names, the returned
+	// representations, and whether each arm terminates are kept. The arms re-lower once
+	// the join names are known, so a first binding of a join name emits an assignment
+	// to the hoisted local rather than a fresh declaration.
+	thenSc := cloneScope(sc)
+	_, thenRet, thenTerm, err := lowerBody(n.Body, thenSc, reads)
 	if err != nil {
 		return nil, nil, false, err
 	}
-	var els []emit.Stmt
+	elseSc := cloneScope(sc)
 	var elseRet *emit.Repr
 	elseTerm := false
-	hasElse := len(n.Else) > 0
 	if hasElse {
-		els, elseRet, elseTerm, err = lowerBody(n.Else, sc, false)
+		_, elseRet, elseTerm, err = lowerBody(n.Else, elseSc, reads)
 		if err != nil {
 			return nil, nil, false, err
 		}
 	}
+	thenNew := newBindings(sc, thenSc)
+	elseNew := newBindings(sc, elseSc)
+
+	// A name both arms bind is a join candidate, but only when the two arms give it the
+	// same scalar; a scalar mismatch across the arms has no single Go type, so the join
+	// is refused and the unit stays boxed.
+	var joinNames []string
+	joinRepr := map[string]emit.Repr{}
+	for name, tr := range thenNew {
+		er, both := elseNew[name]
+		if !both {
+			continue
+		}
+		if tr.Scalar != er.Scalar {
+			return nil, nil, false, unsupported("%s joins as %s on one arm and %s on the other, which Go cannot type", name, tr.Scalar, er.Scalar)
+		}
+		joinNames = append(joinNames, name)
+		joinRepr[name] = tr
+	}
+	sort.Strings(joinNames)
+
+	// Every name an arm binds must be read somewhere, or its Go declaration would be
+	// written and never used, which does not compile. A join name never read is dead in
+	// both arms; an arm-only name never read is dead in its arm. Either way the unit
+	// stays boxed rather than emit a local Go rejects.
+	for name := range thenNew {
+		if !reads[name] {
+			return nil, nil, false, unsupported("%s is bound in a branch but never read, so it has no live static form", name)
+		}
+	}
+	for name := range elseNew {
+		if !reads[name] {
+			return nil, nil, false, unsupported("%s is bound in a branch but never read, so it has no live static form", name)
+		}
+	}
+
+	// Re-lower each arm with the join names pre-seeded, so the arm reassigns the hoisted
+	// local (an emit.Assign) instead of declaring a fresh one, and a nested branch that
+	// also binds a join name reassigns rather than redeclares it too.
+	thenSc2 := cloneScope(sc)
+	for _, name := range joinNames {
+		thenSc2[name] = joinRepr[name]
+	}
+	then, _, _, err := lowerBody(n.Body, thenSc2, reads)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	var els []emit.Stmt
+	if hasElse {
+		elseSc2 := cloneScope(sc)
+		for _, name := range joinNames {
+			elseSc2[name] = joinRepr[name]
+		}
+		els, _, _, err = lowerBody(n.Else, elseSc2, reads)
+		if err != nil {
+			return nil, nil, false, err
+		}
+	}
+
+	// The join names outlive the branch, so each is declared ahead of it and added to
+	// the enclosing scope. The declaration gives the zero value, but every arm assigns
+	// the name on its path, so the zero is never observed once the branch is exhaustive.
+	var out []emit.Stmt
+	for _, name := range joinNames {
+		out = append(out, emit.VarDecl{Name: name, Repr: joinRepr[name]})
+		sc[name] = joinRepr[name]
+	}
+	out = append(out, emit.If{Cond: cond, Then: then, Else: els})
+
 	ret, err := joinReturns(thenRet, elseRet)
 	if err != nil {
 		return nil, nil, false, err
 	}
-	return []emit.Stmt{emit.If{Cond: cond, Then: then, Else: els}}, ret, thenTerm && hasElse && elseTerm, nil
+	return out, ret, thenTerm && hasElse && elseTerm, nil
+}
+
+// cloneScope copies a scope so an arm can bind into it without disturbing the
+// enclosing scope; the two arms discover their bindings independently this way.
+func cloneScope(sc scope) scope {
+	out := make(scope, len(sc))
+	maps.Copy(out, sc)
+	return out
+}
+
+// newBindings reports the names a forked arm scope bound that the parent scope did
+// not carry, with the representation each was bound to, so lowerIf can tell a fresh
+// binding from a rebinding of an outer name.
+func newBindings(parent, child scope) map[string]emit.Repr {
+	out := map[string]emit.Repr{}
+	for name, r := range child {
+		if _, existed := parent[name]; !existed {
+			out[name] = r
+		}
+	}
+	return out
+}
+
+// loadedNames collects every name read somewhere in a block, walking into nested
+// branches. A binding whose name never appears here is written and never read, so a
+// join local declared for it would not compile; lowerIf uses this set to keep such a
+// unit boxed. Only genuine load positions are counted: an assignment target is a
+// store, not a load, so a name that is only ever assigned is correctly absent. A node
+// kind this walk does not recognize contributes no loads, which can only make the set
+// smaller and so only ever keeps more units boxed, never fewer.
+func loadedNames(stmts []frontend.Stmt, out map[string]bool) {
+	for _, s := range stmts {
+		switch n := s.(type) {
+		case *frontend.Return:
+			loadedInExpr(n.Value, out)
+		case *frontend.ExprStmt:
+			loadedInExpr(n.X, out)
+		case *frontend.Assign:
+			loadedInExpr(n.Value, out)
+		case *frontend.AnnAssign:
+			loadedInExpr(n.Value, out)
+		case *frontend.AugAssign:
+			// `x += v` reads x before it writes it, so the target is a load here as well.
+			if nm, ok := n.Target.(*frontend.Name); ok {
+				out[nm.Id] = true
+			}
+			loadedInExpr(n.Value, out)
+		case *frontend.If:
+			loadedInExpr(n.Cond, out)
+			loadedNames(n.Body, out)
+			loadedNames(n.Else, out)
+		}
+	}
+}
+
+// loadedInExpr walks the load positions of one expression, recording every name it
+// reads. It understands the scalar-subset nodes the bridge lowers; any other node
+// contributes nothing, which only shrinks the read set and so only keeps more units
+// boxed.
+func loadedInExpr(e frontend.Expr, out map[string]bool) {
+	switch n := e.(type) {
+	case *frontend.Name:
+		out[n.Id] = true
+	case *frontend.BinOp:
+		loadedInExpr(n.Left, out)
+		loadedInExpr(n.Right, out)
+	case *frontend.UnaryOp:
+		loadedInExpr(n.X, out)
+	case *frontend.BoolOp:
+		for _, v := range n.Values {
+			loadedInExpr(v, out)
+		}
+	case *frontend.Compare:
+		loadedInExpr(n.Left, out)
+		for _, r := range n.Rights {
+			loadedInExpr(r, out)
+		}
+	case *frontend.TupleLit:
+		for _, el := range n.Elts {
+			loadedInExpr(el, out)
+		}
+	case *frontend.ListLit:
+		for _, el := range n.Elts {
+			loadedInExpr(el, out)
+		}
+	}
 }
 
 // truthy reports whether a representation has a static truthiness form, the rule
