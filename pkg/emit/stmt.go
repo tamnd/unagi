@@ -40,6 +40,18 @@ type Assign struct {
 	Value Expr
 }
 
+// Bind is a parallel binding of several names to several values in one statement,
+// `a, b := x, y` when Define is true and `a, b = x, y` when it is false. It lowers a
+// Python tuple unpack: Go evaluates the whole right side before assigning any
+// target, the same order Python's unpack uses, so a swap `a, b = b, a` binds
+// correctly with no temp. Each value's guards flush ahead of the statement, so every
+// bound value is proven before it lands.
+type Bind struct {
+	Names  []string
+	Values []Expr
+	Define bool
+}
+
 // Return returns a value on the success path, lowered to `return value, nil`.
 type Return struct{ Value Expr }
 
@@ -64,6 +76,7 @@ type If struct {
 
 func (Define) isStmt()    {}
 func (Assign) isStmt()    {}
+func (Bind) isStmt()      {}
 func (AddAssign) isStmt() {}
 func (Return) isStmt()    {}
 func (ForRange) isStmt()  {}
@@ -114,6 +127,39 @@ func (b *Builder) lowerStmt(s Stmt) ([]ast.Stmt, error) {
 			return nil, err
 		}
 		return append(b.flush(), setStmt(ident(n.Name), x)), nil
+
+	case Bind:
+		// A parallel binding lowers each value first, so every value's guards land in
+		// the pending list and flush ahead of the one assignment; Go then evaluates the
+		// whole right side before binding any target, matching Python's unpack order.
+		if len(n.Names) != len(n.Values) {
+			return nil, fmt.Errorf("emit: a parallel binding has %d names for %d values", len(n.Names), len(n.Values))
+		}
+		rhs := make([]ast.Expr, len(n.Values))
+		for i, v := range n.Values {
+			x, xr, err := b.lowerExpr(v)
+			if err != nil {
+				return nil, err
+			}
+			// The Define form declares fresh names, so an untyped int literal must be
+			// pinned to int64 the same way a single Define pins it; the Assign form binds
+			// names whose Go type is already fixed, so it needs no cast.
+			if n.Define && xr.Scalar == SInt {
+				if lit, ok := x.(*ast.BasicLit); ok && lit.Kind == token.INT {
+					x = callExpr(ident("int64"), x)
+				}
+			}
+			rhs[i] = x
+		}
+		lhs := make([]ast.Expr, len(n.Names))
+		for i, name := range n.Names {
+			lhs[i] = ident(name)
+		}
+		tok := token.ASSIGN
+		if n.Define {
+			tok = token.DEFINE
+		}
+		return append(b.flush(), &ast.AssignStmt{Lhs: lhs, Tok: tok, Rhs: rhs}), nil
 
 	case AddAssign:
 		if n.Repr.Scalar == SFloat {

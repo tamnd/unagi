@@ -186,6 +186,9 @@ func lowerStmt(s frontend.Stmt, sc scope, allowBind bool) ([]emit.Stmt, *emit.Re
 		if len(n.Targets) != 1 {
 			return nil, nil, false, unsupported("chained assignment")
 		}
+		if tup, ok := n.Targets[0].(*frontend.TupleLit); ok {
+			return lowerTupleAssign(tup, n.Value, sc)
+		}
 		name, ok := n.Targets[0].(*frontend.Name)
 		if !ok {
 			return nil, nil, false, unsupported("assignment target is not a plain name")
@@ -264,6 +267,70 @@ func lowerStmt(s frontend.Stmt, sc scope, allowBind bool) ([]emit.Stmt, *emit.Re
 		return []emit.Stmt{emit.AddAssign{Name: name.Id, Repr: tr, Value: v}}, nil, false, nil
 	}
 	return nil, nil, false, unsupported("statement %T", s)
+}
+
+// lowerTupleAssign lowers a scalar tuple unpack `x, y = a, b`. The right side must
+// be a tuple literal of the same length, since unpacking an iterable value has no
+// static form at M4 and stays boxed, and every target must be a distinct plain
+// name. Go's parallel assignment evaluates the whole right side before binding any
+// target, the same order Python's unpack uses, so a swap needs no temp and each
+// value is read exactly once. Either every target is a fresh binding (a parallel
+// Define) or every target rebinds an existing name of the same scalar (a parallel
+// Assign); a mix, or a type-changing rebind, keeps the unit boxed because Go's :=
+// and = do not compose across a half-new left side.
+func lowerTupleAssign(tgt *frontend.TupleLit, value frontend.Expr, sc scope) ([]emit.Stmt, *emit.Repr, bool, error) {
+	rhs, ok := value.(*frontend.TupleLit)
+	if !ok {
+		return nil, nil, false, unsupported("tuple unpack of a non-tuple value stays boxed")
+	}
+	if len(tgt.Elts) != len(rhs.Elts) {
+		return nil, nil, false, unsupported("tuple unpack binds %d names to %d values", len(tgt.Elts), len(rhs.Elts))
+	}
+	if len(tgt.Elts) < 2 {
+		return nil, nil, false, unsupported("a tuple unpack needs at least two targets")
+	}
+	names := make([]string, len(tgt.Elts))
+	seen := map[string]bool{}
+	for i, t := range tgt.Elts {
+		nm, ok := t.(*frontend.Name)
+		if !ok {
+			return nil, nil, false, unsupported("tuple unpack target is not a plain name")
+		}
+		if seen[nm.Id] {
+			return nil, nil, false, unsupported("tuple unpack repeats the target %s, which Go's parallel assignment forbids", nm.Id)
+		}
+		seen[nm.Id] = true
+		names[i] = nm.Id
+	}
+	// Lower every value before binding any name, so a value that reads a target sees
+	// its pre-assignment binding, exactly Python's evaluate-then-bind order.
+	vals := make([]emit.Expr, len(rhs.Elts))
+	reprs := make([]emit.Repr, len(rhs.Elts))
+	for i, e := range rhs.Elts {
+		v, r, err := lowerExpr(e, sc)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		vals[i], reprs[i] = v, r
+	}
+	fresh, rebind := 0, 0
+	for i, name := range names {
+		if prev, bound := sc[name]; bound {
+			if prev.Scalar != reprs[i].Scalar {
+				return nil, nil, false, unsupported("%s rebinds a %s value as a %s, which Go cannot express", name, prev.Scalar, reprs[i].Scalar)
+			}
+			rebind++
+		} else {
+			fresh++
+		}
+	}
+	if fresh > 0 && rebind > 0 {
+		return nil, nil, false, unsupported("a tuple unpack that mixes fresh and rebound names stays boxed")
+	}
+	for i, name := range names {
+		sc[name] = reprs[i]
+	}
+	return []emit.Stmt{emit.Bind{Names: names, Values: vals, Define: fresh > 0}}, nil, false, nil
 }
 
 // lowerIf translates an if/elif/else chain. The condition is any scalar the

@@ -260,6 +260,47 @@ func TestLowerRefusesTypeChangingRebind(t *testing.T) {
 	}
 }
 
+func TestLowerTupleUnpackDeclaresInParallel(t *testing.T) {
+	// `x, y = a, b` binds two fresh names from a tuple, lowering to Go's parallel
+	// declaration (06, line 11).
+	src := "def f(a: float, b: float) -> float:\n    x, y = a, b\n    return x + y\n"
+	got := emitOf(t, src)
+	if !strings.Contains(got, "x, y := a, b") {
+		t.Fatalf("a fresh tuple unpack should declare both names in one parallel :=\n%s", got)
+	}
+}
+
+func TestLowerTupleSwapReassignsInParallel(t *testing.T) {
+	// `x, y = y, x` on two already-bound names swaps them through Go's parallel
+	// assignment, which evaluates the whole right side before binding, so no temp is
+	// needed and each value is read once (06, line 11).
+	src := "def f(a: float, b: float) -> float:\n    x = a\n    y = b\n    x, y = y, x\n    return x\n"
+	got := emitOf(t, src)
+	if !strings.Contains(got, "x, y = y, x") {
+		t.Fatalf("a rebinding tuple unpack should reassign both names in one parallel =\n%s", got)
+	}
+}
+
+func TestLowerRefusesTupleUnpackOfNonTuple(t *testing.T) {
+	// `x, y = xs` unpacks an iterable value, which has no static form at M4, so the
+	// unit stays boxed (06, line 11).
+	src := "def f(xs: list) -> float:\n    x, y = xs\n    return x\n"
+	fn := parseFunc(t, src)
+	if _, err := LowerFunc(fn); err == nil {
+		t.Fatal("unpacking a non-tuple value should be refused, keeping the unit boxed")
+	}
+}
+
+func TestLowerRefusesTupleUnpackLengthMismatch(t *testing.T) {
+	// A three-name target for a two-value tuple is a Python unpack error; it has no
+	// static form and stays boxed (06, line 11).
+	src := "def f(a: float, b: float) -> float:\n    x, y, z = a, b\n    return x\n"
+	fn := parseFunc(t, src)
+	if _, err := LowerFunc(fn); err == nil {
+		t.Fatal("a length-mismatched tuple unpack should be refused")
+	}
+}
+
 func TestLowerRejects(t *testing.T) {
 	cases := []struct {
 		name string
