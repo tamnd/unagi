@@ -220,6 +220,9 @@ func lowerStmt(s frontend.Stmt, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr
 	case *frontend.While:
 		return lowerWhile(n, sc, ctx)
 
+	case *frontend.For:
+		return lowerFor(n, sc, ctx)
+
 	case *frontend.Assign:
 		if len(n.Targets) != 1 {
 			return nil, nil, false, unsupported("chained assignment")
@@ -536,6 +539,176 @@ func lowerWhile(n *frontend.While, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.R
 	return []emit.Stmt{emit.While{Cond: cond, Body: body}}, nil, false, nil
 }
 
+// lowerFor translates a `for i in range(...)` counting loop to a Go
+// `for i := start; i < stop; i++`. The induction variable is int64, so the body reads
+// it as an int, and the loop is the canonical unboxed counting loop doc 06 calls the
+// single most important lowering in the compiler.
+//
+// Only the range forms with an implicit +1 step lower here: `range(n)` counts from zero
+// and `range(a, b)` counts from a, both to stop exclusive. A range with an explicit step
+// (doc 06 line 46) and an enumerate or a list iteration with a non-name target (doc 06
+// line 48) are later slices, so a target that is not a plain name, an iterable that is
+// not a range call, or a three-argument range keeps the unit boxed.
+//
+// The stop bound is re-tested every iteration, so it must be stable: an int literal or a
+// name the body never reassigns, or a later iteration would test a changed bound where
+// Python captured the bound once at loop entry. A computed bound needs the hoisted temp
+// of doc 06 line 50, a later slice, so it stays boxed. Python also rebinds the loop
+// variable from the range each iteration and ignores a body assignment to it, so a body
+// that assigns the loop variable, or a loop variable that shadows an outer binding, has
+// no faithful Go counting-loop form and stays boxed. As with while, a guarded body has
+// no loop back-edge resume point yet (doc 06 line 39) and stays boxed.
+//
+// A for may run zero times, so it never makes the function exhaustive; it reports term
+// false and carries no result representation. New body bindings and the loop variable
+// stay in a forked scope and do not reach the enclosing scope.
+func lowerFor(n *frontend.For, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr, bool, error) {
+	if len(n.Else) > 0 {
+		return nil, nil, false, unsupported("a for-else has no static form at M4")
+	}
+	target, ok := n.Target.(*frontend.Name)
+	if !ok {
+		return nil, nil, false, unsupported("a for target that is not a plain name has no counting-loop form yet")
+	}
+	if _, exists := sc[target.Id]; exists {
+		return nil, nil, false, unsupported("the loop variable %s shadows an outer binding, which Go and Python leave in different states after the loop", target.Id)
+	}
+	call, ok := n.Iter.(*frontend.Call)
+	if !ok {
+		return nil, nil, false, unsupported("a for over a non-range iterable has no counting-loop form yet")
+	}
+	fnName, ok := call.Fn.(*frontend.Name)
+	if !ok || fnName.Id != "range" {
+		return nil, nil, false, unsupported("a for over a non-range call has no counting-loop form yet")
+	}
+	for _, a := range call.Args {
+		if a.Star != 0 || a.Name != "" {
+			return nil, nil, false, unsupported("range with a keyword or star argument has no static form")
+		}
+	}
+	var startArg, stopArg frontend.Expr
+	switch len(call.Args) {
+	case 1:
+		stopArg = call.Args[0].Value
+	case 2:
+		startArg = call.Args[0].Value
+		stopArg = call.Args[1].Value
+	default:
+		return nil, nil, false, unsupported("range needs one or two arguments at M4; an explicit step is a later slice")
+	}
+
+	// The start is evaluated once in the loop init, so any int expression serves.
+	var start emit.Expr
+	if startArg == nil {
+		start = emit.Int{V: 0}
+	} else {
+		s, sr, err := lowerExpr(startArg, sc)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		if sr.Scalar != emit.SInt {
+			return nil, nil, false, unsupported("a range start must be an int, got %s", sr.Scalar)
+		}
+		start = s
+	}
+
+	// The stop bound is re-tested each iteration, so it must be a stable int: a literal,
+	// or a name the body never reassigns. Anything computed needs the hoisted temp of a
+	// later slice.
+	stop, stopRepr, err := lowerExpr(stopArg, sc)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if stopRepr.Scalar != emit.SInt {
+		return nil, nil, false, unsupported("a range stop must be an int, got %s", stopRepr.Scalar)
+	}
+	switch b := stopArg.(type) {
+	case *frontend.IntLit:
+	case *frontend.Name:
+		if bodyAssigns(n.Body, b.Id) {
+			return nil, nil, false, unsupported("the loop body reassigns the range bound %s, which the counting loop would re-read", b.Id)
+		}
+	default:
+		return nil, nil, false, unsupported("a computed range bound needs a hoisted temp, deferred past this slice")
+	}
+
+	if bodyAssigns(n.Body, target.Id) {
+		return nil, nil, false, unsupported("the loop body reassigns the loop variable %s, which perturbs a Go counting loop", target.Id)
+	}
+
+	loopSc := cloneScope(sc)
+	loopSc[target.Id] = emit.Repr{Go: "int64", Scalar: emit.SInt}
+	bodyCtx := ctx
+	bodyCtx.inLoop = true
+	body, _, _, err := lowerBody(n.Body, loopSc, bodyCtx)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	var bc Cost
+	for _, st := range body {
+		costStmt(st, &bc)
+	}
+	if bc.EntryGuards+bc.LoopGuards > 0 {
+		return nil, nil, false, unsupported("a guarded for-range body needs a loop back-edge resume point, deferred past M4")
+	}
+	return []emit.Stmt{emit.ForCount{Var: target.Id, Start: start, Stop: stop, Body: body}}, nil, false, nil
+}
+
+// bodyAssigns reports whether any statement in a block assigns the given name, walking
+// nested branches and loops. It is the soundness gate the counting loop leans on: a
+// range bound or a loop variable a body reassigns cannot lower to a Go counting loop
+// whose header re-reads the bound and drives the induction. A store position it does not
+// recognize is not counted, which can only make the loop refuse more, never miscompile.
+func bodyAssigns(stmts []frontend.Stmt, name string) bool {
+	for _, s := range stmts {
+		switch n := s.(type) {
+		case *frontend.Assign:
+			for _, t := range n.Targets {
+				if targetHits(t, name) {
+					return true
+				}
+			}
+		case *frontend.AnnAssign:
+			if targetHits(n.Target, name) {
+				return true
+			}
+		case *frontend.AugAssign:
+			if targetHits(n.Target, name) {
+				return true
+			}
+		case *frontend.If:
+			if bodyAssigns(n.Body, name) || bodyAssigns(n.Else, name) {
+				return true
+			}
+		case *frontend.While:
+			if bodyAssigns(n.Body, name) || bodyAssigns(n.Else, name) {
+				return true
+			}
+		case *frontend.For:
+			if targetHits(n.Target, name) || bodyAssigns(n.Body, name) || bodyAssigns(n.Else, name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// targetHits reports whether an assignment target binds the given name, descending into
+// a tuple target so `a, b = ...` and a tuple loop target are seen.
+func targetHits(e frontend.Expr, name string) bool {
+	switch t := e.(type) {
+	case *frontend.Name:
+		return t.Id == name
+	case *frontend.TupleLit:
+		for _, el := range t.Elts {
+			if targetHits(el, name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // cloneScope copies a scope so an arm can bind into it without disturbing the
 // enclosing scope; the two arms discover their bindings independently this way.
 func cloneScope(sc scope) scope {
@@ -587,6 +760,10 @@ func loadedNames(stmts []frontend.Stmt, out map[string]bool) {
 			loadedNames(n.Else, out)
 		case *frontend.While:
 			loadedInExpr(n.Cond, out)
+			loadedNames(n.Body, out)
+			loadedNames(n.Else, out)
+		case *frontend.For:
+			loadedInExpr(n.Iter, out)
 			loadedNames(n.Body, out)
 			loadedNames(n.Else, out)
 		}
