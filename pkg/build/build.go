@@ -91,7 +91,14 @@ func Build(ctx context.Context, pyPath string, opts Options) (string, error) {
 		return "", err
 	}
 
-	cmd := exec.CommandContext(ctx, "go", "build", "-o", out, ".")
+	// -trimpath keeps the generated module's temp path out of the compiled
+	// objects. The module is laid out in a fresh temp directory every build, so
+	// without it that changing absolute path is baked into every object as debug
+	// info, which gives each build a new build-cache key and defeats the cache:
+	// the same program recompiles from scratch on every invocation and the cache
+	// grows without bound. Trimming the path also makes the emitted binary
+	// reproducible, which the determinism gate wants anyway.
+	cmd := exec.CommandContext(ctx, "go", "build", "-trimpath", "-o", out, ".")
 	cmd.Dir = genDir
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if msg, err := cmd.CombinedOutput(); err != nil {

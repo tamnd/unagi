@@ -178,7 +178,11 @@ func main() {
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(main), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("go", "run", ".")
+	// -trimpath keeps the per-run temp path out of the compiled objects, so the
+	// slim runtime packages copied here hash to a stable build-cache key instead
+	// of a fresh one every run; without it this suite regrows the cache by tens of
+	// megabytes on each invocation.
+	cmd := exec.Command("go", "run", "-trimpath", ".")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	out, err := cmd.CombinedOutput()
