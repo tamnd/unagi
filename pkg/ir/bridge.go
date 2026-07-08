@@ -431,10 +431,12 @@ func lowerCompare(n *frontend.Compare, sc scope) (emit.Expr, emit.Repr, error) {
 }
 
 // lowerBoolOp folds `a and b and c` (or the or-chain) left into nested emit
-// connectives, requiring every operand to be a proven bool. Python's
-// value-returning `x or y` on two non-bool operands returns an operand, not a
-// coerced bool, which has no static form here, so a non-bool operand keeps the
-// unit boxed rather than silently forcing a bool.
+// connectives. Two proven bool operands lower to Go's own && and || with a bool
+// result. Python's value-returning `x or y` on two non-bool operands returns an
+// operand rather than a coerced bool: when the whole chain shares one non-bool
+// scalar the result is that scalar, selected by truthiness through a runtime
+// helper. A mixed chain (say a bool with an int, or an int with a string) has no
+// single static type, so it keeps the unit boxed rather than force a type.
 func lowerBoolOp(n *frontend.BoolOp, sc scope) (emit.Expr, emit.Repr, error) {
 	if len(n.Values) < 2 {
 		return nil, emit.Repr{}, unsupported("boolean connective with fewer than two operands")
@@ -443,16 +445,19 @@ func lowerBoolOp(n *frontend.BoolOp, sc scope) (emit.Expr, emit.Repr, error) {
 	if err != nil {
 		return nil, emit.Repr{}, err
 	}
-	if accR.Scalar != emit.SBool {
-		return nil, emit.Repr{}, unsupported("%s needs bool operands, got %s", boolName(n.Kind), accR.Scalar)
+	// The chain has one static value type only when every operand shares a scalar the
+	// static tier can hold: bool folds to &&/||, and int, float, or string folds to
+	// the value-select helper. Any other operand (or a mix) keeps the unit boxed.
+	if !connScalar(accR.Scalar) {
+		return nil, emit.Repr{}, unsupported("%s needs same-typed scalar operands, got %s", boolName(n.Kind), accR.Scalar)
 	}
 	for _, v := range n.Values[1:] {
 		r, rr, err := lowerExpr(v, sc)
 		if err != nil {
 			return nil, emit.Repr{}, err
 		}
-		if rr.Scalar != emit.SBool {
-			return nil, emit.Repr{}, unsupported("%s needs bool operands, got %s", boolName(n.Kind), rr.Scalar)
+		if rr.Scalar != accR.Scalar {
+			return nil, emit.Repr{}, unsupported("%s needs same-typed scalar operands, got %s and %s", boolName(n.Kind), accR.Scalar, rr.Scalar)
 		}
 		// Every operand past the first is evaluated only when the ones before it do
 		// not decide the result, so an operand that can raise (a division's zero
@@ -468,7 +473,17 @@ func lowerBoolOp(n *frontend.BoolOp, sc scope) (emit.Expr, emit.Repr, error) {
 			acc = emit.Or{L: acc, R: r}
 		}
 	}
-	return acc, boolReprIR(), nil
+	// A bool chain is a bool; a non-bool chain returns the operand scalar it shares.
+	if accR.Scalar == emit.SBool {
+		return acc, boolReprIR(), nil
+	}
+	return acc, accR, nil
+}
+
+// connScalar reports whether a scalar has a static value-connective form: bool
+// through Go's &&/|| and int, float, or string through the value-select helpers.
+func connScalar(s emit.Scalar) bool {
+	return s == emit.SBool || s == emit.SInt || s == emit.SFloat || s == emit.SStr
 }
 
 // singleEvalSafe reports whether an expression can be read more than once with no

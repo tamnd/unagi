@@ -193,14 +193,43 @@ func TestLowerRefusesBoolOrdering(t *testing.T) {
 	}
 }
 
-func TestLowerRefusesValueReturningOr(t *testing.T) {
-	// Python `x or y` on two ints returns an int operand, not a bool. That
-	// value-returning form has no static lowering here, so it stays boxed rather
-	// than silently forcing a bool (05, line 28).
+func TestLowerValueReturningOrOnInts(t *testing.T) {
+	// Python `x or y` on two ints returns an int operand, not a bool: `a or b` is a
+	// when a is truthy and b otherwise. When both operands share the int scalar the
+	// static tier selects through the runtime helper and the result is an int (05,
+	// line 28).
 	src := "def f(a: int, b: int) -> int:\n    return a or b\n"
+	got := emitOf(t, src)
+	if !strings.Contains(got, "rt.OrInt64(a, b)") {
+		t.Fatalf("value-returning or on ints should select through the int helper:\n%s", got)
+	}
+}
+
+func TestLowerValueReturningAndOnFloats(t *testing.T) {
+	// `a and b` on two floats returns a float: a when a is falsy and b otherwise.
+	src := "def f(a: float, b: float) -> float:\n    return a and b\n"
+	got := emitOf(t, src)
+	if !strings.Contains(got, "rt.AndFloat64(a, b)") {
+		t.Fatalf("value-returning and on floats should select through the float helper:\n%s", got)
+	}
+}
+
+func TestLowerValueReturningOrOnStrings(t *testing.T) {
+	// `a or b` on two strings returns a string: a when a is non-empty and b otherwise.
+	src := "def f(a: str, b: str) -> str:\n    return a or b\n"
+	got := emitOf(t, src)
+	if !strings.Contains(got, "rt.OrStr(a, b)") {
+		t.Fatalf("value-returning or on strings should select through the string helper:\n%s", got)
+	}
+}
+
+func TestLowerRefusesMixedValueConnective(t *testing.T) {
+	// `a or b` with an int and a string has no single static type, so the unit stays
+	// boxed rather than force one operand's type onto the other (05, line 28).
+	src := "def f(a: int, b: str) -> int:\n    return a or b\n"
 	fn := parseFunc(t, src)
 	if _, err := LowerFunc(fn); err == nil {
-		t.Fatal("value-returning or on ints should be refused, keeping the unit boxed")
+		t.Fatal("a mixed-type value connective should be refused, keeping the unit boxed")
 	}
 }
 

@@ -123,8 +123,14 @@ func reprOf(e emit.Expr) emit.Repr {
 			return emit.Repr{}
 		}
 		return r
-	case emit.Cmp, emit.And, emit.Or, emit.Not:
+	case emit.Cmp, emit.Not:
 		return boolReprIR()
+	case emit.And:
+		// A connective on two bools is a bool; the value-returning form on a shared
+		// non-bool scalar returns that operand, so its result repr is the operand's.
+		return reprOf(n.L)
+	case emit.Or:
+		return reprOf(n.L)
 	}
 	return emit.Repr{}
 }
