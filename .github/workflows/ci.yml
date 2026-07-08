@@ -71,6 +71,26 @@ jobs:
           UNAGI_ORACLE: "1"
         run: go test -count=1 -run TestCorpusGoldenFresh ./pkg/conformance/
 
+  # The doc 06 section 9.3 determinism gate. Partition decisions and the Go the
+  # compiler emits from them must be a pure function of the source: same input,
+  # byte-identical output, every machine, every time. The build cache keys and
+  # the checked-in emitted-code reviews rest on it. This job runs the ordering-
+  # hazard partition tests and the double-build byte comparison as their own
+  # named check, so a nondeterminism regression is legible here instead of
+  # buried in the general test run. It builds Go modules, so it does not run in
+  # -short.
+  determinism:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+      - name: partition and double-build determinism
+        run: go test -count=1 -run 'Determinis|FeedOrder|StableAcrossManyRuns|DoubleBuild' ./pkg/partition/ ./pkg/build/
+
   # golangci-lint bundles staticcheck, govet, ineffassign, errcheck, unused and
   # more, so it is the main quality gate.
   lint:
