@@ -37,6 +37,10 @@ func costStmt(s emit.Stmt, c *Cost) {
 	switch n := s.(type) {
 	case emit.Define:
 		costExpr(n.Value, c)
+	case emit.Assign:
+		// A rebinding charges only its value's operations; the assignment itself is a
+		// register move, not an arithmetic operation, exactly as a Define is.
+		costExpr(n.Value, c)
 	case emit.AddAssign:
 		// An accumulating += is one arithmetic operation, and on an int target it
 		// carries the same overflow guard a written-out add would.

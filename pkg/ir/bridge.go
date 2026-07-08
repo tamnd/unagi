@@ -194,6 +194,17 @@ func lowerStmt(s frontend.Stmt, sc scope, allowBind bool) ([]emit.Stmt, *emit.Re
 		if err != nil {
 			return nil, nil, false, err
 		}
+		if prev, bound := sc[name.Id]; bound {
+			// Rebinding an existing name is a plain assignment, not a second declaration.
+			// Go fixes a variable's type at its declaration, so a rebinding to the same
+			// scalar reassigns it, and CPython's dynamic rebinding to a different type has
+			// no static Go form, so a type-changing rebind keeps the unit boxed.
+			if prev.Scalar != r.Scalar {
+				return nil, nil, false, unsupported("%s rebinds a %s value as a %s, which Go cannot express", name.Id, prev.Scalar, r.Scalar)
+			}
+			sc[name.Id] = r
+			return []emit.Stmt{emit.Assign{Name: name.Id, Value: v}}, nil, false, nil
+		}
 		sc[name.Id] = r
 		return []emit.Stmt{emit.Define{Name: name.Id, Value: v}}, nil, false, nil
 
@@ -214,6 +225,16 @@ func lowerStmt(s frontend.Stmt, sc scope, allowBind bool) ([]emit.Stmt, *emit.Re
 		}
 		if want, ok := annotationRepr(n.Annotation); ok && want.Scalar != r.Scalar {
 			return nil, nil, false, unsupported("%s is annotated %s but bound a %s", name.Id, want.Scalar, r.Scalar)
+		}
+		// A first annotated binding declares the name; re-annotating an already-bound
+		// name would emit a second `:=`, invalid Go, so it reassigns when the scalar
+		// agrees and stays boxed otherwise, the same rule the plain assignment follows.
+		if prev, bound := sc[name.Id]; bound {
+			if prev.Scalar != r.Scalar {
+				return nil, nil, false, unsupported("%s rebinds a %s value as a %s, which Go cannot express", name.Id, prev.Scalar, r.Scalar)
+			}
+			sc[name.Id] = r
+			return []emit.Stmt{emit.Assign{Name: name.Id, Value: v}}, nil, false, nil
 		}
 		sc[name.Id] = r
 		return []emit.Stmt{emit.Define{Name: name.Id, Value: v}}, nil, false, nil
