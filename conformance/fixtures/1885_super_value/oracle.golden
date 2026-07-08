@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+<class 'super'>
+True
+<class 'super'>
+registered
+True
+B
+A
+B
+runtime: super(): no arguments
+== exception:
+== stderr:
