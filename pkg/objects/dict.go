@@ -22,6 +22,12 @@ type dictObject struct {
 	// factory is the default_factory of a defaultdict: None disables the fill so
 	// a miss raises KeyError like an ordinary dict. Unused by the other kinds.
 	factory Object
+	// owner is set only on the dict globals() hands back, tying it to the module
+	// whose namespace it mirrors. When set, a write through a str key carries
+	// back into the module storage so a name injected with globals().update or
+	// globals()[name] = value is visible to later module-scope reads, the way
+	// CPython's globals() shares the module __dict__. A plain dict leaves it nil.
+	owner *Module
 }
 
 // dictKind names the dict subclass a dictObject stands in for.
@@ -283,11 +289,26 @@ func (d *dictObject) set(key, val Object) error {
 	}
 	if idx, ok := d.index[k]; ok {
 		d.entries[idx].val = val
+		d.mirrorToOwner(key, val)
 		return nil
 	}
 	d.index[k] = len(d.entries)
 	d.entries = append(d.entries, dictEntry{key: key, val: val})
+	d.mirrorToOwner(key, val)
 	return nil
+}
+
+// mirrorToOwner writes a str-keyed change back into the module a globals() dict
+// belongs to, so an injected global reaches the module storage that
+// module-scope reads consult. A non-str key names no attribute, so it stays in
+// the dict alone, and a plain dict with no owner does nothing.
+func (d *dictObject) mirrorToOwner(key, val Object) {
+	if d.owner == nil {
+		return
+	}
+	if s, ok := key.(*strObject); ok {
+		_ = moduleStoreAttr(d.owner, s.v, val)
+	}
 }
 
 func (d *dictObject) get(key Object) (Object, error) {
@@ -331,6 +352,11 @@ func (d *dictObject) delete(key Object) (Object, bool, error) {
 	for hk, i := range d.index {
 		if i > idx {
 			d.index[hk] = i - 1
+		}
+	}
+	if d.owner != nil {
+		if s, ok := key.(*strObject); ok {
+			_ = moduleDelAttr(d.owner, s.v)
 		}
 	}
 	return val, true, nil

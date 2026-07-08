@@ -15,6 +15,11 @@ type Module struct {
 	slotOrder  []string
 	extra      map[string]Object
 	extraOrder []string
+	// globalsView is the single dict globals() hands back, built on first call
+	// and re-synced to the live slots and overflow store on every call so its
+	// identity is stable (globals() is globals()) while its contents stay
+	// current, the way CPython returns the one module __dict__.
+	globalsView *dictObject
 	// initializing is true while the body runs; a partial module reached
 	// through an import cycle reports missing attributes with the
 	// consider-renaming hint the way CPython does for a script-adjacent file.
@@ -91,17 +96,27 @@ func (m *Module) Get(name string) (Object, bool) {
 	return nil, false
 }
 
-// GlobalsDict returns the module namespace as a fresh dict, the value Python's
+// GlobalsDict returns the module namespace as a dict, the value Python's
 // globals() builtin gives. unagi keeps module globals in live Go variables
-// rather than one dict object, so this is a snapshot of the names bound when it
-// is called: reads, iteration, and membership match CPython, and
-// type(globals()) is dict holds because the result is an ordinary dict. The one
-// behavior that does not carry over is rebinding a global by writing back to
-// the returned dict. Order is the identity attributes first, then the
-// module-scope names in the order they were bound; a name held in both a slot
-// and the overflow store keeps its live slot value.
+// rather than one dict object, so the returned dict is seeded with the names
+// bound when it is called: reads, iteration, and membership match CPython, and
+// type(globals()) is dict holds because the result is an ordinary dict. It is
+// tied to the module through owner, so a write back to it, globals()[name] =
+// value or globals().update(...), carries into the module storage and a later
+// module-scope read finds the injected name. Order is the identity attributes
+// first, then the module-scope names in the order they were bound; a name held
+// in both a slot and the overflow store keeps its live slot value.
 func (m *Module) GlobalsDict() Object {
-	d := &dictObject{index: map[string]int{}}
+	if m.globalsView == nil {
+		m.globalsView = &dictObject{index: map[string]int{}}
+	}
+	d := m.globalsView
+	// Re-sync the cached dict to the current namespace in place, keeping its
+	// identity. Detaching owner first means the seeding writes nothing back; the
+	// names already live in the module, and a mirror would only echo them.
+	d.owner = nil
+	d.entries = d.entries[:0]
+	d.index = map[string]int{}
 	for _, n := range m.extraOrder {
 		_ = d.set(NewStr(n), m.extra[n])
 	}
@@ -110,6 +125,8 @@ func (m *Module) GlobalsDict() Object {
 			_ = d.set(NewStr(n), *slot)
 		}
 	}
+	// From here a write to the dict carries into the module storage.
+	d.owner = m
 	return d
 }
 
