@@ -327,13 +327,13 @@ func (p *parser) parseAnnAssign(target Expr) Stmt {
 		p.checkAssignTarget(target)
 	}
 	p.wantOp(":")
-	p.parseTest()
+	ann := p.parseTest()
 	var value Expr
 	if p.eatOp("=") {
 		value = p.parseAssignRHS()
 		p.rejectStarred(value)
 	}
-	return &AnnAssign{Pos_: target.Span(), Target: target, Value: value}
+	return &AnnAssign{Pos_: target.Span(), Target: target, Annotation: ann, Value: value}
 }
 
 // parseImport parses the dotted-as-names tail of an import statement; the
@@ -826,11 +826,12 @@ func (p *parser) parseDef() Stmt {
 	params := p.parseParams(")")
 	p.wantOp(")")
 	// A `-> annotation` return type is deferred (PEP 649) and never evaluated,
-	// so it is parsed and discarded like the parameter annotations.
+	// but the expression is retained for type inference to lower to a claim.
+	var returns Expr
 	if p.eatOp("->") {
-		p.parseTest()
+		returns = p.parseTest()
 	}
-	return &FuncDef{Pos_: t.pos, Name: nt.text, Params: params, Body: p.parseSuite()}
+	return &FuncDef{Pos_: t.pos, Name: nt.text, Params: params, Returns: returns, Body: p.parseSuite()}
 }
 
 // parseAsync parses a statement that opens with `async`. Only `async def` is
@@ -906,23 +907,24 @@ func (p *parser) parseParams(end string) []Param {
 		bareStar     bool
 	)
 	kind := ParamPlain
-	addParam := func(pt token, k ParamKind, def Expr) {
+	addParam := func(pt token, k ParamKind, ann, def Expr) {
 		if seen[pt.text] {
 			p.errf(pt.pos, "duplicate argument '%s' in function definition", pt.text)
 		}
 		seen[pt.text] = true
-		params = append(params, Param{Pos_: pt.pos, Name: pt.text, Kind: k, Default: def})
+		params = append(params, Param{Pos_: pt.pos, Name: pt.text, Kind: k, Annotation: ann, Default: def})
 	}
-	// parseAnnotation consumes and discards a `: annotation` on a parameter,
-	// ahead of the default probe so def f(a: int = 1) reads the annotation
-	// before the equals. Following PEP 649 the annotation is never evaluated,
-	// so it is dropped rather than stored. A lambda uses the colon as its list
-	// terminator, so annotations only apply to def.
-	parseAnnotation := func() {
+	// parseAnnotation consumes a `: annotation` on a parameter, ahead of the
+	// default probe so def f(a: int = 1) reads the annotation before the equals.
+	// Following PEP 649 the annotation is never evaluated at runtime, but the
+	// expression is retained for type inference. A lambda uses the colon as its
+	// list terminator, so annotations only apply to def.
+	parseAnnotation := func() Expr {
 		if end != ":" && p.isOp(":") {
 			p.advance()
-			p.parseTest()
+			return p.parseTest()
 		}
+		return nil
 	}
 	for !p.isOp(end) {
 		pt := p.cur()
@@ -958,11 +960,11 @@ func (p *parser) parseParams(end string) []Param {
 			kind = ParamKwOnly
 			if nt := p.cur(); nt.kind == tName {
 				p.advance()
-				parseAnnotation()
+				ann := parseAnnotation()
 				if p.isOp("=") {
 					p.errf(p.cur().pos, "var-positional argument cannot have default value")
 				}
-				addParam(nt, ParamStar, nil)
+				addParam(nt, ParamStar, ann, nil)
 			} else {
 				bareStar, bareStarPos = true, pt.pos
 			}
@@ -976,15 +978,15 @@ func (p *parser) parseParams(end string) []Param {
 				p.errf(nt.pos, "expected parameter name")
 			}
 			p.advance()
-			parseAnnotation()
+			ann := parseAnnotation()
 			if p.isOp("=") {
 				p.errf(p.cur().pos, "var-keyword argument cannot have default value")
 			}
-			addParam(nt, ParamStarStar, nil)
+			addParam(nt, ParamStarStar, ann, nil)
 			starstarSeen = true
 		case pt.kind == tName:
 			p.advance()
-			parseAnnotation()
+			ann := parseAnnotation()
 			var def Expr
 			if p.eatOp("=") {
 				def = p.parseTest()
@@ -998,7 +1000,7 @@ func (p *parser) parseParams(end string) []Param {
 				// not the * one; keyword-only params mix freely above.
 				p.errf(pt.pos, "parameter without a default follows parameter with a default")
 			}
-			addParam(pt, kind, def)
+			addParam(pt, kind, ann, def)
 		default:
 			p.errf(pt.pos, "expected parameter name")
 		}

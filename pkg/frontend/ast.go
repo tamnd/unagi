@@ -75,12 +75,14 @@ type AugAssign struct {
 
 // AnnAssign is `target: annotation` and `target: annotation = value` (PEP
 // 526). Only a single Name, Attribute, or Subscript may be annotated. Value
-// is nil for a bare annotation. Following PEP 649 the annotation expression is
-// never evaluated, so the parser discards it and this node does not carry it.
+// is nil for a bare annotation. Following PEP 649 the annotation is never
+// evaluated at runtime, but the expression is retained so type inference can
+// lower it to a claim; the runtime and lowering tiers ignore it.
 type AnnAssign struct {
-	Pos_   Pos
-	Target Expr
-	Value  Expr
+	Pos_       Pos
+	Target     Expr
+	Annotation Expr
+	Value      Expr
 }
 
 // If is the full if/elif/else chain; elif nests as another If in Else.
@@ -159,10 +161,11 @@ const (
 // star, kwonly, starstar; no non-default after default within a group)
 // so lowering can trust the layout.
 type Param struct {
-	Pos_    Pos
-	Name    string
-	Kind    ParamKind
-	Default Expr
+	Pos_       Pos
+	Name       string
+	Kind       ParamKind
+	Annotation Expr // the `: T` type expression, nil when unannotated
+	Default    Expr
 }
 
 // FuncDef is `def name(params):`. Decorators holds the decorator expressions
@@ -171,6 +174,7 @@ type FuncDef struct {
 	Pos_       Pos
 	Name       string
 	Params     []Param
+	Returns    Expr // the `-> T` return type expression, nil when absent
 	Body       []Stmt
 	Decorators []Expr
 	Async      bool
