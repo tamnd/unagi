@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -142,6 +143,20 @@ func hashKey(o Object) (string, error) {
 		// The lru_cache keyword sentinel is one shared, opaque value, so it
 		// keys stably under a private prefix and never collides with a real key.
 		return "\x00K", nil
+	case *unionObject:
+		// A union keys by its member set: the member keys sort so int | str and
+		// str | int collide, under a prefix that keeps it clear of a tuple of
+		// the same types.
+		parts := make([]string, len(x.args))
+		for i, m := range x.args {
+			k, err := hashKey(m)
+			if err != nil {
+				return "", err
+			}
+			parts[i] = k
+		}
+		sort.Strings(parts)
+		return "U" + strings.Join(parts, "|"), nil
 	case *funcObject, *functionObject, *Exception, *dictValuesObject,
 		*ellipsisObject, *notImplementedObject, *classObject, *typeObject:
 		// Identity types: the same objects PyHash hashes by pointer key

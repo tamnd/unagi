@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+int | str
+str | int
+True
+False
+<class 'int'>
+int | str
+int | str | bytes
+int | None
+int | str | bytes | None
+<class 'typing.Union'>
+(<class 'int'>, <class 'str'>)
+(<class 'int'>, <class 'NoneType'>)
+True False
+True False
+__main__.C | int
+True False
+either
+True
+type error: unsupported operand type(s) for |: 'type' and 'int'
+== exception:
+== stderr:
