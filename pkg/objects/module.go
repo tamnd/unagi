@@ -166,15 +166,30 @@ func (m *Module) GlobalsDict() Object {
 	return d
 }
 
-// missingAttr is the AttributeError for a read of an unbound module name. A
-// module still executing its body reports the consider-renaming hint, the
-// message CPython 3.14 gives when the unfinished module is a script-adjacent
-// file, which is the only kind this tier compiles.
+// missingAttr is the AttributeError for a read of an unbound module name,
+// following CPython 3.14's module_getattro. A finished module reports the plain
+// form. A module still executing its body, the state a partial module reached
+// through an import cycle is in, splits on whether it could be shadowing: a
+// top-level module resolves next to the entry script (sys.path[0]) in the
+// single-tree build, so CPython flags it as a possible shadow of a library and
+// gives the consider-renaming hint, while a package submodule (a dotted name)
+// sits one directory deeper and gets the circular-import message instead.
 func (m *Module) missingAttr(name string) error {
 	if m.initializing {
+		topLevel := !strings.Contains(m.name, ".")
+		if topLevel && m.file != "" {
+			return Raise(AttributeError,
+				"module '%s' has no attribute '%s' (consider renaming '%s' if it has the same name as a library you intended to import)",
+				m.name, name, m.file)
+		}
+		if m.file != "" {
+			return Raise(AttributeError,
+				"partially initialized module '%s' from '%s' has no attribute '%s' (most likely due to a circular import)",
+				m.name, m.file, name)
+		}
 		return Raise(AttributeError,
-			"module '%s' has no attribute '%s' (consider renaming '%s' if it has the same name as a library you intended to import)",
-			m.name, name, m.file)
+			"partially initialized module '%s' has no attribute '%s' (most likely due to a circular import)",
+			m.name, name)
 	}
 	return Raise(AttributeError, "module '%s' has no attribute '%s'", m.name, name)
 }
