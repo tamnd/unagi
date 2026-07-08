@@ -552,9 +552,10 @@ func lowerWhile(n *frontend.While, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.R
 //
 // The stop bound is re-tested every iteration, so it must be stable: an int literal or a
 // name the body never reassigns, or a later iteration would test a changed bound where
-// Python captured the bound once at loop entry. A computed bound needs the hoisted temp
-// of doc 06 line 50, a later slice, so it stays boxed. Python also rebinds the loop
-// variable from the range each iteration and ignores a body assignment to it, so a body
+// Python captured the bound once at loop entry. A computed bound is hoisted into a fresh
+// temp evaluated once ahead of the loop (doc 06 line 50), so the header tests a plain
+// int64 local and any guard the bound carries stays at function entry. Python also rebinds
+// the loop variable from the range each iteration and ignores a body assignment to it, so a body
 // that assigns the loop variable, or a loop variable that shadows an outer binding, has
 // no faithful Go counting-loop form and stays boxed. As with while, a guarded body has
 // no loop back-edge resume point yet (doc 06 line 39) and stays boxed.
@@ -622,6 +623,7 @@ func lowerFor(n *frontend.For, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr,
 	if stopRepr.Scalar != emit.SInt {
 		return nil, nil, false, unsupported("a range stop must be an int, got %s", stopRepr.Scalar)
 	}
+	var pre []emit.Stmt
 	switch b := stopArg.(type) {
 	case *frontend.IntLit:
 	case *frontend.Name:
@@ -629,7 +631,15 @@ func lowerFor(n *frontend.For, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr,
 			return nil, nil, false, unsupported("the loop body reassigns the range bound %s, which the counting loop would re-read", b.Id)
 		}
 	default:
-		return nil, nil, false, unsupported("a computed range bound needs a hoisted temp, deferred past this slice")
+		// A computed bound is evaluated once at loop entry, exactly as Python evaluates a
+		// range argument once. Go would re-run the stop expression on every back-edge, which
+		// both repeats the work and, for a guarded int expression, moves the overflow guard
+		// onto the loop back-edge where no resume point exists yet. Hoisting the bound into a
+		// fresh temp ahead of the loop evaluates it once and keeps any guard it carries at
+		// function entry, so the loop header only tests a plain int64 local.
+		tmp := freshLocal(sc, n.Body, target.Id, "bound")
+		pre = append(pre, emit.Define{Name: tmp, Value: stop})
+		stop = emit.Var{Name: tmp, Repr: stopRepr}
 	}
 
 	if bodyAssigns(n.Body, target.Id) {
@@ -651,7 +661,7 @@ func lowerFor(n *frontend.For, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr,
 	if bc.EntryGuards+bc.LoopGuards > 0 {
 		return nil, nil, false, unsupported("a guarded for-range body needs a loop back-edge resume point, deferred past M4")
 	}
-	return []emit.Stmt{emit.ForCount{Var: target.Id, Start: start, Stop: stop, Body: body}}, nil, false, nil
+	return append(pre, emit.ForCount{Var: target.Id, Start: start, Stop: stop, Body: body}), nil, false, nil
 }
 
 // bodyAssigns reports whether any statement in a block assigns the given name, walking
@@ -691,6 +701,27 @@ func bodyAssigns(stmts []frontend.Stmt, name string) bool {
 		}
 	}
 	return false
+}
+
+// freshLocal returns a Go local name built from prefix that no live binding uses, the
+// loop variable does not take, and the loop body never assigns, so a hoisted temp cannot
+// shadow a name the body reads or clash with an outer binding. It tries the bare prefix
+// first, then the prefix with a rising counter, so the name is a deterministic function
+// of what is already taken and two runs over the same loop pick the same temp.
+func freshLocal(sc scope, body []frontend.Stmt, loopVar, prefix string) string {
+	for i := 0; ; i++ {
+		cand := prefix
+		if i > 0 {
+			cand = fmt.Sprintf("%s%d", prefix, i)
+		}
+		if _, exists := sc[cand]; exists {
+			continue
+		}
+		if cand == loopVar || bodyAssigns(body, cand) {
+			continue
+		}
+		return cand
+	}
 }
 
 // targetHits reports whether an assignment target binds the given name, descending into
