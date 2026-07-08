@@ -35,6 +35,17 @@ func unsupported(format string, a ...any) error {
 // type for.
 type scope map[string]emit.Repr
 
+// lowerCtx carries the ambient facts a statement needs beyond its own scope: the set
+// of names read anywhere in the function, so a branch or loop can tell a live binding
+// from a dead one, and whether the statement sits inside a loop, so a `break` or
+// `continue` is accepted only where Go would accept it. It is passed by value, so a
+// loop can hand its body a copy with inLoop set without disturbing the enclosing
+// context.
+type lowerCtx struct {
+	reads  map[string]bool
+	inLoop bool
+}
+
 // scalarRepr is the doc 04 representation of a scalar type named by a bare
 // annotation. It is the same table emit.Of builds from a lattice type, spelled
 // here against the annotation name because this seed runs before pkg/types feeds
@@ -92,8 +103,9 @@ func LowerFunc(fn *frontend.FuncDef) (emit.Func, error) {
 	// unit boxed rather than emit a local Go rejects.
 	reads := map[string]bool{}
 	loadedNames(fn.Body, reads)
+	ctx := lowerCtx{reads: reads}
 
-	body, ret, terminates, err := lowerBody(fn.Body, sc, reads)
+	body, ret, terminates, err := lowerBody(fn.Body, sc, ctx)
 	if err != nil {
 		return emit.Func{}, err
 	}
@@ -143,12 +155,12 @@ func annotationRepr(e frontend.Expr) (emit.Repr, bool) {
 // its own forked scope, and lowerIf reconciles the two arms at the join, so a name
 // both arms bind becomes one hoisted Go local rather than two shadowing `:=` writes
 // (doc 06 section 8, the join rule).
-func lowerBody(stmts []frontend.Stmt, sc scope, reads map[string]bool) ([]emit.Stmt, *emit.Repr, bool, error) {
+func lowerBody(stmts []frontend.Stmt, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr, bool, error) {
 	var out []emit.Stmt
 	var ret *emit.Repr
 	var terminates bool
 	for _, s := range stmts {
-		es, rr, term, err := lowerStmt(s, sc, reads)
+		es, rr, term, err := lowerStmt(s, sc, ctx)
 		if err != nil {
 			return nil, nil, false, err
 		}
@@ -171,10 +183,26 @@ func lowerBody(stmts []frontend.Stmt, sc scope, reads map[string]bool) ([]emit.S
 // yields so lowerBody can pin the function's result type. The third result reports
 // whether the statement is exhaustive: a return always is, an if is exactly when it
 // has an else and both arms are, and every other form is not.
-func lowerStmt(s frontend.Stmt, sc scope, reads map[string]bool) ([]emit.Stmt, *emit.Repr, bool, error) {
+func lowerStmt(s frontend.Stmt, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr, bool, error) {
 	switch n := s.(type) {
 	case *frontend.Pass:
 		return nil, nil, false, nil
+
+	case *frontend.Break:
+		// The parser accepts a stray break, so the bridge is the gate: a break outside a
+		// loop has no Go form here and keeps the unit boxed rather than emit an invalid
+		// jump. Inside a loop it lowers to Go's break and does not itself terminate the
+		// function, since control leaves the loop, not the function.
+		if !ctx.inLoop {
+			return nil, nil, false, unsupported("break outside a loop has no static form")
+		}
+		return []emit.Stmt{emit.Break{}}, nil, false, nil
+
+	case *frontend.Continue:
+		if !ctx.inLoop {
+			return nil, nil, false, unsupported("continue outside a loop has no static form")
+		}
+		return []emit.Stmt{emit.Continue{}}, nil, false, nil
 
 	case *frontend.Return:
 		if n.Value == nil {
@@ -187,7 +215,10 @@ func lowerStmt(s frontend.Stmt, sc scope, reads map[string]bool) ([]emit.Stmt, *
 		return []emit.Stmt{emit.Return{Value: v}}, &r, true, nil
 
 	case *frontend.If:
-		return lowerIf(n, sc, reads)
+		return lowerIf(n, sc, ctx)
+
+	case *frontend.While:
+		return lowerWhile(n, sc, ctx)
 
 	case *frontend.Assign:
 		if len(n.Targets) != 1 {
@@ -346,7 +377,7 @@ func lowerTupleAssign(tgt *frontend.TupleLit, value frontend.Expr, sc scope) ([]
 // The chain is exhaustive only when it has an else and both arms are, which is what
 // lets the function demand a return on every path. An elif rides in as a nested If in
 // Else, so the recursion here produces the nested emit.If the emitter folds to else-if.
-func lowerIf(n *frontend.If, sc scope, reads map[string]bool) ([]emit.Stmt, *emit.Repr, bool, error) {
+func lowerIf(n *frontend.If, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr, bool, error) {
 	cond, cr, err := lowerExpr(n.Cond, sc)
 	if err != nil {
 		return nil, nil, false, err
@@ -362,7 +393,7 @@ func lowerIf(n *frontend.If, sc scope, reads map[string]bool) ([]emit.Stmt, *emi
 	// the join names are known, so a first binding of a join name emits an assignment
 	// to the hoisted local rather than a fresh declaration.
 	thenSc := cloneScope(sc)
-	_, thenRet, thenTerm, err := lowerBody(n.Body, thenSc, reads)
+	_, thenRet, thenTerm, err := lowerBody(n.Body, thenSc, ctx)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -370,7 +401,7 @@ func lowerIf(n *frontend.If, sc scope, reads map[string]bool) ([]emit.Stmt, *emi
 	var elseRet *emit.Repr
 	elseTerm := false
 	if hasElse {
-		_, elseRet, elseTerm, err = lowerBody(n.Else, elseSc, reads)
+		_, elseRet, elseTerm, err = lowerBody(n.Else, elseSc, ctx)
 		if err != nil {
 			return nil, nil, false, err
 		}
@@ -401,12 +432,12 @@ func lowerIf(n *frontend.If, sc scope, reads map[string]bool) ([]emit.Stmt, *emi
 	// both arms; an arm-only name never read is dead in its arm. Either way the unit
 	// stays boxed rather than emit a local Go rejects.
 	for name := range thenNew {
-		if !reads[name] {
+		if !ctx.reads[name] {
 			return nil, nil, false, unsupported("%s is bound in a branch but never read, so it has no live static form", name)
 		}
 	}
 	for name := range elseNew {
-		if !reads[name] {
+		if !ctx.reads[name] {
 			return nil, nil, false, unsupported("%s is bound in a branch but never read, so it has no live static form", name)
 		}
 	}
@@ -418,7 +449,7 @@ func lowerIf(n *frontend.If, sc scope, reads map[string]bool) ([]emit.Stmt, *emi
 	for _, name := range joinNames {
 		thenSc2[name] = joinRepr[name]
 	}
-	then, _, _, err := lowerBody(n.Body, thenSc2, reads)
+	then, _, _, err := lowerBody(n.Body, thenSc2, ctx)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -428,7 +459,7 @@ func lowerIf(n *frontend.If, sc scope, reads map[string]bool) ([]emit.Stmt, *emi
 		for _, name := range joinNames {
 			elseSc2[name] = joinRepr[name]
 		}
-		els, _, _, err = lowerBody(n.Else, elseSc2, reads)
+		els, _, _, err = lowerBody(n.Else, elseSc2, ctx)
 		if err != nil {
 			return nil, nil, false, err
 		}
@@ -449,6 +480,60 @@ func lowerIf(n *frontend.If, sc scope, reads map[string]bool) ([]emit.Stmt, *emi
 		return nil, nil, false, err
 	}
 	return out, ret, thenTerm && hasElse && elseTerm, nil
+}
+
+// lowerWhile translates a `while cond:` loop to a Go `for cond {}`. The condition is
+// any scalar the truthiness rule accepts, lowered the same way an if condition is. The
+// body forks a loop scope so a name the body binds fresh stays loop-local and does not
+// leak past the loop; a body that rebinds an outer name reassigns the outer variable,
+// which the accumulator pattern relies on.
+//
+// A guard has no static form inside a loop at M4: doc 06 section 8.2 needs a resume
+// point at the loop back-edge so a mid-iteration deopt resumes boxed at the top of the
+// next iteration, and that resume point is a later slice. So a guarded condition or a
+// guarded body keeps the unit boxed rather than emit a loop whose guard cannot resume.
+// A `while ... else` runs its else when the loop exits without a break; doc 06 line 40
+// keeps that boxed at M4, so a non-empty else is refused here too.
+//
+// A while may run zero times or loop without returning, so it never makes the function
+// exhaustive; it reports term false and carries no result representation.
+func lowerWhile(n *frontend.While, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr, bool, error) {
+	if len(n.Else) > 0 {
+		return nil, nil, false, unsupported("a while-else has no static form at M4")
+	}
+	cond, cr, err := lowerExpr(n.Cond, sc)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if !truthy(cr) {
+		return nil, nil, false, unsupported("no truthiness form for a %s condition", cr.Scalar)
+	}
+	// A guard in the condition fires every iteration and has no back-edge resume point
+	// yet, so a guarded condition keeps the unit boxed.
+	var cc Cost
+	costExpr(cond, &cc)
+	if cc.EntryGuards+cc.LoopGuards > 0 {
+		return nil, nil, false, unsupported("a guarded while condition needs a loop back-edge resume point, deferred past M4")
+	}
+	// The body lowers into a forked loop scope, marked inLoop so a break or continue
+	// finds its loop. New bindings stay in the fork and do not reach the enclosing scope.
+	loopSc := cloneScope(sc)
+	bodyCtx := ctx
+	bodyCtx.inLoop = true
+	body, _, _, err := lowerBody(n.Body, loopSc, bodyCtx)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	// A guard anywhere in the body has the same missing resume point, so a guarded body
+	// keeps the unit boxed until the deopt-loop slice lands the back-edge resume.
+	var bc Cost
+	for _, st := range body {
+		costStmt(st, &bc)
+	}
+	if bc.EntryGuards+bc.LoopGuards > 0 {
+		return nil, nil, false, unsupported("a guarded while body needs a loop back-edge resume point, deferred past M4")
+	}
+	return []emit.Stmt{emit.While{Cond: cond, Body: body}}, nil, false, nil
 }
 
 // cloneScope copies a scope so an arm can bind into it without disturbing the
@@ -497,6 +582,10 @@ func loadedNames(stmts []frontend.Stmt, out map[string]bool) {
 			}
 			loadedInExpr(n.Value, out)
 		case *frontend.If:
+			loadedInExpr(n.Cond, out)
+			loadedNames(n.Body, out)
+			loadedNames(n.Else, out)
+		case *frontend.While:
 			loadedInExpr(n.Cond, out)
 			loadedNames(n.Body, out)
 			loadedNames(n.Else, out)

@@ -72,6 +72,25 @@ type ForRange struct {
 	Body []Stmt
 }
 
+// While is a `for cond { body }` loop. Cond lowers through the shared truthiness
+// rule, the same one the if uses, so one scalar has one notion of falsy in a loop
+// test as everywhere else. Go's `for` with a single condition is Python's `while`:
+// the condition is re-tested at the top of every iteration, so a body that rebinds a
+// name the condition reads drives the loop to termination. This node carries a
+// guard-free condition; a condition that would flush a guard needs the loop-back-edge
+// resume point (doc 06 section 8.2), which the bridge keeps boxed until that lands.
+type While struct {
+	Cond Expr
+	Body []Stmt
+}
+
+// Break and Continue are Go's `break` and `continue`. They are only ever built
+// inside a loop body, so they always land inside the `for` the While node emits.
+type Break struct{}
+
+// Continue jumps to the next iteration of the enclosing loop.
+type Continue struct{}
+
 // If is an `if cond { then } else { else }` chain. Cond lowers through the shared
 // truthiness rule, so a scalar condition becomes the Go test its type calls falsy
 // (an int against zero, a str against ""), and a bool condition stands on its own.
@@ -90,6 +109,9 @@ func (Bind) isStmt()      {}
 func (AddAssign) isStmt() {}
 func (Return) isStmt()    {}
 func (ForRange) isStmt()  {}
+func (While) isStmt()     {}
+func (Break) isStmt()     {}
+func (Continue) isStmt()  {}
 func (If) isStmt()        {}
 
 // lowerBlock lowers a run of statements, concatenating each statement's flushed
@@ -225,6 +247,33 @@ func (b *Builder) lowerStmt(s Stmt) ([]ast.Stmt, error) {
 			Body:  block(body...),
 		}
 		return append(b.flush(), loop), nil
+
+	case While:
+		// The condition is guard-free (the bridge keeps a guarded loop condition boxed),
+		// so lowering it fills no pending list and the loop test stands on its own. The
+		// body's own guards, if any, stay inside the loop block, which is where a
+		// loop-back-edge resume point would sit.
+		cond, cr, err := b.lowerExpr(n.Cond)
+		if err != nil {
+			return nil, err
+		}
+		test, err := truthyExpr(cond, cr)
+		if err != nil {
+			return nil, err
+		}
+		guards := b.flush()
+		body, err := b.lowerBlock(n.Body)
+		if err != nil {
+			return nil, err
+		}
+		loop := &ast.ForStmt{Cond: test, Body: block(body...)}
+		return append(guards, loop), nil
+
+	case Break:
+		return append(b.flush(), &ast.BranchStmt{Tok: token.BREAK}), nil
+
+	case Continue:
+		return append(b.flush(), &ast.BranchStmt{Tok: token.CONTINUE}), nil
 
 	case If:
 		// The condition's guards flush ahead of the whole if, never into the
