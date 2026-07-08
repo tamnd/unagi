@@ -84,8 +84,76 @@ func patternMethod(p *patternObject, name string, args []Object) (Object, error)
 		return patternSub(p, args, false)
 	case "subn":
 		return patternSub(p, args, true)
+	case "split":
+		return patternSplit(p, args)
 	}
 	return nil, noAttr(p, name)
+}
+
+// patternSplit implements Pattern.split: break the subject at every match and
+// return the list of pieces. When the pattern carries groups their captured text
+// interleaves the pieces, with None for a group that did not match, the value
+// split keeps rather than the empty string sub fills in. maxsplit caps the
+// splits, 0 meaning split at every match, and an empty match advances the scan
+// by one so it cannot stall.
+func patternSplit(p *patternObject, args []Object) (Object, error) {
+	if len(args) < 1 {
+		return nil, Raise(TypeError, "split() missing required argument 'string' (pos 1)")
+	}
+	subject := args[0]
+	in, isbytes, ok := subjectInput(subject)
+	if !ok {
+		return nil, Raise(TypeError, "expected string or bytes-like object")
+	}
+	if isbytes != p.isbytes {
+		return nil, Raise(TypeError, "cannot use a %s pattern on a %s-like object",
+			kindWord(p.isbytes), kindWord(isbytes))
+	}
+	maxsplit := 0
+	if len(args) >= 2 && args[1] != None {
+		ms, ok := AsIntValue(args[1])
+		if !ok {
+			return nil, Raise(TypeError, "'%s' object cannot be interpreted as an integer", args[1].TypeName())
+		}
+		maxsplit = int(ms)
+	}
+
+	out := make([]Object, 0)
+	last := 0
+	n := 0
+	pos := 0
+	endpos := len(in)
+	for pos <= endpos {
+		if maxsplit > 0 && n >= maxsplit {
+			break
+		}
+		r, err := sre.Search(in, p.code, p.groups, pos, endpos, false)
+		if err != nil {
+			return nil, Raise(RuntimeError, "%s", err.Error())
+		}
+		if !r.Matched {
+			break
+		}
+		start, end := r.Locs[0], r.Locs[1]
+		m := newMatch(p, subject, in, isbytes, pos, endpos, r).(*matchObject)
+		out = append(out, sliceInput(in, last, start, isbytes))
+		for g := 1; g <= p.groups; g++ {
+			gv, err := m.groupValue(g)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, gv)
+		}
+		last = end
+		n++
+		if end == start {
+			pos = end + 1
+		} else {
+			pos = end
+		}
+	}
+	out = append(out, sliceInput(in, last, endpos, isbytes))
+	return NewList(out), nil
 }
 
 // scanMatches walks the subject and collects every non-overlapping match the way
