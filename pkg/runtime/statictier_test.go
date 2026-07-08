@@ -76,11 +76,11 @@ func TestMulInt64(t *testing.T) {
 // TestZeroDivisionError pins that the static tier's divide-by-zero raises the
 // same exception surface as the boxed tier, message and type both.
 func TestZeroDivisionError(t *testing.T) {
-	err := ZeroDivisionError("float division by zero")
+	err := ZeroDivisionError("division by zero")
 	if err == nil {
 		t.Fatal("ZeroDivisionError returned nil")
 	}
-	if got, want := err.Error(), "ZeroDivisionError: float division by zero"; got != want {
+	if got, want := err.Error(), "ZeroDivisionError: division by zero"; got != want {
 		t.Errorf("ZeroDivisionError().Error() = %q, want %q", got, want)
 	}
 }

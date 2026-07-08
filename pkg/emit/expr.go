@@ -204,13 +204,16 @@ func (b *Builder) lowerBin(n Bin) (ast.Expr, Repr, error) {
 	return ident(val), Repr{Go: "int64", Scalar: SInt}, nil
 }
 
-// guardZeroDiv appends the section 7.5 semantic check that a float division by a
-// zero divisor raises ZeroDivisionError through the D14 channel rather than
-// producing an infinity, matching python3.14.
+// guardZeroDiv appends the section 7.5 semantic check that a division by a zero
+// divisor raises ZeroDivisionError through the D14 channel rather than producing
+// an infinity. The message is the bare "division by zero" python3.14 raises for
+// every true division, int or float; the older "float division by zero" spelling
+// was retired, and the boxed twin in pkg/objects already raises this exact text,
+// so both tiers agree.
 func (b *Builder) guardZeroDiv(divisor ast.Expr) {
 	b.pre = append(b.pre, ifStmt(
 		binary(token.EQL, divisor, floatLit(0)),
-		ret(b.ret.zero(), callExpr(sel(runtimePkg, "ZeroDivisionError"), strLit("float division by zero"))),
+		ret(b.ret.zero(), callExpr(sel(runtimePkg, "ZeroDivisionError"), strLit("division by zero"))),
 	))
 }
 

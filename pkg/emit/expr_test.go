@@ -39,7 +39,7 @@ func TestTrueDivisionGuardsZero(t *testing.T) {
 	if !strings.Contains(src, "if float64(b) == 0") {
 		t.Fatalf("division should guard a zero divisor:\n%s", src)
 	}
-	if !strings.Contains(src, `rt.ZeroDivisionError("float division by zero")`) {
+	if !strings.Contains(src, `rt.ZeroDivisionError("division by zero")`) {
 		t.Fatalf("the zero guard should raise ZeroDivisionError:\n%s", src)
 	}
 	if !strings.Contains(src, "return float64(a) / float64(b), nil") {
