@@ -233,6 +233,33 @@ func TestLowerRefusesMixedValueConnective(t *testing.T) {
 	}
 }
 
+func TestLowerRebindsExistingNameWithAssign(t *testing.T) {
+	// The first binding of x declares it; the second binds the same name again, which
+	// lowers to a plain assignment, not a second declaration (06, line 9).
+	src := "def f(a: float, b: float) -> float:\n    x = a * 2.0\n    x = x + b\n    return x\n"
+	got := emitOf(t, src)
+	if !strings.Contains(got, "x := a * 2") {
+		t.Fatalf("the first binding should declare with :=\n%s", got)
+	}
+	if !strings.Contains(got, "x = x + b") {
+		t.Fatalf("the rebinding should reassign with a plain =\n%s", got)
+	}
+	if strings.Count(got, "x :=") != 1 {
+		t.Fatalf("x should be declared exactly once:\n%s", got)
+	}
+}
+
+func TestLowerRefusesTypeChangingRebind(t *testing.T) {
+	// Python lets x hold an int and then a string, but Go fixes a variable's type at
+	// its declaration, so a rebinding to a different scalar has no static form and the
+	// unit stays boxed (06, line 9).
+	src := "def f(a: int, b: str) -> str:\n    x = a\n    x = b\n    return x\n"
+	fn := parseFunc(t, src)
+	if _, err := LowerFunc(fn); err == nil {
+		t.Fatal("a type-changing rebind should be refused, keeping the unit boxed")
+	}
+}
+
 func TestLowerRejects(t *testing.T) {
 	cases := []struct {
 		name string

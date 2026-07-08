@@ -145,6 +145,12 @@ func TestStaticTierMatchesCPython(t *testing.T) {
 		{"and float truthy left", "def f(a: float, b: float) -> float:\n    return a and b\n", "f(1.5, 2.5)"},
 		{"or str empty left", "def f(a: str, b: str) -> str:\n    return a or b\n", `f("", "fallback")`},
 		{"and str nonempty left", "def f(a: str, b: str) -> str:\n    return a and b\n", `f("x", "y")`},
+		// Rebinding an existing name (06, line 9): the second binding reassigns rather
+		// than redeclares, and reading the name on its own right-hand side sees the
+		// value from before the assignment, so the float and string forms below fold to
+		// the same value CPython computes.
+		{"rebind float", "def f(a: float, b: float) -> float:\n    x = a * 2.0\n    x = x + b\n    return x\n", "f(1.5, 0.25)"},
+		{"rebind str", "def f(a: str, b: str) -> str:\n    s = a\n    s = s + b\n    return s\n", `f("foo", "bar")`},
 	}
 
 	dir := t.TempDir()

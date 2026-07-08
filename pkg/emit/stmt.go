@@ -30,6 +30,16 @@ type AddAssign struct {
 	Value Expr
 }
 
+// Assign rebinds an already-declared local to a new value, `name = value`. It is
+// the plain assignment a Python rebinding lowers to once the name exists: the first
+// binding of a name is a Define (`:=`) and every later binding is an Assign (`=`),
+// since Go declares a name once and reassigns it thereafter. Like every statement
+// it flushes its value's guards ahead of itself.
+type Assign struct {
+	Name  string
+	Value Expr
+}
+
 // Return returns a value on the success path, lowered to `return value, nil`.
 type Return struct{ Value Expr }
 
@@ -53,6 +63,7 @@ type If struct {
 }
 
 func (Define) isStmt()    {}
+func (Assign) isStmt()    {}
 func (AddAssign) isStmt() {}
 func (Return) isStmt()    {}
 func (ForRange) isStmt()  {}
@@ -93,6 +104,16 @@ func (b *Builder) lowerStmt(s Stmt) ([]ast.Stmt, error) {
 			}
 		}
 		return append(b.flush(), define(n.Name, x)), nil
+
+	case Assign:
+		// The name is already declared, so this is a plain `name = value`, not a
+		// second `:=`. The value's guards flush ahead of the assignment the same way a
+		// Define's do, so the rebound value is already proven when it lands.
+		x, _, err := b.lowerExpr(n.Value)
+		if err != nil {
+			return nil, err
+		}
+		return append(b.flush(), setStmt(ident(n.Name), x)), nil
 
 	case AddAssign:
 		if n.Repr.Scalar == SFloat {
