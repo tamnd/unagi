@@ -138,6 +138,72 @@ func TestLowerReturnTypeInferredFromBody(t *testing.T) {
 	}
 }
 
+func TestLowerComparison(t *testing.T) {
+	// A numeric comparison is a total Go operator yielding bool, no guard even for
+	// int operands: a compare reads values, it never produces a new int to overflow.
+	src := "def lt(a: int, b: int) -> bool:\n    return a < b\n"
+	got := emitOf(t, src)
+	if !strings.Contains(got, "(bool, error)") {
+		t.Errorf("comparison should return bool:\n%s", got)
+	}
+	if !strings.Contains(got, "return a < b, nil") {
+		t.Errorf("int comparison should be a bare operator:\n%s", got)
+	}
+	if strings.Contains(got, "AddInt64") || strings.Contains(got, "deopt") {
+		t.Errorf("a comparison must not guard overflow or deopt:\n%s", got)
+	}
+}
+
+func TestLowerChainedComparison(t *testing.T) {
+	// Python expands a < b < c into the left-to-right conjunction a < b and b < c.
+	src := "def between(a: int, b: int, c: int) -> bool:\n    return a < b < c\n"
+	got := emitOf(t, src)
+	if !strings.Contains(got, "a < b && b < c") {
+		t.Errorf("chained comparison should expand to a conjunction:\n%s", got)
+	}
+}
+
+func TestLowerConnectivePrecedence(t *testing.T) {
+	// and binds tighter than or, so the emitted form parenthesizes the and to keep
+	// Python's precedence when Go reparses the tree (05, line 25).
+	src := "def f(a: bool, b: bool, c: bool) -> bool:\n    return a or b and c\n"
+	got := emitOf(t, src)
+	if !strings.Contains(got, "a || (b && c)") {
+		t.Errorf("or-of-and should parenthesize the and:\n%s", got)
+	}
+}
+
+func TestLowerNotPrecedence(t *testing.T) {
+	// not is lower than ==, so `not a == b` is `not (a == b)`, and the emitted !
+	// parenthesizes the comparison so it does not read as `!a == b` (05, line 26).
+	src := "def f(a: int, b: int) -> bool:\n    return not a == b\n"
+	got := emitOf(t, src)
+	if !strings.Contains(got, "!(a == b)") {
+		t.Errorf("not of a comparison should parenthesize it:\n%s", got)
+	}
+}
+
+func TestLowerRefusesBoolOrdering(t *testing.T) {
+	// Ordering two bools has no static form: True > False is a CPython coercion, not
+	// a Go bool operator, so the unit stays boxed (05, line 12).
+	src := "def f(a: bool, b: bool) -> bool:\n    return a < b\n"
+	fn := parseFunc(t, src)
+	if _, err := LowerFunc(fn); err == nil {
+		t.Fatal("ordering bools should be refused, keeping the unit boxed")
+	}
+}
+
+func TestLowerRefusesValueReturningOr(t *testing.T) {
+	// Python `x or y` on two ints returns an int operand, not a bool. That
+	// value-returning form has no static lowering here, so it stays boxed rather
+	// than silently forcing a bool (05, line 28).
+	src := "def f(a: int, b: int) -> int:\n    return a or b\n"
+	fn := parseFunc(t, src)
+	if _, err := LowerFunc(fn); err == nil {
+		t.Fatal("value-returning or on ints should be refused, keeping the unit boxed")
+	}
+}
+
 func TestLowerRejects(t *testing.T) {
 	cases := []struct {
 		name string

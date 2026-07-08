@@ -73,6 +73,33 @@ func TestStaticTierMatchesCPython(t *testing.T) {
 		// repr renders both with single quotes, so the printed forms still match.
 		{"string concat", "def f(a: str, b: str) -> str:\n    return a + b\n", `f("foo", "bar")`},
 		{"string concat three", "def f(a: str, b: str, c: str) -> str:\n    return a + b + c\n", `f("a", "b", "c")`},
+		// Comparisons yield bool (05_bool_compare_connectives.md). The result reboxes
+		// through objects.NewBool, so True/False print as CPython spells them.
+		{"int less than", "def f(a: int, b: int) -> bool:\n    return a < b\n", "f(2, 3)"},
+		{"int equal", "def f(a: int, b: int) -> bool:\n    return a == b\n", "f(3, 3)"},
+		{"int not equal", "def f(a: int, b: int) -> bool:\n    return a != b\n", "f(3, 4)"},
+		{"int greater equal", "def f(a: int, b: int) -> bool:\n    return a >= b\n", "f(3, 4)"},
+		// A mixed int-and-float comparison coerces the int side to float, the same
+		// promotion arithmetic uses (05, line 10).
+		{"mixed compare", "def f(a: int, b: float) -> bool:\n    return a < b\n", "f(2, 2.5)"},
+		// String comparison is bytewise, which matches CPython code-point order for
+		// ASCII (04, line 18; 05, line 11).
+		{"string less than", "def f(a: str, b: str) -> bool:\n    return a < b\n", `f("apple", "banana")`},
+		// Chained comparison expands to the left-to-right conjunction (05, line 17):
+		// one case where the chain holds and one where the middle link breaks it.
+		{"chained true", "def f(a: int, b: int, c: int) -> bool:\n    return a < b < c\n", "f(1, 2, 3)"},
+		{"chained false", "def f(a: int, b: int, c: int) -> bool:\n    return a < b < c\n", "f(1, 5, 3)"},
+		// Connectives on proven bool operands (05, lines 22-24). The bool operands
+		// come from comparisons so the call passes int args, which spell the same in
+		// Go and Python (a bare True/False literal would not).
+		{"and", "def f(a: int, b: int) -> bool:\n    return a < b and a >= 0\n", "f(2, 3)"},
+		{"or", "def f(a: int, b: int) -> bool:\n    return a < b or a > 100\n", "f(5, 3)"},
+		{"not", "def f(a: int, b: int) -> bool:\n    return not a < b\n", "f(3, 3)"},
+		// Precedence: `and` binds tighter than `or`, so the value must match the
+		// parenthesized `a || (b && c)` the emitter prints (05, line 25).
+		{"or of and", "def f(a: int, b: int, c: int) -> bool:\n    return a < b or b < c and c < a\n", "f(5, 1, 3)"},
+		// `not` is lower than `==`, so `not a == b` is `not (a == b)` (05, line 26).
+		{"not of equal", "def f(a: int, b: int) -> bool:\n    return not a == b\n", "f(3, 3)"},
 	}
 
 	dir := t.TempDir()
