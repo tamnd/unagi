@@ -90,6 +90,25 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 	return nil, noAttr(o, name)
 }
 
+// builtinMethodValue binds one builtin method as a first-class callable, the
+// value obj.method reads back before it is called. re/_parser leans on it with
+// itemsappend = items.append inside a hot loop, and int already does the same
+// through intMethodNames. Calling the result dispatches straight back through
+// CallMethod/CallMethodKw, so items.append(x) and the bound read agree on the
+// arity checks and the keyword handling.
+func builtinMethodValue(recv Object, name string) Object {
+	return &funcObject{
+		name:  name,
+		arity: -1,
+		fn: func(args []Object) (Object, error) {
+			return CallMethod(recv, name, args)
+		},
+		kwfn: func(pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+			return CallMethodKw(recv, name, pos, kwNames, kwVals)
+		},
+	}
+}
+
 // CallMethodKw dispatches o.name(pos, **kw) for receivers whose methods take
 // keyword arguments: a user instance, class, or super object threads the
 // keywords into the function binder, which spells the unexpected-keyword and
