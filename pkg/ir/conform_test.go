@@ -151,6 +151,12 @@ func TestStaticTierMatchesCPython(t *testing.T) {
 		// the same value CPython computes.
 		{"rebind float", "def f(a: float, b: float) -> float:\n    x = a * 2.0\n    x = x + b\n    return x\n", "f(1.5, 0.25)"},
 		{"rebind str", "def f(a: str, b: str) -> str:\n    s = a\n    s = s + b\n    return s\n", `f("foo", "bar")`},
+		// Tuple unpack (06, line 11): a fresh unpack binds both names in parallel, and a
+		// swap reassigns them through Go's parallel assignment, which evaluates the whole
+		// right side before binding, so `x, y = y, x` swaps without a temp and both agree
+		// with CPython.
+		{"tuple unpack float", "def f(a: float, b: float) -> float:\n    x, y = a * 2.0, b + 1.0\n    return x - y\n", "f(1.5, 0.5)"},
+		{"tuple swap str", "def f(a: str, b: str) -> str:\n    x = a\n    y = b\n    x, y = y, x\n    return x + y\n", `f("left", "right")`},
 	}
 
 	dir := t.TempDir()

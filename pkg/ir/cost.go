@@ -41,6 +41,12 @@ func costStmt(s emit.Stmt, c *Cost) {
 		// A rebinding charges only its value's operations; the assignment itself is a
 		// register move, not an arithmetic operation, exactly as a Define is.
 		costExpr(n.Value, c)
+	case emit.Bind:
+		// A parallel binding charges each value's operations; the binding itself is a
+		// set of register moves, no arithmetic of its own.
+		for _, v := range n.Values {
+			costExpr(v, c)
+		}
 	case emit.AddAssign:
 		// An accumulating += is one arithmetic operation, and on an int target it
 		// carries the same overflow guard a written-out add would.
