@@ -451,8 +451,12 @@ func init() {
 				return objects.NewStr(""), nil
 			case 1:
 				return StrOf(args[0])
+			case 2:
+				return objects.StrDecode(args[0], args[1], nil)
+			case 3:
+				return objects.StrDecode(args[0], args[1], args[2])
 			}
-			return nil, objects.Raise(objects.TypeError, "str() takes at most 1 argument (%d given)", len(args))
+			return nil, objects.Raise(objects.TypeError, "str() takes at most 3 arguments (%d given)", len(args))
 		}),
 		"repr": exactlyOne("repr", ReprOf),
 		"int": objects.NewFunc("int", -1, func(args []objects.Object) (objects.Object, error) {

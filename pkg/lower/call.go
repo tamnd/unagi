@@ -287,15 +287,22 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		if argc == 0 {
 			return callExpr(f.e.obj("NewStr"), strLit("")), nil
 		}
-		if err := need1(); err != nil {
-			return nil, err
+		if argc > 3 {
+			return nil, f.e.errf(e.Span(), "str() takes at most 3 arguments (%d given)", argc)
 		}
 		args, err := f.plainArgExprs(e.Args)
 		if err != nil {
 			return nil, err
 		}
 		tmp := f.tmpVar()
-		f.fallible(tmp, sel("runtime", "StrOf"), args[0])
+		switch argc {
+		case 1:
+			f.fallible(tmp, sel("runtime", "StrOf"), args[0])
+		case 2:
+			f.fallible(tmp, f.e.obj("StrDecode"), args[0], args[1], ident("nil"))
+		default:
+			f.fallible(tmp, f.e.obj("StrDecode"), args[0], args[1], args[2])
+		}
 		return ident(tmp), nil
 	case "repr":
 		if err := need1(); err != nil {

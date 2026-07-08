@@ -1,0 +1,20 @@
+== exit: 0
+== stdout:
+abc
+café
+hi there
+view
+a�c
+ac
+''
+
+42
+b'raw'
+TypeError decoding to str: need a bytes-like object, int found
+TypeError decoding str is not supported
+TypeError str() argument 'encoding' must be str, not int
+TypeError str() argument 'errors' must be str, not int
+LookupError unknown encoding: no-such-codec
+UnicodeDecodeError 'ascii' codec can't decode byte 0xff in position 1: ordinal not in range(128)
+== exception:
+== stderr:
