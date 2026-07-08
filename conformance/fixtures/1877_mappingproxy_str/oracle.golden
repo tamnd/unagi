@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+{'a': 1, 'b': 2}
+{'a': 1, 'b': 2}
+mappingproxy({'a': 1, 'b': 2})
+{'a': 1, 'b': 2}
+[mappingproxy({'a': 1, 'b': 2})]
+{'a': 1, 'b': 2}
+{}
+mappingproxy({})
+{'inner': mappingproxy({'a': 1, 'b': 2})}
+mappingproxy({'inner': mappingproxy({'a': 1, 'b': 2})})
+== exception:
+== stderr:

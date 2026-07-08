@@ -426,6 +426,11 @@ func strCore(o Object, strict bool) (string, error) {
 			return "", Raise(TypeError, "__str__ returned non-string (type %s)", res.TypeName())
 		}
 		return s.v, nil
+	case *mappingProxyObject:
+		// A mappingproxy has no __str__ of its own, so str() delegates to the
+		// wrapped mapping and prints {...}; only repr wraps it as
+		// mappingproxy({...}). print(Color.__members__) shows the plain dict.
+		return strCore(x.d, strict)
 	}
 	return reprCore(o, strict)
 }
