@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+True
+True
+0 1 2
+True
+['ALPHA', 'BETA', 'GAMMA']
+99
+True
+5
+9
+False
+__main__
+== exception:
+== stderr:

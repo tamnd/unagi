@@ -31,10 +31,11 @@ func Vars(o objects.Object) (objects.Object, error) {
 
 // Globals implements the globals() builtin: the module namespace as a dict.
 // unagi keeps module globals in live Go variables rather than one dict object,
-// so the result is a snapshot of the names bound when the call runs. Reading,
-// iterating, and membership match CPython and type(globals()) is dict holds;
-// rebinding a name by writing to the returned dict is the one behavior that
-// does not carry back to the module.
+// so the result is seeded with the names bound when the call runs. Reading,
+// iterating, and membership match CPython and type(globals()) is dict holds.
+// The dict stays tied to the module, so writing a name back to it with
+// globals()[name] = value or globals().update(...) carries into the module and
+// a later module-scope read finds it.
 func Globals(m *objects.Module) objects.Object {
 	return m.GlobalsDict()
 }
