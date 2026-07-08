@@ -30,6 +30,13 @@ func bytesDecode(v []byte, args []Object) (Object, error) {
 		}
 		errors = s.v
 	}
+	return decodeCodec(v, encoding, errors)
+}
+
+// decodeCodec runs the raw bytes through the named codec under the given error
+// handler, the shared body of bytes.decode and the decode form of str(). An
+// unknown codec raises LookupError with CPython's wording.
+func decodeCodec(v []byte, encoding, errors string) (Object, error) {
 	switch normalizeCodec(encoding) {
 	case "utf8":
 		return decodeUTF8(v, errors)
@@ -39,6 +46,38 @@ func bytesDecode(v []byte, args []Object) (Object, error) {
 		return decodeLatin1(v), nil
 	}
 	return nil, Raise("LookupError", "unknown encoding: %s", encoding)
+}
+
+// StrDecode implements the decoding form of the str constructor,
+// str(object, encoding='utf-8', errors='strict'). A str object cannot be
+// decoded, and a non-bytes-like object is rejected the way CPython's
+// PyUnicode_FromEncodedObject does. The encoding and errors arguments carry
+// str()'s own wording, distinct from bytes.decode's.
+func StrDecode(o, encoding, errors Object) (Object, error) {
+	if _, ok := o.(*strObject); ok {
+		return nil, Raise(TypeError, "decoding str is not supported")
+	}
+	v, ok := mvBytesLike(o)
+	if !ok {
+		return nil, Raise(TypeError, "decoding to str: need a bytes-like object, %s found", o.TypeName())
+	}
+	enc := "utf-8"
+	if encoding != nil {
+		s, ok := encoding.(*strObject)
+		if !ok {
+			return nil, Raise(TypeError, "str() argument 'encoding' must be str, not %s", encoding.TypeName())
+		}
+		enc = s.v
+	}
+	errs := "strict"
+	if errors != nil {
+		s, ok := errors.(*strObject)
+		if !ok {
+			return nil, Raise(TypeError, "str() argument 'errors' must be str, not %s", errors.TypeName())
+		}
+		errs = s.v
+	}
+	return decodeCodec(v, enc, errs)
 }
 
 // decodeLatin1 maps each byte to the code point of the same value; latin-1
