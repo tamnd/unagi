@@ -2,6 +2,15 @@ package objects
 
 import "sort"
 
+// listMethodNames is the set of list methods, so a bound-method read
+// (items.append) and a direct call (items.append(x)) agree on what a list
+// answers. It tracks the switch in listMethod.
+var listMethodNames = map[string]bool{
+	"append": true, "pop": true, "insert": true, "remove": true,
+	"index": true, "clear": true, "copy": true, "count": true,
+	"extend": true, "reverse": true, "sort": true,
+}
+
 func listMethod(x *listObject, name string, args []Object) (Object, error) {
 	switch name {
 	case "append":

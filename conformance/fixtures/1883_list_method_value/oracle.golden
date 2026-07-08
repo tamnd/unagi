@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+[1, 2, 3]
+[1, 2, 3, 4, 5]
+builtin_function_or_method
+append
+[1, 2, 3]
+'list' object has no attribute 'nope'
+== exception:
+== stderr:
