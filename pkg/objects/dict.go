@@ -158,13 +158,15 @@ func hashKey(o Object) (string, error) {
 		sort.Strings(parts)
 		return "U" + strings.Join(parts, "|"), nil
 	case *funcObject, *functionObject, *Exception, *dictValuesObject,
-		*ellipsisObject, *notImplementedObject, *classObject, *typeObject:
+		*ellipsisObject, *notImplementedObject, *classObject, *typeObject,
+		*patternObject, *matchObject:
 		// Identity types: the same objects PyHash hashes by pointer key
 		// dict slots by pointer, so two equal-by-identity reads collide
 		// and everything else stays distinct. The Ellipsis and NotImplemented
 		// singletons key stably because each is a unique pointer. A class and a
 		// builtin type value key by identity too, so a class works as a set
-		// element or dict key.
+		// element or dict key. A compiled re.Pattern keys by identity so
+		// functools.lru_cache can memoise re._compile_template on it.
 		return fmt.Sprintf("p%p", x), nil
 	case *boundMethod:
 		// A bound method keys by its function pointer and its instance key, so

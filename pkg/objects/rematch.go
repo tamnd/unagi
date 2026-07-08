@@ -80,6 +80,10 @@ func patternMethod(p *patternObject, name string, args []Object) (Object, error)
 		return patternFindall(p, args)
 	case "finditer":
 		return patternFinditer(p, args)
+	case "sub":
+		return patternSub(p, args, false)
+	case "subn":
+		return patternSub(p, args, true)
 	}
 	return nil, noAttr(p, name)
 }

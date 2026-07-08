@@ -1,0 +1,24 @@
+== exit: 0
+== stdout:
+a#b#c#
+XcXc
+1a2b
+a1!b2!
+a11
+XXaa
+XXXX
+('a#b#c#', 3)
+('abc', 0)
+ab
+-a-b-
+-a-b-c-
+a<1>b<2>
+('AB', 2)
+
+
+\
+b'a#b#'
+(b'[x][y]', 2)
+b'a<1>'
+== exception:
+== stderr:
