@@ -11,3 +11,9 @@
 
 # compiled go test binaries
 *.test
+
+# Python bytecode caches. A fixture with sibling modules under files/ leaves a
+# __pycache__ behind when the oracle runs; the .py sources are the truth, so
+# keep the caches out of the tree.
+__pycache__/
+*.pyc
