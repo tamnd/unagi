@@ -823,6 +823,19 @@ func objectDefaultRepr(o Object) string {
 // object tail resolves, which is enough for the common (T, object) chain.
 var BuiltinTypeResolver func(name string) (Object, bool)
 
+// typeBuiltinOrClass returns the runtime `type` constructor when it is
+// registered, so a default class or builtin type reports the very object the
+// `type` name binds and `D.__class__ is type` holds. Before the runtime installs
+// its resolver only the internal typeClass exists, which is the right stand-in.
+func typeBuiltinOrClass() Object {
+	if BuiltinTypeResolver != nil {
+		if t, ok := BuiltinTypeResolver("type"); ok {
+			return t
+		}
+	}
+	return typeClass
+}
+
 // builtinTypeBaseNames maps a builtin type to its direct base names. Every
 // builtin type in builtinTypeReprs derives straight from object except bool,
 // whose base is int, so only the exceptions are listed and the rest default to
@@ -1511,6 +1524,17 @@ func LoadAttr(o Object, name string) (Object, error) {
 		if v, ok := classIntrospect(x, name); ok {
 			return v, nil
 		}
+		// __class__ is a type-level data descriptor too, so a class answers its
+		// metaclass: a class built through a metaclass reads that metaclass, a
+		// default class reads the `type` builtin so `D.__class__ is type` holds.
+		// Enum's _create_ reads it as metacls = cls.__class__ for the functional
+		// Enum('Name', names) API.
+		if name == "__class__" {
+			if meta, ok := userMetaclass(x); ok {
+				return meta, nil
+			}
+			return typeBuiltinOrClass(), nil
+		}
 		// A user metaclass contributes attributes to its classes: a data
 		// descriptor on the metaclass MRO wins even over the class's own dict,
 		// then the class's own MRO answers, then a plain metaclass attribute
@@ -1635,6 +1659,14 @@ func LoadAttr(o Object, name string) (Object, error) {
 		// A builtin may attach its own attributes, such as chain.from_iterable.
 		if v, ok := x.attrs[name]; ok {
 			return v, nil
+		}
+		// A type object reports its metatype through __class__: int.__class__ is
+		// type, while a plain builtin function is builtin_function_or_method.
+		if name == "__class__" {
+			if builtinTypeReprs[x.name] {
+				return typeBuiltinOrClass(), nil
+			}
+			return TypeSingleton("builtin_function_or_method"), nil
 		}
 		// A constructor that doubles as a type object answers its string dunder
 		// methods and the type introspection attributes: int.__format__,
