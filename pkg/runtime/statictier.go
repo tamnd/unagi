@@ -51,6 +51,18 @@ func MulInt64(a, b int64) (int64, bool) {
 	return p, p/a != b
 }
 
+// BoolToInt returns 1 for true and 0 for false, the int value CPython gives a
+// bool used as a number: bool is a subtype of int, so `True + 1` is `2` and
+// `False * 3.0` is `0.0`. The static tier calls this to coerce a bool operand
+// into the int64 the numeric path computes on, since Go has no implicit
+// bool-to-number conversion.
+func BoolToInt(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 // ZeroDivisionError builds the exception a static-tier division by a zero divisor
 // raises through the D14 error channel. It is the same exception the boxed tier
 // raises, so a program divided by zero reads identically whichever tier ran the

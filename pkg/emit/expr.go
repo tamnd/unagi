@@ -170,7 +170,7 @@ func (b *Builder) lowerBin(n Bin) (ast.Expr, Repr, error) {
 		return binary(token.ADD, lx, rx), Repr{Go: "string", Scalar: SStr, Total: true}, nil
 	}
 
-	if !arith(lr) || !arith(rr) {
+	if !numeric(lr) || !numeric(rr) {
 		return nil, Repr{}, fmt.Errorf("emit: %s needs numeric operands, got %s and %s", n.Op, lr.Scalar, rr.Scalar)
 	}
 
@@ -190,8 +190,11 @@ func (b *Builder) lowerBin(n Bin) (ast.Expr, Repr, error) {
 			Repr{Go: "float64", Scalar: SFloat, Total: true}, nil
 	}
 
-	// Both sides are int: compute through the overflow-checked helper and route the
-	// failure edge to the unit's deopt handler.
+	// Both sides are int or bool: coerce any bool to int64, then compute through the
+	// overflow-checked helper and route the failure edge to the unit's deopt handler.
+	// A bool operand can never overflow the add, but bool is a subtype of int, so the
+	// result is a plain int (`True + True` is `2`) and rides the same guarded path.
+	lx, rx = toInt(lx, lr), toInt(rx, rr)
 	val, ovf := b.temp(), b.flag()
 	b.pre = append(b.pre,
 		&ast.AssignStmt{
@@ -217,19 +220,40 @@ func (b *Builder) guardZeroDiv(divisor ast.Expr) {
 	))
 }
 
-// toFloat coerces an int Go expression to float64, leaving a float untouched, so
-// a mixed operation lowers to a single float operator.
+// toFloat coerces an int or bool Go expression to float64, leaving a float
+// untouched, so a mixed operation lowers to a single float operator. A bool goes
+// through toInt first, since Python promotes bool through int to float (`True +
+// 1.0` is `2.0`), and Go cannot convert a bool to float64 directly.
 func toFloat(x ast.Expr, r Repr) ast.Expr {
-	if r.Scalar == SInt {
+	switch r.Scalar {
+	case SInt:
 		return callExpr(ident("float64"), x)
+	case SBool:
+		return callExpr(ident("float64"), toInt(x, r))
 	}
 	return x
 }
 
-// arith reports whether a representation may be an arithmetic operand: int and
-// float only, so a str or aggregate reaching arithmetic is an inference bug the
-// lowering refuses rather than miscompiles.
+// toInt coerces a bool Go expression to the int64 the numeric path computes on,
+// leaving an int untouched. Python's bool is a subtype of int, so a bool operand
+// in arithmetic counts as 1 or 0; rt.BoolToInt makes that explicit because Go has
+// no implicit bool-to-number conversion.
+func toInt(x ast.Expr, r Repr) ast.Expr {
+	if r.Scalar == SBool {
+		return callExpr(sel(runtimePkg, "BoolToInt"), x)
+	}
+	return x
+}
+
+// arith reports whether a representation may be a comparison operand: int and
+// float only, so a str or aggregate reaching a numeric comparison is an inference
+// bug the lowering refuses rather than miscompiles.
 func arith(r Repr) bool { return r.Scalar == SInt || r.Scalar == SFloat }
+
+// numeric reports whether a representation may be an arithmetic operand. Int and
+// float are the native numeric types; bool joins them because Python's bool is a
+// subtype of int, so `True + 1.0` is `2.0` and `False * 3.0` is `0.0`.
+func numeric(r Repr) bool { return r.Scalar == SInt || r.Scalar == SFloat || r.Scalar == SBool }
 
 // strLit is a quoted Go string literal for the semantic-error messages.
 func strLit(s string) *ast.BasicLit {
