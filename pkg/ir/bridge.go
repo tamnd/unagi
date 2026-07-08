@@ -262,9 +262,157 @@ func lowerExpr(e frontend.Expr, sc scope) (emit.Expr, emit.Repr, error) {
 			return nil, emit.Repr{}, err
 		}
 		return emit.Bin{Op: op, L: l, R: r}, res, nil
+
+	case *frontend.Compare:
+		return lowerCompare(n, sc)
+
+	case *frontend.BoolOp:
+		return lowerBoolOp(n, sc)
+
+	case *frontend.UnaryOp:
+		// Only `not` has a static form here. Negation and bitwise invert are
+		// arithmetic the seed does not carry, and unary plus is a no-op the
+		// frontier can fold; each stays boxed until its own slice proves it.
+		if n.Op != frontend.UnaryNot {
+			return nil, emit.Repr{}, unsupported("unary operator %v", n.Op)
+		}
+		x, xr, err := lowerExpr(n.X, sc)
+		if err != nil {
+			return nil, emit.Repr{}, err
+		}
+		if xr.Scalar != emit.SBool {
+			return nil, emit.Repr{}, unsupported("not needs a bool operand, got %s", xr.Scalar)
+		}
+		return emit.Not{X: x}, boolReprIR(), nil
 	}
 	return nil, emit.Repr{}, unsupported("expression %T", e)
 }
+
+// lowerCompare lowers a comparison, chained or not. Python expands `a < b < c`
+// into `a < b and b < c`, so the bridge builds one emit.Cmp per adjacent pair
+// and joins them with emit.And left to right, reproducing the conjunction the
+// language defines. Each operand is a pure scalar in this subset, so reusing the
+// middle term as both the right of one pair and the left of the next is
+// evaluation-order-safe; the single-evaluation temp the frontier needs for a
+// side-effecting middle term is a later slice, not this one.
+func lowerCompare(n *frontend.Compare, sc scope) (emit.Expr, emit.Repr, error) {
+	left, leftR, err := lowerExpr(n.Left, sc)
+	if err != nil {
+		return nil, emit.Repr{}, err
+	}
+	var acc emit.Expr
+	for i, k := range n.Ops {
+		op, ok := cmpOp(k)
+		if !ok {
+			return nil, emit.Repr{}, unsupported("comparison operator %v", k)
+		}
+		right, rightR, err := lowerExpr(n.Rights[i], sc)
+		if err != nil {
+			return nil, emit.Repr{}, err
+		}
+		if err := cmpOperands(op, leftR, rightR); err != nil {
+			return nil, emit.Repr{}, err
+		}
+		cmp := emit.Cmp{Op: op, L: left, R: right}
+		if acc == nil {
+			acc = cmp
+		} else {
+			acc = emit.And{L: acc, R: cmp}
+		}
+		left, leftR = right, rightR
+	}
+	return acc, boolReprIR(), nil
+}
+
+// lowerBoolOp folds `a and b and c` (or the or-chain) left into nested emit
+// connectives, requiring every operand to be a proven bool. Python's
+// value-returning `x or y` on two non-bool operands returns an operand, not a
+// coerced bool, which has no static form here, so a non-bool operand keeps the
+// unit boxed rather than silently forcing a bool.
+func lowerBoolOp(n *frontend.BoolOp, sc scope) (emit.Expr, emit.Repr, error) {
+	if len(n.Values) < 2 {
+		return nil, emit.Repr{}, unsupported("boolean connective with fewer than two operands")
+	}
+	acc, accR, err := lowerExpr(n.Values[0], sc)
+	if err != nil {
+		return nil, emit.Repr{}, err
+	}
+	if accR.Scalar != emit.SBool {
+		return nil, emit.Repr{}, unsupported("%s needs bool operands, got %s", boolName(n.Kind), accR.Scalar)
+	}
+	for _, v := range n.Values[1:] {
+		r, rr, err := lowerExpr(v, sc)
+		if err != nil {
+			return nil, emit.Repr{}, err
+		}
+		if rr.Scalar != emit.SBool {
+			return nil, emit.Repr{}, unsupported("%s needs bool operands, got %s", boolName(n.Kind), rr.Scalar)
+		}
+		if n.Kind == frontend.BoolAnd {
+			acc = emit.And{L: acc, R: r}
+		} else {
+			acc = emit.Or{L: acc, R: r}
+		}
+	}
+	return acc, boolReprIR(), nil
+}
+
+// cmpOp maps the frontend's comparison operators to emit's six. Membership
+// (`in`, `not in`) and identity (`is`, `is not`) have no scalar form: membership
+// is a container operation and identity is a CPython object-cache detail, not
+// value equality, so both are refused and stay boxed (04/05 refusal items).
+func cmpOp(k frontend.CmpKind) (emit.CmpOp, bool) {
+	switch k {
+	case frontend.CmpEq:
+		return emit.CmpEq, true
+	case frontend.CmpNe:
+		return emit.CmpNe, true
+	case frontend.CmpLt:
+		return emit.CmpLt, true
+	case frontend.CmpLe:
+		return emit.CmpLe, true
+	case frontend.CmpGt:
+		return emit.CmpGt, true
+	case frontend.CmpGe:
+		return emit.CmpGe, true
+	}
+	return 0, false
+}
+
+// cmpOperands reproduces emit's own comparison operand rules so the bridge
+// refuses a pairing emit would reject rather than handing it a node that fails
+// at emission: numbers compare (a mixed int-and-float pair coerces to float),
+// strings compare, and bools take equality only, since ordering bools has no
+// static form.
+func cmpOperands(op emit.CmpOp, l, r emit.Repr) error {
+	switch {
+	case arith(l) && arith(r):
+		return nil
+	case l.Scalar == emit.SStr && r.Scalar == emit.SStr:
+		return nil
+	case l.Scalar == emit.SBool && r.Scalar == emit.SBool && !cmpOrdered(op):
+		return nil
+	}
+	return unsupported("%s does not compare %s and %s", op, l.Scalar, r.Scalar)
+}
+
+// cmpOrdered reports whether an operator is an ordering comparison, the ones
+// bool operands may not take. It mirrors emit's own ordered check, which is
+// unexported.
+func cmpOrdered(op emit.CmpOp) bool { return op != emit.CmpEq && op != emit.CmpNe }
+
+// boolName spells a connective for a diagnostic.
+func boolName(k frontend.BoolKind) string {
+	if k == frontend.BoolAnd {
+		return "and"
+	}
+	return "or"
+}
+
+// boolReprIR is the bool representation the comparison and connective nodes
+// produce, spelled here to match emit's boolRepr without reaching across the
+// package boundary.
+func boolReprIR() emit.Repr { return emit.Repr{Go: "bool", Scalar: emit.SBool, Total: true} }
 
 // binOp maps the frontend's arithmetic operators to the four the scalar tier
 // lowers. Floor division, modulo, power, the bitwise operators, and matrix
