@@ -178,6 +178,18 @@ func TestStaticTierMatchesCPython(t *testing.T) {
 		{"nested join a", "def f(c: int, d: int) -> int:\n    if c > 0:\n        if d > 0:\n            x = 1\n        else:\n            x = 2\n    else:\n        x = 3\n    return x\n", "f(1, 1)"},
 		{"nested join b", "def f(c: int, d: int) -> int:\n    if c > 0:\n        if d > 0:\n            x = 1\n        else:\n            x = 2\n    else:\n        x = 3\n    return x\n", "f(1, -1)"},
 		{"nested join c", "def f(c: int, d: int) -> int:\n    if c > 0:\n        if d > 0:\n            x = 1\n        else:\n            x = 2\n    else:\n        x = 3\n    return x\n", "f(-1, 0)"},
+		// A while loop (06 lines 37-38). The body accumulates through a total float add,
+		// so the loop stays guard-free and reaches this runner. One call iterates a few
+		// times and one call skips the loop entirely (the condition is false at entry), so
+		// the zero-trip path is checked against CPython too.
+		{"while count up", "def f(n: float) -> float:\n    total = 0.0\n    while total < n:\n        total = total + 1.0\n    return total\n", "f(4.0)"},
+		{"while zero trips", "def f(n: float) -> float:\n    total = 0.0\n    while total < n:\n        total = total + 1.0\n    return total\n", "f(0.0)"},
+		// A break leaves the loop early: the accumulator stops once it passes two, so the
+		// loop returns three even though the condition would carry it further.
+		{"while break", "def f(n: float) -> float:\n    total = 0.0\n    while total < n:\n        total = total + 1.0\n        if total > 2.0:\n            break\n    return total\n", "f(10.0)"},
+		// A continue skips the rest of an iteration: every step still runs the increment
+		// before the continue, so the loop counts up exactly as the plain form does.
+		{"while continue", "def f(n: float) -> float:\n    total = 0.0\n    while total < n:\n        total = total + 1.0\n        if total < 0.0:\n            continue\n    return total\n", "f(3.0)"},
 	}
 
 	dir := t.TempDir()

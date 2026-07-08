@@ -74,6 +74,20 @@ func costStmt(s emit.Stmt, c *Cost) {
 		for _, s := range n.Else {
 			costStmt(s, c)
 		}
+	case emit.While:
+		// A while runs its condition and body once per iteration, so every guard either
+		// carries fires on the loop back-edge, not at function entry: the census walks the
+		// condition and the body into a sub-cost and folds all of its guards into the
+		// loop-guard bucket. The bridge refuses a guarded while at M4 (the back-edge resume
+		// point is a later slice), so this bucket is zero today, but classifying it here is
+		// what lets the loop deopt case slot in without reshaping the profile.
+		var bc Cost
+		costExpr(n.Cond, &bc)
+		for _, s := range n.Body {
+			costStmt(s, &bc)
+		}
+		c.UnboxedOps += bc.UnboxedOps
+		c.LoopGuards += bc.EntryGuards + bc.LoopGuards
 	}
 }
 
