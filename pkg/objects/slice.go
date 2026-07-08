@@ -166,9 +166,24 @@ func GetSlice(o, lo, hi, step Object) (Object, error) {
 			out = append(out, v[j])
 		}
 		return NewByteArray(out), nil
+	case *rangeObject:
+		// A range slice is itself a range, so range(10)[::-1] is
+		// range(9, -1, -1). The arithmetic stays in int64 because a range
+		// spans wider than a materialized sequence: resolve the slice bounds
+		// against the length, then map both back through start + i*step, so
+		// an empty slice keeps its own stop (range(8, 2)) the CPython way.
+		start, stop, st, err := sliceBounds(lo, hi, step, x.length())
+		if err != nil {
+			return nil, err
+		}
+		return &rangeObject{
+			start: x.start + start*x.step,
+			stop:  x.start + stop*x.step,
+			step:  x.step * st,
+		}, nil
 	}
 	// Probed on 3.14: (1)[0:1] -> TypeError: 'int' object is not
-	// subscriptable. Range and dict slicing are not modeled yet.
+	// subscriptable. Dict slicing is not modeled yet.
 	return nil, Raise(TypeError, "'%s' object is not subscriptable", o.TypeName())
 }
 

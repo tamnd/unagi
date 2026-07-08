@@ -1129,7 +1129,7 @@ func GetItem(o, key Object) (Object, error) {
 	// start:stop:step notation does, so xs[slice(1, 4)] matches xs[1:4].
 	if sl, ok := key.(*sliceObject); ok {
 		switch o.(type) {
-		case *listObject, *tupleObject, *strObject, *bytesObject, *bytearrayObject, *memoryviewObject:
+		case *listObject, *tupleObject, *strObject, *bytesObject, *bytearrayObject, *memoryviewObject, *rangeObject:
 			return GetSlice(o, sl.start, sl.stop, sl.step)
 		}
 	}
