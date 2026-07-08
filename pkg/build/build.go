@@ -20,7 +20,13 @@ import (
 	"github.com/tamnd/unagi/pkg/floor"
 	"github.com/tamnd/unagi/pkg/frontend"
 	"github.com/tamnd/unagi/pkg/lower"
+	"github.com/tamnd/unagi/pkg/partition"
+	"github.com/tamnd/unagi/pkg/report"
 )
+
+// entryModule is the name the entry file's units carry in the report, matching
+// the __name__ CPython gives a script run as the program.
+const entryModule = "__main__"
 
 // Options controls a build.
 type Options struct {
@@ -30,6 +36,9 @@ type Options struct {
 	// EmitGo, when set, is a directory that receives the generated Go module
 	// and survives the build for inspection.
 	EmitGo string
+	// Report, when set, is a path that receives the partitioner's per-function
+	// tier decisions as report.json, the input to `unagi report`.
+	Report string
 }
 
 // Build compiles pyPath to a native binary and returns the binary path.
@@ -41,6 +50,11 @@ func Build(ctx context.Context, pyPath string, opts Options) (string, error) {
 	mod, err := frontend.Parse(src, pyPath)
 	if err != nil {
 		return "", err
+	}
+	if opts.Report != "" {
+		if err := writeReport(opts.Report, mod); err != nil {
+			return "", err
+		}
 	}
 	mods, stars, err := collectModules(pyPath, mod)
 	if err != nil {
@@ -359,6 +373,20 @@ func importNames(body []frontend.Stmt, pack string, out map[string]bool) {
 		}
 	}
 	walk(body)
+}
+
+// writeReport partitions the entry module and writes its per-function tier
+// decisions to path as report.json. The report covers the entry module only:
+// the imported graph compiles too, but the decisions the report explains are
+// the ones in the program the user is building. The bytes are canonical, so two
+// builds of the same source write an identical file.
+func writeReport(path string, entry *frontend.Module) error {
+	rep := report.FromDecisions(partition.Drive(entryModule, entry))
+	data, err := report.Marshal(rep)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
 }
 
 // writeModule lays out the generated module: main.go, one package per
