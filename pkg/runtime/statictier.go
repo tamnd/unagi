@@ -63,6 +63,62 @@ func BoolToInt(b bool) int64 {
 	return 0
 }
 
+// The value-returning connective helpers implement Python's `a or b` and `a and
+// b`, which yield an operand rather than a coerced bool: `a or b` is a when a is
+// truthy and b otherwise, and `a and b` is a when a is falsy and b otherwise. Both
+// operands are evaluated eagerly, which the static tier permits only when neither
+// can raise, so the eager form is observationally identical to Python's
+// short-circuit. Truthiness follows CPython: nonzero for numbers (so -0.0 is
+// falsy and NaN is truthy, exactly as `a != 0` decides), and non-empty for strings.
+
+// OrInt64 returns a when a is truthy (nonzero) and b otherwise, Python's `a or b`.
+func OrInt64(a, b int64) int64 {
+	if a != 0 {
+		return a
+	}
+	return b
+}
+
+// AndInt64 returns a when a is falsy (zero) and b otherwise, Python's `a and b`.
+func AndInt64(a, b int64) int64 {
+	if a == 0 {
+		return a
+	}
+	return b
+}
+
+// OrFloat64 returns a when a is truthy and b otherwise, Python's `a or b`.
+func OrFloat64(a, b float64) float64 {
+	if a != 0 {
+		return a
+	}
+	return b
+}
+
+// AndFloat64 returns a when a is falsy and b otherwise, Python's `a and b`.
+func AndFloat64(a, b float64) float64 {
+	if a == 0 {
+		return a
+	}
+	return b
+}
+
+// OrStr returns a when a is truthy (non-empty) and b otherwise, Python's `a or b`.
+func OrStr(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
+// AndStr returns a when a is falsy (empty) and b otherwise, Python's `a and b`.
+func AndStr(a, b string) string {
+	if a == "" {
+		return a
+	}
+	return b
+}
+
 // ZeroDivisionError builds the exception a static-tier division by a zero divisor
 // raises through the D14 error channel. It is the same exception the boxed tier
 // raises, so a program divided by zero reads identically whichever tier ran the

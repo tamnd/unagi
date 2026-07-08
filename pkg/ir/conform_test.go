@@ -133,6 +133,18 @@ func TestStaticTierMatchesCPython(t *testing.T) {
 		{"elif positive", "def sign(x: int) -> int:\n    if x > 0:\n        return 2\n    elif x < 0:\n        return 1\n    else:\n        return 0\n", "sign(7)"},
 		{"elif negative", "def sign(x: int) -> int:\n    if x > 0:\n        return 2\n    elif x < 0:\n        return 1\n    else:\n        return 0\n", "sign(-3)"},
 		{"elif zero", "def sign(x: int) -> int:\n    if x > 0:\n        return 2\n    elif x < 0:\n        return 1\n    else:\n        return 0\n", "sign(0)"},
+		// Value-returning and/or (05, line 28): Python `a or b` returns an operand, not
+		// a coerced bool. Each same-typed pair runs both the truthy-left call (returns
+		// the left) and the falsy-left call (returns the right), so the selection is
+		// checked both ways against CPython.
+		{"or int truthy left", "def f(a: int, b: int) -> int:\n    return a or b\n", "f(3, 5)"},
+		{"or int falsy left", "def f(a: int, b: int) -> int:\n    return a or b\n", "f(0, 5)"},
+		{"and int truthy left", "def f(a: int, b: int) -> int:\n    return a and b\n", "f(3, 5)"},
+		{"and int falsy left", "def f(a: int, b: int) -> int:\n    return a and b\n", "f(0, 5)"},
+		{"or float falsy left", "def f(a: float, b: float) -> float:\n    return a or b\n", "f(0.0, 2.5)"},
+		{"and float truthy left", "def f(a: float, b: float) -> float:\n    return a and b\n", "f(1.5, 2.5)"},
+		{"or str empty left", "def f(a: str, b: str) -> str:\n    return a or b\n", `f("", "fallback")`},
+		{"and str nonempty left", "def f(a: str, b: str) -> str:\n    return a and b\n", `f("x", "y")`},
 	}
 
 	dir := t.TempDir()

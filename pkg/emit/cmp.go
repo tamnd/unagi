@@ -139,9 +139,6 @@ func (b *Builder) lowerBoolBin(op token.Token, l, r Expr) (ast.Expr, Repr, error
 	if err != nil {
 		return nil, Repr{}, err
 	}
-	if lr.Scalar != SBool || rr.Scalar != SBool {
-		return nil, Repr{}, fmt.Errorf("emit: boolean connective needs bool operands, got %s and %s", lr.Scalar, rr.Scalar)
-	}
 	// The right operand is evaluated only when the left does not decide the result,
 	// but any guard it carries hoists to the enclosing statement and would run even
 	// when the connective short-circuits. A raising guard (a division's zero check)
@@ -151,7 +148,40 @@ func (b *Builder) lowerBoolBin(op token.Token, l, r Expr) (ast.Expr, Repr, error
 	if HasRaisingGuard(r) {
 		return nil, Repr{}, fmt.Errorf("emit: an %s operand that can raise cannot short-circuit safely in the static tier", connName(op))
 	}
-	return binary(op, parenConn(lx), parenConn(rx)), boolRepr(), nil
+	// Two proven bool operands lower to Go's own short-circuiting connective, the
+	// result a bool.
+	if lr.Scalar == SBool && rr.Scalar == SBool {
+		return binary(op, parenConn(lx), parenConn(rx)), boolRepr(), nil
+	}
+	// Value-returning form: Python `a or b` yields an operand, not a coerced bool, so
+	// when both operands are the same non-bool scalar the result is that scalar,
+	// selected by the operand's truthiness through the runtime helper. A mixed pairing
+	// has no single static type, so it stays boxed.
+	if lr.Scalar == rr.Scalar {
+		if name, ok := valueConnHelper(op, lr.Scalar); ok {
+			return callExpr(sel(runtimePkg, name), lx, rx), lr, nil
+		}
+	}
+	return nil, Repr{}, fmt.Errorf("emit: a connective on %s and %s has no static value form", lr.Scalar, rr.Scalar)
+}
+
+// valueConnHelper names the runtime helper that gives Python's value-returning
+// `and`/`or` for a same-typed non-bool operand pair, or reports that the scalar has
+// no such form. Bool never reaches here: two bools lower to Go's own && and ||.
+func valueConnHelper(op token.Token, s Scalar) (string, bool) {
+	kind := "And"
+	if op == token.LOR {
+		kind = "Or"
+	}
+	switch s {
+	case SInt:
+		return kind + "Int64", true
+	case SFloat:
+		return kind + "Float64", true
+	case SStr:
+		return kind + "Str", true
+	}
+	return "", false
 }
 
 // connName spells a connective token for a diagnostic.
