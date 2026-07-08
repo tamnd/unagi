@@ -88,8 +88,8 @@ func ByReason(ds []Decision) map[string]int {
 // (unit, state, score, reason-chain) records, rendered hex. Decisions are sorted
 // into the canonical unit order first, so the hash is independent of the order
 // they were produced in, and every field that could change a build is folded in:
-// the state, the score, the reason chain, and the placed guard plan (kind, site,
-// and failure edge per guard).
+// the state, the score, the reason chain, the placed guard plan (kind, site, and
+// failure edge per guard), and the deopt sites (resume id, site, and live count).
 func DecisionHash(ds []Decision) string {
 	sorted := append([]Decision(nil), ds...)
 	sort.Slice(sorted, func(i, j int) bool {
@@ -104,6 +104,10 @@ func DecisionHash(ds []Decision) string {
 		b.WriteByte('|')
 		for _, g := range d.Guards {
 			fmt.Fprintf(&b, "%s@%s>%s;", g.Kind, g.Site, g.Edge)
+		}
+		b.WriteByte('|')
+		for _, s := range d.Deopts {
+			fmt.Fprintf(&b, "r%d@%s#%d;", s.Resume.ID, s.Resume.Site, s.LiveCount())
 		}
 		b.WriteByte('\n')
 	}
