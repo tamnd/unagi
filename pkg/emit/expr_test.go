@@ -102,6 +102,46 @@ func TestIndexGuardsBoundsAndDeopts(t *testing.T) {
 	}
 }
 
+func TestListLiteralLowersToSliceLiteral(t *testing.T) {
+	_, iR, _ := reprs()
+	intList := Repr{Go: "[]int64", Total: true, Elem: &iR}
+	// [10, 20, 30] as a list[int] -> the Go slice literal []int64{10, 20, 30}, a
+	// pure value with no guard.
+	src := emitOneReturn(t, "nums", intList, nil,
+		ListLit{Elem: iR, Items: []Expr{Int{V: 10}, Int{V: 20}, Int{V: 30}}})
+	if !strings.Contains(src, "return []int64{10, 20, 30}, nil") {
+		t.Fatalf("a list literal should lower to a Go slice literal:\n%s", src)
+	}
+}
+
+func TestListLiteralCoercesIntItemsToFloat(t *testing.T) {
+	fR, iR, _ := reprs()
+	floatList := Repr{Go: "[]float64", Total: true, Elem: &fR}
+	// A float list with an int item coerces the item up, the same coercion a mixed
+	// scalar assignment uses, so the slice stays uniform float64.
+	src := emitOneReturn(t, "nums", floatList, nil,
+		ListLit{Elem: fR, Items: []Expr{Float{V: 1.5}, Int{V: 2}}})
+	if !strings.Contains(src, "[]float64{1.5, float64(2)}") {
+		t.Fatalf("an int item in a float list should coerce up:\n%s", src)
+	}
+	_ = iR
+}
+
+func TestListLiteralRejectsMixedScalarClass(t *testing.T) {
+	_, iR, _ := reprs()
+	intList := Repr{Go: "[]int64", Total: true, Elem: &iR}
+	// A str item in an int list is a heterogeneous literal inference should never
+	// have proven to a uniform element type; emit refuses it rather than building a
+	// slice of the wrong element type.
+	_, err := EmitFunc(Func{
+		Name: "bad", Ret: intList,
+		Body: []Stmt{Return{Value: ListLit{Elem: iR, Items: []Expr{Int{V: 1}, Str{V: "x"}}}}},
+	})
+	if err == nil {
+		t.Fatal("a mixed-scalar-class list literal should be refused, not miscompiled")
+	}
+}
+
 func TestIndexRejectsNonListBase(t *testing.T) {
 	_, iR, _ := reprs()
 	// Indexing a scalar is an inference bug reaching emit; the lowering refuses it

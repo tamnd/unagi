@@ -185,13 +185,25 @@ type Index struct {
 	Idx  Expr
 }
 
-func (Var) isExpr()   {}
-func (Int) isExpr()   {}
-func (Float) isExpr() {}
-func (Bool) isExpr()  {}
-func (Str) isExpr()   {}
-func (Bin) isExpr()   {}
-func (Index) isExpr() {}
+// ListLit is a scalar list literal, [a, b, c], lowering to a Go slice literal
+// []T{a, b, c}. Elem is the proven element representation every item shares; an
+// int item coerces up when the element type is float, the same coercion a mixed
+// scalar assignment uses, so the slice stays uniform. Inference proves the
+// element representation before this node is built, so a heterogeneous list
+// never reaches here; it stays boxed.
+type ListLit struct {
+	Elem  Repr
+	Items []Expr
+}
+
+func (Var) isExpr()     {}
+func (Int) isExpr()     {}
+func (Float) isExpr()   {}
+func (Bool) isExpr()    {}
+func (Str) isExpr()     {}
+func (Bin) isExpr()     {}
+func (Index) isExpr()   {}
+func (ListLit) isExpr() {}
 
 // lowerExpr lowers one expression to a Go expression and its representation,
 // appending any guard statements it needs (an integer overflow check, a division
@@ -221,6 +233,8 @@ func (b *Builder) lowerExpr(e Expr) (ast.Expr, Repr, error) {
 		return b.lowerBin(n)
 	case Index:
 		return b.lowerIndex(n)
+	case ListLit:
+		return b.lowerListLit(n)
 	case Cmp:
 		return b.lowerCmp(n)
 	case And:
@@ -404,6 +418,33 @@ func (b *Builder) lowerBin(n Bin) (ast.Expr, Repr, error) {
 		ifStmt(ident(ovf), b.deoptEdge()),
 	)
 	return ident(val), Repr{Go: "int64", Scalar: SInt}, nil
+}
+
+// lowerListLit lowers a scalar list literal to a Go slice literal. Each item
+// lowers to the element representation: an int item coerces up when the element
+// type is float, and a value whose scalar class does not match the element is an
+// inference bug the lowering refuses rather than emitting a slice of the wrong
+// element type. A list literal is a pure value with no guard, so it appends
+// nothing to the pending list.
+func (b *Builder) lowerListLit(n ListLit) (ast.Expr, Repr, error) {
+	elts := make([]ast.Expr, len(n.Items))
+	for i, it := range n.Items {
+		ix, ir, err := b.lowerExpr(it)
+		if err != nil {
+			return nil, Repr{}, err
+		}
+		switch {
+		case ir.Scalar == n.Elem.Scalar:
+			elts[i] = ix
+		case n.Elem.Scalar == SFloat && numeric(ir):
+			elts[i] = toFloat(ix, ir)
+		default:
+			return nil, Repr{}, fmt.Errorf("emit: list item %d has representation %q, not the element type %q", i, ir.Go, n.Elem.Go)
+		}
+	}
+	elem := n.Elem
+	list := Repr{Go: "[]" + elem.Go, Total: true, Elem: &elem}
+	return &ast.CompositeLit{Type: list.goType(), Elts: elts}, list, nil
 }
 
 // lowerIndex lowers a bounds-guarded list read xs[i]. It binds the base and the
