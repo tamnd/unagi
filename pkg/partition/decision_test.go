@@ -84,3 +84,85 @@ func TestDecideBoxedByCostModel(t *testing.T) {
 		t.Fatalf("reason should be the cost model, got %s", d.Reasons[0].Rule)
 	}
 }
+
+func TestDecideForceStaticOverridesCostModel(t *testing.T) {
+	c := NewCensus()
+	u := unit("thunky", 60)
+	deopts := []DeoptSite{{Resume: ResumePoint{ID: 0}}}
+	// The same profile the cost model demotes above, but forced static: the tier
+	// lever emits the static form so the harness can diff it against the boxed
+	// build, and the deopt plan rides onto the decision for the emitter.
+	d := Decide(c, Input{Unit: u, Profile: Profile{UnboxedOps: 4, ThunkCross: 4}, Deopts: deopts, Mode: ModeForceStatic})
+	if d.State != StaticProven {
+		t.Fatalf("forced static should override the cost model, got %s", d.State)
+	}
+	if len(d.Reasons) != 0 {
+		t.Fatalf("a forced-static verdict carries no demotion reason, got %+v", d.Reasons)
+	}
+	if len(d.Deopts) != 1 {
+		t.Fatalf("forced static should keep the deopt plan, got %d sites", len(d.Deopts))
+	}
+}
+
+func TestDecideForceStaticKeepsExcursionState(t *testing.T) {
+	c := NewCensus()
+	u := unit("wide", 50)
+	// Over the excursion budget, so auto boxes it; forced static emits it anyway
+	// and reports the excursions it carries.
+	d := Decide(c, Input{Unit: u, Profile: Profile{UnboxedOps: 10, ExcursionOps: 10, Excursions: 3}, Mode: ModeForceStatic})
+	if d.State != StaticWithExcursions {
+		t.Fatalf("forced static with excursions should be StaticWithExcursions, got %s", d.State)
+	}
+}
+
+func TestDecideForceStaticStillBoxesHardCensus(t *testing.T) {
+	c := NewCensus()
+	u := unit("load", 30)
+	c.Record(u, Fact{Rule: RuleEvalDynamicSource, Span: span(36)})
+	// A genuinely dynamic unit has no sound static form to force, so the hard
+	// census disqualifier binds even under forced static.
+	d := Decide(c, Input{Unit: u, Profile: Profile{UnboxedOps: 100}, Mode: ModeForceStatic})
+	if d.State != BoxedByCensus {
+		t.Fatalf("forced static must not override a hard census disqualifier, got %s", d.State)
+	}
+}
+
+func TestDecideForceBoxedOverridesStatic(t *testing.T) {
+	c := NewCensus()
+	u := unit("norm", 12)
+	// A profile that proves static under the cost model, forced boxed by the tier
+	// lever so the same program runs through the boxed tier for the differential.
+	d := Decide(c, Input{Unit: u, Profile: Profile{UnboxedOps: 40, EntryGuards: 1}, Mode: ModeForceBoxed})
+	if d.State != BoxedByCost {
+		t.Fatalf("forced boxed should override a static verdict, got %s", d.State)
+	}
+	if len(d.Reasons) != 1 || d.Reasons[0].Rule != RuleTierForcedBoxed {
+		t.Fatalf("reason should be the forced-boxed rule, got %+v", d.Reasons)
+	}
+	if len(d.Deopts) != 0 {
+		t.Fatalf("a boxed unit carries no deopt plan, got %d sites", len(d.Deopts))
+	}
+}
+
+func TestParseMode(t *testing.T) {
+	cases := []struct {
+		in   string
+		want Mode
+		ok   bool
+	}{
+		{"", ModeAuto, true},
+		{"auto", ModeAuto, true},
+		{"static", ModeForceStatic, true},
+		{"boxed", ModeForceBoxed, true},
+		{"native", ModeAuto, false},
+	}
+	for _, tc := range cases {
+		got, ok := ParseMode(tc.in)
+		if ok != tc.ok || got != tc.want {
+			t.Fatalf("ParseMode(%q) = %v, %v; want %v, %v", tc.in, got, ok, tc.want, tc.ok)
+		}
+	}
+	if ModeForceStatic.String() != "static" || ModeForceBoxed.String() != "boxed" || ModeAuto.String() != "auto" {
+		t.Fatalf("Mode.String round-trip wrong: %s %s %s", ModeAuto, ModeForceStatic, ModeForceBoxed)
+	}
+}
