@@ -109,6 +109,50 @@ func TestDriveBoxesGuardHeavyIntFunction(t *testing.T) {
 	}
 }
 
+func TestDriveStaticFunctionCarriesDeoptSites(t *testing.T) {
+	// A proven static function that still carries one overflow guard lands static
+	// and hands its boxed twin a deopt plan: one statement-boundary resume point,
+	// a rebox transfer per live scalar, and a VerifyPlan-clean set of sites. The
+	// body is float-heavy enough to clear the guard budget (fifteen unboxed ops
+	// against a single int guard), with the lone int add `(m + n)` supplying the
+	// guard the return statement deopts on.
+	src := "def f(a: float, b: float, m: int, n: int) -> float:\n" +
+		"    return a * b + a * b + a * b + a * b + a * b + a * b + a * b + (m + n)\n"
+	d, ok := byName(drive(t, src))["<module>.f"]
+	if !ok {
+		t.Fatal("missing unit <module>.f")
+	}
+	if d.State != StaticProven {
+		t.Fatalf("function should prove static, got %v with %+v", d.State, d.Reasons)
+	}
+	if len(d.Deopts) == 0 {
+		t.Fatal("a static function with a guard should carry a deopt site")
+	}
+	if v := VerifyPlan(d.Deopts); len(v) != 0 {
+		t.Fatalf("deopt plan should verify clean, got %+v", v)
+	}
+	site := d.Deopts[0]
+	if site.Resume.Kind != ResumeStatement {
+		t.Errorf("resume point should sit at a statement boundary, got %v", site.Resume.Kind)
+	}
+	// The four parameters are all live entering the return statement, and each
+	// gets a rebox transfer so the boxed twin rebuilds its frame.
+	if site.LiveCount() != 4 {
+		t.Errorf("live count = %d, want 4 (a, b, m, n)", site.LiveCount())
+	}
+	if len(site.Transfers) != site.LiveCount() {
+		t.Errorf("transfer count = %d, want one per live var (%d)", len(site.Transfers), site.LiveCount())
+	}
+	for _, tr := range site.Transfers {
+		if tr.Kind != MatRebox {
+			t.Errorf("live scalar %q should rebox, got %v", tr.Native, tr.Kind)
+		}
+		if tr.Type == nil {
+			t.Errorf("transfer for %q carries no lattice type", tr.Native)
+		}
+	}
+}
+
 func TestDriveRecordsEvalAsCensusDisqualifier(t *testing.T) {
 	ds := byName(drive(t, "def f(s):\n    return eval(s)\n"))
 	d, ok := ds["<module>.f"]
