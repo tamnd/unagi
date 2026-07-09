@@ -1,0 +1,6 @@
+# An async generator runs on a coroutine frame, which has no static form at M4:
+# the bridge refuses the async def, so the unit stays boxed. The pin asserts it
+# did not promote. Checked only under the auto tier; the forced-tier reruns
+# override every unit.
+[tiers]
+"<module>.counter" = "boxed"

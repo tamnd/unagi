@@ -1,0 +1,9 @@
+# An async def builds a coroutine, which has no static form at M4: the bridge
+# refuses it, so every async unit stays boxed. The pin asserts none of them
+# promoted. Checked only under the auto tier; the forced-tier reruns override
+# every unit.
+[tiers]
+"<module>.inc" = "boxed"
+"<module>.add" = "boxed"
+"<module>.total" = "boxed"
+"<module>.bad" = "boxed"
