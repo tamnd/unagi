@@ -39,8 +39,18 @@ const ModuleUnitName = "<module>"
 // between rounds means the set stabilized; the body count bounds the rounds as a
 // backstop against a non-convergence bug.
 func Drive(module string, m *frontend.Module) []Decision {
+	return DriveWith(module, m, ModeAuto)
+}
+
+// DriveWith is Drive under an explicit tier mode. Auto is the normal build; the
+// forced modes are the tier lever the differential harness runs a program through
+// both tiers with (doc 06 section 10, doc 10). The mode only reaches units the
+// bridge lowers: a function the tier cannot represent stays boxed even under
+// forced-static, since forcing a form that does not lower would be a wrong answer,
+// and the module and class bodies boxed by design at M4 are never forced static.
+func DriveWith(module string, m *frontend.Module, mode Mode) []Decision {
 	var resolve ir.CalleeResolver
-	decisions := driveOnce(module, m, resolve)
+	decisions := driveOnce(module, m, resolve, mode)
 	prev := -1
 	for round := 0; round <= len(m.Body); round++ {
 		callees := moduleCallees(m, decisions, resolve)
@@ -49,7 +59,7 @@ func Drive(module string, m *frontend.Module) []Decision {
 		}
 		prev = len(callees)
 		resolve = resolverFor(callees)
-		decisions = driveOnce(module, m, resolve)
+		decisions = driveOnce(module, m, resolve, mode)
 	}
 	return decisions
 }
@@ -58,9 +68,9 @@ func Drive(module string, m *frontend.Module) []Decision {
 // The resolver is nil on the first pass, so a call refuses and its caller boxes;
 // a later pass hands in the callees proven static so far, so a caller of one lowers
 // its call and can itself be proven static.
-func driveOnce(module string, m *frontend.Module, resolve ir.CalleeResolver) []Decision {
+func driveOnce(module string, m *frontend.Module, resolve ir.CalleeResolver, mode Mode) []Decision {
 	p := New()
-	d := &driver{p: p, module: module, resolve: resolve}
+	d := &driver{p: p, module: module, resolve: resolve, mode: mode}
 	// The module top level is itself a unit, executed as boxed code at M4.
 	mu := d.enter(ModuleUnitName, frontend.Pos{Line: 1, Col: 1})
 	d.scanStmts(mu, m.Body)
@@ -68,13 +78,14 @@ func driveOnce(module string, m *frontend.Module, resolve ir.CalleeResolver) []D
 }
 
 // driver carries the partitioner being filled, the module the units belong to,
-// and the callee resolver this decision pass lowers direct calls against. It is
-// the walk's single piece of state; each unit's identity travels in the scope
-// value threaded through the recursion.
+// the callee resolver this decision pass lowers direct calls against, and the
+// tier mode the forced-mode reruns set. It is the walk's single piece of state;
+// each unit's identity travels in the scope value threaded through the recursion.
 type driver struct {
 	p       *Partitioner
 	module  string
 	resolve ir.CalleeResolver
+	mode    Mode
 }
 
 // scope is one enclosing unit during the walk: the unit itself and its
@@ -90,7 +101,7 @@ type scope struct {
 // no static work in its profile it decides boxed on the cost model, the honest
 // verdict for such a unit.
 func (d *driver) enter(qual string, pos frontend.Pos) scope {
-	return d.enterProfiled(qual, pos, Profile{}, nil)
+	return d.enterProfiled(qual, pos, Profile{}, nil, false)
 }
 
 // enterProfiled registers a new unit carrying a cost profile and its deopt plan,
@@ -100,15 +111,36 @@ func (d *driver) enter(qual string, pos frontend.Pos) scope {
 // cost model. The deopt sites ride along so a unit that lands static carries the
 // transfer tables its boxed twin resumes through; Decide keeps them only for a
 // static verdict, where they are the thing the emitter consumes.
-func (d *driver) enterProfiled(qual string, pos frontend.Pos, prof Profile, deopts []DeoptSite) scope {
+func (d *driver) enterProfiled(qual string, pos frontend.Pos, prof Profile, deopts []DeoptSite, lowered bool) scope {
 	u := Unit{
 		Module: d.module,
 		Name:   qual,
 		Span:   d.span(pos),
 		Offset: offset(pos),
 	}
-	d.p.Add(Input{Unit: u, Profile: prof, Deopts: deopts})
+	d.p.Add(Input{Unit: u, Profile: prof, Deopts: deopts, Mode: d.unitMode(lowered)})
 	return scope{unit: u, qual: qual}
+}
+
+// unitMode resolves the driver's build-wide tier mode to the mode this one unit
+// decides under. Forced-boxed applies to every unit, since any unit has a boxed
+// form. Forced-static applies only to a unit the bridge lowered, since a module
+// body, a class body, or a function outside the scalar subset has no sound static
+// form to force and boxing it is the honest verdict; those fall back to auto so
+// the census and cost model decide them the way the normal build would. Auto is
+// itself, the normal build.
+func (d *driver) unitMode(lowered bool) Mode {
+	switch d.mode {
+	case ModeForceBoxed:
+		return ModeForceBoxed
+	case ModeForceStatic:
+		if lowered {
+			return ModeForceStatic
+		}
+		return ModeAuto
+	default:
+		return ModeAuto
+	}
 }
 
 // child builds the qualified name of a body nested inside sc.
@@ -121,14 +153,14 @@ func (sc scope) child(name string) string { return sc.qual + "." + name }
 // the boxed twin resumes through. When any part of the body falls outside the
 // scalar subset the bridge refuses it, and the empty profile keeps the unit
 // boxed, so a function the tier cannot yet lower is never scored as if it could.
-func (d *driver) funcInput(fn *frontend.FuncDef) (Profile, []DeoptSite) {
+func (d *driver) funcInput(fn *frontend.FuncDef) (Profile, []DeoptSite, bool) {
 	f, err := ir.LowerFuncWith(fn, d.resolve)
 	if err != nil {
-		return Profile{}, nil
+		return Profile{}, nil, false
 	}
 	c := ir.CostOf(f)
 	prof := Profile{UnboxedOps: c.UnboxedOps, EntryGuards: c.EntryGuards, LoopGuards: c.LoopGuards}
-	return prof, deoptSites(ir.GuardSitesOf(f), d.span(fn.Pos_))
+	return prof, deoptSites(ir.GuardSitesOf(f), d.span(fn.Pos_)), true
 }
 
 // deoptSites turns the bridge's guard sites into the partition deopt plan. Each
@@ -259,8 +291,8 @@ func (d *driver) scanStmt(sc scope, s frontend.Stmt) {
 			d.scanExpr(sc, pr.Default)
 		}
 		d.scanExpr(sc, s.Returns)
-		prof, deopts := d.funcInput(s)
-		body := d.enterProfiled(sc.child(s.Name), s.Pos_, prof, deopts)
+		prof, deopts, lowered := d.funcInput(s)
+		body := d.enterProfiled(sc.child(s.Name), s.Pos_, prof, deopts, lowered)
 		d.scanStmts(body, s.Body)
 	case *frontend.ClassDef:
 		for _, dec := range s.Decorators {

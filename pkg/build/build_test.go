@@ -89,6 +89,103 @@ func TestBuildEmitsStaticForm(t *testing.T) {
 	}
 }
 
+// TestBuildTierForceStaticEmitsCostLosingForm proves --tier static overrides the
+// cost model on the real build path: a single guarded int add auto-boxes on the
+// guard budget, so an auto build emits no static form for it, but the forced-static
+// build emits its static Go and the module still compiles and runs correctly. This
+// is the tier lever the differential harness uses to diff the two tiers against
+// CPython.
+func TestBuildTierForceStaticEmitsCostLosingForm(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	dir := t.TempDir()
+	src := "def add(a: int, b: int) -> int:\n" +
+		"    return a + b\n\n" +
+		"print(add(2, 3))\n"
+	py := filepath.Join(dir, "main.py")
+	writeFile(t, py, src)
+
+	// An auto build boxes the guarded int add, so no static form is emitted.
+	autoGen := filepath.Join(dir, "auto")
+	if _, err := Build(context.Background(), py, Options{Out: filepath.Join(dir, "auto-prog"), EmitGo: autoGen}); err != nil {
+		t.Fatalf("auto build: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(autoGen, "static.go")); !os.IsNotExist(err) {
+		t.Fatalf("auto build should emit no static form for a guarded int add, stat err = %v", err)
+	}
+
+	// Forced static emits the static form anyway and the module still builds.
+	gen := filepath.Join(dir, "gen")
+	bin, err := Build(context.Background(), py, Options{Out: filepath.Join(dir, "prog"), EmitGo: gen, Tier: partition.ModeForceStatic})
+	if err != nil {
+		t.Fatalf("forced-static build: %v", err)
+	}
+	static, err := os.ReadFile(filepath.Join(gen, "static.go"))
+	if err != nil {
+		t.Fatalf("static.go not emitted under forced static: %v", err)
+	}
+	if want := "func static_add(a int64, b int64) (int64, error)"; !bytes.Contains(static, []byte(want)) {
+		t.Errorf("static.go missing the forced-static signature %q:\n%s", want, static)
+	}
+
+	var stdout bytes.Buffer
+	cmd := exec.Command(bin)
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := stdout.String(); got != "5\n" {
+		t.Errorf("output = %q, want %q", got, "5\n")
+	}
+}
+
+// TestBuildTierForceBoxedEmitsNoStaticForm proves --tier boxed demotes a unit the
+// cost model would emit static: a total float function auto-proves static and emits
+// its static Go, but under forced boxed the build emits no static form and the
+// program still runs byte-identical, since the boxed tier drives execution either
+// way.
+func TestBuildTierForceBoxedEmitsNoStaticForm(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	dir := t.TempDir()
+	src := "def scale(a: float, b: float) -> float:\n" +
+		"    return a * b + a\n\n" +
+		"print(scale(3.0, 4.0))\n"
+	py := filepath.Join(dir, "main.py")
+	writeFile(t, py, src)
+
+	// The auto build emits the static form for this proven function.
+	autoGen := filepath.Join(dir, "auto")
+	if _, err := Build(context.Background(), py, Options{Out: filepath.Join(dir, "auto-prog"), EmitGo: autoGen}); err != nil {
+		t.Fatalf("auto build: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(autoGen, "static.go")); err != nil {
+		t.Fatalf("auto build should emit a static form for a total float function: %v", err)
+	}
+
+	// Forced boxed emits no static form; every unit runs boxed.
+	gen := filepath.Join(dir, "gen")
+	bin, err := Build(context.Background(), py, Options{Out: filepath.Join(dir, "prog"), EmitGo: gen, Tier: partition.ModeForceBoxed})
+	if err != nil {
+		t.Fatalf("forced-boxed build: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(gen, "static.go")); !os.IsNotExist(err) {
+		t.Fatalf("forced boxed should emit no static form, stat err = %v", err)
+	}
+
+	var stdout bytes.Buffer
+	cmd := exec.Command(bin)
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := stdout.String(); got != "15.0\n" {
+		t.Errorf("output = %q, want %q", got, "15.0\n")
+	}
+}
+
 // TestBuildEmitsStaticToStaticCall proves the A3 acceptance end to end: a caller
 // of another static function emits its static form with a direct Go call to the
 // callee's static form, threading the error, with no boxing at the boundary. The

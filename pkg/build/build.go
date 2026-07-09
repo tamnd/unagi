@@ -39,6 +39,11 @@ type Options struct {
 	// Report, when set, is a path that receives the partitioner's per-function
 	// tier decisions as report.json, the input to `unagi report`.
 	Report string
+	// Tier forces the partition tier for the differential harness. The zero value
+	// is auto, the normal cost-model build; the forced modes emit every lowerable
+	// unit static or every unit boxed so one program can be diffed across both
+	// tiers against CPython (doc 06 section 10, doc 10).
+	Tier partition.Mode
 }
 
 // Build compiles pyPath to a native binary and returns the binary path.
@@ -52,7 +57,7 @@ func Build(ctx context.Context, pyPath string, opts Options) (string, error) {
 		return "", err
 	}
 	if opts.Report != "" {
-		if err := writeReport(opts.Report, mod); err != nil {
+		if err := writeReport(opts.Report, mod, opts.Tier); err != nil {
 			return "", err
 		}
 	}
@@ -65,7 +70,7 @@ func Build(ctx context.Context, pyPath string, opts Options) (string, error) {
 	// boxed caller of a guard-free static function routes through an entry shim
 	// into that static form. The plan is built once so the shim's call site and
 	// the emitted static function agree on the name.
-	plan := planStatic(mod, partition.Drive(entryModule, mod))
+	plan := planStatic(mod, partition.DriveWith(entryModule, mod, opts.Tier))
 	goSrc, err := lower.ModuleStatic(mod, pyPath, src, stars, staticEntries(plan))
 	if err != nil {
 		return "", err
@@ -397,8 +402,8 @@ func importNames(body []frontend.Stmt, pack string, out map[string]bool) {
 // the imported graph compiles too, but the decisions the report explains are
 // the ones in the program the user is building. The bytes are canonical, so two
 // builds of the same source write an identical file.
-func writeReport(path string, entry *frontend.Module) error {
-	rep := report.FromDecisions(partition.Drive(entryModule, entry))
+func writeReport(path string, entry *frontend.Module, tier partition.Mode) error {
+	rep := report.FromDecisions(partition.DriveWith(entryModule, entry, tier))
 	data, err := report.Marshal(rep)
 	if err != nil {
 		return err

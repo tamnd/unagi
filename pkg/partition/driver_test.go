@@ -192,6 +192,76 @@ func TestDriveStaticFunctionCarriesDeoptSites(t *testing.T) {
 	}
 }
 
+// driveWith parses src and runs the phase driver under an explicit tier mode.
+func driveWith(t *testing.T, src string, mode Mode) []Decision {
+	t.Helper()
+	m, err := frontend.Parse([]byte(src), "app.py")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	return DriveWith("app", m, mode)
+}
+
+func TestDriveForceStaticEmitsCostLosingFunction(t *testing.T) {
+	// A single guarded int add auto-boxes on the guard budget (see
+	// TestDriveBoxesGuardHeavyIntFunction). Forced static emits its static form
+	// anyway so the harness can diff the guard-heavy static build against the
+	// boxed build. The function lowers, so the tier lever reaches it.
+	src := "def f(a: int, b: int) -> int:\n    return a + b\n"
+	auto := byName(driveWith(t, src, ModeAuto))["<module>.f"]
+	if auto.State.IsStatic() {
+		t.Fatalf("precondition: this function should auto-box, got %v", auto.State)
+	}
+	forced := byName(driveWith(t, src, ModeForceStatic))["<module>.f"]
+	if forced.State != StaticProven {
+		t.Fatalf("forced static should emit the function static, got %v with %+v", forced.State, forced.Reasons)
+	}
+}
+
+func TestDriveForceStaticSkipsUnlowerableAndModuleBodies(t *testing.T) {
+	// Forced static only reaches units the bridge lowered. A function with an
+	// unannotated parameter never lowers, so it falls back to auto and stays
+	// boxed rather than being forced into a static form that does not exist, and
+	// the module body (never a lowered unit) stays boxed too.
+	src := "def f(a):\n    return a + 1\n"
+	ds := byName(driveWith(t, src, ModeForceStatic))
+	if d := ds["<module>.f"]; d.State.IsStatic() {
+		t.Errorf("an unlowerable function must not be forced static, got %v", d.State)
+	}
+	if d := ds[ModuleUnitName]; d.State.IsStatic() {
+		t.Errorf("the module body must not be forced static, got %v", d.State)
+	}
+}
+
+func TestDriveForceBoxedDemotesProvenStatic(t *testing.T) {
+	// A total float function proves static under auto (see
+	// TestDriveProvesScalarFunctionStatic). Forced boxed overrides that so the
+	// same program runs through the boxed tier for the differential, and the
+	// report names the forced-boxed rule.
+	src := "def f(a: float, b: float, c: float) -> float:\n    return a * b + c\n"
+	auto := byName(driveWith(t, src, ModeAuto))["<module>.f"]
+	if auto.State != StaticProven {
+		t.Fatalf("precondition: this function should auto-prove static, got %v", auto.State)
+	}
+	forced := byName(driveWith(t, src, ModeForceBoxed))["<module>.f"]
+	if forced.State != BoxedByCost {
+		t.Fatalf("forced boxed should demote the function, got %v", forced.State)
+	}
+	if len(forced.Reasons) != 1 || forced.Reasons[0].Rule != RuleTierForcedBoxed {
+		t.Fatalf("want a tier-forced-boxed reason, got %+v", forced.Reasons)
+	}
+}
+
+func TestDriveForceStaticStillBoxesEvalUnit(t *testing.T) {
+	// eval is a hard census disqualifier, so even forced static keeps the unit
+	// boxed: there is no sound static form to force for a genuinely dynamic body.
+	src := "def f(s):\n    return eval(s)\n"
+	d := byName(driveWith(t, src, ModeForceStatic))["<module>.f"]
+	if d.State != BoxedByCensus {
+		t.Fatalf("forced static must not override a census disqualifier, got %v", d.State)
+	}
+}
+
 func TestDriveRecordsEvalAsCensusDisqualifier(t *testing.T) {
 	ds := byName(drive(t, "def f(s):\n    return eval(s)\n"))
 	d, ok := ds["<module>.f"]

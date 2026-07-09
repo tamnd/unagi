@@ -101,6 +101,7 @@ const (
 	RuleExcursionBudget       = "excursion-budget-exceeded"
 	RuleCostModel             = "cost-model-verdict"
 	RuleGuardBudget           = "guard-budget-exceeded"
+	RuleTierForcedBoxed       = "tier-forced-boxed"
 )
 
 // catalog is the one registered table of every rule. It is built once at init
@@ -174,6 +175,9 @@ var catalog = func() map[string]Rule {
 		// 7.6 the guard budget (planned in slice 6, id registered here).
 		{RuleGuardBudget, "7.6", ScopeUnit, false, false,
 			"the planned guards exceed 15 percent of the static score, so the unit spends its time checking assumptions"},
+		// 10 the forced-boxed tier override the differential harness runs with.
+		{RuleTierForcedBoxed, "10", ScopeUnit, false, false,
+			"the build forced the boxed tier, so a unit the cost model would emit static runs boxed for a tier-vs-tier differential"},
 	}
 	m := make(map[string]Rule, len(rules))
 	for _, r := range rules {

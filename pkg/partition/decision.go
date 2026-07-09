@@ -40,13 +40,56 @@ type Decision struct {
 // Tier is the report's coarse label for the decision.
 func (d Decision) Tier() string { return d.State.Tier() }
 
+// Mode selects how Decide resolves a unit's tier. Auto lets the cost model
+// decide, the normal build. The two forced modes are the tier lever the M4
+// differential harness runs a program through both tiers with (doc 06 section
+// 10, doc 10): forced-static emits a unit's static form even where the cost
+// model would demote it, and forced-boxed emits every unit boxed. Neither forced
+// mode overrides a hard census disqualifier, since a genuinely dynamic unit has
+// no sound static form to force and boxed is already the answer.
+type Mode uint8
+
+const (
+	ModeAuto Mode = iota
+	ModeForceStatic
+	ModeForceBoxed
+)
+
+// String names the mode for a flag value and the build report.
+func (m Mode) String() string {
+	switch m {
+	case ModeForceStatic:
+		return "static"
+	case ModeForceBoxed:
+		return "boxed"
+	default:
+		return "auto"
+	}
+}
+
+// ParseMode reads a --tier flag value into a mode. The names match the tier
+// labels a user reads in the report, and an empty string is auto so a caller
+// that leaves the flag unset gets the normal build.
+func ParseMode(s string) (Mode, bool) {
+	switch s {
+	case "", "auto":
+		return ModeAuto, true
+	case "static":
+		return ModeForceStatic, true
+	case "boxed":
+		return ModeForceBoxed, true
+	}
+	return ModeAuto, false
+}
+
 // Input is what the decision core needs beyond the census: the unit, its cost
 // profile from phases two and three, the count of proofs inference consumed for
-// the report, the weights to score with, and the raw guard sites phase four will
-// place. A zero Weights means the caller wants the default M4 constants. When
-// Guards is non-empty the placed plan's entry and loop counts drive the guard
-// scoring, overriding the profile's guard fields; when it is empty the profile's
-// EntryGuards and LoopGuards are used, so a caller can score without planning.
+// the report, the weights to score with, the raw guard sites phase four will
+// place, and the tier mode. A zero Weights means the caller wants the default M4
+// constants; a zero Mode is auto. When Guards is non-empty the placed plan's
+// entry and loop counts drive the guard scoring, overriding the profile's guard
+// fields; when it is empty the profile's EntryGuards and LoopGuards are used, so
+// a caller can score without planning.
 type Input struct {
 	Unit    Unit
 	Profile Profile
@@ -54,6 +97,7 @@ type Input struct {
 	Weights Weights
 	Guards  []Guard
 	Deopts  []DeoptSite
+	Mode    Mode
 }
 
 // weights returns the input's weights or the default set when unset.
@@ -105,6 +149,21 @@ func Decide(c *Census, in Input) Decision {
 		return d
 	}
 
+	// Forced-static tier: a unit past the hard census disqualifiers is emitted
+	// static regardless of the soft excursion, cost, and guard budgets, so a
+	// program the cost model would demote still runs its static form for a
+	// tier-vs-tier differential. The census phase above still binds, so a
+	// genuinely dynamic unit stays boxed even when static is forced.
+	if in.Mode == ModeForceStatic {
+		d.Deopts = in.Deopts
+		if in.Profile.Excursions > 0 {
+			d.State = StaticWithExcursions
+		} else {
+			d.State = StaticProven
+		}
+		return d
+	}
+
 	// Phase two budget: excursions must fit under 25 percent of the op count.
 	if !in.Profile.ExcursionBudgetOK() {
 		r := MustRule(RuleExcursionBudget)
@@ -128,6 +187,16 @@ func Decide(c *Census, in Input) Decision {
 	guardScore := prof.EntryGuards*w.GuardEntry + prof.LoopGuards*w.GuardLoop
 	if !guardBudgetOK(guardScore, d.Score.Static-guardScore) {
 		r := MustRule(RuleGuardBudget)
+		d.State = BoxedByCost
+		d.Reasons = []Reason{{Rule: r.ID, Span: in.Unit.Span, Scope: r.Scope, Prose: r.Prose}}
+		return d
+	}
+
+	// Forced-boxed tier: the unit is static under the cost model, but the tier
+	// lever overrides that and emits it boxed, so the same program can be run
+	// through the boxed tier and diffed against both its static build and CPython.
+	if in.Mode == ModeForceBoxed {
+		r := MustRule(RuleTierForcedBoxed)
 		d.State = BoxedByCost
 		d.Reasons = []Reason{{Rule: r.ID, Span: in.Unit.Span, Scope: r.Scope, Prose: r.Prose}}
 		return d
