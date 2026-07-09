@@ -207,6 +207,45 @@ func TestDriveStaticFunctionCarriesDeoptSites(t *testing.T) {
 	}
 }
 
+func TestDriveProvesSubscriptFunctionStaticWithBoundsDeopt(t *testing.T) {
+	// A function that builds a scalar list local and reads it by index proves static
+	// and carries the bounds guard as a deopt site: an out-of-range or negative index
+	// hands the boxed twin the read at the statement boundary, so the boxed side owns
+	// the negative-index wraparound and the IndexError. The body is float-heavy enough
+	// to clear the guard budget, with the lone bounds guard on the return being the
+	// site the twin resumes at.
+	src := "def probe(a: float, b: float, i: int) -> float:\n" +
+		"    xs = [1.5, 2.5, 3.5]\n" +
+		"    return a * b + a * b + a * b + a * b + a * b + a * b + a * b + xs[i]\n"
+	d, ok := byName(drive(t, src))["<module>.probe"]
+	if !ok {
+		t.Fatal("missing unit <module>.probe")
+	}
+	if d.State != StaticProven {
+		t.Fatalf("subscript function should prove static, got %v with %+v", d.State, d.Reasons)
+	}
+	if len(d.Deopts) != 1 {
+		t.Fatalf("the read should carry exactly one bounds deopt site, got %d", len(d.Deopts))
+	}
+	if v := VerifyPlan(d.Deopts); len(v) != 0 {
+		t.Fatalf("deopt plan should verify clean, got %+v", v)
+	}
+	site := d.Deopts[0]
+	if site.Resume.Kind != ResumeStatement {
+		t.Errorf("resume point should sit at a statement boundary, got %v", site.Resume.Kind)
+	}
+	// a, b, and i are the live scalars entering the return; the list local xs is an
+	// aggregate the boxed twin rebuilds from the top, so it is not a rebox transfer.
+	if site.LiveCount() != 3 {
+		t.Errorf("live count = %d, want 3 (a, b, i)", site.LiveCount())
+	}
+	for _, tr := range site.Transfers {
+		if tr.Kind != MatRebox {
+			t.Errorf("live scalar %q should rebox, got %v", tr.Native, tr.Kind)
+		}
+	}
+}
+
 // driveWith parses src and runs the phase driver under an explicit tier mode.
 func driveWith(t *testing.T, src string, mode Mode) []Decision {
 	t.Helper()
