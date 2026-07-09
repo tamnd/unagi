@@ -93,6 +93,17 @@ func TestStaticTierMatchesCPython(t *testing.T) {
 		// python3.14 raises for every zero divisor, which this runner diffs against
 		// CPython directly.
 		{"mod by zero", "def f(a: int, b: int) -> int:\n    return a % b\n", "f(1, 0)"},
+		// The logical bitwise ops &, |, ^ on two ints are total two's-complement bit ops
+		// (02, bitwise section). Go's int64 &, |, ^ match Python's infinite-precision
+		// result for any operands that fit int64, including negative operands, so they are
+		// guard-free and reach this runner. Negative operands exercise the two's-complement
+		// agreement Python and Go share.
+		{"bit and positive", "def f(a: int, b: int) -> int:\n    return a & b\n", "f(12, 10)"},
+		{"bit and negative", "def f(a: int, b: int) -> int:\n    return a & b\n", "f(-5, 3)"},
+		{"bit or positive", "def f(a: int, b: int) -> int:\n    return a | b\n", "f(12, 10)"},
+		{"bit or negative", "def f(a: int, b: int) -> int:\n    return a | b\n", "f(-5, 3)"},
+		{"bit xor positive", "def f(a: int, b: int) -> int:\n    return a ^ b\n", "f(12, 10)"},
+		{"bit xor negative", "def f(a: int, b: int) -> int:\n    return a ^ b\n", "f(-5, 3)"},
 		// String concatenation (04_strings.md). The call uses double quotes so the
 		// one call text is a Go string literal and a Python string literal at once;
 		// repr renders both with single quotes, so the printed forms still match.

@@ -159,6 +159,46 @@ func TestPowerOnFloatIsRefused(t *testing.T) {
 	}
 }
 
+func TestBitwiseOpsAreTotalInt(t *testing.T) {
+	_, iR, _ := reprs()
+	// a & b, a | b, a ^ b on two ints lower to Go's native operator with an int
+	// result and no guard: a two's-complement bit op on int64 matches Python's
+	// infinite-precision answer for any operands that fit int64.
+	cases := []struct {
+		op   Op
+		want string
+	}{
+		{OpBitAnd, "return a & b, nil"},
+		{OpBitOr, "return a | b, nil"},
+		{OpBitXor, "return a ^ b, nil"},
+	}
+	for _, tc := range cases {
+		src := emitOneReturn(t, "bits", iR, []Param{{Name: "a", Repr: iR}, {Name: "b", Repr: iR}},
+			Bin{Op: tc.op, L: Var{Name: "a", Repr: iR}, R: Var{Name: "b", Repr: iR}})
+		if !strings.Contains(src, tc.want) {
+			t.Fatalf("%s should lower to the native operator %q:\n%s", tc.op, tc.want, src)
+		}
+		if strings.Contains(src, "deopt") || strings.Contains(src, "ovf") || strings.Contains(src, "rt.") {
+			t.Fatalf("%s is total, so it must carry no guard or runtime helper:\n%s", tc.op, src)
+		}
+	}
+}
+
+func TestBitwiseOnFloatIsRefused(t *testing.T) {
+	fR, iR, _ := reprs()
+	// A float operand is a TypeError for bitwise ops in Python, so the static tier
+	// refuses it rather than lowering a Go bit op that would not compile on a float.
+	for _, op := range []Op{OpBitAnd, OpBitOr, OpBitXor} {
+		_, err := EmitFunc(Func{
+			Name: "bad", Ret: fR,
+			Body: []Stmt{Return{Value: Bin{Op: op, L: Var{Name: "a", Repr: iR}, R: Float{V: 2}}}},
+		})
+		if err == nil {
+			t.Fatalf("%s with a float operand should be refused, not miscompiled", op)
+		}
+	}
+}
+
 func TestIntAugAssignIsGuarded(t *testing.T) {
 	_, iR, _ := reprs()
 	// An int accumulator lowers through the guarded add, not a bare +=, so it
@@ -274,7 +314,7 @@ func TestRangeNeedsList(t *testing.T) {
 }
 
 func TestOpStrings(t *testing.T) {
-	for op, want := range map[Op]string{OpAdd: "+", OpSub: "-", OpMul: "*", OpDiv: "/", OpFloorDiv: "//", OpMod: "%", OpPow: "**"} {
+	for op, want := range map[Op]string{OpAdd: "+", OpSub: "-", OpMul: "*", OpDiv: "/", OpFloorDiv: "//", OpMod: "%", OpPow: "**", OpBitAnd: "&", OpBitOr: "|", OpBitXor: "^"} {
 		if op.String() != want {
 			t.Fatalf("Op(%d).String() = %q, want %q", op, op.String(), want)
 		}

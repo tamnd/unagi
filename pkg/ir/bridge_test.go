@@ -220,6 +220,67 @@ func TestPowerOpensOneGuardSite(t *testing.T) {
 	}
 }
 
+func TestLowerBitwiseOpsAreTotalInt(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"and", "def f(a: int, b: int) -> int:\n    return a & b\n", "return a & b, nil"},
+		{"or", "def f(a: int, b: int) -> int:\n    return a | b\n", "return a | b, nil"},
+		{"xor", "def f(a: int, b: int) -> int:\n    return a ^ b\n", "return a ^ b, nil"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := emitOf(t, tc.src)
+			if !strings.Contains(got, "(int64, error)") {
+				t.Errorf("bitwise %s should return int64:\n%s", tc.name, got)
+			}
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("bitwise %s should lower to the native operator:\n%s", tc.name, got)
+			}
+			if strings.Contains(got, "deopt") || strings.Contains(got, "rt.PowInt64") {
+				t.Errorf("bitwise %s is total, so it must open no deopt edge:\n%s", tc.name, got)
+			}
+		})
+	}
+}
+
+func TestLowerBitwiseOnFloatStaysBoxed(t *testing.T) {
+	// A float operand is a TypeError for bitwise ops in Python, so the unit is refused
+	// rather than lowered to a Go bit op that would not compile.
+	for _, src := range []string{
+		"def f(a: float, b: float) -> float:\n    return a & b\n",
+		"def f(a: float, b: float) -> float:\n    return a | b\n",
+		"def f(a: float, b: float) -> float:\n    return a ^ b\n",
+	} {
+		fn := parseFunc(t, src)
+		if _, err := LowerFunc(fn); err == nil {
+			t.Fatalf("bitwise op on floats should be refused, keeping the unit boxed:\n%s", src)
+		}
+	}
+}
+
+// TestBitwiseOpensNoGuardSite pins that the logical bitwise ops are guard-free like
+// modulo: a two's-complement bit op on int64 never overflows, so the cost model and
+// the deopt-site walk must open no site, or the partitioner would build a boxed twin
+// for a guard that never fires.
+func TestBitwiseOpensNoGuardSite(t *testing.T) {
+	for _, src := range []string{
+		"def f(a: int, b: int) -> int:\n    return a & b\n",
+		"def f(a: int, b: int) -> int:\n    return a | b\n",
+		"def f(a: int, b: int) -> int:\n    return a ^ b\n",
+	} {
+		fn, err := LowerFunc(parseFunc(t, src))
+		if err != nil {
+			t.Fatalf("LowerFunc %q: %v", src, err)
+		}
+		if sites := GuardSitesOf(fn); len(sites) != 0 {
+			t.Errorf("bitwise op opens no guard site, got %d for %q", len(sites), src)
+		}
+	}
+}
+
 func TestLowerMixedArithmeticPromotesToFloat(t *testing.T) {
 	// An int local added to a float parameter promotes the result to float, so the
 	// function's return type is float64.

@@ -43,6 +43,13 @@ const (
 	// Python promotes it to a float (2 ** -1 is 0.5) and 0 ** -1 raises, and a result
 	// past int64 deopts to the boxed big int. A float operand keeps it boxed at M4.
 	OpPow
+	// OpBitAnd is Python &, bitwise and. On two ints it yields an int; a float operand
+	// is a TypeError in Python, so it keeps the unit boxed at M4.
+	OpBitAnd
+	// OpBitOr is Python |, bitwise or, with the same int-only rule as OpBitAnd.
+	OpBitOr
+	// OpBitXor is Python ^, bitwise exclusive or, with the same int-only rule.
+	OpBitXor
 )
 
 // String names the operator for diagnostics.
@@ -62,6 +69,12 @@ func (o Op) String() string {
 		return "%"
 	case OpPow:
 		return "**"
+	case OpBitAnd:
+		return "&"
+	case OpBitOr:
+		return "|"
+	case OpBitXor:
+		return "^"
 	}
 	return "?"
 }
@@ -106,6 +119,12 @@ func (o Op) tok() token.Token {
 		return token.MUL
 	case OpDiv:
 		return token.QUO
+	case OpBitAnd:
+		return token.AND
+	case OpBitOr:
+		return token.OR
+	case OpBitXor:
+		return token.XOR
 	}
 	return token.ILLEGAL
 }
@@ -282,6 +301,19 @@ func (b *Builder) lowerBin(n Bin) (ast.Expr, Repr, error) {
 			ifStmt(ident(deopt), b.deoptEdge()),
 		)
 		return ident(val), Repr{Go: "int64", Scalar: SInt}, nil
+	}
+
+	// The bitwise operators &, |, ^ on two ints are total: a two's-complement bit op
+	// on int64 matches Python's infinite-precision result for any operands that fit
+	// int64, so they lower to Go's native operator with no guard, the same shape as
+	// float arithmetic but on the int path. A float operand is a TypeError in Python,
+	// so it keeps the unit boxed at M4; a bool coerces to int (True & 1 is 1).
+	if n.Op == OpBitAnd || n.Op == OpBitOr || n.Op == OpBitXor {
+		if lr.Scalar == SFloat || rr.Scalar == SFloat {
+			return nil, Repr{}, fmt.Errorf("emit: %s on a float operand is not a static operation", n.Op)
+		}
+		lx, rx = toInt(lx, lr), toInt(rx, rr)
+		return binary(n.Op.tok(), lx, rx), Repr{Go: "int64", Scalar: SInt}, nil
 	}
 
 	// A float on either side promotes the whole operation to float, total and
