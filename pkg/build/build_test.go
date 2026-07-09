@@ -143,34 +143,137 @@ func TestBuildEmitsStaticToStaticCall(t *testing.T) {
 	}
 }
 
-// TestBuildSkipsStaticFormForGuardedUnit checks the gate: a function whose
-// static form carries an overflow guard emits a deopt edge to a boxed twin that
-// does not exist yet, so it must stay boxed-only until the trampoline band lands.
-// No static.go is written for a module whose only provable unit is guarded.
-func TestBuildSkipsStaticFormForGuardedUnit(t *testing.T) {
+// TestBuildDeoptsGuardedUnitToBoxedTwin checks the B1 acceptance end to end: a
+// static unit that carries an overflow guard emits its static form, and the
+// guard's failure edge hands off to the boxed twin through the deopt sentinel.
+// The fixture's float-heavy body clears the guard budget so the unit proves
+// static, and the lone int multiply is the guard. Called with small ints the
+// static form computes the product natively; called with ints whose product
+// overflows int64 the guard fails, the hand-off re-runs the unit boxed, and the
+// entry shim returns the boxed big int. Both must match CPython, which never
+// overflows an int.
+func TestBuildDeoptsGuardedUnitToBoxedTwin(t *testing.T) {
 	if testing.Short() {
 		t.Skip("compiles binaries; skipped in -short")
 	}
 	dir := t.TempDir()
-	// A float-heavy body clears the guard budget so the unit proves static, but
-	// the lone int add (m + n) carries an overflow guard, so its deopt plan is
-	// non-empty and the static form is withheld.
-	src := "def f(a: float, b: float, m: int, n: int) -> float:\n" +
-		"    return a * b + a * b + a * b + a * b + a * b + a * b + a * b + (m + n)\n\n" +
-		"print(f(2.0, 3.0, 1, 2))\n"
+	src := "def f(a: int, b: int, x: float) -> int:\n" +
+		"    s = x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x\n" +
+		"    if s > 0.0:\n" +
+		"        return a * b\n" +
+		"    return 0\n\n" +
+		"print(f(3, 4, 1.0))\n" +
+		"print(f(10**18, 10**18, 1.0))\n"
 	py := filepath.Join(dir, "main.py")
 	writeFile(t, py, src)
 
 	gen := filepath.Join(dir, "gen")
-	if _, err := Build(context.Background(), py, Options{
+	bin, err := Build(context.Background(), py, Options{
 		Out:    filepath.Join(dir, "prog"),
 		EmitGo: gen,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(gen, "static.go")); err == nil {
-		data, _ := os.ReadFile(filepath.Join(gen, "static.go"))
-		t.Errorf("a guarded static unit should emit no static form yet, got:\n%s", data)
+
+	// The static form landed with the guard routed to the hand-off, and the
+	// hand-off reboxes the parameters into the boxed twin and returns the sentinel.
+	static, err := os.ReadFile(filepath.Join(gen, "static.go"))
+	if err != nil {
+		t.Fatalf("static.go not emitted: %v", err)
+	}
+	if want := "return static_f_deopt(d0, d1, d2)"; !bytes.Contains(static, []byte(want)) {
+		t.Errorf("static.go missing the deopt edge %q:\n%s", want, static)
+	}
+	main, err := os.ReadFile(filepath.Join(gen, "main.go"))
+	if err != nil {
+		t.Fatalf("main.go not emitted: %v", err)
+	}
+	for _, want := range []string{
+		"func static_f_deopt(p0 int64, p1 int64, p2 float64) (int64, error)",
+		"r, err := def0_f(objects.NewInt(p0), objects.NewInt(p1), objects.NewFloat(p2))",
+		"return 0, &objects.Deopt{Value: r}",
+		"if d, ok := err.(*objects.Deopt); ok",
+		"return d.Value, nil",
+	} {
+		if !bytes.Contains(main, []byte(want)) {
+			t.Errorf("main.go missing %q:\n%s", want, main)
+		}
+	}
+
+	var stdout bytes.Buffer
+	cmd := exec.Command(bin)
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	// f(3, 4, 1.0) runs the native path and prints 12; f(10**18, 10**18, 1.0)
+	// overflows int64, deopts, and prints the exact big-int product.
+	want := "12\n1000000000000000000000000000000000000\n"
+	if got := stdout.String(); got != want {
+		t.Errorf("output = %q, want %q", got, want)
+	}
+}
+
+// TestBuildDeoptReplaysEntryParamsNotRebound guards the D4 soundness rule: when a
+// parameter is rebound by an earlier guarded op before a later guard fails, the
+// deopt hand-off must replay the value the unit was entered with, not the rebound
+// Go variable. Otherwise the boxed twin re-derives the input from a mutated value
+// and computes a different, wrong answer. The fixture increments a before the
+// overflowing multiply; the static form snapshots a into d0 at entry and hands off
+// d0, so the boxed twin sees the original a and its big int matches CPython.
+func TestBuildDeoptReplaysEntryParamsNotRebound(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	dir := t.TempDir()
+	pad := "    s = s + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x\n"
+	src := "def h(a: int, m: int, x: float) -> int:\n" +
+		"    s = 0.0\n" + pad + pad + pad +
+		"    a = a + 1\n" +
+		"    if s > 0.0:\n" +
+		"        return a * m\n" +
+		"    return 0\n\n" +
+		"print(h(10**18, 10**18, 1.0))\n"
+	py := filepath.Join(dir, "main.py")
+	writeFile(t, py, src)
+
+	gen := filepath.Join(dir, "gen")
+	bin, err := Build(context.Background(), py, Options{
+		Out:    filepath.Join(dir, "prog"),
+		EmitGo: gen,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	// The deopt edge replays the entry snapshot d0, not the rebound a.
+	static, err := os.ReadFile(filepath.Join(gen, "static.go"))
+	if err != nil {
+		t.Fatalf("static.go not emitted: %v", err)
+	}
+	for _, want := range []string{
+		"d0, d1, d2 := a, m, x",
+		"return static_h_deopt(d0, d1, d2)",
+	} {
+		if !bytes.Contains(static, []byte(want)) {
+			t.Errorf("static.go missing %q:\n%s", want, static)
+		}
+	}
+	if bytes.Contains(static, []byte("static_h_deopt(a, m, x)")) {
+		t.Errorf("deopt edge replays the rebound param a instead of the entry snapshot:\n%s", static)
+	}
+
+	var stdout bytes.Buffer
+	cmd := exec.Command(bin)
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	// CPython: (10**18 + 1) * 10**18 = 1000000000000000001000000000000000000.
+	want := "1000000000000000001000000000000000000\n"
+	if got := stdout.String(); got != want {
+		t.Errorf("output = %q, want %q", got, want)
 	}
 }
 

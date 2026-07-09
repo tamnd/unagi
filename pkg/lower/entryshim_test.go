@@ -65,6 +65,52 @@ func TestEntryShimRoutesBoxedCall(t *testing.T) {
 	}
 }
 
+// TestDeoptEntryEmitsHandlerAndUnwrapsSentinel checks the deopt-target shim: the
+// build marks the static entry Deopt, so the shim emits the hand-off that reboxes
+// the entry parameters into the boxed twin and returns the sentinel, and the shim
+// itself unwraps that sentinel into the boxed result rather than surfacing it as a
+// raised error. A real exception still propagates unchanged.
+func TestDeoptEntryEmitsHandlerAndUnwrapsSentinel(t *testing.T) {
+	statics := map[string]StaticEntry{
+		"area": {Static: "static_area", Params: []StaticScalar{StaticFloat, StaticFloat}, Ret: StaticFloat, Deopt: true},
+	}
+	src, err := ModuleStatic(areaModule(), "area.py", nil, nil, statics)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(src)
+	for _, want := range []string{
+		"func static_area_deopt(p0 float64, p1 float64) (float64, error)",
+		"r, err := def0_area(objects.NewFloat(p0), objects.NewFloat(p1))",
+		"return 0, &objects.Deopt{Value: r}",
+		"if d, ok := err.(*objects.Deopt); ok",
+		"return d.Value, nil",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("deopt shim missing %q:\n%s", want, got)
+		}
+	}
+}
+
+// TestNoDeoptEntrySkipsHandler checks that a guard-free static entry emits no
+// hand-off and no sentinel unwrap, so the deopt machinery is inert unless the
+// unit can actually deopt.
+func TestNoDeoptEntrySkipsHandler(t *testing.T) {
+	statics := map[string]StaticEntry{
+		"area": {Static: "static_area", Params: []StaticScalar{StaticFloat, StaticFloat}, Ret: StaticFloat},
+	}
+	src, err := ModuleStatic(areaModule(), "area.py", nil, nil, statics)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(src)
+	for _, unwant := range []string{"static_area_deopt", "objects.Deopt"} {
+		if strings.Contains(got, unwant) {
+			t.Errorf("guard-free entry should not emit %q:\n%s", unwant, got)
+		}
+	}
+}
+
 // TestNoStaticEntryKeepsBoxedCall checks the default: with no static entry for a
 // def, the call site names the boxed form and no shim is emitted, so a build
 // without a static tier lowers exactly as before.

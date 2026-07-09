@@ -3,6 +3,7 @@ package emit
 import (
 	"fmt"
 	"go/ast"
+	"go/token"
 )
 
 // This file assembles a whole static-tier function. The signature carries unboxed
@@ -25,6 +26,13 @@ type Func struct {
 	Params []Param
 	Ret    Repr
 	Body   []Stmt
+	// DeoptHandler, when set, is the name of the hand-off function every overflow
+	// guard's failure edge tail-calls, replacing the per-site placeholder handler.
+	// It carries the unit's native parameters, re-runs the whole unit boxed from
+	// the top, and returns the deopt sentinel on the error channel. The build wires
+	// it to the function the boxed tier emits next to the entry shim, so a guard
+	// that fails at runtime lands in a real function instead of an undefined name.
+	DeoptHandler string
 }
 
 // Builder carries the per-function emit state: the enclosing name and parameters
@@ -32,15 +40,25 @@ type Func struct {
 // a zero of, the temporary and deopt counters that keep generated names stable,
 // and the pending guard statements the current statement will flush.
 type Builder struct {
-	fn     string
-	params []string
-	ret    Repr
-	nTmp   int
-	nFlag  int
-	nErr   int
-	nDeopt int
-	pre    []ast.Stmt
+	fn        string
+	params    []string
+	ret       Repr
+	deopt     string
+	deoptUsed bool
+	nTmp      int
+	nFlag     int
+	nErr      int
+	nDeopt    int
+	pre       []ast.Stmt
 }
+
+// deoptParam is the name of the entry snapshot for the i-th parameter, the value
+// the deopt hand-off replays. The body may rebind a parameter's own Go variable
+// before a later guard, so a guard that fails must hand the boxed twin the value
+// the unit was entered with, not the rebound one, or the twin re-derives it from a
+// mutated input and computes a different result. Snapshotting into a private name
+// keeps that entry value available and never collides with a user local.
+func deoptParam(i int) string { return fmt.Sprintf("d%d", i) }
 
 // temp returns a fresh value temporary name.
 func (b *Builder) temp() string {
@@ -66,15 +84,28 @@ func (b *Builder) errName() string {
 }
 
 // deoptEdge builds the failure-edge statement for an interior guard: a tail call
-// to this unit's next deopt handler, replaying the parameters into the boxed form
-// the way doc 06 section 11.3's point_dist_deopt0 does.
+// that replays the unit's parameters into its boxed hand-off. When the build has
+// named a deopt handler, every guard site tail-calls that one function, which
+// re-runs the whole unit boxed from the top and returns the deopt sentinel; for a
+// straight-line unit the only live state at the guard is the parameters, so every
+// site replays the same arguments and one handler serves them all. Without a named
+// handler the edge falls back to the per-site placeholder name the goldens use,
+// which keeps the unit self-describing when it is emitted outside a build.
 func (b *Builder) deoptEdge() ast.Stmt {
-	name := fmt.Sprintf("%s_deopt%d", b.fn, b.nDeopt)
-	b.nDeopt++
+	if b.deopt != "" {
+		b.deoptUsed = true
+		args := make([]ast.Expr, len(b.params))
+		for i := range b.params {
+			args[i] = ident(deoptParam(i))
+		}
+		return ret(callExpr(ident(b.deopt), args...))
+	}
 	args := make([]ast.Expr, len(b.params))
 	for i, p := range b.params {
 		args[i] = ident(p)
 	}
+	name := fmt.Sprintf("%s_deopt%d", b.fn, b.nDeopt)
+	b.nDeopt++
 	return ret(callExpr(ident(name), args...))
 }
 
@@ -91,7 +122,7 @@ func (b *Builder) flush() []ast.Stmt {
 // operand with no representation, an unknown node) surfaces rather than emitting
 // wrong Go.
 func EmitFunc(f Func) (string, error) {
-	b := &Builder{fn: f.Name, ret: f.Ret}
+	b := &Builder{fn: f.Name, ret: f.Ret, deopt: f.DeoptHandler}
 	params := make([]*ast.Field, len(f.Params))
 	for i, p := range f.Params {
 		params[i] = field(p.Repr.goType(), p.Name)
@@ -101,6 +132,20 @@ func EmitFunc(f Func) (string, error) {
 	body, err := b.lowerBlock(f.Body)
 	if err != nil {
 		return "", err
+	}
+
+	// When a guard actually reached the hand-off, snapshot the entry parameters
+	// ahead of the body so the deopt edge replays the values the unit was entered
+	// with, even if the body rebinds a parameter before the failing guard.
+	if b.deoptUsed && len(f.Params) > 0 {
+		names := make([]ast.Expr, len(f.Params))
+		vals := make([]ast.Expr, len(f.Params))
+		for i, p := range f.Params {
+			names[i] = ident(deoptParam(i))
+			vals[i] = ident(p.Name)
+		}
+		snapshot := &ast.AssignStmt{Lhs: names, Tok: token.DEFINE, Rhs: vals}
+		body = append([]ast.Stmt{snapshot}, body...)
 	}
 
 	decl := &ast.FuncDecl{

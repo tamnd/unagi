@@ -595,6 +595,16 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 			if err := writeDecl(&out, e.entryShimDecl(defs[i], se)); err != nil {
 				return nil, err
 			}
+			// A static form that can deopt hands off through this function: it reboxes
+			// the entry parameters, re-runs the whole unit boxed from the top, and
+			// returns the boxed result as the deopt sentinel the shim above unwraps.
+			if se.Deopt {
+				fmt.Fprintf(&out, "// %s hands %s off to its boxed twin when an overflow guard fails.\n",
+					deoptHandlerName(se.Static), defs[i].Name)
+				if err := writeDecl(&out, e.deoptHandlerDecl(defs[i], se)); err != nil {
+					return nil, err
+				}
+			}
 		}
 	}
 	for _, m := range methodDecls {
@@ -645,14 +655,18 @@ type emitter struct {
 	statics map[string]StaticEntry
 }
 
-// StaticEntry describes a guard-free static callee an entry shim routes into: the
-// emitted static Go function name, and the scalar kind of each parameter and of
-// the result. The parameter kinds pick the exact-type guard and the unbox
-// accessor; the result kind picks the rebox constructor.
+// StaticEntry describes a static callee an entry shim routes into: the emitted
+// static Go function name, and the scalar kind of each parameter and of the
+// result. The parameter kinds pick the exact-type guard and the unbox accessor;
+// the result kind picks the rebox constructor. Deopt marks a callee whose static
+// form carries an overflow guard: its shim also handles the deopt sentinel the
+// form returns on the error channel, and the build emits the hand-off function
+// that sentinel comes from.
 type StaticEntry struct {
 	Static string
 	Params []StaticScalar
 	Ret    StaticScalar
+	Deopt  bool
 }
 
 // StaticScalar names the unboxed scalar kind of a static value, the subset of

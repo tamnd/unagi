@@ -112,6 +112,21 @@ func (e *Exception) Error() string {
 	return e.Kind
 }
 
+// Deopt is the error-channel sentinel a static-tier function returns when an
+// overflow guard fails and the computation hands off to its boxed twin. It is
+// not a Python exception: Value is the boxed result the twin already produced,
+// and the entry shim at the static-to-boxed boundary returns Value as the call's
+// result rather than surfacing it as a raised error. Carrying the hand-off on the
+// error channel lets the static form keep its own result in its native type, so
+// only the deopt edge pays the boxing cost. A real *Exception raised inside the
+// twin travels the same channel and stays an exception, so the shim tells the two
+// apart by type.
+type Deopt struct {
+	Value Object
+}
+
+func (d *Deopt) Error() string { return "unagi: unhandled deopt hand-off" }
+
 // ExcMessageLine is the final traceback line with a user __str__ dispatched:
 // "Kind: str(e)", or the bare kind when str is empty. Error uses the built-in
 // Text, so the traceback renderer calls this instead to honour a subclass that
