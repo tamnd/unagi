@@ -64,6 +64,12 @@ type Config struct {
 	Argv    []string          `toml:"argv"`
 	Env     map[string]string `toml:"env"`
 
+	// Tags name the landed static lowering cases (docs 01 through 09) a
+	// fixture exercises, so the feature-coverage test can assert every S case
+	// maps to at least one fixture. A tag must be one of the registered
+	// features in features.go; an unknown tag fails discovery-time coverage.
+	Tags []string `toml:"tags"`
+
 	Divergence struct {
 		IDs []string `toml:"ids"`
 	} `toml:"divergence"`
