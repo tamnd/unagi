@@ -89,6 +89,76 @@ func TestBuildEmitsStaticForm(t *testing.T) {
 	}
 }
 
+// TestBuildForcedStaticDeoptPositions is the forced-deopt half of the M4
+// differential band (doc 06 section 10, milestone doc 09): it drives the
+// overflow guard to fail on the first loop iteration, in the middle, and never,
+// and asserts all three positions produce the CPython-correct result. Forcing
+// the tier static emits the guarded loop's static form for a function the cost
+// model would box on the guard budget, so the deopt edge is real and the entry
+// shim routes into it. The seeds are valid int64 values so the call enters the
+// static form rather than falling back at the shim's unbox guard, which is what
+// makes the deopt fire inside the native loop. From-top replay recomputes the
+// whole loop boxed, so every deopt lands on CPython's big int.
+func TestBuildForcedStaticDeoptPositions(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	accum := "def accum(n: int, seed: int) -> int:\n" +
+		"    total = seed\n" +
+		"    for i in range(n):\n" +
+		"        total = total * 2\n" +
+		"    return total\n\n"
+	cases := []struct {
+		name string
+		call string
+		want string
+	}{
+		// Every doubling stays inside int64, so the guard never fires.
+		{"never", "print(accum(10, 7))\n", "7168\n"},
+		// total * 2 overflows on the first iteration from a valid int64 seed.
+		{"first", "print(accum(4, 5000000000000000000))\n", "80000000000000000000\n"},
+		// The doublings overflow partway through a hundred-iteration loop.
+		{"mid", "print(accum(100, 1))\n", "1267650600228229401496703205376\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			py := filepath.Join(dir, "main.py")
+			writeFile(t, py, accum+tc.call)
+
+			gen := filepath.Join(dir, "gen")
+			bin, err := Build(context.Background(), py, Options{
+				Out:    filepath.Join(dir, "prog"),
+				EmitGo: gen,
+				Tier:   partition.ModeForceStatic,
+			})
+			if err != nil {
+				t.Fatalf("build: %v", err)
+			}
+
+			// The static form carries the guarded loop and a deopt edge, so the
+			// overflow at this position actually hands off rather than wrapping.
+			static, err := os.ReadFile(filepath.Join(gen, "static.go"))
+			if err != nil {
+				t.Fatalf("static.go not emitted: %v", err)
+			}
+			if want := "return static_accum_deopt(d0, d1)"; !bytes.Contains(static, []byte(want)) {
+				t.Errorf("static.go missing the deopt edge %q:\n%s", want, static)
+			}
+
+			var stdout bytes.Buffer
+			cmd := exec.Command(bin)
+			cmd.Stdout = &stdout
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("run: %v", err)
+			}
+			if got := stdout.String(); got != tc.want {
+				t.Errorf("output = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestBuildTierForceStaticEmitsCostLosingForm proves --tier static overrides the
 // cost model on the real build path: a single guarded int add auto-boxes on the
 // guard budget, so an auto build emits no static form for it, but the forced-static
