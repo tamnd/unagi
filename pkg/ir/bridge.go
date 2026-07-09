@@ -1290,8 +1290,8 @@ func boolName(k frontend.BoolKind) string {
 func boolReprIR() emit.Repr { return emit.Repr{Go: "bool", Scalar: emit.SBool, Total: true} }
 
 // binOp maps the frontend's arithmetic operators to the ones the scalar tier
-// lowers: the four core operators plus integer floor division and modulo. Power,
-// the bitwise operators, and matrix multiply are not in this seed.
+// lowers: the four core operators plus integer floor division, modulo, and power.
+// The bitwise operators and matrix multiply are not in this seed.
 func binOp(k frontend.BinKind) (emit.Op, bool) {
 	switch k {
 	case frontend.BinAdd:
@@ -1306,6 +1306,8 @@ func binOp(k frontend.BinKind) (emit.Op, bool) {
 		return emit.OpFloorDiv, true
 	case frontend.BinMod:
 		return emit.OpMod, true
+	case frontend.BinPow:
+		return emit.OpPow, true
 	}
 	return 0, false
 }
@@ -1342,6 +1344,16 @@ func binResult(op emit.Op, l, r emit.Repr) (emit.Repr, error) {
 	if op == emit.OpMod {
 		if l.Scalar == emit.SFloat || r.Scalar == emit.SFloat {
 			return emit.Repr{}, unsupported("%% on a float operand stays boxed at M4")
+		}
+		return emit.Repr{Go: "int64", Scalar: emit.SInt}, nil
+	}
+	// Power lowers only on two ints at M4: the static form yields an int for a
+	// non-negative exponent whose result fits int64 and deopts otherwise, so its
+	// tracked representation is int. A float operand would need the float power
+	// (math.Pow), which stays boxed for now, so it is refused here.
+	if op == emit.OpPow {
+		if l.Scalar == emit.SFloat || r.Scalar == emit.SFloat {
+			return emit.Repr{}, unsupported("** on a float operand stays boxed at M4")
 		}
 		return emit.Repr{Go: "int64", Scalar: emit.SInt}, nil
 	}

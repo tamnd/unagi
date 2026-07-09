@@ -38,6 +38,11 @@ const (
 	// Go's own % returns 0 for math.MinInt64 % -1 rather than trapping. A float
 	// operand keeps it boxed at M4.
 	OpMod
+	// OpPow is Python **, the power operator. On two ints with a non-negative exponent
+	// whose result fits int64 it yields an int; a negative exponent deopts because
+	// Python promotes it to a float (2 ** -1 is 0.5) and 0 ** -1 raises, and a result
+	// past int64 deopts to the boxed big int. A float operand keeps it boxed at M4.
+	OpPow
 )
 
 // String names the operator for diagnostics.
@@ -55,20 +60,22 @@ func (o Op) String() string {
 		return "//"
 	case OpMod:
 		return "%"
+	case OpPow:
+		return "**"
 	}
 	return "?"
 }
 
-// Overflows reports whether an int-result form of this operator carries an int64
-// overflow guard that deopts on failure. Add, subtract, multiply, and floor
-// division can each carry a value past int64, so they guard and route the failure
-// edge to the boxed twin. True division is float, and modulo's floored remainder is
-// always smaller than the divisor, so neither can overflow: both are excluded here,
-// which keeps the cost model and the deopt-site walk from opening a phantom site for
-// an operator that never hands off.
+// Overflows reports whether an int-result form of this operator carries a guard
+// that deopts on failure. Add, subtract, multiply, and floor division can each
+// carry a value past int64, and power both overflows and deopts on a negative
+// exponent, so all of them route a failure edge to the boxed twin. True division is
+// float, and modulo's floored remainder is always smaller than the divisor, so
+// neither can overflow: both are excluded here, which keeps the cost model and the
+// deopt-site walk from opening a phantom site for an operator that never hands off.
 func (o Op) Overflows() bool {
 	switch o {
-	case OpAdd, OpSub, OpMul, OpFloorDiv:
+	case OpAdd, OpSub, OpMul, OpFloorDiv, OpPow:
 		return true
 	}
 	return false
@@ -250,6 +257,31 @@ func (b *Builder) lowerBin(n Bin) (ast.Expr, Repr, error) {
 		lx, rx = toInt(lx, lr), toInt(rx, rr)
 		b.guardZeroDivInt(rx)
 		return callExpr(sel(runtimePkg, "FloorModInt64"), lx, rx), Repr{Go: "int64", Scalar: SInt}, nil
+	}
+
+	// Power on two ints speculates a non-negative exponent whose result fits int64.
+	// The runtime helper folds both escape hatches into one deopt flag: a negative
+	// exponent (which Python promotes to a float, and 0 ** -1 raises) and a result
+	// past int64 (which Python spills to a big int) both route to the unit's deopt
+	// edge, where the boxed twin computes the float, big int, or exception. There is
+	// no zero-divisor check because ** has no zero divisor: 0 ** 0 is 1, 0 ** n is 0,
+	// and 0 ** -n is caught by the negative-exponent deopt. A float operand keeps it
+	// boxed at M4, so only the int-and-bool case reaches here.
+	if n.Op == OpPow {
+		if lr.Scalar == SFloat || rr.Scalar == SFloat {
+			return nil, Repr{}, fmt.Errorf("emit: %s on a float operand is not a static operation", n.Op)
+		}
+		lx, rx = toInt(lx, lr), toInt(rx, rr)
+		val, deopt := b.temp(), b.flag()
+		b.pre = append(b.pre,
+			&ast.AssignStmt{
+				Lhs: []ast.Expr{ident(val), ident(deopt)},
+				Tok: token.DEFINE,
+				Rhs: []ast.Expr{callExpr(sel(runtimePkg, "PowInt64"), lx, rx)},
+			},
+			ifStmt(ident(deopt), b.deoptEdge()),
+		)
+		return ident(val), Repr{Go: "int64", Scalar: SInt}, nil
 	}
 
 	// A float on either side promotes the whole operation to float, total and

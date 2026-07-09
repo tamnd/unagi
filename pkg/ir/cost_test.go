@@ -78,6 +78,20 @@ func TestCostModuloIsUnguardedInt(t *testing.T) {
 	}
 }
 
+func TestCostPowerIsGuardedInt(t *testing.T) {
+	// Power yields an int but deopts on a negative exponent (Python turns it into a
+	// float) and on an int64 overflow, so it carries a guard and a deopt edge, the same
+	// as floor division. The census must count it as guarded so the partitioner builds
+	// its boxed twin and resume plan.
+	c := costOfSrc(t, "def f(a: int, b: int) -> int:\n    return a ** b\n")
+	if c.UnboxedOps != 1 {
+		t.Errorf("UnboxedOps = %d, want 1", c.UnboxedOps)
+	}
+	if c.EntryGuards != 1 {
+		t.Errorf("power should carry a deopt guard, got %d", c.EntryGuards)
+	}
+}
+
 func TestCostCountsAugAssign(t *testing.T) {
 	// The seed accumulator binds an int local then adds into it twice; the two
 	// += operations are guarded int adds.

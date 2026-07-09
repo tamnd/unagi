@@ -38,11 +38,11 @@ func TestStaticTierRefusesUnsafeForms(t *testing.T) {
 		{"identity is not", "def f(a: int, b: int) -> bool:\n    return a is not b\n"},
 		{"scalar membership", "def f(a: int, xs: list) -> bool:\n    return a in xs\n"},
 
-		// Integer operators still outside the guarded set (02, line 45): power and the
-		// bitwise operators have no M4 static form yet. Floor division and modulo have
-		// graduated to guarded static forms (both correct Go's truncation to Python's
-		// floor in a runtime helper), so they are no longer in this list.
-		{"int power", "def f(a: int, b: int) -> int:\n    return a ** b\n"},
+		// Integer operators still outside the guarded set (02, line 45): the bitwise
+		// operators have no M4 static form yet. Floor division, modulo, and power have
+		// graduated to guarded static forms (floor division and modulo correct Go's
+		// truncation to Python's floor in a runtime helper, and power deopts on a
+		// negative exponent or an int64 overflow), so they are no longer in this list.
 		{"int bit and", "def f(a: int, b: int) -> int:\n    return a & b\n"},
 		{"int shift", "def f(a: int, b: int) -> int:\n    return a << b\n"},
 

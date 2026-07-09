@@ -132,6 +132,42 @@ func TestFloorModInt64(t *testing.T) {
 	}
 }
 
+func TestPowInt64(t *testing.T) {
+	cases := []struct {
+		a, b, want int64
+		deopt      bool
+	}{
+		// Non-negative exponents that fit int64 compute exactly.
+		{2, 10, 1024, false},
+		{2, 0, 1, false},
+		{0, 0, 1, false},
+		{0, 5, 0, false},
+		{1, 63, 1, false},
+		{-2, 3, -8, false},
+		{-2, 2, 4, false},
+		{-1, 63, -1, false},
+		{10, 18, 1000000000000000000, false},
+		{3, 5, 243, false},
+		// The largest power of two that fits, and the smallest that does not.
+		{2, 62, 1 << 62, false},
+		{2, 63, 0, true},
+		// 10**19 is the first power of ten past int64.
+		{10, 19, 0, true},
+		// A negative exponent always deopts: Python promotes it to a float, and 0 ** -1
+		// raises, neither of which an int return can carry.
+		{2, -1, 0, true},
+		{2, -2, 0, true},
+		{0, -1, 0, true},
+		{5, -3, 0, true},
+	}
+	for _, c := range cases {
+		got, deopt := PowInt64(c.a, c.b)
+		if deopt != c.deopt || (!deopt && got != c.want) {
+			t.Errorf("PowInt64(%d, %d) = (%d, %v), want (%d, %v)", c.a, c.b, got, deopt, c.want, c.deopt)
+		}
+	}
+}
+
 // TestZeroDivisionError pins that the static tier's divide-by-zero raises the
 // same exception surface as the boxed tier, message and type both.
 func TestZeroDivisionError(t *testing.T) {

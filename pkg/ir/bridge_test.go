@@ -174,6 +174,52 @@ func TestModuloOpensNoGuardSiteFloorDivisionDoes(t *testing.T) {
 	}
 }
 
+func TestLowerPowerGuardsNegativeAndOverflow(t *testing.T) {
+	src := "def p(a: int, b: int) -> int:\n    return a ** b\n"
+	got := emitOf(t, src)
+	// Power on two ints stays int, computes through the repeated-squaring helper, and
+	// routes the single deopt flag (a negative exponent or an int64 overflow) to the
+	// deopt edge. There is no zero-division guard because ** has no zero divisor.
+	for _, want := range []string{
+		"(int64, error)",
+		"rt.PowInt64(a, b)",
+		"p_deopt0(a, b)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("emitted power is missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "ZeroDivisionError") {
+		t.Errorf("power has no zero divisor, so it must carry no zero-division guard:\n%s", got)
+	}
+	if strings.Contains(got, "a ** b") {
+		t.Errorf("Go has no ** operator, so power must not lower to a bare token:\n%s", got)
+	}
+}
+
+func TestLowerPowerOnFloatStaysBoxed(t *testing.T) {
+	// A float operand keeps power boxed at M4, so the unit is refused rather than
+	// lowered to a static form that would need math.Pow.
+	src := "def p(a: float, b: float) -> float:\n    return a ** b\n"
+	fn := parseFunc(t, src)
+	if _, err := LowerFunc(fn); err == nil {
+		t.Fatal("power on floats should be refused, keeping the unit boxed")
+	}
+}
+
+// TestPowerOpensOneGuardSite pins that power is counted as guarded by the cost
+// model and the deopt-site walk: it deopts on a negative exponent and on overflow,
+// so the partitioner must build a boxed twin and a resume plan for its one site.
+func TestPowerOpensOneGuardSite(t *testing.T) {
+	fp, err := LowerFunc(parseFunc(t, "def p(a: int, b: int) -> int:\n    return a ** b\n"))
+	if err != nil {
+		t.Fatalf("LowerFunc power: %v", err)
+	}
+	if sites := GuardSitesOf(fp); len(sites) != 1 {
+		t.Errorf("power opens one guard site, got %d", len(sites))
+	}
+}
+
 func TestLowerMixedArithmeticPromotesToFloat(t *testing.T) {
 	// An int local added to a float parameter promotes the result to float, so the
 	// function's return type is float64.
