@@ -66,6 +66,46 @@ func SignatureOf(f emit.Func, goName string) StaticCallee {
 	return StaticCallee{GoName: goName, Params: params, Ret: f.Ret}
 }
 
+// SignatureFromDef reads a function's unboxed signature from its annotations
+// alone, without lowering the body, so a caller can describe a callee that has
+// not been lowered yet. This is the seed a mutually recursive cycle needs: two
+// functions that call each other never bootstrap through the body-lowering
+// resolver, because neither lowers until the other is already known, so the
+// cycle is described from the annotations instead. It reports false when a
+// parameter is not a plain annotated scalar or the return annotation is missing
+// or non-scalar, since without a scalar return type there is no unboxed shape a
+// caller could build a direct call against. The representations it reads are the
+// canonical scalar reprs, which is exactly what a proven-static body lowers to,
+// because LowerFuncWith rejects a body whose inferred return disagrees with its
+// annotation, so a seeded signature never diverges from the real one.
+func SignatureFromDef(fn *frontend.FuncDef, goName string) (StaticCallee, bool) {
+	if fn.Async || len(fn.Decorators) != 0 {
+		return StaticCallee{}, false
+	}
+	params := make([]emit.Repr, len(fn.Params))
+	for i, p := range fn.Params {
+		if p.Kind != frontend.ParamPlain && p.Kind != frontend.ParamPosOnly {
+			return StaticCallee{}, false
+		}
+		if p.Default != nil || p.Annotation == nil {
+			return StaticCallee{}, false
+		}
+		r, ok := annotationRepr(p.Annotation)
+		if !ok {
+			return StaticCallee{}, false
+		}
+		params[i] = r
+	}
+	if fn.Returns == nil {
+		return StaticCallee{}, false
+	}
+	ret, ok := annotationRepr(fn.Returns)
+	if !ok {
+		return StaticCallee{}, false
+	}
+	return StaticCallee{GoName: goName, Params: params, Ret: ret}, true
+}
+
 // lowerCtx carries the ambient facts a statement needs beyond its own scope: the set
 // of names read anywhere in the function, so a branch or loop can tell a live binding
 // from a dead one, whether the statement sits inside a loop, so a `break` or

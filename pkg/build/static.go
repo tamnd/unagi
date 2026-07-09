@@ -307,6 +307,28 @@ func staticResolver(funcs []qualFunc, staticFree map[string]bool, names map[stri
 		c, ok := callees[name]
 		return c, ok
 	}
+	// Seed each guard-free static callee from its annotations before the refinement
+	// loop. The loop grows the map by lowering, one callee per pass, which never
+	// bootstraps a mutually recursive cycle: each member's lowering waits on the
+	// other's signature, so neither ever lowers and both drop out of the static
+	// file, which fails the "decided static but did not lower" check. The seed
+	// breaks the cycle, and for a scalar-signatured static unit the annotation
+	// signature is exactly what SignatureOf reads off the lowered body, since the
+	// bridge takes the same reprs from the same annotations, so the seed never
+	// disagrees with the refined signature the loop would compute. A unit with no
+	// scalar annotation to seed from is acyclic and lowers on its own in the loop.
+	for _, qf := range funcs {
+		if !staticFree[qf.qual] {
+			continue
+		}
+		bare, ok := topLevelName(qf.qual)
+		if !ok {
+			continue
+		}
+		if sig, ok := ir.SignatureFromDef(qf.def, names[qf.qual]); ok {
+			callees[bare] = sig
+		}
+	}
 	for {
 		grew := false
 		for _, qf := range funcs {

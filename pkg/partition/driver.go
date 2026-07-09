@@ -61,7 +61,10 @@ func DriveWith(module string, m *frontend.Module, mode Mode) []Decision {
 		resolve = resolverFor(callees)
 		decisions = driveOnce(module, m, resolve, mode)
 	}
-	return decisions
+	// The loop above is a least fixpoint from an empty seed, which proves every
+	// acyclic static caller but never a recursive cycle, whose members each wait
+	// on the other. The greatest-fixpoint seed decides those cycles from the top.
+	return promoteCycles(module, m, decisions, resolve, mode)
 }
 
 // driveOnce runs one decision pass over the module with a fixed callee resolver.
