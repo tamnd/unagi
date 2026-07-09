@@ -4,10 +4,44 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"testing"
 
 	"github.com/tamnd/unagi/pkg/build"
 )
+
+// buildGate bounds how many fixtures compile at once. Each RunGolden shells out
+// to `go build`, which links a binary embedding the runtime, the memory-heavy
+// step of the pipeline. The corpus has hundreds of fixtures and marks each one
+// t.Parallel, so left unbounded the suite launches one linker per -parallel slot
+// (GOMAXPROCS by default). On a low-memory CI runner the concurrent linkers
+// exhaust RAM and the child go build is OOM-killed, which the toolchain reports
+// as "signal: segmentation fault". Capping concurrent builds to half the cores
+// keeps the fan-out for the cheap judging work while holding peak linker memory
+// down; the build cache is shared and trimpath-stable, so serializing a few
+// builds costs little. UNAGI_TEST_BUILD_JOBS overrides the cap.
+var buildGate = make(chan struct{}, buildJobs())
+
+func buildJobs() int {
+	if s := os.Getenv("UNAGI_TEST_BUILD_JOBS"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			return n
+		}
+	}
+	if n := runtime.GOMAXPROCS(0) / 2; n > 0 {
+		return n
+	}
+	return 1
+}
+
+// gatedRunGolden runs one fixture through the pipeline while holding a build
+// slot, so no more than buildJobs() fixtures compile concurrently.
+func gatedRunGolden(r *Runner, f Fixture) Result {
+	buildGate <- struct{}{}
+	defer func() { <-buildGate }()
+	return r.RunGolden(context.Background(), f)
+}
 
 func emitGo(t *testing.T, src, dir string) error {
 	t.Helper()
@@ -44,7 +78,7 @@ func TestCorpusGolden(t *testing.T) {
 	for _, f := range fixtures {
 		t.Run(f.Name, func(t *testing.T) {
 			t.Parallel()
-			res := runner.RunGolden(context.Background(), f)
+			res := gatedRunGolden(runner, f)
 			if res.Skipped {
 				t.Skipf("skip: %s", res.SkipWhy)
 			}
