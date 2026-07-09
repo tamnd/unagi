@@ -1290,8 +1290,8 @@ func boolName(k frontend.BoolKind) string {
 func boolReprIR() emit.Repr { return emit.Repr{Go: "bool", Scalar: emit.SBool, Total: true} }
 
 // binOp maps the frontend's arithmetic operators to the ones the scalar tier
-// lowers: the four core operators plus integer floor division, modulo, power, and
-// the logical bitwise ops &, |, ^. The shifts and matrix multiply are not in this
+// lowers: the four core operators plus integer floor division, modulo, power, the
+// logical bitwise ops &, |, ^, and the shifts <<, >>. Matrix multiply is not in this
 // seed.
 func binOp(k frontend.BinKind) (emit.Op, bool) {
 	switch k {
@@ -1315,6 +1315,10 @@ func binOp(k frontend.BinKind) (emit.Op, bool) {
 		return emit.OpBitOr, true
 	case frontend.BinBitXor:
 		return emit.OpBitXor, true
+	case frontend.BinLShift:
+		return emit.OpLShift, true
+	case frontend.BinRShift:
+		return emit.OpRShift, true
 	}
 	return 0, false
 }
@@ -1368,6 +1372,15 @@ func binResult(op emit.Op, l, r emit.Repr) (emit.Repr, error) {
 	// int, no guard. A float operand is a TypeError in Python (bitwise ops reject
 	// floats), so it is refused here rather than lowered.
 	if op == emit.OpBitAnd || op == emit.OpBitOr || op == emit.OpBitXor {
+		if l.Scalar == emit.SFloat || r.Scalar == emit.SFloat {
+			return emit.Repr{}, unsupported("%s on a float operand is not valid Python", op)
+		}
+		return emit.Repr{Go: "int64", Scalar: emit.SInt}, nil
+	}
+	// The shifts << and >> lower only on two ints: the result is an int, left shift
+	// guarded for overflow and both guarded for a negative count. A float operand is a
+	// TypeError in Python (shifts reject floats), so it is refused here.
+	if op == emit.OpLShift || op == emit.OpRShift {
 		if l.Scalar == emit.SFloat || r.Scalar == emit.SFloat {
 			return emit.Repr{}, unsupported("%s on a float operand is not valid Python", op)
 		}

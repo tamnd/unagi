@@ -281,6 +281,79 @@ func TestBitwiseOpensNoGuardSite(t *testing.T) {
 	}
 }
 
+func TestLowerLeftShiftGuardsNegativeAndOverflow(t *testing.T) {
+	src := "def s(a: int, b: int) -> int:\n    return a << b\n"
+	got := emitOf(t, src)
+	// Left shift on two ints stays int, shifts through the runtime helper, guards a
+	// negative count with ValueError, and routes its overflow to the deopt edge.
+	for _, want := range []string{
+		"(int64, error)",
+		"rt.LShiftInt64(a, b)",
+		`rt.ValueError("negative shift count")`,
+		"s_deopt0(a, b)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("emitted left shift is missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "a << b") {
+		t.Errorf("left shift must not lower to a bare Go shift that wraps:\n%s", got)
+	}
+}
+
+func TestLowerRightShiftGuardsNegativeWithoutDeopt(t *testing.T) {
+	src := "def s(a: int, b: int) -> int:\n    return a >> b\n"
+	got := emitOf(t, src)
+	// Right shift on two ints stays int, shifts through the runtime helper, and guards
+	// a negative count with ValueError. It never overflows, so it opens no deopt edge.
+	for _, want := range []string{
+		"(int64, error)",
+		"rt.RShiftInt64(a, b)",
+		`rt.ValueError("negative shift count")`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("emitted right shift is missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "deopt") {
+		t.Errorf("right shift never overflows, so it must open no deopt edge:\n%s", got)
+	}
+}
+
+func TestLowerShiftOnFloatStaysBoxed(t *testing.T) {
+	// A float operand is a TypeError for shifts in Python, so the unit is refused.
+	for _, src := range []string{
+		"def s(a: float, b: float) -> float:\n    return a << b\n",
+		"def s(a: float, b: float) -> float:\n    return a >> b\n",
+	} {
+		fn := parseFunc(t, src)
+		if _, err := LowerFunc(fn); err == nil {
+			t.Fatalf("shift on floats should be refused, keeping the unit boxed:\n%s", src)
+		}
+	}
+}
+
+// TestShiftGuardSites pins the guard classification the cost model and the deopt-site
+// walk share: left shift carries an overflow guard and opens one deopt site, while
+// right shift only floors and opens none. The negative-count check is a semantic
+// ValueError on both, which is not a deopt site.
+func TestShiftGuardSites(t *testing.T) {
+	shl, err := LowerFunc(parseFunc(t, "def s(a: int, b: int) -> int:\n    return a << b\n"))
+	if err != nil {
+		t.Fatalf("LowerFunc left shift: %v", err)
+	}
+	if sites := GuardSitesOf(shl); len(sites) != 1 {
+		t.Errorf("left shift opens one guard site, got %d", len(sites))
+	}
+	shr, err := LowerFunc(parseFunc(t, "def s(a: int, b: int) -> int:\n    return a >> b\n"))
+	if err != nil {
+		t.Fatalf("LowerFunc right shift: %v", err)
+	}
+	if sites := GuardSitesOf(shr); len(sites) != 0 {
+		t.Errorf("right shift opens no guard site, got %d", len(sites))
+	}
+}
+
 func TestLowerMixedArithmeticPromotesToFloat(t *testing.T) {
 	// An int local added to a float parameter promotes the result to float, so the
 	// function's return type is float64.

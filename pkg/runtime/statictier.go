@@ -119,6 +119,44 @@ func PowInt64(a, b int64) (int64, bool) {
 	return result, false
 }
 
+// LShiftInt64 returns the Python left shift a << b for a non-negative count and
+// reports whether the result carried past int64, in which case Python spills to a
+// big int and the static tier deopts. The caller guards a negative count as a
+// ValueError before this runs, so b is non-negative here. The overflow check shifts
+// the result back and compares: a left shift that fits is exactly reversible by the
+// matching arithmetic right shift (-1 << 63 is INT64_MIN, which shifts back to -1),
+// while an overflowing shift is not (1 << 63 wraps to INT64_MIN, which shifts back
+// to -1, not 1). A zero left operand never overflows, so it short-circuits before the
+// shift, which also covers a count of 64 or more, where Go's shift yields zero.
+func LShiftInt64(a, b int64) (int64, bool) {
+	if a == 0 {
+		return 0, false
+	}
+	r := a << uint64(b)
+	if r>>uint64(b) != a {
+		return 0, true
+	}
+	return r, false
+}
+
+// RShiftInt64 returns the Python right shift a >> b for a non-negative count. Python
+// right shift is arithmetic, flooring toward negative infinity, which is exactly
+// Go's signed >> on int64, including the saturation Python shares: a count of 64 or
+// more yields 0 for a non-negative operand and -1 for a negative one. It never
+// overflows, so there is no flag. The caller guards a negative count as a ValueError
+// before this runs, so b is non-negative and the uint64 conversion is exact.
+func RShiftInt64(a, b int64) int64 {
+	return a >> uint64(b)
+}
+
+// ValueError builds the exception a static-tier operation raises through the D14
+// error channel for a value outside an operator's domain, such as a negative shift
+// count. It is the same exception the boxed tier raises, so the program reads
+// identically whichever tier ran the operation.
+func ValueError(msg string) error {
+	return objects.Raise(objects.ValueError, "%s", msg)
+}
+
 // BoolToInt returns 1 for true and 0 for false, the int value CPython gives a
 // bool used as a number: bool is a subtype of int, so `True + 1` is `2` and
 // `False * 3.0` is `0.0`. The static tier calls this to coerce a bool operand

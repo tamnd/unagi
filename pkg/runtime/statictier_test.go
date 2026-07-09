@@ -168,6 +168,72 @@ func TestPowInt64(t *testing.T) {
 	}
 }
 
+func TestLShiftInt64(t *testing.T) {
+	cases := []struct {
+		a, b, want int64
+		ovf        bool
+	}{
+		// Non-negative counts whose result fits int64 shift exactly.
+		{1, 0, 1, false},
+		{1, 4, 16, false},
+		{255, 4, 4080, false},
+		{-3, 2, -12, false},
+		{1, 62, 1 << 62, false},
+		// The two boundaries that fill or fit the sign bit without overflowing.
+		{-1, 63, math.MinInt64, false},
+		// A zero operand never overflows, even for a huge count.
+		{0, 100, 0, false},
+		{0, 0, 0, false},
+		// The first overflow: 1 << 63 is 2**63, one past int64.
+		{1, 63, 0, true},
+		{-1, 64, 0, true},
+		{3, 62, 0, true},
+		// A count of 64 or more on a nonzero operand always overflows.
+		{1, 64, 0, true},
+		{1, 100, 0, true},
+	}
+	for _, c := range cases {
+		got, ovf := LShiftInt64(c.a, c.b)
+		if ovf != c.ovf || (!ovf && got != c.want) {
+			t.Errorf("LShiftInt64(%d, %d) = (%d, %v), want (%d, %v)", c.a, c.b, got, ovf, c.want, c.ovf)
+		}
+	}
+}
+
+func TestRShiftInt64(t *testing.T) {
+	cases := []struct {
+		a, b, want int64
+	}{
+		// Arithmetic shift floors toward negative infinity, matching Python.
+		{7, 1, 3},
+		{-7, 1, -4},
+		{255, 4, 15},
+		{-256, 4, -16},
+		{1, 0, 1},
+		// Saturation for a count past the width: 0 for non-negative, -1 for negative.
+		{5, 100, 0},
+		{-1, 100, -1},
+		{-1, 64, -1},
+	}
+	for _, c := range cases {
+		if got := RShiftInt64(c.a, c.b); got != c.want {
+			t.Errorf("RShiftInt64(%d, %d) = %d, want %d", c.a, c.b, got, c.want)
+		}
+	}
+}
+
+// TestValueError pins that the static tier's ValueError raises the same exception
+// surface as the boxed tier, message and type both.
+func TestValueError(t *testing.T) {
+	err := ValueError("negative shift count")
+	if err == nil {
+		t.Fatal("ValueError returned nil")
+	}
+	if got, want := err.Error(), "ValueError: negative shift count"; got != want {
+		t.Errorf("ValueError().Error() = %q, want %q", got, want)
+	}
+}
+
 // TestZeroDivisionError pins that the static tier's divide-by-zero raises the
 // same exception surface as the boxed tier, message and type both.
 func TestZeroDivisionError(t *testing.T) {

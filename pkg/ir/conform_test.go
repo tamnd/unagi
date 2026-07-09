@@ -104,6 +104,16 @@ func TestStaticTierMatchesCPython(t *testing.T) {
 		{"bit or negative", "def f(a: int, b: int) -> int:\n    return a | b\n", "f(-5, 3)"},
 		{"bit xor positive", "def f(a: int, b: int) -> int:\n    return a ^ b\n", "f(12, 10)"},
 		{"bit xor negative", "def f(a: int, b: int) -> int:\n    return a ^ b\n", "f(-5, 3)"},
+		// Right shift is arithmetic, flooring toward negative infinity, and never
+		// overflows, so it is guard-free and reaches this runner (02, shift section).
+		// Go's signed >> matches Python for both a non-negative operand and the
+		// negative one that fills with sign bits, including saturation past the width.
+		{"rshift positive", "def f(a: int, b: int) -> int:\n    return a >> b\n", "f(255, 4)"},
+		{"rshift negative operand", "def f(a: int, b: int) -> int:\n    return a >> b\n", "f(-256, 4)"},
+		{"rshift saturates negative", "def f(a: int, b: int) -> int:\n    return a >> b\n", "f(-1, 100)"},
+		// A negative shift count raises ValueError with the exact "negative shift count"
+		// message on both tiers, diffed against CPython directly.
+		{"rshift negative count", "def f(a: int, b: int) -> int:\n    return a >> b\n", "f(1, -1)"},
 		// String concatenation (04_strings.md). The call uses double quotes so the
 		// one call text is a Go string literal and a Python string literal at once;
 		// repr renders both with single quotes, so the printed forms still match.
