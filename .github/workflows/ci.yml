@@ -23,7 +23,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          # The conformance suite compiles one throwaway binary per fixture. The
+          # runner throttles concurrent builds to keep peak linker memory in
+          # check; on the roomy Linux runner we lift that cap so the warm build
+          # cache is exercised in parallel, while the lower-memory macOS runner
+          # keeps the runner's safe default (half the cores).
+          - os: ubuntu-latest
+            build_jobs: "4"
+          - os: macos-latest
+            build_jobs: ""
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7.0.0
@@ -45,6 +54,8 @@ jobs:
       - name: build
         run: go build ./...
       - name: test
+        env:
+          UNAGI_TEST_BUILD_JOBS: ${{ matrix.build_jobs }}
         run: go test -race -count=1 -coverprofile=coverage.out ./...
       - name: coverage summary
         if: matrix.os == 'ubuntu-latest'
