@@ -1,0 +1,9 @@
+== exit: 1
+== stdout:
+1.5
+3.5
+== exception:
+IndexError: list index out of range
+  main.py:16 <module>
+  main.py:12 pick
+== stderr:
