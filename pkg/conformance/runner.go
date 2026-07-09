@@ -16,6 +16,7 @@ import (
 
 	"github.com/tamnd/unagi/pkg/build"
 	"github.com/tamnd/unagi/pkg/partition"
+	"github.com/tamnd/unagi/pkg/report"
 )
 
 // Runner holds the per-invocation knobs.
@@ -178,12 +179,36 @@ func (r *Runner) execSubject(ctx context.Context, f Fixture) (Outcome, error) {
 		return Outcome{}, err
 	}
 	defer cleanup()
-	bin, err := build.Build(ctx, filepath.Join(runDir, "main.py"), build.Options{
+	opts := build.Options{
 		Out:  filepath.Join(home, "subject"),
 		Tier: r.Tier,
-	})
+	}
+	// A fixture that pins [tiers] carries a checklist tier assertion (doc 00
+	// legend). The pin is only meaningful under the auto tier, the partitioner's
+	// own decision; the forced-tier reruns deliberately override every unit, so
+	// they skip it. When it applies, the build also emits report.json so the pin
+	// can be checked against the recorded verdict.
+	reportPath := ""
+	if r.Tier == partition.ModeAuto && len(f.Config.Tiers) > 0 {
+		reportPath = filepath.Join(home, "report.json")
+		opts.Report = reportPath
+	}
+	bin, err := build.Build(ctx, filepath.Join(runDir, "main.py"), opts)
 	if err != nil {
 		return Outcome{}, err
+	}
+	if reportPath != "" {
+		data, err := os.ReadFile(reportPath)
+		if err != nil {
+			return Outcome{}, fmt.Errorf("tier pin: %v", err)
+		}
+		rep, err := report.Parse(data)
+		if err != nil {
+			return Outcome{}, fmt.Errorf("tier pin: %v", err)
+		}
+		if err := assertTiers(rep, f.Config.Tiers); err != nil {
+			return Outcome{}, err
+		}
 	}
 	out, err := r.execute(ctx, f, runDir, home, bin, f.Config.Argv)
 	if err != nil {

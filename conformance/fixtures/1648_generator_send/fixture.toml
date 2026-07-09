@@ -1,0 +1,5 @@
+# The send generator stays boxed at M4: a bidirectional coroutine has no static
+# form yet, so the pin asserts it did not promote. Checked only under the auto
+# tier; the forced-tier reruns override every unit.
+[tiers]
+"<module>.echo" = "boxed"
