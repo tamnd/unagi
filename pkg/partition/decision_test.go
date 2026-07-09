@@ -72,6 +72,29 @@ func TestDecideBoxedByExcursionBudget(t *testing.T) {
 	}
 }
 
+func TestDecideExcursionBudgetBoundary(t *testing.T) {
+	c := NewCensus()
+	// Doc 07 items 31 and 33 are one boundary read from two sides: an excursion
+	// exactly on the 25 percent line keeps the function static and records the
+	// excursion, and a single op past the line demotes the whole unit to boxed.
+	// The budget is ExcursionOps*4 <= TotalOps, so 10 excursion ops against 30
+	// unboxed ops sits on the line (40 <= 40) and 11 against 29 steps over it.
+	edge := Decide(c, Input{Unit: unit("onbudget", 70), Profile: Profile{UnboxedOps: 30, ExcursionOps: 10, Excursions: 1, EntryGuards: 1}})
+	if edge.State != StaticWithExcursions {
+		t.Fatalf("an excursion exactly on the budget line should stay StaticWithExcursions, got %s", edge.State)
+	}
+	if edge.Excursions != 1 {
+		t.Fatalf("the on-budget decision should record its one excursion, got %d", edge.Excursions)
+	}
+	over := Decide(c, Input{Unit: unit("overbudget", 71), Profile: Profile{UnboxedOps: 29, ExcursionOps: 11, Excursions: 1, EntryGuards: 1}})
+	if over.State != BoxedByCost {
+		t.Fatalf("one op past the budget line should demote to BoxedByCost, got %s", over.State)
+	}
+	if len(over.Reasons) != 1 || over.Reasons[0].Rule != RuleExcursionBudget {
+		t.Fatalf("the demotion reason should be the excursion budget, got %+v", over.Reasons)
+	}
+}
+
 func TestDecideBoxedByCostModel(t *testing.T) {
 	c := NewCensus()
 	u := unit("thunky", 60)
