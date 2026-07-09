@@ -74,6 +74,21 @@ func TestDriveBoxesUnprovenUnits(t *testing.T) {
 	}
 }
 
+func TestDriveBoxesAsyncDef(t *testing.T) {
+	// An async def builds a coroutine, which has no static form at M4: the bridge
+	// refuses it, so the unit carries no proof and stays boxed even though its body
+	// is a plain scalar return the sync twin would prove static. This is the tier
+	// the 08:42 checklist pins for the async fixtures.
+	ds := byName(drive(t, "async def inc(x: int) -> int:\n    return x + 1\n"))
+	d, ok := ds["<module>.inc"]
+	if !ok {
+		t.Fatalf("missing unit <module>.inc; got %v", names(drive(t, "async def inc(x: int) -> int:\n    return x + 1\n")))
+	}
+	if d.State.IsStatic() {
+		t.Fatalf("an async def has no static form at M4 and must box, got %v", d.State)
+	}
+}
+
 func TestDriveProvesScalarFunctionStatic(t *testing.T) {
 	// A proven scalar function with total float arithmetic clears the cost model
 	// and lands static, the first tier the partitioner proves through the bridge.
