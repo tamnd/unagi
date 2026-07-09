@@ -62,3 +62,30 @@ func TestForCountFromStartRenders(t *testing.T) {
 		t.Fatalf("range(a, b) should count from a to b:\n%s", got)
 	}
 }
+
+// TestForCountDownRenders proves a Down loop counts down: the bound test flips to `>` and
+// the step to `i--`, so range(a, b, -1) stops on the correct side of the bound.
+func TestForCountDownRenders(t *testing.T) {
+	_, iR, _ := reprs()
+	got, err := EmitFunc(Func{
+		Name:   "count",
+		Params: []Param{{Name: "a", Repr: iR}, {Name: "b", Repr: iR}},
+		Ret:    iR,
+		Body: []Stmt{
+			ForCount{
+				Var:   "i",
+				Start: Var{Name: "a", Repr: iR},
+				Stop:  Var{Name: "b", Repr: iR},
+				Down:  true,
+				Body:  []Stmt{Break{}},
+			},
+			Return{Value: Int{V: 0}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "for i := a; i > b; i-- {") {
+		t.Fatalf("a descending loop should test i > b and step i--:\n%s", got)
+	}
+}

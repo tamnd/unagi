@@ -51,13 +51,36 @@ func TestLowerForRangeUsesInductionVariable(t *testing.T) {
 	}
 }
 
+// TestLowerForRangeStepUp proves an explicit +1 step counts up like the two-argument form.
+func TestLowerForRangeStepUp(t *testing.T) {
+	src := "def f(a: int, b: int) -> float:\n    total = 0.0\n    for i in range(a, b, 1):\n        total = total + 1.0\n    return total\n"
+	got := emitOf(t, src)
+	if !strings.Contains(got, "for i := a; i < b; i++ {") {
+		t.Fatalf("range(a, b, 1) should count up:\n%s", got)
+	}
+}
+
+// TestLowerForRangeStepDown proves an explicit -1 step counts down, testing the bound on
+// the other side with a decrementing induction, so a descending range terminates correctly.
+func TestLowerForRangeStepDown(t *testing.T) {
+	src := "def f(a: int, b: int) -> float:\n    total = 0.0\n    for i in range(a, b, -1):\n        total = total + 1.0\n    return total\n"
+	got := emitOf(t, src)
+	if !strings.Contains(got, "for i := a; i > b; i-- {") {
+		t.Fatalf("range(a, b, -1) should count down:\n%s", got)
+	}
+}
+
 // TestLowerForRangeRefuses pins the loop forms that stay boxed at this slice.
 func TestLowerForRangeRefuses(t *testing.T) {
 	cases := []struct {
 		name string
 		src  string
 	}{
-		{"explicit step", "def f(n: int) -> int:\n    for i in range(0, n, 2):\n        pass\n    return n\n"},
+		{"positive step magnitude two", "def f(n: int) -> int:\n    for i in range(0, n, 2):\n        pass\n    return n\n"},
+		{"negative step magnitude two", "def f(n: int) -> int:\n    for i in range(n, 0, -2):\n        pass\n    return n\n"},
+		{"non-literal step", "def f(n: int, s: int) -> int:\n    for i in range(0, n, s):\n        pass\n    return n\n"},
+		{"zero step", "def f(n: int) -> int:\n    for i in range(0, n, 0):\n        pass\n    return n\n"},
+		{"four arguments", "def f(n: int) -> int:\n    for i in range(0, n, 1, 1):\n        pass\n    return n\n"},
 		{"enumerate-style tuple target", "def f(xs: list) -> int:\n    for i, x in enumerate(xs):\n        pass\n    return 0\n"},
 		{"list iteration", "def f(xs: list) -> int:\n    for x in xs:\n        pass\n    return 0\n"},
 		{"mutated bound", "def f(n: int) -> int:\n    for i in range(n):\n        n = 0\n    return n\n"},

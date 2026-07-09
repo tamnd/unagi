@@ -206,6 +206,17 @@ func TestStaticTierMatchesCPython(t *testing.T) {
 		// float accumulation makes the loop guard-free. This checks the loop variable
 		// counts up through the exact CPython sequence 0, 1, ... n-1.
 		{"for range reads index", "def f(n: int) -> float:\n    total = 0.0\n    for i in range(n):\n        if i < 2:\n            total = total + 1.0\n        else:\n            total = total + 10.0\n    return total\n", "f(4)"},
+		// A range with an explicit +1 step counts the same as the two-argument form, and
+		// a -1 step counts down (06 line 46). The descending call spans n down to 1 and a
+		// second call passes a bound at or above the start so the descending range is
+		// empty, both matching CPython's range semantics.
+		{"for range step up one", "def f(a: int, b: int) -> float:\n    total = 0.0\n    for i in range(a, b, 1):\n        total = total + 1.0\n    return total\n", "f(2, 7)"},
+		{"for range step down", "def f(n: int) -> float:\n    total = 0.0\n    for i in range(n, 0, -1):\n        total = total + 1.0\n    return total\n", "f(5)"},
+		{"for range step down empty", "def f(n: int) -> float:\n    total = 0.0\n    for i in range(n, 0, -1):\n        total = total + 1.0\n    return total\n", "f(0)"},
+		// The descending index runs through the exact CPython sequence n, n-1, ... 1: for
+		// n = 4 the loop sees 4, 3, 2, 1, so the two large steps and two small steps sum
+		// to 22 only if the index counts down correctly.
+		{"for range step down reads index", "def f(n: int) -> float:\n    total = 0.0\n    for i in range(n, 0, -1):\n        if i > 2:\n            total = total + 10.0\n        else:\n            total = total + 1.0\n    return total\n", "f(4)"},
 	}
 
 	dir := t.TempDir()

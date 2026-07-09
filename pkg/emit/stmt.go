@@ -76,13 +76,21 @@ type ForRange struct {
 // `for i in range(start, stop)` lowers to. The induction variable is int64, so the
 // body reads it as an int, and the loop runs while it is below the stop bound. The stop
 // bound is a plain value the bridge proves cheap to re-evaluate (a name or a literal),
-// so re-testing it each iteration is sound; a side-effecting bound would need a hoisted
-// temp (doc 06 line 50), which the bridge keeps boxed until that lands. The step is a
-// fixed +1: a range with an explicit step is a later slice (doc 06 line 46).
+// so re-testing it each iteration is sound; a side-effecting bound is hoisted to a temp
+// ahead of the loop (doc 06 line 50) so the header still tests a plain value.
+//
+// Down selects the direction. A default (ascending) loop counts up while `i < stop` with
+// an `i++` step, the shape `range(start, stop)` and an explicit `+1` step take. A Down
+// loop counts down while `i > stop` with an `i--` step, the shape `range(start, stop, -1)`
+// takes, so a descending range terminates on the correct side of the bound. Only a step of
+// magnitude one lands here: a larger step could carry the induction past int64's range
+// before the bound test fires, an overflow the bridge keeps boxed until the loop-back-edge
+// resume point lands (doc 06 line 46).
 type ForCount struct {
 	Var   string
 	Start Expr
 	Stop  Expr
+	Down  bool
 	Body  []Stmt
 }
 
@@ -289,10 +297,18 @@ func (b *Builder) lowerStmt(s Stmt) ([]ast.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
+		// The direction sets the bound test and the step together: an ascending loop runs
+		// while `i < stop` and steps `i++`, a descending loop runs while `i > stop` and
+		// steps `i--`, so a `range(a, b, -1)` counts down and stops on the correct side of
+		// the bound.
+		cmp, step := token.LSS, token.INC
+		if n.Down {
+			cmp, step = token.GTR, token.DEC
+		}
 		loop := &ast.ForStmt{
 			Init: define(n.Var, start),
-			Cond: binary(token.LSS, ident(n.Var), stop),
-			Post: &ast.IncDecStmt{X: ident(n.Var), Tok: token.INC},
+			Cond: binary(cmp, ident(n.Var), stop),
+			Post: &ast.IncDecStmt{X: ident(n.Var), Tok: step},
 			Body: block(body...),
 		}
 		return append(pre, loop), nil
