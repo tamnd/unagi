@@ -639,3 +639,73 @@ func TestLowerRejects(t *testing.T) {
 		})
 	}
 }
+
+// TestConstFoldCollapsesIntConstants pins the doc 11 Tier 3 constant fold: a binary
+// integer expression on compile-time constants lowers to a single literal, so the
+// emitted Go returns the folded value with no runtime helper and no deopt edge. Each
+// folding operator is checked, the nested cases prove the fold recurses, and the
+// subtracting case proves a folded negative literal emits cleanly.
+func TestConstFoldCollapsesIntConstants(t *testing.T) {
+	cases := []struct {
+		name, src, want string
+	}{
+		{"add", "def f(a: int) -> int:\n    return 2 + 3\n", "return 5, nil"},
+		{"subtract to negative", "def f(a: int) -> int:\n    return 2 - 5\n", "return -3, nil"},
+		{"multiply", "def f(a: int) -> int:\n    return 6 * 7\n", "return 42, nil"},
+		{"nested", "def f(a: int) -> int:\n    return (2 + 3) * 4\n", "return 20, nil"},
+		{"floordiv", "def f(a: int) -> int:\n    return 17 // 5\n", "return 3, nil"},
+		{"mod", "def f(a: int) -> int:\n    return 17 % 5\n", "return 2, nil"},
+		{"power", "def f(a: int) -> int:\n    return 2 ** 10\n", "return 1024, nil"},
+		{"bitand", "def f(a: int) -> int:\n    return 6 & 3\n", "return 2, nil"},
+		{"bitor", "def f(a: int) -> int:\n    return 6 | 1\n", "return 7, nil"},
+		{"bitxor", "def f(a: int) -> int:\n    return 6 ^ 3\n", "return 5, nil"},
+		{"lshift", "def f(a: int) -> int:\n    return 1 << 10\n", "return 1024, nil"},
+		{"rshift", "def f(a: int) -> int:\n    return 255 >> 4\n", "return 15, nil"},
+		{"mixed chain", "def f(a: int) -> int:\n    return 2 ** 10 - 1\n", "return 1023, nil"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := emitOf(t, tc.src)
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("folded constant is missing %q:\n%s", tc.want, got)
+			}
+			// A folded literal carries no runtime helper, no overflow flag, and no deopt
+			// edge: it is a plain constant, so none of the guarded-path spellings appear.
+			for _, absent := range []string{"rt.", "deopt", "ovf"} {
+				if strings.Contains(got, absent) {
+					t.Errorf("folded constant should not emit %q:\n%s", absent, got)
+				}
+			}
+		})
+	}
+}
+
+// TestConstFoldBailsKeepsGuardedPath pins the other half of the fold: a constant
+// expression whose exact value cannot be a plain in-range int literal is left on the
+// guarded runtime path, never folded to a wrong or unrepresentable literal. An
+// overflowing product and an overflowing power both keep their runtime helper and
+// deopt edge, and a zero divisor keeps its ZeroDivisionError check.
+func TestConstFoldBailsKeepsGuardedPath(t *testing.T) {
+	cases := []struct {
+		name, src, want string
+	}{
+		// 2**62 fits, doubling it is 2**63, one past int64, so the product must deopt.
+		{"multiply overflow", "def f(a: int) -> int:\n    return 4611686018427387904 * 2\n", "rt.MulInt64(4611686018427387904, 2)"},
+		// 2**63 overflows int64, so the power must deopt rather than fold to a literal.
+		{"power overflow", "def f(a: int) -> int:\n    return 2 ** 63\n", "rt.PowInt64(2, 63)"},
+		// A constant zero divisor keeps the ZeroDivisionError check rather than folding.
+		{"floordiv by zero", "def f(a: int) -> int:\n    return 5 // 0\n", "rt.FloorDivInt64(5, 0)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := emitOf(t, tc.src)
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("bailed constant should keep the guarded path %q:\n%s", tc.want, got)
+			}
+		})
+	}
+	// The zero-divisor case in particular must raise, not fold to a literal.
+	if got := emitOf(t, "def f(a: int) -> int:\n    return 5 // 0\n"); !strings.Contains(got, "ZeroDivisionError") {
+		t.Errorf("a constant zero divisor must keep its ZeroDivisionError check:\n%s", got)
+	}
+}

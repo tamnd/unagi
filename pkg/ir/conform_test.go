@@ -251,6 +251,25 @@ func TestStaticTierMatchesCPython(t *testing.T) {
 		// n = 4 the loop sees 4, 3, 2, 1, so the two large steps and two small steps sum
 		// to 22 only if the index counts down correctly.
 		{"for range step down reads index", "def f(n: int) -> float:\n    total = 0.0\n    for i in range(n, 0, -1):\n        if i > 2:\n            total = total + 10.0\n        else:\n            total = total + 1.0\n    return total\n", "f(4)"},
+		// Constant folding (11 Tier 3). A binary integer expression on compile-time
+		// constants folds to a single literal, so the whole function returns the folded
+		// value with no operation and no guard, which is exactly why these reach the
+		// guard-free runner. Each operator that folds is checked against CPython, the
+		// nested cases prove the fold recurses through subexpressions, and the subtracting
+		// case proves a folded negative literal emits and reads back correctly. The
+		// parameter is unused; it only gives the caller an argument to pass.
+		{"const fold add", "def f(a: int) -> int:\n    return 2 + 3\n", "f(0)"},
+		{"const fold subtract negative", "def f(a: int) -> int:\n    return 2 - 5\n", "f(0)"},
+		{"const fold nested", "def f(a: int) -> int:\n    return (2 + 3) * 4\n", "f(0)"},
+		{"const fold floordiv", "def f(a: int) -> int:\n    return 17 // 5\n", "f(0)"},
+		{"const fold mod", "def f(a: int) -> int:\n    return 17 % 5\n", "f(0)"},
+		{"const fold power", "def f(a: int) -> int:\n    return 2 ** 10\n", "f(0)"},
+		{"const fold bitand", "def f(a: int) -> int:\n    return 6 & 3\n", "f(0)"},
+		{"const fold bitor", "def f(a: int) -> int:\n    return 6 | 1\n", "f(0)"},
+		{"const fold bitxor", "def f(a: int) -> int:\n    return 6 ^ 3\n", "f(0)"},
+		{"const fold lshift", "def f(a: int) -> int:\n    return 1 << 10\n", "f(0)"},
+		{"const fold rshift", "def f(a: int) -> int:\n    return 255 >> 4\n", "f(0)"},
+		{"const fold mixed chain", "def f(a: int) -> int:\n    return 2 ** 10 - 1\n", "f(0)"},
 	}
 
 	dir := t.TempDir()
