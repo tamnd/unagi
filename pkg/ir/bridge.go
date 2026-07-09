@@ -35,15 +35,33 @@ func unsupported(format string, a ...any) error {
 // type for.
 type scope map[string]emit.Repr
 
+// StaticCallee describes a static-tier function a direct call may target: its
+// emitted Go name and its unboxed signature. The bridge lowers a call to another
+// static unit into a monomorphic Go call on this name, threading the D14 error,
+// so the caller must know the callee's exact name and parameter and result
+// representations to build a well-typed call.
+type StaticCallee struct {
+	GoName string
+	Params []emit.Repr
+	Ret    emit.Repr
+}
+
+// CalleeResolver reports the static callee a bare name refers to at the call
+// site, or false when the name is not a static function the caller may call
+// directly. A nil resolver resolves nothing, so a call always refuses and the
+// unit stays boxed, which is how a caller with no known-static callees behaves.
+type CalleeResolver func(name string) (StaticCallee, bool)
+
 // lowerCtx carries the ambient facts a statement needs beyond its own scope: the set
 // of names read anywhere in the function, so a branch or loop can tell a live binding
-// from a dead one, and whether the statement sits inside a loop, so a `break` or
-// `continue` is accepted only where Go would accept it. It is passed by value, so a
-// loop can hand its body a copy with inLoop set without disturbing the enclosing
-// context.
+// from a dead one, whether the statement sits inside a loop, so a `break` or
+// `continue` is accepted only where Go would accept it, and the resolver that maps a
+// callee name to its static signature. It is passed by value, so a loop can hand its
+// body a copy with inLoop set without disturbing the enclosing context.
 type lowerCtx struct {
-	reads  map[string]bool
-	inLoop bool
+	reads   map[string]bool
+	inLoop  bool
+	resolve CalleeResolver
 }
 
 // scalarRepr is the doc 04 representation of a scalar type named by a bare
@@ -69,6 +87,14 @@ func scalarRepr(name string) (emit.Repr, bool) {
 // outside the scalar subset pkg/emit lowers. On success the returned Func prints,
 // through emit.EmitFunc, to the same unboxed Go the hand-built models produced.
 func LowerFunc(fn *frontend.FuncDef) (emit.Func, error) {
+	return LowerFuncWith(fn, nil)
+}
+
+// LowerFuncWith lowers a function with a resolver for its static-tier callees, so
+// a call to another static unit lowers to a direct Go call rather than a refusal.
+// A nil resolver refuses every call, which is exactly LowerFunc's behavior. The
+// resolver is a pure function of the callee name, so lowering stays deterministic.
+func LowerFuncWith(fn *frontend.FuncDef, resolve CalleeResolver) (emit.Func, error) {
 	if fn.Async {
 		return emit.Func{}, unsupported("async def %s", fn.Name)
 	}
@@ -103,7 +129,7 @@ func LowerFunc(fn *frontend.FuncDef) (emit.Func, error) {
 	// unit boxed rather than emit a local Go rejects.
 	reads := map[string]bool{}
 	loadedNames(fn.Body, reads)
-	ctx := lowerCtx{reads: reads}
+	ctx := lowerCtx{reads: reads, resolve: resolve}
 
 	body, ret, terminates, err := lowerBody(fn.Body, sc, ctx)
 	if err != nil {
@@ -208,7 +234,7 @@ func lowerStmt(s frontend.Stmt, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr
 		if n.Value == nil {
 			return nil, nil, false, unsupported("a bare return has no scalar value")
 		}
-		v, r, err := lowerExpr(n.Value, sc)
+		v, r, err := lowerExpr(n.Value, sc, ctx)
 		if err != nil {
 			return nil, nil, false, err
 		}
@@ -228,13 +254,13 @@ func lowerStmt(s frontend.Stmt, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr
 			return nil, nil, false, unsupported("chained assignment")
 		}
 		if tup, ok := n.Targets[0].(*frontend.TupleLit); ok {
-			return lowerTupleAssign(tup, n.Value, sc)
+			return lowerTupleAssign(tup, n.Value, sc, ctx)
 		}
 		name, ok := n.Targets[0].(*frontend.Name)
 		if !ok {
 			return nil, nil, false, unsupported("assignment target is not a plain name")
 		}
-		v, r, err := lowerExpr(n.Value, sc)
+		v, r, err := lowerExpr(n.Value, sc, ctx)
 		if err != nil {
 			return nil, nil, false, err
 		}
@@ -260,7 +286,7 @@ func lowerStmt(s frontend.Stmt, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr
 		if n.Value == nil {
 			return nil, nil, false, unsupported("bare annotation without a value binds nothing")
 		}
-		v, r, err := lowerExpr(n.Value, sc)
+		v, r, err := lowerExpr(n.Value, sc, ctx)
 		if err != nil {
 			return nil, nil, false, err
 		}
@@ -292,7 +318,7 @@ func lowerStmt(s frontend.Stmt, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr
 		if !ok {
 			return nil, nil, false, unsupported("%s += reads %s before it is bound", name.Id, name.Id)
 		}
-		v, vr, err := lowerExpr(n.Value, sc)
+		v, vr, err := lowerExpr(n.Value, sc, ctx)
 		if err != nil {
 			return nil, nil, false, err
 		}
@@ -313,7 +339,7 @@ func lowerStmt(s frontend.Stmt, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr
 // Define) or every target rebinds an existing name of the same scalar (a parallel
 // Assign); a mix, or a type-changing rebind, keeps the unit boxed because Go's :=
 // and = do not compose across a half-new left side.
-func lowerTupleAssign(tgt *frontend.TupleLit, value frontend.Expr, sc scope) ([]emit.Stmt, *emit.Repr, bool, error) {
+func lowerTupleAssign(tgt *frontend.TupleLit, value frontend.Expr, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr, bool, error) {
 	rhs, ok := value.(*frontend.TupleLit)
 	if !ok {
 		return nil, nil, false, unsupported("tuple unpack of a non-tuple value stays boxed")
@@ -342,7 +368,7 @@ func lowerTupleAssign(tgt *frontend.TupleLit, value frontend.Expr, sc scope) ([]
 	vals := make([]emit.Expr, len(rhs.Elts))
 	reprs := make([]emit.Repr, len(rhs.Elts))
 	for i, e := range rhs.Elts {
-		v, r, err := lowerExpr(e, sc)
+		v, r, err := lowerExpr(e, sc, ctx)
 		if err != nil {
 			return nil, nil, false, err
 		}
@@ -381,7 +407,7 @@ func lowerTupleAssign(tgt *frontend.TupleLit, value frontend.Expr, sc scope) ([]
 // lets the function demand a return on every path. An elif rides in as a nested If in
 // Else, so the recursion here produces the nested emit.If the emitter folds to else-if.
 func lowerIf(n *frontend.If, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr, bool, error) {
-	cond, cr, err := lowerExpr(n.Cond, sc)
+	cond, cr, err := lowerExpr(n.Cond, sc, ctx)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -504,7 +530,7 @@ func lowerWhile(n *frontend.While, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.R
 	if len(n.Else) > 0 {
 		return nil, nil, false, unsupported("a while-else has no static form at M4")
 	}
-	cond, cr, err := lowerExpr(n.Cond, sc)
+	cond, cr, err := lowerExpr(n.Cond, sc, ctx)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -627,7 +653,7 @@ func lowerFor(n *frontend.For, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr,
 	if startArg == nil {
 		start = emit.Int{V: 0}
 	} else {
-		s, sr, err := lowerExpr(startArg, sc)
+		s, sr, err := lowerExpr(startArg, sc, ctx)
 		if err != nil {
 			return nil, nil, false, err
 		}
@@ -640,7 +666,7 @@ func lowerFor(n *frontend.For, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr,
 	// The stop bound is re-tested each iteration, so it must be a stable int: a literal,
 	// or a name the body never reassigns. Anything computed needs the hoisted temp of a
 	// later slice.
-	stop, stopRepr, err := lowerExpr(stopArg, sc)
+	stop, stopRepr, err := lowerExpr(stopArg, sc, ctx)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -916,7 +942,7 @@ func joinReturns(then, els *emit.Repr) (*emit.Repr, error) {
 // lowerExpr translates one expression and returns its representation alongside
 // the emit node, so the caller always knows the shape of the value without a
 // second inference pass.
-func lowerExpr(e frontend.Expr, sc scope) (emit.Expr, emit.Repr, error) {
+func lowerExpr(e frontend.Expr, sc scope, ctx lowerCtx) (emit.Expr, emit.Repr, error) {
 	switch n := e.(type) {
 	case *frontend.Name:
 		r, ok := sc[n.Id]
@@ -946,11 +972,11 @@ func lowerExpr(e frontend.Expr, sc scope) (emit.Expr, emit.Repr, error) {
 		if !ok {
 			return nil, emit.Repr{}, unsupported("binary operator %v", n.Op)
 		}
-		l, lr, err := lowerExpr(n.Left, sc)
+		l, lr, err := lowerExpr(n.Left, sc, ctx)
 		if err != nil {
 			return nil, emit.Repr{}, err
 		}
-		r, rr, err := lowerExpr(n.Right, sc)
+		r, rr, err := lowerExpr(n.Right, sc, ctx)
 		if err != nil {
 			return nil, emit.Repr{}, err
 		}
@@ -961,10 +987,13 @@ func lowerExpr(e frontend.Expr, sc scope) (emit.Expr, emit.Repr, error) {
 		return emit.Bin{Op: op, L: l, R: r}, res, nil
 
 	case *frontend.Compare:
-		return lowerCompare(n, sc)
+		return lowerCompare(n, sc, ctx)
 
 	case *frontend.BoolOp:
-		return lowerBoolOp(n, sc)
+		return lowerBoolOp(n, sc, ctx)
+
+	case *frontend.Call:
+		return lowerCall(n, sc, ctx)
 
 	case *frontend.UnaryOp:
 		// Only `not` has a static form here. Negation and bitwise invert are
@@ -973,7 +1002,7 @@ func lowerExpr(e frontend.Expr, sc scope) (emit.Expr, emit.Repr, error) {
 		if n.Op != frontend.UnaryNot {
 			return nil, emit.Repr{}, unsupported("unary operator %v", n.Op)
 		}
-		x, xr, err := lowerExpr(n.X, sc)
+		x, xr, err := lowerExpr(n.X, sc, ctx)
 		if err != nil {
 			return nil, emit.Repr{}, err
 		}
@@ -992,7 +1021,7 @@ func lowerExpr(e frontend.Expr, sc scope) (emit.Expr, emit.Repr, error) {
 // middle term as both the right of one pair and the left of the next is
 // evaluation-order-safe; the single-evaluation temp the frontier needs for a
 // side-effecting middle term is a later slice, not this one.
-func lowerCompare(n *frontend.Compare, sc scope) (emit.Expr, emit.Repr, error) {
+func lowerCompare(n *frontend.Compare, sc scope, ctx lowerCtx) (emit.Expr, emit.Repr, error) {
 	// In a chain, every term but the first and last is an operand of two adjacent
 	// pairs, so the expansion reads it twice. Python evaluates it once, so a term
 	// that reads twice must be single-evaluation-safe: a bare name or literal reads
@@ -1007,7 +1036,7 @@ func lowerCompare(n *frontend.Compare, sc scope) (emit.Expr, emit.Repr, error) {
 			return nil, emit.Repr{}, unsupported("a chained comparison reuses a computed middle term that would evaluate twice; kept boxed")
 		}
 	}
-	left, leftR, err := lowerExpr(n.Left, sc)
+	left, leftR, err := lowerExpr(n.Left, sc, ctx)
 	if err != nil {
 		return nil, emit.Repr{}, err
 	}
@@ -1017,7 +1046,7 @@ func lowerCompare(n *frontend.Compare, sc scope) (emit.Expr, emit.Repr, error) {
 		if !ok {
 			return nil, emit.Repr{}, unsupported("comparison operator %v", k)
 		}
-		right, rightR, err := lowerExpr(n.Rights[i], sc)
+		right, rightR, err := lowerExpr(n.Rights[i], sc, ctx)
 		if err != nil {
 			return nil, emit.Repr{}, err
 		}
@@ -1042,11 +1071,11 @@ func lowerCompare(n *frontend.Compare, sc scope) (emit.Expr, emit.Repr, error) {
 // scalar the result is that scalar, selected by truthiness through a runtime
 // helper. A mixed chain (say a bool with an int, or an int with a string) has no
 // single static type, so it keeps the unit boxed rather than force a type.
-func lowerBoolOp(n *frontend.BoolOp, sc scope) (emit.Expr, emit.Repr, error) {
+func lowerBoolOp(n *frontend.BoolOp, sc scope, ctx lowerCtx) (emit.Expr, emit.Repr, error) {
 	if len(n.Values) < 2 {
 		return nil, emit.Repr{}, unsupported("boolean connective with fewer than two operands")
 	}
-	acc, accR, err := lowerExpr(n.Values[0], sc)
+	acc, accR, err := lowerExpr(n.Values[0], sc, ctx)
 	if err != nil {
 		return nil, emit.Repr{}, err
 	}
@@ -1057,7 +1086,7 @@ func lowerBoolOp(n *frontend.BoolOp, sc scope) (emit.Expr, emit.Repr, error) {
 		return nil, emit.Repr{}, unsupported("%s needs same-typed scalar operands, got %s", boolName(n.Kind), accR.Scalar)
 	}
 	for _, v := range n.Values[1:] {
-		r, rr, err := lowerExpr(v, sc)
+		r, rr, err := lowerExpr(v, sc, ctx)
 		if err != nil {
 			return nil, emit.Repr{}, err
 		}
@@ -1083,6 +1112,54 @@ func lowerBoolOp(n *frontend.BoolOp, sc scope) (emit.Expr, emit.Repr, error) {
 		return acc, boolReprIR(), nil
 	}
 	return acc, accR, nil
+}
+
+// lowerCall lowers a call to another static unit into a direct, monomorphic Go
+// call. The bridge only reaches a static call through a resolver that names the
+// callee's emitted Go function and its unboxed signature; without one (a nil
+// resolver, or a name the resolver does not know) the call stays boxed, exactly
+// the refusal a caller with no known-static callees wants. Only the plain
+// positional call shape lowers: a keyword, star, or double-star argument, or a
+// callee that is anything but a bare name, has no monomorphic Go form here and is
+// refused. Each argument's proven scalar must match the callee's parameter
+// representation, since a mismatched shape would hand emit a call it cannot type;
+// on a match the call lowers to emit.Call, which prints the direct invocation and
+// threads the D14 error to the caller's own return.
+func lowerCall(n *frontend.Call, sc scope, ctx lowerCtx) (emit.Expr, emit.Repr, error) {
+	name, ok := n.Fn.(*frontend.Name)
+	if !ok {
+		return nil, emit.Repr{}, unsupported("only a call to a bare name has a static form, not %T", n.Fn)
+	}
+	if ctx.resolve == nil {
+		return nil, emit.Repr{}, unsupported("call to %s: no static callee resolver", name.Id)
+	}
+	callee, ok := ctx.resolve(name.Id)
+	if !ok {
+		return nil, emit.Repr{}, unsupported("call to %s: not a known static callee", name.Id)
+	}
+	for _, a := range n.Args {
+		if a.Name != "" {
+			return nil, emit.Repr{}, unsupported("call to %s uses a keyword argument, which has no static form", name.Id)
+		}
+		if a.Star != 0 {
+			return nil, emit.Repr{}, unsupported("call to %s uses a star argument, which has no static form", name.Id)
+		}
+	}
+	if len(n.Args) != len(callee.Params) {
+		return nil, emit.Repr{}, unsupported("call to %s passes %d arguments, the static callee takes %d", name.Id, len(n.Args), len(callee.Params))
+	}
+	args := make([]emit.Expr, len(n.Args))
+	for i, a := range n.Args {
+		v, r, err := lowerExpr(a.Value, sc, ctx)
+		if err != nil {
+			return nil, emit.Repr{}, err
+		}
+		if r.Scalar != callee.Params[i].Scalar {
+			return nil, emit.Repr{}, unsupported("call to %s argument %d is a %s, the static callee takes a %s", name.Id, i, r.Scalar, callee.Params[i].Scalar)
+		}
+		args[i] = v
+	}
+	return emit.Call{Name: callee.GoName, Args: args, Ret: callee.Ret}, callee.Ret, nil
 }
 
 // connScalar reports whether a scalar has a static value-connective form: bool
