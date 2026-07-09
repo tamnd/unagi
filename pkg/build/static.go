@@ -22,13 +22,13 @@ import (
 // a static form that does not compile fails the build instead of passing a golden
 // test in isolation.
 //
-// Only a guard-free static unit is emitted here. A unit that carries an overflow
-// guard emits a deopt edge to its boxed twin, and that twin does not exist until
-// the trampoline band builds it; emitting the edge now would call a function the
-// module never defines and break the build. The partition decision already
-// carries the deopt plan (empty for a guard-free unit), so the gate is exactly
-// "static and no deopt sites". A guarded static unit stays boxed-only until its
-// twin lands.
+// A guard-free static unit emits its static form directly. A unit that carries an
+// overflow guard emits its static form plus a deopt edge into a boxed twin, which
+// the trampoline band builds: the edge reboxes the entry parameters and re-runs
+// the unit boxed from the top. That parameter replay is sound only when the
+// decision's deopt plan is well formed, so a guarded unit earns a static form only
+// when VerifyPlan clears its transfer table; an unsound plan keeps the unit
+// boxed-only, where the answer is always correct.
 
 // staticPlan is the shared static-tier layout for one module: the guard-free
 // provable units, their fixed emitted Go names, and the resolver a caller lowers
@@ -54,6 +54,7 @@ type staticPlan struct {
 func planStatic(mod *frontend.Module, decisions []partition.Decision) *staticPlan {
 	staticFree := make(map[string]bool, len(decisions))
 	deoptTarget := make(map[string]bool, len(decisions))
+	sites := make(map[string][]partition.DeoptSite, len(decisions))
 	for _, d := range decisions {
 		if !d.State.IsStatic() {
 			continue
@@ -62,6 +63,7 @@ func planStatic(mod *frontend.Module, decisions []partition.Decision) *staticPla
 			staticFree[d.Unit.Name] = true
 		} else {
 			deoptTarget[d.Unit.Name] = true
+			sites[d.Unit.Name] = d.Deopts
 		}
 	}
 	if len(staticFree) == 0 && len(deoptTarget) == 0 {
@@ -94,6 +96,16 @@ func planStatic(mod *frontend.Module, decisions []partition.Decision) *staticPla
 			continue
 		}
 		if _, ok := topLevelName(qf.qual); !ok {
+			continue
+		}
+		// The static form's deopt edge reboxes the entry parameters into the boxed
+		// twin, which re-runs the unit from the top. That parameter replay reproduces
+		// the boxed frame the tier would hold only when no observable effect precedes
+		// any guard and every live local maps to a rebox transfer, which is exactly
+		// what VerifyPlan checks over the site's transfer table. A plan that fails it
+		// would materialize a frame the boxed tier never held and answer wrong on
+		// deopt, so the unit demotes to boxed-only rather than ship an unsound form.
+		if len(partition.VerifyPlan(sites[qf.qual])) != 0 {
 			continue
 		}
 		if _, ok := plan.shimEntryFor(qf); ok {
