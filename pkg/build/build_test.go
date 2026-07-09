@@ -218,6 +218,73 @@ func TestBuildDeoptsGuardedUnitToBoxedTwin(t *testing.T) {
 	}
 }
 
+// TestBuildDeoptsGuardedLoopBodyToBoxedTwin covers B3a: a guard inside a loop
+// body lands a static form whose in-loop overflow edge deopts to the boxed twin.
+// The static subset is effect-free, so the twin re-runs the unit from the top and
+// reaches the same total the mid-iteration state would have, only boxed. The
+// fixture accumulates k each iteration; a native call that never overflows stays on
+// the fast path, and a call whose running total overflows int64 mid-loop deopts and
+// finishes boxed with the CPython-correct big-int sum.
+func TestBuildDeoptsGuardedLoopBodyToBoxedTwin(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	dir := t.TempDir()
+	// Thirty float adds in the loop body clear the guard budget so the single
+	// in-loop overflow guard does not demote the unit to boxed.
+	fadd := "x + x + x + x + x + x + x + x + x + x + x + x + x + x + x"
+	src := "def acc(n: int, k: int, x: float) -> int:\n" +
+		"    total = 0\n" +
+		"    s = 0.0\n" +
+		"    for i in range(n):\n" +
+		"        s = s + " + fadd + " + " + fadd + "\n" +
+		"        total = total + k\n" +
+		"    return total\n\n" +
+		"print(acc(3, 5, 1.0))\n" +
+		"print(acc(50, 10**36, 1.0))\n"
+	py := filepath.Join(dir, "main.py")
+	writeFile(t, py, src)
+
+	gen := filepath.Join(dir, "gen")
+	bin, err := Build(context.Background(), py, Options{
+		Out:    filepath.Join(dir, "prog"),
+		EmitGo: gen,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	// The static form carries the accumulation loop, and the overflow edge inside
+	// the for-body tail-calls the deopt hand-off with the entry snapshot.
+	static, err := os.ReadFile(filepath.Join(gen, "static.go"))
+	if err != nil {
+		t.Fatalf("static.go not emitted: %v", err)
+	}
+	for _, want := range []string{
+		"func static_acc(n int64, k int64, x float64) (int64, error)",
+		"d0, d1, d2 := n, k, x",
+		"for i := int64(0); i < n; i++ {",
+		"return static_acc_deopt(d0, d1, d2)",
+	} {
+		if !bytes.Contains(static, []byte(want)) {
+			t.Errorf("static.go missing %q:\n%s", want, static)
+		}
+	}
+
+	var stdout bytes.Buffer
+	cmd := exec.Command(bin)
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	// acc(3, 5, 1.0) sums to 15 on the native path; acc(50, 10**36, 1.0) overflows
+	// int64 mid-loop, deopts, and the twin sums 50 * 10**36 as a big int.
+	want := "15\n50000000000000000000000000000000000000\n"
+	if got := stdout.String(); got != want {
+		t.Errorf("output = %q, want %q", got, want)
+	}
+}
+
 // TestBuildDeoptReplaysEntryParamsNotRebound guards the D4 soundness rule: when a
 // parameter is rebound by an earlier guarded op before a later guard fails, the
 // deopt hand-off must replay the value the unit was entered with, not the rebound

@@ -9,8 +9,9 @@ import (
 // 44-45): a guard-free `for i in range(...)` over an int bound lowers to a Go counting
 // loop with an int64 induction variable, and the forms with no faithful counting-loop
 // shape at this slice (an explicit step, an enumerate or list target, a computed or
-// mutated bound, a mutated loop variable, a guarded body, a for-else) keep the unit
-// boxed.
+// mutated bound, a mutated loop variable, a for-else) keep the unit boxed. A guard in
+// the body deopts to the boxed twin, so a guarded body lowers static rather than
+// refusing.
 
 // TestLowerForRangeCountsFromZero proves range(n) lowers to a zero-based int64 loop.
 func TestLowerForRangeCountsFromZero(t *testing.T) {
@@ -86,7 +87,6 @@ func TestLowerForRangeRefuses(t *testing.T) {
 		{"mutated bound", "def f(n: int) -> int:\n    for i in range(n):\n        n = 0\n    return n\n"},
 		{"mutated loop variable", "def f(n: int) -> int:\n    for i in range(n):\n        i = 0\n    return n\n"},
 		{"shadowing loop variable", "def f(i: int, n: int) -> int:\n    for i in range(n):\n        pass\n    return i\n"},
-		{"guarded body", "def f(n: int) -> int:\n    total = 0\n    for i in range(n):\n        total = total + 1\n    return total\n"},
 		{"for-else", "def f(n: int) -> int:\n    for i in range(n):\n        pass\n    else:\n        return 1\n    return 0\n"},
 	}
 	for _, c := range cases {
@@ -95,6 +95,16 @@ func TestLowerForRangeRefuses(t *testing.T) {
 				t.Fatalf("the static tier must keep %s boxed", c.name)
 			}
 		})
+	}
+}
+
+// TestLowerForRangeGuardedBodyLowers proves a range loop whose body carries an overflow
+// guard lowers static rather than refusing: the guard's deopt edge falls back to the
+// boxed twin, which re-runs the effect-free unit from the top, so the loop is safe.
+func TestLowerForRangeGuardedBodyLowers(t *testing.T) {
+	src := "def f(n: int) -> int:\n    total = 0\n    for i in range(n):\n        total = total + 1\n    return total\n"
+	if _, err := LowerFunc(parseFunc(t, src)); err != nil {
+		t.Fatalf("a guarded for-range body should lower static, got %v", err)
 	}
 }
 

@@ -531,12 +531,14 @@ func lowerIf(n *frontend.If, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr, b
 // leak past the loop; a body that rebinds an outer name reassigns the outer variable,
 // which the accumulator pattern relies on.
 //
-// A guard has no static form inside a loop at M4: doc 06 section 8.2 needs a resume
-// point at the loop back-edge so a mid-iteration deopt resumes boxed at the top of the
-// next iteration, and that resume point is a later slice. So a guarded condition or a
-// guarded body keeps the unit boxed rather than emit a loop whose guard cannot resume.
-// A `while ... else` runs its else when the loop exits without a break; doc 06 line 40
-// keeps that boxed at M4, so a non-empty else is refused here too.
+// A guard in the body deopts to the boxed twin, which re-runs the whole unit boxed
+// from the top. The static subset is effect-free, so that from-top replay reaches the
+// same result the mid-iteration state would have, which makes a guarded body sound at
+// M4; the mid-loop back-edge resume that skips the redone iterations is a later
+// performance slice. A guard in the condition still keeps the unit boxed: it fires
+// before the body runs and its cheapest resume is the same back-edge, so it waits for
+// that slice too. A `while ... else` runs its else when the loop exits without a break;
+// doc 06 line 40 keeps that boxed at M4, so a non-empty else is refused here too.
 //
 // A while may run zero times or loop without returning, so it never makes the function
 // exhaustive; it reports term false and carries no result representation.
@@ -567,15 +569,13 @@ func lowerWhile(n *frontend.While, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.R
 	if err != nil {
 		return nil, nil, false, err
 	}
-	// A guard anywhere in the body has the same missing resume point, so a guarded body
-	// keeps the unit boxed until the deopt-loop slice lands the back-edge resume.
-	var bc Cost
-	for _, st := range body {
-		costStmt(st, &bc)
-	}
-	if bc.EntryGuards+bc.LoopGuards > 0 {
-		return nil, nil, false, unsupported("a guarded while body needs a loop back-edge resume point, deferred past M4")
-	}
+	// An overflow guard in the body deopts to the boxed twin, which re-runs the whole
+	// unit boxed from the top. The static subset is effect-free, so that from-top
+	// replay recomputes the same result the mid-loop state would have reached, only
+	// slower, which is sound; the mid-loop back-edge resume that skips the redone
+	// iterations is a later performance slice. An observable effect before a guard
+	// would break the replay, but the deopt plan's VerifyPlan gate demotes such a
+	// unit to boxed before it can ship, so the body's guards are safe to admit here.
 	return []emit.Stmt{emit.While{Cond: cond, Body: body}}, nil, false, nil
 }
 
@@ -599,8 +599,10 @@ func lowerWhile(n *frontend.While, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.R
 // int64 local and any guard the bound carries stays at function entry. Python also rebinds
 // the loop variable from the range each iteration and ignores a body assignment to it, so a body
 // that assigns the loop variable, or a loop variable that shadows an outer binding, has
-// no faithful Go counting-loop form and stays boxed. As with while, a guarded body has
-// no loop back-edge resume point yet (doc 06 line 39) and stays boxed.
+// no faithful Go counting-loop form and stays boxed. As with while, a guard in the body
+// deopts to the boxed twin and re-runs the unit boxed from the top; the effect-free
+// static subset makes that from-top replay reach the same result, so a guarded body is
+// admitted here and the mid-loop back-edge resume is a later performance slice.
 //
 // A for may run zero times, so it never makes the function exhaustive; it reports term
 // false and carries no result representation. New body bindings and the loop variable
@@ -718,13 +720,12 @@ func lowerFor(n *frontend.For, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr,
 	if err != nil {
 		return nil, nil, false, err
 	}
-	var bc Cost
-	for _, st := range body {
-		costStmt(st, &bc)
-	}
-	if bc.EntryGuards+bc.LoopGuards > 0 {
-		return nil, nil, false, unsupported("a guarded for-range body needs a loop back-edge resume point, deferred past M4")
-	}
+	// A body overflow guard deopts to the boxed twin, which re-runs the unit boxed
+	// from the top. That from-top replay is sound because the static subset is
+	// effect-free, so recomputing the redone iterations reaches the same result; the
+	// mid-loop back-edge resume that avoids the rework is a later performance slice,
+	// and the VerifyPlan gate demotes any unit whose plan gains an effect before a
+	// guard, so admitting the body's guards here cannot ship a wrong answer.
 	return append(pre, emit.ForCount{Var: target.Id, Start: start, Stop: stop, Down: down, Body: body}), nil, false, nil
 }
 
