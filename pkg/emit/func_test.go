@@ -130,3 +130,45 @@ func TestPolyDeoptHandlerGolden(t *testing.T) {
 		t.Fatalf("poly deopt-handler emit mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 }
+
+// TestBindingGuardGolden proves the world-age guard a unit reading a module global
+// carries: the version check sits at entry, ahead of the body, and its failure
+// edge is the ordinary deopt hand-off with the entry parameters replayed. The unit
+// reads the global's typed shadow (bshadow_FACTOR) only on the fast path the guard
+// protects, so a rebind that bumps bver_FACTOR off the specialized version 1 hands
+// off to the boxed twin instead of multiplying against a stale shadow.
+func TestBindingGuardGolden(t *testing.T) {
+	_, iR, _ := reprs()
+	f := Func{
+		Name:          "boost",
+		DeoptHandler:  "static_boost_deopt",
+		BindingGuards: []BindingGuard{{VerVar: "bver_FACTOR", Version: 1}},
+		Params:        []Param{{Name: "x", Repr: iR}},
+		Ret:           iR,
+		Body: []Stmt{
+			Return{Value: Bin{
+				Op: OpMul,
+				L:  Var{Name: "x", Repr: iR},
+				R:  Var{Name: "bshadow_FACTOR", Repr: iR},
+			}},
+		},
+	}
+	got, err := EmitFunc(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `func boost(x int64) (int64, error) {
+	d0 := x
+	if bver_FACTOR != 1 {
+		return static_boost_deopt(d0)
+	}
+	t0, ovf0 := rt.MulInt64(x, bshadow_FACTOR)
+	if ovf0 {
+		return static_boost_deopt(d0)
+	}
+	return t0, nil
+}`
+	if strings.TrimSpace(got) != want {
+		t.Fatalf("binding-guard emit mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}

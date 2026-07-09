@@ -33,6 +33,26 @@ type Func struct {
 	// it to the function the boxed tier emits next to the entry shim, so a guard
 	// that fails at runtime lands in a real function instead of an undefined name.
 	DeoptHandler string
+	// BindingGuards are the world-age guards a unit that reads a module-level global
+	// carries at its entry. Each names the global's version counter and the version
+	// the static form was specialized against; when the live counter still matches,
+	// the read of the global's typed shadow is exactly the current binding, so the
+	// fast path runs. A rebind (or a read before the establishing bind) bumps the
+	// counter off the specialized version, the guard fails, and the unit hands off
+	// to its boxed twin, which reads the live binding and matches CPython. The guard
+	// sits at entry so a direct static-to-static call cannot skip it: the partition
+	// records the binding as a deopt site, which keeps such a unit off the guard-free
+	// direct-call path, and the caller reboxes at the boundary instead.
+	BindingGuards []BindingGuard
+}
+
+// BindingGuard is one entry-level world-age guard: the Go name of a global's
+// monotonic version counter and the version the static form assumes. EmitFunc
+// prepends `if <VerVar> != <Version> { <deopt hand-off> }` for each guard, in the
+// order given, ahead of the body.
+type BindingGuard struct {
+	VerVar  string
+	Version int64
 }
 
 // Builder carries the per-function emit state: the enclosing name and parameters
@@ -155,6 +175,20 @@ func EmitFunc(f Func) (string, error) {
 	body, err := b.lowerBlock(f.Body)
 	if err != nil {
 		return "", err
+	}
+
+	// A unit that reads a module global carries its world-age guards at entry,
+	// ahead of the body, so any read of the global's shadow downstream runs only
+	// when the live binding still matches the specialized version. Each guard's
+	// failure edge is the ordinary deopt hand-off, so a stale binding re-runs the
+	// unit boxed against the live value. Building the edges here marks the deopt
+	// used, so the entry-parameter snapshot the hand-off replays is prepended too.
+	if len(f.BindingGuards) > 0 {
+		guards := make([]ast.Stmt, len(f.BindingGuards))
+		for i, g := range f.BindingGuards {
+			guards[i] = ifStmt(binary(token.NEQ, ident(g.VerVar), intLit(g.Version)), b.deoptEdge())
+		}
+		body = append(guards, body...)
 	}
 
 	// When a guard actually reached the hand-off, snapshot the entry parameters
