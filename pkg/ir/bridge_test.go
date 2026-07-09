@@ -327,8 +327,13 @@ func TestLowerRejects(t *testing.T) {
 	}{
 		{"unannotated param", "def f(a, b: int) -> int:\n    return b\n"},
 		{"non-scalar annotation", "def f(a: list) -> int:\n    return 1\n"},
+		{"default-valued param", "def f(a: int = 1) -> int:\n    return a\n"},
+		{"star args", "def f(a: int, *args: int) -> int:\n    return a\n"},
+		{"double star kwargs", "def f(a: int, **kw: int) -> int:\n    return a\n"},
+		{"keyword-only param", "def f(a: int, *, b: int) -> int:\n    return b\n"},
 		{"big int literal", "def f() -> int:\n    return 100000000000000000000\n"},
 		{"call expression", "def f(a: int) -> int:\n    return g(a)\n"},
+		{"first-class function value", "def f(a: int) -> int:\n    return g(f)\n"},
 		{"floor division", "def f(a: int, b: int) -> int:\n    return a // b\n"},
 		{"attribute access", "def f(a: int) -> int:\n    return a.bit_length\n"},
 		{"async def", "async def f(a: int) -> int:\n    return a\n"},
