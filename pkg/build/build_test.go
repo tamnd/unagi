@@ -727,6 +727,74 @@ func TestBuildEmitsStaticToStaticCall(t *testing.T) {
 	}
 }
 
+// TestBuildEmitsMutuallyRecursiveStaticCycle checks the R-form acceptance end to
+// end: two functions that only call each other prove static together and emit a
+// mutually recursive pair in the static tier. The least fixpoint alone leaves both
+// boxed, since each waits on the other, so this exercises the greatest-fixpoint
+// seed. Both bodies are guard-free (float subtract is total, the comparison
+// carries no guard), so the cycle proves static with no deopt edge, and the two
+// static forms call directly into each other. ev(4.0) walks ev->od->ev->od->ev
+// and returns True, od(4.0) walks od->ev->od->ev->od and returns False, matching
+// CPython exactly.
+func TestBuildEmitsMutuallyRecursiveStaticCycle(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	dir := t.TempDir()
+	src := "def ev(n: float) -> bool:\n" +
+		"    if n <= 0.0:\n" +
+		"        return True\n" +
+		"    return od(n - 1.0)\n\n" +
+		"def od(n: float) -> bool:\n" +
+		"    if n <= 0.0:\n" +
+		"        return False\n" +
+		"    return ev(n - 1.0)\n\n" +
+		"print(ev(4.0))\n" +
+		"print(od(4.0))\n"
+	py := filepath.Join(dir, "main.py")
+	writeFile(t, py, src)
+
+	gen := filepath.Join(dir, "gen")
+	bin, err := Build(context.Background(), py, Options{
+		Out:    filepath.Join(dir, "prog"),
+		EmitGo: gen,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	static, err := os.ReadFile(filepath.Join(gen, "static.go"))
+	if err != nil {
+		t.Fatalf("static.go not emitted: %v", err)
+	}
+	// Both members emit a static form, and each calls directly into the other, so
+	// the emitted pair is a real mutual recursion in the static tier.
+	for _, want := range []string{
+		"func static_ev(n float64) (bool, error)",
+		"func static_od(n float64) (bool, error)",
+		"static_od(n - 1.0)",
+		"static_ev(n - 1.0)",
+	} {
+		if !bytes.Contains(static, []byte(want)) {
+			t.Errorf("static.go missing %q:\n%s", want, static)
+		}
+	}
+	// Neither member carries a guard, so the cycle proves static with no hand-off.
+	if bytes.Contains(static, []byte("_deopt(")) {
+		t.Errorf("static.go should have no deopt edge for a guard-free cycle:\n%s", static)
+	}
+
+	var stdout bytes.Buffer
+	cmd := exec.Command(bin)
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got, want := stdout.String(), "True\nFalse\n"; got != want {
+		t.Errorf("output = %q, want %q", got, want)
+	}
+}
+
 // TestBuildDeoptsGuardedUnitToBoxedTwin checks the B1 acceptance end to end: a
 // static unit that carries an overflow guard emits its static form, and the
 // guard's failure edge hands off to the boxed twin through the deopt sentinel.

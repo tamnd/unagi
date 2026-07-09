@@ -149,6 +149,60 @@ func TestDriveBoxesCallerOfBoxedCallee(t *testing.T) {
 	}
 }
 
+func TestDriveProvesMutuallyRecursiveCycleStatic(t *testing.T) {
+	// Two functions that call each other are a call-graph SCC the least fixpoint can
+	// never bootstrap: each is boxed on every round because the other is not yet
+	// proven static. The greatest-fixpoint seed decides them together, so both prove
+	// static with direct calls into each other. The recursion is on a total float, so
+	// neither carries a guard and each is a guard-free direct callee for the other.
+	src := "def ev(n: float) -> bool:\n" +
+		"    if n <= 0.0:\n        return True\n    return od(n - 1.0)\n\n" +
+		"def od(n: float) -> bool:\n" +
+		"    if n <= 0.0:\n        return False\n    return ev(n - 1.0)\n"
+	ds := byName(drive(t, src))
+	for _, name := range []string{"<module>.ev", "<module>.od"} {
+		d, ok := ds[name]
+		if !ok {
+			t.Fatalf("missing unit %s", name)
+		}
+		if d.State != StaticProven {
+			t.Errorf("%s should prove static once the SCC is seeded, got %v with %+v", name, d.State, d.Reasons)
+		}
+		if len(d.Deopts) != 0 {
+			t.Errorf("%s recurses on a total float and carries no deopt site, got %d", name, len(d.Deopts))
+		}
+	}
+}
+
+func TestDriveKeepsUnannotatedCycleBoxed(t *testing.T) {
+	// The seed describes a candidate from its annotations, so a cycle member with no
+	// return annotation cannot be seeded: a caller could not build a direct call into
+	// it. The whole cycle then stays boxed rather than the tier guessing a shape, the
+	// same refusal an acyclic call to an unlowerable callee gets.
+	src := "def ping(n: float):\n" +
+		"    if n <= 0.0:\n        return True\n    return pong(n - 1.0)\n\n" +
+		"def pong(n: float) -> bool:\n" +
+		"    if n <= 0.0:\n        return False\n    return ping(n - 1.0)\n"
+	ds := byName(drive(t, src))
+	if d := ds["<module>.ping"]; d.State.IsStatic() {
+		t.Errorf("an unannotated cycle member cannot be seeded and must stay boxed, got %v", d.State)
+	}
+	if d := ds["<module>.pong"]; d.State.IsStatic() {
+		t.Errorf("its partner has no static callee to reach and must stay boxed too, got %v", d.State)
+	}
+}
+
+func TestDriveDoesNotPromoteCostBoxedFunction(t *testing.T) {
+	// A function boxed on the cost model, not on an unresolved call, is a seed
+	// candidate too, but seeding changes only what its callers can reach, never its
+	// own body, so it still boxes on its own census. The greatest-fixpoint seed must
+	// not turn a genuinely cost-losing unit static.
+	ds := byName(drive(t, "def f(a: int, b: int) -> int:\n    return a + b\n"))
+	if d := ds["<module>.f"]; d.State != BoxedByCost {
+		t.Errorf("a single guarded int add stays boxed on the cost model, got %v", d.State)
+	}
+}
+
 func TestDriveBoxesGuardHeavyIntFunction(t *testing.T) {
 	// A short int function is all guarded adds, so its overflow guards outweigh
 	// the unboxed work and the guard budget demotes it. The tier is honest that a
