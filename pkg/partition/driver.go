@@ -31,21 +31,50 @@ const ModuleUnitName = "<module>"
 // Decision per compilable body in the canonical unit order. The module argument
 // is the dotted module path the units are keyed under, so decisions from two
 // modules never collide in a whole-program report.
+//
+// The call graph decides in a fixpoint: a function that calls another static unit
+// can only be proven static once that callee is known static, so each round feeds
+// the previous round's proven static callees back in as the resolver the bridge
+// lowers direct calls against. The proven set grows monotonically, so equal size
+// between rounds means the set stabilized; the body count bounds the rounds as a
+// backstop against a non-convergence bug.
 func Drive(module string, m *frontend.Module) []Decision {
+	var resolve ir.CalleeResolver
+	decisions := driveOnce(module, m, resolve)
+	prev := -1
+	for round := 0; round <= len(m.Body); round++ {
+		callees := moduleCallees(m, decisions, resolve)
+		if len(callees) == prev {
+			break
+		}
+		prev = len(callees)
+		resolve = resolverFor(callees)
+		decisions = driveOnce(module, m, resolve)
+	}
+	return decisions
+}
+
+// driveOnce runs one decision pass over the module with a fixed callee resolver.
+// The resolver is nil on the first pass, so a call refuses and its caller boxes;
+// a later pass hands in the callees proven static so far, so a caller of one lowers
+// its call and can itself be proven static.
+func driveOnce(module string, m *frontend.Module, resolve ir.CalleeResolver) []Decision {
 	p := New()
-	d := &driver{p: p, module: module}
+	d := &driver{p: p, module: module, resolve: resolve}
 	// The module top level is itself a unit, executed as boxed code at M4.
 	mu := d.enter(ModuleUnitName, frontend.Pos{Line: 1, Col: 1})
 	d.scanStmts(mu, m.Body)
 	return p.Decide()
 }
 
-// driver carries the partitioner being filled and the module the units belong
-// to. It is the walk's single piece of state; each unit's identity travels in
-// the scope value threaded through the recursion.
+// driver carries the partitioner being filled, the module the units belong to,
+// and the callee resolver this decision pass lowers direct calls against. It is
+// the walk's single piece of state; each unit's identity travels in the scope
+// value threaded through the recursion.
 type driver struct {
-	p      *Partitioner
-	module string
+	p       *Partitioner
+	module  string
+	resolve ir.CalleeResolver
 }
 
 // scope is one enclosing unit during the walk: the unit itself and its
@@ -93,7 +122,7 @@ func (sc scope) child(name string) string { return sc.qual + "." + name }
 // scalar subset the bridge refuses it, and the empty profile keeps the unit
 // boxed, so a function the tier cannot yet lower is never scored as if it could.
 func (d *driver) funcInput(fn *frontend.FuncDef) (Profile, []DeoptSite) {
-	f, err := ir.LowerFunc(fn)
+	f, err := ir.LowerFuncWith(fn, d.resolve)
 	if err != nil {
 		return Profile{}, nil
 	}

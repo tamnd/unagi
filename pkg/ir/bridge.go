@@ -52,6 +52,20 @@ type StaticCallee struct {
 // unit stays boxed, which is how a caller with no known-static callees behaves.
 type CalleeResolver func(name string) (StaticCallee, bool)
 
+// SignatureOf reads a lowered function's unboxed signature into a StaticCallee
+// under the given emitted Go name, so a caller's resolver can describe this
+// function without re-deriving its parameter and result representations from the
+// annotations. The return representation is the one the bridge inferred from the
+// body, which is why it is read from the lowered function rather than the return
+// annotation, since a function may omit the annotation and still lower.
+func SignatureOf(f emit.Func, goName string) StaticCallee {
+	params := make([]emit.Repr, len(f.Params))
+	for i, p := range f.Params {
+		params[i] = p.Repr
+	}
+	return StaticCallee{GoName: goName, Params: params, Ret: f.Ret}
+}
+
 // lowerCtx carries the ambient facts a statement needs beyond its own scope: the set
 // of names read anywhere in the function, so a branch or loop can tell a live binding
 // from a dead one, whether the statement sits inside a loop, so a `break` or

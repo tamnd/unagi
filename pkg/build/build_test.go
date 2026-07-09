@@ -86,6 +86,62 @@ func TestBuildEmitsStaticForm(t *testing.T) {
 	}
 }
 
+// TestBuildEmitsStaticToStaticCall proves the A3 acceptance end to end: a caller
+// of another static function emits its static form with a direct Go call to the
+// callee's static form, threading the error, with no boxing at the boundary. The
+// call-graph fixpoint proves the caller static once the callee is proven, and the
+// build resolver names the callee so the two static forms link and the module
+// compiles. The static forms are dead code at M4 (the boxed tier drives
+// execution), so the output is unchanged, but the direct call must be present and
+// the module must build with both forms.
+func TestBuildEmitsStaticToStaticCall(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	dir := t.TempDir()
+	src := "def scale(a: float, b: float) -> float:\n" +
+		"    return a * b\n\n" +
+		"def outer(a: float, b: float) -> float:\n" +
+		"    return scale(a, b) + a\n\n" +
+		"print(outer(3.0, 4.0))\n"
+	py := filepath.Join(dir, "main.py")
+	writeFile(t, py, src)
+
+	gen := filepath.Join(dir, "gen")
+	bin, err := Build(context.Background(), py, Options{
+		Out:    filepath.Join(dir, "prog"),
+		EmitGo: gen,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	static, err := os.ReadFile(filepath.Join(gen, "static.go"))
+	if err != nil {
+		t.Fatalf("static.go not emitted: %v", err)
+	}
+	for _, want := range []string{
+		"func static_scale(a float64, b float64) (float64, error)",
+		"func static_outer(a float64, b float64) (float64, error)",
+		"static_scale(a, b)",
+	} {
+		if !bytes.Contains(static, []byte(want)) {
+			t.Errorf("static.go missing %q:\n%s", want, static)
+		}
+	}
+
+	// The boxed tier still drives execution, so outer(3.0, 4.0) = 3*4 + 3 = 15.0.
+	var stdout bytes.Buffer
+	cmd := exec.Command(bin)
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := stdout.String(); got != "15.0\n" {
+		t.Errorf("output = %q, want %q", got, "15.0\n")
+	}
+}
+
 // TestBuildSkipsStaticFormForGuardedUnit checks the gate: a function whose
 // static form carries an overflow guard emits a deopt edge to a boxed twin that
 // does not exist yet, so it must stay boxed-only until the trampoline band lands.
