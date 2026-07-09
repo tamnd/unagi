@@ -140,6 +140,15 @@ func costExpr(e emit.Expr, c *Cost) {
 	case emit.Not:
 		costExpr(n.X, c)
 		c.UnboxedOps++
+	case emit.Call:
+		// A direct static-to-static call is one unboxed operation, the same as any
+		// native op: it threads the callee's error and carries no overflow guard of
+		// its own, so it adds no guard here. Each argument is a scalar expression that
+		// contributes its own operations, so the walk recurses into every one.
+		for _, a := range n.Args {
+			costExpr(a, c)
+		}
+		c.UnboxedOps++
 	}
 }
 
@@ -173,6 +182,10 @@ func reprOf(e emit.Expr) emit.Repr {
 		return reprOf(n.L)
 	case emit.Or:
 		return reprOf(n.L)
+	case emit.Call:
+		// A direct call's result is the callee's declared return representation, which
+		// the bridge stamped on the node from the resolver's static signature.
+		return n.Ret
 	}
 	return emit.Repr{}
 }

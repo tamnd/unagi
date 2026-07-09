@@ -175,6 +175,12 @@ func exprGuarded(e emit.Expr) bool {
 		return exprGuarded(n.L) || exprGuarded(n.R)
 	case emit.Not:
 		return exprGuarded(n.X)
+	case emit.Call:
+		// A direct static-to-static call carries no overflow guard of its own: any
+		// guard lives inside the callee's own body, which deopts on its own edge, not
+		// this caller's. An argument expression can still carry a guard, so the walk
+		// recurses into every one.
+		return slices.ContainsFunc(n.Args, exprGuarded)
 	}
 	return false
 }
