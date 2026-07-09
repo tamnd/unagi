@@ -64,6 +64,14 @@ func Build(ctx context.Context, pyPath string, opts Options) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// The static tier rides alongside the boxed module: a provable function's
+	// unboxed Go is emitted next to main.go so the two share one binary. It is
+	// dead code at M4 (the boxed tier still drives execution), present so the
+	// static lowering is proven through the real toolchain, not a golden alone.
+	staticSrc, err := staticForms(mod, partition.Drive(entryModule, mod))
+	if err != nil {
+		return "", err
+	}
 
 	genDir := opts.EmitGo
 	if genDir == "" {
@@ -75,7 +83,7 @@ func Build(ctx context.Context, pyPath string, opts Options) (string, error) {
 	} else if err := os.MkdirAll(genDir, 0o755); err != nil {
 		return "", err
 	}
-	if err := writeModule(genDir, goSrc, mods); err != nil {
+	if err := writeModule(genDir, goSrc, staticSrc, mods); err != nil {
 		return "", err
 	}
 
@@ -400,9 +408,16 @@ func writeReport(path string, entry *frontend.Module) error {
 // imported sibling under pym/, the modtable.go registering them, a go.mod
 // requiring unagi with a replace onto a slim in-tree copy, and that copy
 // itself.
-func writeModule(genDir string, goSrc []byte, mods []pymod) error {
+func writeModule(genDir string, goSrc, staticSrc []byte, mods []pymod) error {
 	if err := os.WriteFile(filepath.Join(genDir, "main.go"), goSrc, 0o644); err != nil {
 		return err
+	}
+	// The static-tier forms, when the module carries any, sit in their own file
+	// beside main.go in the same package.
+	if staticSrc != nil {
+		if err := os.WriteFile(filepath.Join(genDir, "static.go"), staticSrc, 0o644); err != nil {
+			return err
+		}
 	}
 	for _, m := range mods {
 		if m.ns {

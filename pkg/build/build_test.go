@@ -37,6 +37,86 @@ func TestBuildRuns(t *testing.T) {
 	}
 }
 
+// TestBuildEmitsStaticForm proves the static tier reaches the real build: a
+// guard-free provable function emits its unboxed Go next to the boxed module,
+// the module compiles with both, and the binary runs byte-identical to the
+// boxed-only behavior. The static form is dead code at M4 (the boxed tier still
+// drives execution), so the observable output is unchanged; what the test guards
+// is that the emitted static Go compiles through the Go toolchain on the real
+// path, not just a golden in isolation.
+func TestBuildEmitsStaticForm(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	dir := t.TempDir()
+	src := "def scale(a: float, b: float) -> float:\n" +
+		"    return a * b + a\n\n" +
+		"print(scale(3.0, 4.0))\n"
+	py := filepath.Join(dir, "main.py")
+	writeFile(t, py, src)
+
+	gen := filepath.Join(dir, "gen")
+	bin, err := Build(context.Background(), py, Options{
+		Out:    filepath.Join(dir, "prog"),
+		EmitGo: gen,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	// The static form landed next to main.go with the unboxed signature.
+	static, err := os.ReadFile(filepath.Join(gen, "static.go"))
+	if err != nil {
+		t.Fatalf("static.go not emitted: %v", err)
+	}
+	if want := "func static_scale(a float64, b float64) (float64, error)"; !bytes.Contains(static, []byte(want)) {
+		t.Errorf("static.go missing the static signature %q:\n%s", want, static)
+	}
+
+	// The boxed tier still drives execution, so the program prints the same
+	// value it would without the static form.
+	var stdout bytes.Buffer
+	cmd := exec.Command(bin)
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := stdout.String(); got != "15.0\n" {
+		t.Errorf("output = %q, want %q", got, "15.0\n")
+	}
+}
+
+// TestBuildSkipsStaticFormForGuardedUnit checks the gate: a function whose
+// static form carries an overflow guard emits a deopt edge to a boxed twin that
+// does not exist yet, so it must stay boxed-only until the trampoline band lands.
+// No static.go is written for a module whose only provable unit is guarded.
+func TestBuildSkipsStaticFormForGuardedUnit(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	dir := t.TempDir()
+	// A float-heavy body clears the guard budget so the unit proves static, but
+	// the lone int add (m + n) carries an overflow guard, so its deopt plan is
+	// non-empty and the static form is withheld.
+	src := "def f(a: float, b: float, m: int, n: int) -> float:\n" +
+		"    return a * b + a * b + a * b + a * b + a * b + a * b + a * b + (m + n)\n\n" +
+		"print(f(2.0, 3.0, 1, 2))\n"
+	py := filepath.Join(dir, "main.py")
+	writeFile(t, py, src)
+
+	gen := filepath.Join(dir, "gen")
+	if _, err := Build(context.Background(), py, Options{
+		Out:    filepath.Join(dir, "prog"),
+		EmitGo: gen,
+	}); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(gen, "static.go")); err == nil {
+		data, _ := os.ReadFile(filepath.Join(gen, "static.go"))
+		t.Errorf("a guarded static unit should emit no static form yet, got:\n%s", data)
+	}
+}
+
 // TestResolvePy covers the three on-disk shapes a dotted name can resolve to:
 // a regular package (__init__.py wins), a plain module, and a bare directory
 // that becomes a PEP 420 namespace package.
