@@ -68,18 +68,31 @@ func (e *emitter) entryShimDecl(d *frontend.FuncDef, se StaticEntry) *ast.FuncDe
 		})
 	}
 
-	// Enter the static body with the unboxed values, propagate a raised
-	// exception through the error channel unchanged, and rebox the native result.
+	// Enter the static body with the unboxed values, handle the error channel,
+	// and rebox the native result. When the static form can deopt, the error may
+	// be the deopt sentinel rather than a raised exception: the static form gave
+	// up and its boxed twin already produced the result, so the shim returns that
+	// boxed value directly instead of surfacing it as an error.
 	callArgs := make([]ast.Expr, n)
 	for i := range n {
 		callArgs[i] = ident(fmt.Sprintf("x%d", i))
+	}
+	errBody := []ast.Stmt{&ast.ReturnStmt{Results: []ast.Expr{ident("nil"), ident("err")}}}
+	if se.Deopt {
+		errBody = append([]ast.Stmt{&ast.IfStmt{
+			Init: assign(token.DEFINE,
+				[]ast.Expr{ident("d"), ident("ok")},
+				&ast.TypeAssertExpr{X: ident("err"), Type: &ast.StarExpr{X: e.obj("Deopt")}}),
+			Cond: ident("ok"),
+			Body: block(&ast.ReturnStmt{Results: []ast.Expr{sel("d", "Value"), ident("nil")}}),
+		}}, errBody...)
 	}
 	body = append(body,
 		assign(token.DEFINE, []ast.Expr{ident("r"), ident("err")},
 			callExpr(ident(se.Static), callArgs...)),
 		&ast.IfStmt{
 			Cond: errNotNil(),
-			Body: block(&ast.ReturnStmt{Results: []ast.Expr{ident("nil"), ident("err")}}),
+			Body: block(errBody...),
 		},
 		&ast.ReturnStmt{Results: []ast.Expr{
 			callExpr(e.obj(reboxConstructor(se.Ret)), ident("r")),
@@ -95,6 +108,82 @@ func (e *emitter) entryShimDecl(d *frontend.FuncDef, se StaticEntry) *ast.FuncDe
 		},
 		Body: block(body...),
 	}
+}
+
+// deoptHandlerName is the hand-off function the static form of a deopt-target def
+// tail-calls, derived from the static form's own name so the static side and this
+// side agree on it without threading a separate identifier.
+func deoptHandlerName(static string) string { return static + "_deopt" }
+
+// deoptHandlerDecl builds one def's deopt hand-off. It takes the static form's
+// native parameters, reboxes each into an objects.Object, re-runs the whole unit
+// through its boxed twin from the top, and returns the boxed result as the deopt
+// sentinel on the error channel. A raised exception inside the twin travels the
+// same channel and stays an exception, so the sentinel wrap happens only on the
+// clean return. The native result slot carries a zero value the caller never
+// reads, since a non-nil error always accompanies it.
+func (e *emitter) deoptHandlerDecl(d *frontend.FuncDef, se StaticEntry) *ast.FuncDecl {
+	n := len(se.Params)
+	pfields := make([]*ast.Field, n)
+	reboxed := make([]ast.Expr, n)
+	for i := range n {
+		pname := fmt.Sprintf("p%d", i)
+		pfields[i] = field(scalarGoType(se.Params[i]), pname)
+		reboxed[i] = callExpr(e.obj(reboxConstructor(se.Params[i])), ident(pname))
+	}
+	sentinel := &ast.UnaryExpr{Op: token.AND, X: &ast.CompositeLit{
+		Type: e.obj("Deopt"),
+		Elts: []ast.Expr{kv("Value", ident("r"))},
+	}}
+	body := []ast.Stmt{
+		assign(token.DEFINE, []ast.Expr{ident("r"), ident("err")},
+			callExpr(ident(e.defName(d.Name)), reboxed...)),
+		&ast.IfStmt{
+			Cond: errNotNil(),
+			Body: block(&ast.ReturnStmt{Results: []ast.Expr{scalarZero(se.Ret), ident("err")}}),
+		},
+		&ast.ReturnStmt{Results: []ast.Expr{scalarZero(se.Ret), sentinel}},
+	}
+	return &ast.FuncDecl{
+		Name: ident(deoptHandlerName(se.Static)),
+		Type: &ast.FuncType{
+			Params:  fieldList(pfields...),
+			Results: fieldList(field(scalarGoType(se.Ret)), field(ident("error"))),
+		},
+		Body: block(body...),
+	}
+}
+
+// scalarGoType is the native Go type the static tier gives one scalar kind, the
+// type the static form's parameters and result carry and the hand-off mirrors.
+func scalarGoType(s StaticScalar) ast.Expr {
+	switch s {
+	case StaticInt:
+		return ident("int64")
+	case StaticFloat:
+		return ident("float64")
+	case StaticBool:
+		return ident("bool")
+	case StaticStr:
+		return ident("string")
+	}
+	return ident("")
+}
+
+// scalarZero is the native zero of one scalar kind, the throwaway value the deopt
+// hand-off returns in the native result slot next to a non-nil error.
+func scalarZero(s StaticScalar) ast.Expr {
+	switch s {
+	case StaticInt:
+		return intLit("0")
+	case StaticFloat:
+		return floatLit(0)
+	case StaticBool:
+		return ident("false")
+	case StaticStr:
+		return strLit("")
+	}
+	return ident("nil")
 }
 
 // orJoin threads one more term into a growing disjunction, returning the term
