@@ -222,13 +222,13 @@ func (c *buildCache) ensureDir() (string, error) {
 // per build, so the per-build cost is hashing only the small emitted files.
 func (c *buildCache) key(genDir string) (string, error) {
 	h := sha256.New()
-	fmt.Fprintf(h, "unagi-bincache-v1\n%s\n%s\n%s\n%s\n",
+	_, _ = fmt.Fprintf(h, "unagi-bincache-v1\n%s\n%s\n%s\n%s\n",
 		runtime.GOOS, runtime.GOARCH, os.Getenv("CGO_ENABLED"), runtime.Version())
 	fp, err := runtimeFingerprint()
 	if err != nil {
 		return "", err
 	}
-	io.WriteString(h, fp)
+	_, _ = io.WriteString(h, fp)
 	if err := hashEmitted(h, genDir); err != nil {
 		return "", err
 	}
@@ -266,7 +266,7 @@ func hashEmitted(h io.Writer, genDir string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(h, "%s\n%d\n", rel, len(data))
+		_, _ = fmt.Fprintf(h, "%s\n%d\n", rel, len(data))
 		if _, err := h.Write(data); err != nil {
 			return err
 		}
@@ -313,8 +313,8 @@ func runtimeFingerprint() (string, error) {
 					fpErr = err
 					return
 				}
-				fmt.Fprintf(h, "%s/%s\n%d\n", pkg, n, len(data))
-				h.Write(data)
+				_, _ = fmt.Fprintf(h, "%s/%s\n%d\n", pkg, n, len(data))
+				_, _ = h.Write(data)
 			}
 		}
 		fpVal = hex.EncodeToString(h.Sum(nil))
@@ -333,23 +333,23 @@ func copyExecutable(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	tmp, err := os.CreateTemp(filepath.Dir(dst), ".unagi-bin-*")
 	if err != nil {
 		return err
 	}
 	tmpName := tmp.Name()
 	if _, err := io.Copy(tmp, in); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
 		return err
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
+		_ = os.Remove(tmpName)
 		return err
 	}
 	if err := os.Chmod(tmpName, 0o755); err != nil {
-		os.Remove(tmpName)
+		_ = os.Remove(tmpName)
 		return err
 	}
 	return os.Rename(tmpName, dst)
