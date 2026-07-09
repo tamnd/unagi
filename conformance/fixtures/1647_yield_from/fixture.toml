@@ -1,0 +1,6 @@
+# Both generators stay boxed at M4: there is no static generator lowering yet,
+# so the pin asserts the partitioner did not somehow promote them. Checked only
+# under the auto tier; the forced-tier reruns override every unit.
+[tiers]
+"<module>.sub" = "boxed"
+"<module>.outer" = "boxed"
