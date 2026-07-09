@@ -50,16 +50,17 @@ func TestTrueDivisionGuardsZero(t *testing.T) {
 func TestFloorDivGuardsZeroAndOverflow(t *testing.T) {
 	_, iR, _ := reprs()
 	// a // b on two ints is int floor division: the divisor is zero-checked with the
-	// integer-specific message, the value comes through the runtime helper that floors
-	// toward negative infinity, and the one overflow (MinInt64 // -1) routes to the
-	// unit's deopt edge like any other int overflow.
+	// bare "division by zero" python3.14 raises for every zero divisor, the value comes
+	// through the runtime helper that floors toward negative infinity, and the one
+	// overflow (MinInt64 // -1) routes to the unit's deopt edge like any other int
+	// overflow.
 	src := emitOneReturn(t, "quot", iR, []Param{{Name: "a", Repr: iR}, {Name: "b", Repr: iR}},
 		Bin{Op: OpFloorDiv, L: Var{Name: "a", Repr: iR}, R: Var{Name: "b", Repr: iR}})
 	if !strings.Contains(src, "if b == 0") {
 		t.Fatalf("floor division should guard a zero divisor:\n%s", src)
 	}
-	if !strings.Contains(src, `rt.ZeroDivisionError("integer division or modulo by zero")`) {
-		t.Fatalf("the int zero guard should raise the integer-division message:\n%s", src)
+	if !strings.Contains(src, `rt.ZeroDivisionError("division by zero")`) {
+		t.Fatalf("the int zero guard should raise the bare division-by-zero message:\n%s", src)
 	}
 	if !strings.Contains(src, "rt.FloorDivInt64(a, b)") {
 		t.Fatalf("floor division should route through the flooring helper:\n%s", src)

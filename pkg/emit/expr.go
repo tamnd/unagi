@@ -250,15 +250,16 @@ func (b *Builder) guardZeroDiv(divisor ast.Expr) {
 }
 
 // guardZeroDivInt appends the semantic check that an integer floor division by a
-// zero divisor raises ZeroDivisionError through the D14 channel. Python spells this
-// case "integer division or modulo by zero", distinct from the "division by zero"
-// text true division raises, and the boxed twin raises the same string, so both
-// tiers agree. The divisor is the already-coerced int64 expression, so the compare
-// is against the int literal 0, not the float 0 true division tests.
+// zero divisor raises ZeroDivisionError through the D14 channel. python3.14 raises
+// the bare "division by zero" for every zero divisor, int or float and true
+// division or floor division alike; the older "integer division or modulo by zero"
+// spelling was retired. The boxed twin in pkg/objects raises this same string, so
+// both tiers agree. The divisor is the already-coerced int64 expression, so the
+// compare is against the int literal 0, not the float 0 true division tests.
 func (b *Builder) guardZeroDivInt(divisor ast.Expr) {
 	b.pre = append(b.pre, ifStmt(
 		binary(token.EQL, divisor, intLit(0)),
-		ret(b.ret.zero(), callExpr(sel(runtimePkg, "ZeroDivisionError"), strLit("integer division or modulo by zero"))),
+		ret(b.ret.zero(), callExpr(sel(runtimePkg, "ZeroDivisionError"), strLit("division by zero"))),
 	))
 }
 
