@@ -154,6 +154,49 @@ func (e *emitter) deoptHandlerDecl(d *frontend.FuncDef, se StaticEntry) *ast.Fun
 	}
 }
 
+// resumeHandlerDecl builds one static form's mid-loop resume hand-off. It takes
+// the leading re-entry scalars (the loop counter and the live accumulator) plus
+// the static form's native parameters, reboxes each into an objects.Object, and
+// calls the boxed twin, which restarts the loop from that counter and
+// accumulator. The twin's return is the whole unit's boxed result, returned as
+// the deopt sentinel on the error channel exactly like the from-top hand-off, so
+// the entry shim unwraps it the same way. Re-entering mid-loop only skips the
+// iterations already run; the result the twin computes is the one the from-top
+// replay would have, which is why the build gates this to the loop shape where
+// that equality holds.
+func (e *emitter) resumeHandlerDecl(se StaticEntry) *ast.FuncDecl {
+	r := se.Resume
+	scalars := append(append([]StaticScalar{}, r.Lead...), se.Params...)
+	pfields := make([]*ast.Field, len(scalars))
+	reboxed := make([]ast.Expr, len(scalars))
+	for i, s := range scalars {
+		pname := fmt.Sprintf("p%d", i)
+		pfields[i] = field(scalarGoType(s), pname)
+		reboxed[i] = callExpr(e.obj(reboxConstructor(s)), ident(pname))
+	}
+	sentinel := &ast.UnaryExpr{Op: token.AND, X: &ast.CompositeLit{
+		Type: e.obj("Deopt"),
+		Elts: []ast.Expr{kv("Value", ident("r"))},
+	}}
+	body := []ast.Stmt{
+		assign(token.DEFINE, []ast.Expr{ident("r"), ident("err")},
+			callExpr(ident(r.TwinName), reboxed...)),
+		&ast.IfStmt{
+			Cond: errNotNil(),
+			Body: block(&ast.ReturnStmt{Results: []ast.Expr{scalarZero(se.Ret), ident("err")}}),
+		},
+		&ast.ReturnStmt{Results: []ast.Expr{scalarZero(se.Ret), sentinel}},
+	}
+	return &ast.FuncDecl{
+		Name: ident(r.Handler),
+		Type: &ast.FuncType{
+			Params:  fieldList(pfields...),
+			Results: fieldList(field(scalarGoType(se.Ret)), field(ident("error"))),
+		},
+		Body: block(body...),
+	}
+}
+
 // scalarGoType is the native Go type the static tier gives one scalar kind, the
 // type the static form's parameters and result carry and the hand-off mirrors.
 func scalarGoType(s StaticScalar) ast.Expr {

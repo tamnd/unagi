@@ -97,6 +97,25 @@ type ForCount struct {
 	Stop  Expr
 	Down  bool
 	Body  []Stmt
+	// Resume, when set, makes an overflow guard inside this loop body deopt by
+	// re-entering the boxed twin at the current iteration rather than re-running
+	// the whole unit from the top. It names the resume hand-off and the loop
+	// carried accumulators handed to it live at the guard, so the twin resumes
+	// with the same state the native loop held and skips the iterations already
+	// run. The build sets it only for the canonical single-accumulator counting
+	// loop it proves safe to resume; every other loop leaves it nil and keeps the
+	// from-top edge, which is always correct.
+	Resume *ResumeInfo
+}
+
+// ResumeInfo is the mid-loop resume plan for one counting loop: the hand-off the
+// guard tail-calls and the carried accumulator names it passes, in the twin's
+// parameter order after the loop counter. The counter and the entry-parameter
+// snapshots are added by the emitter, so this carries only the names that live in
+// the loop body.
+type ResumeInfo struct {
+	Handler string
+	Carried []string
 }
 
 // While is a `for cond { body }` loop. Cond lowers through the shared truthiness
@@ -339,7 +358,25 @@ func (b *Builder) lowerStmt(s Stmt) ([]ast.Stmt, error) {
 		// pending list is empty today, but flushing here keeps a bound guard at a clean
 		// statement boundary if one ever reaches this node.
 		pre := b.flush()
+		// A resume-enabled loop hands a body guard the current counter, the live
+		// carried accumulators, and the entry-parameter snapshots, so the twin
+		// re-enters at this iteration instead of the top. The frame is active only
+		// while the body lowers, so a guard outside this loop is unaffected.
+		if n.Resume != nil {
+			args := make([]ast.Expr, 0, 1+len(n.Resume.Carried)+len(b.params))
+			args = append(args, ident(n.Var))
+			for _, c := range n.Resume.Carried {
+				args = append(args, ident(c))
+			}
+			for i := range b.params {
+				args = append(args, ident(deoptParam(i)))
+			}
+			b.resume = append(b.resume, resumeFrame{handler: n.Resume.Handler, args: args})
+		}
 		body, err := b.lowerBlock(n.Body)
+		if n.Resume != nil {
+			b.resume = b.resume[:len(b.resume)-1]
+		}
 		if err != nil {
 			return nil, err
 		}

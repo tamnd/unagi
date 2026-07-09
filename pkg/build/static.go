@@ -40,6 +40,10 @@ type staticPlan struct {
 	deopt      map[string]bool
 	names      map[string]string
 	resolve    ir.CalleeResolver
+	// resume holds the mid-loop resume plan for each deopt-target unit whose
+	// counting loop is provably safe to re-enter at the failing iteration. A unit
+	// absent here keeps the from-top deopt edge, which is always correct.
+	resume map[string]*resumeShape
 }
 
 // planStatic builds the static plan from the partitioner's decisions. A
@@ -91,6 +95,7 @@ func planStatic(mod *frontend.Module, decisions []partition.Decision) *staticPla
 	// cross; the rest stay boxed-only. Both emission passes read this set, so the
 	// static form, its shim, and its hand-off are always emitted together.
 	plan.deopt = map[string]bool{}
+	plan.resume = map[string]*resumeShape{}
 	for _, qf := range funcs {
 		if !deoptTarget[qf.qual] {
 			continue
@@ -110,6 +115,13 @@ func planStatic(mod *frontend.Module, decisions []partition.Decision) *staticPla
 		}
 		if _, ok := plan.shimEntryFor(qf); ok {
 			plan.deopt[qf.qual] = true
+			// A deopt-target unit whose loop is the canonical single-accumulator
+			// counting loop resumes mid-loop instead of replaying from the top. The
+			// shape proof is structural on the def, so it rides alongside the shim
+			// gate; a unit that does not fit keeps the from-top edge.
+			if shape, ok := resumeShapeFor(qf.def); ok {
+				plan.resume[qf.qual] = shape
+			}
 		}
 	}
 	return plan
@@ -154,6 +166,18 @@ func staticEntries(plan *staticPlan) map[string]lower.StaticEntry {
 		// A deopt-target unit's shim also unwraps the deopt sentinel its static
 		// form returns, and the build emits the hand-off the sentinel comes from.
 		entry.Deopt = plan.deopt[qf.qual]
+		// A resume-eligible unit also carries the mid-loop resume plan: the boxed
+		// twin that re-enters the loop and the hand-off that reboxes the counter,
+		// the accumulator, and the entry parameters into it.
+		if shape := plan.resume[qf.qual]; shape != nil {
+			static := plan.names[qf.qual]
+			entry.Resume = &lower.ResumePlan{
+				Handler:  static + "_resume",
+				TwinName: static + "_resume_twin",
+				Twin:     shape.twin,
+				Lead:     []lower.StaticScalar{lower.StaticInt, lower.StaticInt},
+			}
+		}
 		out[bare] = entry
 	}
 	if len(out) == 0 {
@@ -228,6 +252,13 @@ func staticForms(plan *staticPlan) ([]byte, error) {
 		// lands in a real function rather than the placeholder the goldens carry.
 		if plan.deopt[qf.qual] {
 			f.DeoptHandler = f.Name + "_deopt"
+			// A resume-eligible unit routes its loop-body guard to the mid-loop
+			// hand-off instead of the from-top one, so the failing activation
+			// re-enters the boxed twin at the current iteration. The counter and
+			// accumulator are named on the loop node the emitter walks.
+			if shape := plan.resume[qf.qual]; shape != nil {
+				setLoopResume(f.Body, f.Name+"_resume", shape.acc)
+			}
 		}
 		src, err := emit.EmitFunc(f)
 		if err != nil {
