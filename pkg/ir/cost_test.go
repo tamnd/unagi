@@ -92,6 +92,26 @@ func TestCostPowerIsGuardedInt(t *testing.T) {
 	}
 }
 
+func TestCostBitwiseIsUnguardedInt(t *testing.T) {
+	// The logical bitwise ops yield an int but never overflow: a two's-complement bit
+	// op on int64 stays in int64, so they are total with no guard and no deopt edge,
+	// the same classification as modulo. If the census counted one as guarded, a
+	// bitwise function would auto-box on the guard budget for a guard that never fires.
+	for _, src := range []string{
+		"def f(a: int, b: int) -> int:\n    return a & b\n",
+		"def f(a: int, b: int) -> int:\n    return a | b\n",
+		"def f(a: int, b: int) -> int:\n    return a ^ b\n",
+	} {
+		c := costOfSrc(t, src)
+		if c.UnboxedOps != 1 {
+			t.Errorf("UnboxedOps = %d, want 1 for %q", c.UnboxedOps, src)
+		}
+		if c.EntryGuards != 0 {
+			t.Errorf("bitwise op should not carry a guard, got %d for %q", c.EntryGuards, src)
+		}
+	}
+}
+
 func TestCostCountsAugAssign(t *testing.T) {
 	// The seed accumulator binds an int local then adds into it twice; the two
 	// += operations are guarded int adds.

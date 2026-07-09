@@ -1290,8 +1290,9 @@ func boolName(k frontend.BoolKind) string {
 func boolReprIR() emit.Repr { return emit.Repr{Go: "bool", Scalar: emit.SBool, Total: true} }
 
 // binOp maps the frontend's arithmetic operators to the ones the scalar tier
-// lowers: the four core operators plus integer floor division, modulo, and power.
-// The bitwise operators and matrix multiply are not in this seed.
+// lowers: the four core operators plus integer floor division, modulo, power, and
+// the logical bitwise ops &, |, ^. The shifts and matrix multiply are not in this
+// seed.
 func binOp(k frontend.BinKind) (emit.Op, bool) {
 	switch k {
 	case frontend.BinAdd:
@@ -1308,6 +1309,12 @@ func binOp(k frontend.BinKind) (emit.Op, bool) {
 		return emit.OpMod, true
 	case frontend.BinPow:
 		return emit.OpPow, true
+	case frontend.BinBitAnd:
+		return emit.OpBitAnd, true
+	case frontend.BinBitOr:
+		return emit.OpBitOr, true
+	case frontend.BinBitXor:
+		return emit.OpBitXor, true
 	}
 	return 0, false
 }
@@ -1354,6 +1361,15 @@ func binResult(op emit.Op, l, r emit.Repr) (emit.Repr, error) {
 	if op == emit.OpPow {
 		if l.Scalar == emit.SFloat || r.Scalar == emit.SFloat {
 			return emit.Repr{}, unsupported("** on a float operand stays boxed at M4")
+		}
+		return emit.Repr{Go: "int64", Scalar: emit.SInt}, nil
+	}
+	// The logical bitwise ops &, |, ^ lower only on two ints: the result is a total
+	// int, no guard. A float operand is a TypeError in Python (bitwise ops reject
+	// floats), so it is refused here rather than lowered.
+	if op == emit.OpBitAnd || op == emit.OpBitOr || op == emit.OpBitXor {
+		if l.Scalar == emit.SFloat || r.Scalar == emit.SFloat {
+			return emit.Repr{}, unsupported("%s on a float operand is not valid Python", op)
 		}
 		return emit.Repr{Go: "int64", Scalar: emit.SInt}, nil
 	}
