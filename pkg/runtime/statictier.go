@@ -69,6 +69,22 @@ func FloorDivInt64(a, b int64) (int64, bool) {
 	return q, false
 }
 
+// FloorModInt64 returns the Python floored modulo a % b, whose result carries the
+// sign of the divisor rather than the dividend. Go's % truncates toward zero, so
+// its remainder carries the sign of the dividend and agrees with Python only when
+// the two operands share a sign; when they differ and the remainder is nonzero, it
+// is one divisor away from the floored answer, so the divisor is added back. The
+// caller guards a zero divisor before this runs. There is no overflow: the floored
+// remainder is always smaller in magnitude than the divisor, and Go defines
+// math.MinInt64 % -1 as 0 rather than trapping, which is also Python's answer.
+func FloorModInt64(a, b int64) int64 {
+	r := a % b
+	if r != 0 && (r < 0) != (b < 0) {
+		r += b
+	}
+	return r
+}
+
 // BoolToInt returns 1 for true and 0 for false, the int value CPython gives a
 // bool used as a number: bool is a subtype of int, so `True + 1` is `2` and
 // `False * 3.0` is `0.0`. The static tier calls this to coerce a bool operand

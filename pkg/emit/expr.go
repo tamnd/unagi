@@ -32,6 +32,12 @@ const (
 	// toward negative infinity, guarded for a zero divisor and for the one overflow
 	// (math.MinInt64 // -1); a float operand keeps it boxed at M4.
 	OpFloorDiv
+	// OpMod is Python %, the floored modulo. On two ints it yields an int whose sign
+	// follows the divisor, guarded only for a zero divisor: the floored remainder is
+	// always smaller in magnitude than the divisor, so it cannot overflow int64, and
+	// Go's own % returns 0 for math.MinInt64 % -1 rather than trapping. A float
+	// operand keeps it boxed at M4.
+	OpMod
 )
 
 // String names the operator for diagnostics.
@@ -47,8 +53,25 @@ func (o Op) String() string {
 		return "/"
 	case OpFloorDiv:
 		return "//"
+	case OpMod:
+		return "%"
 	}
 	return "?"
+}
+
+// Overflows reports whether an int-result form of this operator carries an int64
+// overflow guard that deopts on failure. Add, subtract, multiply, and floor
+// division can each carry a value past int64, so they guard and route the failure
+// edge to the boxed twin. True division is float, and modulo's floored remainder is
+// always smaller than the divisor, so neither can overflow: both are excluded here,
+// which keeps the cost model and the deopt-site walk from opening a phantom site for
+// an operator that never hands off.
+func (o Op) Overflows() bool {
+	switch o {
+	case OpAdd, OpSub, OpMul, OpFloorDiv:
+		return true
+	}
+	return false
 }
 
 // helper names the overflow-checking runtime helper for an integer operator, the
@@ -210,6 +233,23 @@ func (b *Builder) lowerBin(n Bin) (ast.Expr, Repr, error) {
 			ifStmt(ident(ovf), b.deoptEdge()),
 		)
 		return ident(val), Repr{Go: "int64", Scalar: SInt}, nil
+	}
+
+	// Modulo on two ints is Python's floored remainder, whose sign follows the
+	// divisor. It carries a single check: a zero divisor raises ZeroDivisionError
+	// through the D14 channel, the same message floor division raises. There is no
+	// overflow edge, so the value inlines directly through the runtime helper with no
+	// temp or deopt: the floored remainder is always smaller than the divisor and Go's
+	// own % returns zero for the one boundary (math.MinInt64 % -1) rather than
+	// trapping. A float operand keeps it boxed at M4, so only the int-and-bool case
+	// reaches here.
+	if n.Op == OpMod {
+		if lr.Scalar == SFloat || rr.Scalar == SFloat {
+			return nil, Repr{}, fmt.Errorf("emit: %s on a float operand is not a static operation", n.Op)
+		}
+		lx, rx = toInt(lx, lr), toInt(rx, rr)
+		b.guardZeroDivInt(rx)
+		return callExpr(sel(runtimePkg, "FloorModInt64"), lx, rx), Repr{Go: "int64", Scalar: SInt}, nil
 	}
 
 	// A float on either side promotes the whole operation to float, total and

@@ -105,6 +105,33 @@ func TestFloorDivInt64(t *testing.T) {
 	}
 }
 
+func TestFloorModInt64(t *testing.T) {
+	cases := []struct {
+		a, b, want int64
+	}{
+		// Same-sign operands agree with Go's truncating remainder.
+		{7, 3, 1},
+		{6, 3, 0},
+		{-7, -3, -1},
+		{-6, -3, 0},
+		// Mixed-sign nonzero remainders carry the divisor's sign, one correction away
+		// from Go's dividend-signed remainder.
+		{-7, 3, 2},
+		{7, -3, -2},
+		// Mixed-sign exact division leaves a zero remainder, no correction.
+		{-6, 3, 0},
+		{6, -3, 0},
+		// The boundary Go defines as zero rather than trapping, which is Python's answer.
+		{math.MinInt64, -1, 0},
+		{math.MinInt64, 1, 0},
+	}
+	for _, c := range cases {
+		if got := FloorModInt64(c.a, c.b); got != c.want {
+			t.Errorf("FloorModInt64(%d, %d) = %d, want %d", c.a, c.b, got, c.want)
+		}
+	}
+}
+
 // TestZeroDivisionError pins that the static tier's divide-by-zero raises the
 // same exception surface as the boxed tier, message and type both.
 func TestZeroDivisionError(t *testing.T) {

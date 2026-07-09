@@ -51,6 +51,33 @@ func TestCostTrueDivisionIsUnguardedFloat(t *testing.T) {
 	}
 }
 
+func TestCostFloorDivisionIsGuardedInt(t *testing.T) {
+	// Floor division yields an int and can overflow at MinInt64 // -1, so it carries
+	// an overflow guard and a deopt edge, the same as an int add.
+	c := costOfSrc(t, "def f(a: int, b: int) -> int:\n    return a // b\n")
+	if c.UnboxedOps != 1 {
+		t.Errorf("UnboxedOps = %d, want 1", c.UnboxedOps)
+	}
+	if c.EntryGuards != 1 {
+		t.Errorf("floor division should carry an overflow guard, got %d", c.EntryGuards)
+	}
+}
+
+func TestCostModuloIsUnguardedInt(t *testing.T) {
+	// Modulo yields an int but its floored remainder is always smaller than the
+	// divisor, so it cannot overflow: it is a total operation with only a zero-divisor
+	// semantic guard, no overflow guard and no deopt edge. If the census counted it as
+	// guarded, a modulo function would auto-box on the guard budget for a guard that
+	// never fires, and the deopt-site walk would open a phantom site.
+	c := costOfSrc(t, "def f(a: int, b: int) -> int:\n    return a % b\n")
+	if c.UnboxedOps != 1 {
+		t.Errorf("UnboxedOps = %d, want 1", c.UnboxedOps)
+	}
+	if c.EntryGuards != 0 {
+		t.Errorf("modulo should not carry an overflow guard, got %d", c.EntryGuards)
+	}
+}
+
 func TestCostCountsAugAssign(t *testing.T) {
 	// The seed accumulator binds an int local then adds into it twice; the two
 	// += operations are guarded int adds.

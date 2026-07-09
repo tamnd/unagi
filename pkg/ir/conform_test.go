@@ -80,6 +80,19 @@ func TestStaticTierMatchesCPython(t *testing.T) {
 		// Division by zero raises ZeroDivisionError with CPython's exact message
 		// as a semantic error, not a deopt (02, line 34).
 		{"division by zero", "def f(a: int, b: int) -> float:\n    return a / b\n", "f(1, 0)"},
+		// Modulo yields the floored remainder, whose sign follows the divisor (02, floor
+		// division section). It never overflows, so it is guard-free and reaches this
+		// runner. Each sign combination is checked against CPython, since Go's % keeps
+		// the dividend's sign and only the mixed-sign nonzero cases need the correction.
+		{"mod both positive", "def f(a: int, b: int) -> int:\n    return a % b\n", "f(7, 3)"},
+		{"mod negative dividend", "def f(a: int, b: int) -> int:\n    return a % b\n", "f(-7, 3)"},
+		{"mod negative divisor", "def f(a: int, b: int) -> int:\n    return a % b\n", "f(7, -3)"},
+		{"mod both negative", "def f(a: int, b: int) -> int:\n    return a % b\n", "f(-7, -3)"},
+		{"mod exact", "def f(a: int, b: int) -> int:\n    return a % b\n", "f(-6, 3)"},
+		// Modulo by zero raises ZeroDivisionError with the bare "division by zero" text
+		// python3.14 raises for every zero divisor, which this runner diffs against
+		// CPython directly.
+		{"mod by zero", "def f(a: int, b: int) -> int:\n    return a % b\n", "f(1, 0)"},
 		// String concatenation (04_strings.md). The call uses double quotes so the
 		// one call text is a Go string literal and a Python string literal at once;
 		// repr renders both with single quotes, so the printed forms still match.

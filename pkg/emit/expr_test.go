@@ -86,6 +86,43 @@ func TestFloorDivOnFloatIsRefused(t *testing.T) {
 	}
 }
 
+func TestModuloGuardsZeroWithoutDeopt(t *testing.T) {
+	_, iR, _ := reprs()
+	// a % b on two ints is the floored modulo: the divisor is zero-checked with the
+	// bare "division by zero" message, the value comes through the runtime helper inline,
+	// and there is no overflow flag or deopt edge because a floored remainder never
+	// overflows int64.
+	src := emitOneReturn(t, "rem", iR, []Param{{Name: "a", Repr: iR}, {Name: "b", Repr: iR}},
+		Bin{Op: OpMod, L: Var{Name: "a", Repr: iR}, R: Var{Name: "b", Repr: iR}})
+	if !strings.Contains(src, "if b == 0") {
+		t.Fatalf("modulo should guard a zero divisor:\n%s", src)
+	}
+	if !strings.Contains(src, `rt.ZeroDivisionError("division by zero")`) {
+		t.Fatalf("the int zero guard should raise the bare division-by-zero message:\n%s", src)
+	}
+	if !strings.Contains(src, "return rt.FloorModInt64(a, b), nil") {
+		t.Fatalf("modulo should return the flooring helper inline:\n%s", src)
+	}
+	if strings.Contains(src, "deopt") || strings.Contains(src, "ovf") {
+		t.Fatalf("modulo never overflows, so it must carry no deopt edge:\n%s", src)
+	}
+	if strings.Contains(src, "a % b") {
+		t.Fatalf("modulo must not lower to a bare Go %% that keeps the dividend's sign:\n%s", src)
+	}
+}
+
+func TestModuloOnFloatIsRefused(t *testing.T) {
+	fR, iR, _ := reprs()
+	// A float operand keeps modulo boxed at M4, so the static tier refuses it.
+	_, err := EmitFunc(Func{
+		Name: "bad", Ret: fR,
+		Body: []Stmt{Return{Value: Bin{Op: OpMod, L: Var{Name: "a", Repr: iR}, R: Float{V: 2}}}},
+	})
+	if err == nil {
+		t.Fatal("modulo with a float operand should be refused, not miscompiled")
+	}
+}
+
 func TestIntAugAssignIsGuarded(t *testing.T) {
 	_, iR, _ := reprs()
 	// An int accumulator lowers through the guarded add, not a bare +=, so it
@@ -201,7 +238,7 @@ func TestRangeNeedsList(t *testing.T) {
 }
 
 func TestOpStrings(t *testing.T) {
-	for op, want := range map[Op]string{OpAdd: "+", OpSub: "-", OpMul: "*", OpDiv: "/", OpFloorDiv: "//"} {
+	for op, want := range map[Op]string{OpAdd: "+", OpSub: "-", OpMul: "*", OpDiv: "/", OpFloorDiv: "//", OpMod: "%"} {
 		if op.String() != want {
 			t.Fatalf("Op(%d).String() = %q, want %q", op, op.String(), want)
 		}
