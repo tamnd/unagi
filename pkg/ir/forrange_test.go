@@ -82,6 +82,7 @@ func TestLowerForRangeRefuses(t *testing.T) {
 		{"non-literal step", "def f(n: int, s: int) -> int:\n    for i in range(0, n, s):\n        pass\n    return n\n"},
 		{"zero step", "def f(n: int) -> int:\n    for i in range(0, n, 0):\n        pass\n    return n\n"},
 		{"four arguments", "def f(n: int) -> int:\n    for i in range(0, n, 1, 1):\n        pass\n    return n\n"},
+		{"bound past int64", "def f() -> int:\n    for i in range(99999999999999999999999999):\n        pass\n    return 0\n"},
 		{"enumerate-style tuple target", "def f(xs: list) -> int:\n    for i, x in enumerate(xs):\n        pass\n    return 0\n"},
 		{"list iteration", "def f(xs: list) -> int:\n    for x in xs:\n        pass\n    return 0\n"},
 		{"mutated bound", "def f(n: int) -> int:\n    for i in range(n):\n        n = 0\n    return n\n"},
