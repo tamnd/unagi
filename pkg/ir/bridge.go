@@ -544,11 +544,13 @@ func lowerWhile(n *frontend.While, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.R
 // it as an int, and the loop is the canonical unboxed counting loop doc 06 calls the
 // single most important lowering in the compiler.
 //
-// Only the range forms with an implicit +1 step lower here: `range(n)` counts from zero
-// and `range(a, b)` counts from a, both to stop exclusive. A range with an explicit step
-// (doc 06 line 46) and an enumerate or a list iteration with a non-name target (doc 06
-// line 48) are later slices, so a target that is not a plain name, an iterable that is
-// not a range call, or a three-argument range keeps the unit boxed.
+// The range forms that lower here count by one: `range(n)` counts from zero, `range(a, b)`
+// counts from a, and `range(a, b, step)` counts from a with the step's direction, all to
+// stop exclusive. The step must be a literal of magnitude one so its sign is known and the
+// induction cannot overflow before the bound test fires: a `+1` counts up, a `-1` counts
+// down, and any larger step keeps the unit boxed (doc 06 line 46). An enumerate or a list
+// iteration with a non-name target (doc 06 line 48) is a later slice too, so a target that
+// is not a plain name or an iterable that is not a range call keeps the unit boxed.
 //
 // The stop bound is re-tested every iteration, so it must be stable: an int literal or a
 // name the body never reassigns, or a later iteration would test a changed bound where
@@ -588,14 +590,36 @@ func lowerFor(n *frontend.For, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr,
 		}
 	}
 	var startArg, stopArg frontend.Expr
+	var down bool
 	switch len(call.Args) {
 	case 1:
 		stopArg = call.Args[0].Value
 	case 2:
 		startArg = call.Args[0].Value
 		stopArg = call.Args[1].Value
+	case 3:
+		startArg = call.Args[0].Value
+		stopArg = call.Args[1].Value
+		// The step must be a literal so its sign, and so the loop's termination direction,
+		// is known at compile time. Only a step of magnitude one lands here: a `+1` counts
+		// up like the two-argument form, a `-1` counts down, and any larger step could
+		// carry the induction past int64's range before the bound test fires, an overflow
+		// guard on the loop back-edge with no resume point yet, so it stays boxed. A zero
+		// step is a Python ValueError and stays boxed too.
+		step, ok := constStep(call.Args[2].Value)
+		if !ok {
+			return nil, nil, false, unsupported("a range step that is not an integer literal has no compile-time sign, so the loop direction is unknown")
+		}
+		switch step {
+		case 1:
+			down = false
+		case -1:
+			down = true
+		default:
+			return nil, nil, false, unsupported("a range step of magnitude other than one needs a loop back-edge overflow guard, deferred past M4")
+		}
 	default:
-		return nil, nil, false, unsupported("range needs one or two arguments at M4; an explicit step is a later slice")
+		return nil, nil, false, unsupported("range needs one to three arguments")
 	}
 
 	// The start is evaluated once in the loop init, so any int expression serves.
@@ -661,7 +685,34 @@ func lowerFor(n *frontend.For, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr,
 	if bc.EntryGuards+bc.LoopGuards > 0 {
 		return nil, nil, false, unsupported("a guarded for-range body needs a loop back-edge resume point, deferred past M4")
 	}
-	return append(pre, emit.ForCount{Var: target.Id, Start: start, Stop: stop, Body: body}), nil, false, nil
+	return append(pre, emit.ForCount{Var: target.Id, Start: start, Stop: stop, Down: down, Body: body}), nil, false, nil
+}
+
+// constStep reads a range step written as an integer literal, optionally negated once, and
+// returns its signed value. Only a literal step has a compile-time-known sign, which the
+// counting loop needs to pick its termination direction, so a name or a computed step
+// reports ok false and keeps the loop boxed.
+func constStep(e frontend.Expr) (int64, bool) {
+	neg := false
+	if u, ok := e.(*frontend.UnaryOp); ok {
+		if u.Op != frontend.UnaryNeg {
+			return 0, false
+		}
+		neg = true
+		e = u.X
+	}
+	lit, ok := e.(*frontend.IntLit)
+	if !ok {
+		return 0, false
+	}
+	v, err := strconv.ParseInt(lit.Text, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	if neg {
+		v = -v
+	}
+	return v, true
 }
 
 // bodyAssigns reports whether any statement in a block assigns the given name, walking
