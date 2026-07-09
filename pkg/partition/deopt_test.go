@@ -95,6 +95,24 @@ func TestVerifyPointerCopyNeedsEscape(t *testing.T) {
 	}
 }
 
+func TestVerifyDeoptEdgeNamesMissingHandler(t *testing.T) {
+	s := wellFormedSite()
+	// Point the guard's deopt edge at a resume point no site in the plan defines.
+	// The emitted boxed form would carry no `<fn>_deopt2`-style handler for id 99,
+	// so the edge is dangling and the verifier must reject it.
+	s.Guard.Resume = 99
+	if !hasViol(VerifyPlan([]DeoptSite{s}), ViolDeoptHandlerMissing) {
+		t.Fatalf("a deopt edge naming a nonexistent handler should be rejected")
+	}
+	// The same guard resolves cleanly once a site defines resume point 99: the
+	// check is about the handler existing somewhere in the plan, not per site.
+	other := wellFormedSite()
+	other.Resume.ID = 99
+	if hasViol(VerifyPlan([]DeoptSite{s, other}), ViolDeoptHandlerMissing) {
+		t.Fatalf("a deopt edge naming a handler another site defines should verify")
+	}
+}
+
 func TestVerifyPlanFlattens(t *testing.T) {
 	bad := wellFormedSite()
 	bad.Resume.Kind = ResumeMidExpression
