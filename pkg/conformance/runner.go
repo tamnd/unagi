@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/tamnd/unagi/pkg/build"
+	"github.com/tamnd/unagi/pkg/partition"
 )
 
 // Runner holds the per-invocation knobs.
@@ -24,6 +25,12 @@ type Runner struct {
 	// LedgerIDs is the valid divergence id set; nil skips validation
 	// (golden-mode unit tests).
 	LedgerIDs map[string]bool
+	// Tier forces the partition tier the subject compiles under. The zero value
+	// is auto, the normal build. The forced modes drive the M4 differential band
+	// (doc 06 section 10): a fixture rebuilt forced-static or forced-boxed must
+	// still match the CPython oracle byte for byte, since the typed tier is only
+	// allowed to change speed, never observable behavior.
+	Tier partition.Mode
 }
 
 // scrubbedEnv is the fixed environment both pipelines run under, plus
@@ -172,7 +179,8 @@ func (r *Runner) execSubject(ctx context.Context, f Fixture) (Outcome, error) {
 	}
 	defer cleanup()
 	bin, err := build.Build(ctx, filepath.Join(runDir, "main.py"), build.Options{
-		Out: filepath.Join(home, "subject"),
+		Out:  filepath.Join(home, "subject"),
+		Tier: r.Tier,
 	})
 	if err != nil {
 		return Outcome{}, err

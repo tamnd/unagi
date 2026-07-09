@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/tamnd/unagi/pkg/build"
+	"github.com/tamnd/unagi/pkg/partition"
 )
 
 // buildGate bounds how many fixtures compile at once. Each RunGolden shells out
@@ -41,6 +42,25 @@ func gatedRunGolden(r *Runner, f Fixture) Result {
 	buildGate <- struct{}{}
 	defer func() { <-buildGate }()
 	return r.RunGolden(context.Background(), f)
+}
+
+// judgeCorpusResult fails t on any verdict that is not a clean pass or an
+// allowed divergence, printing every channel diff and any build error. It is
+// the shared assertion the auto and forced-tier corpus sweeps run through so
+// they hold the fixtures to the same bar.
+func judgeCorpusResult(t *testing.T, res Result) {
+	t.Helper()
+	if res.Skipped {
+		t.Skipf("skip: %s", res.SkipWhy)
+	}
+	if res.Verdict != Pass && res.Verdict != DivergentOK {
+		for _, d := range res.Diffs {
+			t.Errorf("channel %s at %s\n  oracle : %s\n  subject: %s", d.Channel, d.Where, d.Oracle, d.Got)
+		}
+		if res.BuildErr != "" {
+			t.Errorf("build: %s", res.BuildErr)
+		}
+	}
 }
 
 func emitGo(t *testing.T, src, dir string) error {
@@ -78,17 +98,41 @@ func TestCorpusGolden(t *testing.T) {
 	for _, f := range fixtures {
 		t.Run(f.Name, func(t *testing.T) {
 			t.Parallel()
-			res := gatedRunGolden(runner, f)
-			if res.Skipped {
-				t.Skipf("skip: %s", res.SkipWhy)
-			}
-			if res.Verdict != Pass && res.Verdict != DivergentOK {
-				for _, d := range res.Diffs {
-					t.Errorf("channel %s at %s\n  oracle : %s\n  subject: %s", d.Channel, d.Where, d.Oracle, d.Got)
-				}
-				if res.BuildErr != "" {
-					t.Errorf("build: %s", res.BuildErr)
-				}
+			judgeCorpusResult(t, gatedRunGolden(runner, f))
+		})
+	}
+}
+
+// TestCorpusForcedTiers is the M4 differential band of doc 06 section 10: it
+// rebuilds every fixture under each forced tier and judges the binary against
+// the same CPython golden the auto build is held to. The typed tier's contract
+// is that it changes speed and nothing else, so forcing a unit static that the
+// cost model would box, or forcing the whole program boxed, must leave stdout,
+// the exit code, and the traceback byte for byte identical to real CPython. A
+// forced-static build that diverges is exactly the D4 wrong-answer hole this
+// band exists to catch. The reruns share the build gate and cache with the auto
+// sweep, so the extra cost is two more link passes per fixture, not two more
+// compiles from scratch.
+func TestCorpusForcedTiers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	fixtures, base := corpus(t)
+	tiers := []struct {
+		name string
+		mode partition.Mode
+	}{
+		{"static", partition.ModeForceStatic},
+		{"boxed", partition.ModeForceBoxed},
+	}
+	for _, tier := range tiers {
+		runner := &Runner{LedgerIDs: base.LedgerIDs, Tier: tier.mode}
+		t.Run(tier.name, func(t *testing.T) {
+			for _, f := range fixtures {
+				t.Run(f.Name, func(t *testing.T) {
+					t.Parallel()
+					judgeCorpusResult(t, gatedRunGolden(runner, f))
+				})
 			}
 		})
 	}
