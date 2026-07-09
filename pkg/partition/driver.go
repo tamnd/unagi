@@ -61,40 +61,81 @@ type scope struct {
 // no static work in its profile it decides boxed on the cost model, the honest
 // verdict for such a unit.
 func (d *driver) enter(qual string, pos frontend.Pos) scope {
-	return d.enterProfiled(qual, pos, Profile{})
+	return d.enterProfiled(qual, pos, Profile{}, nil)
 }
 
-// enterProfiled registers a new unit carrying a cost profile, the door a body
-// takes once a pass has measured its static work. The profile drives Decide, so
-// a unit with proven unboxed operations and an affordable guard count lands
-// static; one whose guards outweigh its operations still boxes on the cost model.
-func (d *driver) enterProfiled(qual string, pos frontend.Pos, prof Profile) scope {
+// enterProfiled registers a new unit carrying a cost profile and its deopt plan,
+// the door a body takes once a pass has measured its static work. The profile
+// drives Decide, so a unit with proven unboxed operations and an affordable guard
+// count lands static; one whose guards outweigh its operations still boxes on the
+// cost model. The deopt sites ride along so a unit that lands static carries the
+// transfer tables its boxed twin resumes through; Decide keeps them only for a
+// static verdict, where they are the thing the emitter consumes.
+func (d *driver) enterProfiled(qual string, pos frontend.Pos, prof Profile, deopts []DeoptSite) scope {
 	u := Unit{
 		Module: d.module,
 		Name:   qual,
 		Span:   d.span(pos),
 		Offset: offset(pos),
 	}
-	d.p.Add(Input{Unit: u, Profile: prof})
+	d.p.Add(Input{Unit: u, Profile: prof, Deopts: deopts})
 	return scope{unit: u, qual: qual}
 }
 
 // child builds the qualified name of a body nested inside sc.
 func (sc scope) child(name string) string { return sc.qual + "." + name }
 
-// funcProfile measures a function's static work by lowering it through the ir
-// bridge. When the bridge lowers the whole body (a proven scalar function), its
-// cost census becomes the unit's profile, so Decide can judge the static form
-// against its boxed twin. When any part of the body falls outside the scalar
-// subset the bridge refuses it, and the empty profile keeps the unit boxed, so a
-// function the tier cannot yet lower is never scored as if it could.
-func funcProfile(fn *frontend.FuncDef) Profile {
+// funcInput measures a function's static work and deopt plan by lowering it
+// through the ir bridge. When the bridge lowers the whole body (a proven scalar
+// function), its cost census becomes the unit's profile so Decide can judge the
+// static form against its boxed twin, and its guard sites become the deopt plan
+// the boxed twin resumes through. When any part of the body falls outside the
+// scalar subset the bridge refuses it, and the empty profile keeps the unit
+// boxed, so a function the tier cannot yet lower is never scored as if it could.
+func (d *driver) funcInput(fn *frontend.FuncDef) (Profile, []DeoptSite) {
 	f, err := ir.LowerFunc(fn)
 	if err != nil {
-		return Profile{}
+		return Profile{}, nil
 	}
 	c := ir.CostOf(f)
-	return Profile{UnboxedOps: c.UnboxedOps, EntryGuards: c.EntryGuards, LoopGuards: c.LoopGuards}
+	prof := Profile{UnboxedOps: c.UnboxedOps, EntryGuards: c.EntryGuards, LoopGuards: c.LoopGuards}
+	return prof, deoptSites(ir.GuardSitesOf(f), d.span(fn.Pos_))
+}
+
+// deoptSites turns the bridge's guard sites into the partition deopt plan. Each
+// guarded statement becomes one site: an interior overflow guard that deopts, a
+// statement-boundary resume point the boxed twin lands on, and a rebox transfer
+// per live scalar so the twin rebuilds its frame through the same constructors
+// ordinary boxed code uses, which is what keeps small-int and str identity by
+// construction (doc 06 section 8.3). The site's index is its resume-point id, so
+// the guard names the handler the same site defines and VerifyPlan sees no
+// dangling edge. Emit nodes carry no source span at M4, so every site of one
+// function shares that function's span; the resume points stay distinct by id.
+func deoptSites(sites []ir.GuardSite, span types.Span) []DeoptSite {
+	if len(sites) == 0 {
+		return nil
+	}
+	out := make([]DeoptSite, len(sites))
+	for id, s := range sites {
+		live := make([]string, len(s.Live))
+		transfers := make([]TransferEntry, len(s.Live))
+		for slot, lv := range s.Live {
+			live[slot] = lv.Name
+			transfers[slot] = TransferEntry{
+				Slot:   slot,
+				Native: lv.Name,
+				Kind:   MatRebox,
+				Type:   lv.Type,
+			}
+		}
+		out[id] = DeoptSite{
+			Guard:     Guard{Kind: GuardOverflow, Site: span, Edge: EdgeDeopt, Resume: id},
+			Resume:    ResumePoint{ID: id, Site: span, Kind: ResumeStatement},
+			Transfers: transfers,
+			LiveVars:  live,
+		}
+	}
+	return out
 }
 
 // span converts a frontend position to a report span in this module's file.
@@ -189,7 +230,8 @@ func (d *driver) scanStmt(sc scope, s frontend.Stmt) {
 			d.scanExpr(sc, pr.Default)
 		}
 		d.scanExpr(sc, s.Returns)
-		body := d.enterProfiled(sc.child(s.Name), s.Pos_, funcProfile(s))
+		prof, deopts := d.funcInput(s)
+		body := d.enterProfiled(sc.child(s.Name), s.Pos_, prof, deopts)
 		d.scanStmts(body, s.Body)
 	case *frontend.ClassDef:
 		for _, dec := range s.Decorators {
