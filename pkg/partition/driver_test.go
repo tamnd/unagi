@@ -95,6 +95,45 @@ func TestDriveProvesScalarFunctionStatic(t *testing.T) {
 	}
 }
 
+func TestDriveProvesCallerOfStaticCalleeStatic(t *testing.T) {
+	// A caller of another static function is boxed on the first decision pass, since
+	// the bridge refuses the call until the callee is known static. The call-graph
+	// fixpoint feeds the proven callee back in, so a later pass lowers the call and
+	// the caller proves static too. Both are total float, so neither carries a guard.
+	src := "def scale(a: float, b: float) -> float:\n" +
+		"    return a * b\n\n" +
+		"def outer(a: float, b: float) -> float:\n" +
+		"    return scale(a, b) + a\n"
+	ds := byName(drive(t, src))
+	if d := ds["<module>.scale"]; d.State != StaticProven {
+		t.Fatalf("the callee should prove static, got %v with %+v", d.State, d.Reasons)
+	}
+	d, ok := ds["<module>.outer"]
+	if !ok {
+		t.Fatal("missing unit <module>.outer")
+	}
+	if d.State != StaticProven {
+		t.Fatalf("a caller of a static callee should prove static once the fixpoint resolves the call, got %v with %+v", d.State, d.Reasons)
+	}
+	if len(d.Deopts) != 0 {
+		t.Errorf("a total float caller carries no deopt site, got %d", len(d.Deopts))
+	}
+}
+
+func TestDriveBoxesCallerOfBoxedCallee(t *testing.T) {
+	// The fixpoint only resolves a callee that actually proves static. A callee the
+	// bridge cannot lower (an unannotated parameter) never enters the resolver, so
+	// its caller keeps refusing the call and stays boxed, never guessing a shape.
+	src := "def helper(a):\n" +
+		"    return a + 1\n\n" +
+		"def outer(a: float, b: float) -> float:\n" +
+		"    return helper(a) + b\n"
+	ds := byName(drive(t, src))
+	if d := ds["<module>.outer"]; d.State.IsStatic() {
+		t.Errorf("a caller of a boxed callee should stay boxed, got %v", d.State)
+	}
+}
+
 func TestDriveBoxesGuardHeavyIntFunction(t *testing.T) {
 	// A short int function is all guarded adds, so its overflow guards outweigh
 	// the unboxed work and the guard budget demotes it. The tier is honest that a
