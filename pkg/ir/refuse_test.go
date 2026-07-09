@@ -38,14 +38,10 @@ func TestStaticTierRefusesUnsafeForms(t *testing.T) {
 		{"identity is not", "def f(a: int, b: int) -> bool:\n    return a is not b\n"},
 		{"scalar membership", "def f(a: int, xs: list) -> bool:\n    return a in xs\n"},
 
-		// Integer operators still outside the guarded set (02, line 45): the shift
-		// operators have no M4 static form yet, because << can overflow to a big int and
-		// both shifts raise ValueError on a negative count. Floor division, modulo, power,
-		// and the logical bitwise ops &, |, ^ have all graduated to static forms (the
-		// first three guarded, the bitwise trio total and guard-free), so they are no
-		// longer in this list.
-		{"int left shift", "def f(a: int, b: int) -> int:\n    return a << b\n"},
-		{"int right shift", "def f(a: int, b: int) -> int:\n    return a >> b\n"},
+		// Every binary integer operator has now graduated to a static form: the four core
+		// operators, floor division, modulo, power, the logical bitwise ops &, |, ^, and
+		// the shifts <<, >> (see `02_arithmetic_int.md`). Matrix multiply `@` has no int
+		// meaning in Python, so there is no int refusal case left in this list.
 
 		// Float operators outside the total set (03, line 35): the same floor-div,
 		// modulo, and power hazards on floats, where math.fmod and math.floor

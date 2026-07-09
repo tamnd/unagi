@@ -50,6 +50,15 @@ const (
 	OpBitOr
 	// OpBitXor is Python ^, bitwise exclusive or, with the same int-only rule.
 	OpBitXor
+	// OpLShift is Python <<, left shift. On two ints it yields an int, guarded for a
+	// negative shift count (ValueError) and for the overflow past int64 (deopt to the
+	// boxed big int). A float operand keeps it boxed at M4.
+	OpLShift
+	// OpRShift is Python >>, arithmetic right shift. On two ints it yields an int,
+	// guarded only for a negative shift count (ValueError): the result floors toward
+	// negative infinity and never overflows, so it opens no deopt edge. A float operand
+	// keeps it boxed at M4.
+	OpRShift
 )
 
 // String names the operator for diagnostics.
@@ -75,20 +84,27 @@ func (o Op) String() string {
 		return "|"
 	case OpBitXor:
 		return "^"
+	case OpLShift:
+		return "<<"
+	case OpRShift:
+		return ">>"
 	}
 	return "?"
 }
 
 // Overflows reports whether an int-result form of this operator carries a guard
 // that deopts on failure. Add, subtract, multiply, and floor division can each
-// carry a value past int64, and power both overflows and deopts on a negative
-// exponent, so all of them route a failure edge to the boxed twin. True division is
-// float, and modulo's floored remainder is always smaller than the divisor, so
-// neither can overflow: both are excluded here, which keeps the cost model and the
-// deopt-site walk from opening a phantom site for an operator that never hands off.
+// carry a value past int64, power both overflows and deopts on a negative exponent,
+// and left shift overflows past int64, so all of them route a failure edge to the
+// boxed twin. True division is float, modulo's floored remainder is always smaller
+// than the divisor, the logical bitwise ops stay in int64, and right shift only
+// floors, so none of those can overflow: they are excluded here, which keeps the
+// cost model and the deopt-site walk from opening a phantom site for an operator
+// that never hands off. A negative shift count is a semantic ValueError, not a
+// deopt, so it does not make right shift overflow-guarded.
 func (o Op) Overflows() bool {
 	switch o {
-	case OpAdd, OpSub, OpMul, OpFloorDiv, OpPow:
+	case OpAdd, OpSub, OpMul, OpFloorDiv, OpPow, OpLShift:
 		return true
 	}
 	return false
@@ -316,6 +332,42 @@ func (b *Builder) lowerBin(n Bin) (ast.Expr, Repr, error) {
 		return binary(n.Op.tok(), lx, rx), Repr{Go: "int64", Scalar: SInt}, nil
 	}
 
+	// Left shift on two ints yields an int. It carries two checks: a negative shift
+	// count raises ValueError through the D14 channel, and the overflow past int64
+	// (Python grows the value into a big int) deopts to the boxed twin like any other
+	// int overflow. A float operand keeps it boxed at M4.
+	if n.Op == OpLShift {
+		if lr.Scalar == SFloat || rr.Scalar == SFloat {
+			return nil, Repr{}, fmt.Errorf("emit: %s on a float operand is not a static operation", n.Op)
+		}
+		lx, rx = toInt(lx, lr), toInt(rx, rr)
+		b.guardNegShift(rx)
+		val, ovf := b.temp(), b.flag()
+		b.pre = append(b.pre,
+			&ast.AssignStmt{
+				Lhs: []ast.Expr{ident(val), ident(ovf)},
+				Tok: token.DEFINE,
+				Rhs: []ast.Expr{callExpr(sel(runtimePkg, "LShiftInt64"), lx, rx)},
+			},
+			ifStmt(ident(ovf), b.deoptEdge()),
+		)
+		return ident(val), Repr{Go: "int64", Scalar: SInt}, nil
+	}
+
+	// Right shift on two ints is Python's arithmetic shift, flooring toward negative
+	// infinity. It carries a single check: a negative shift count raises ValueError
+	// through the D14 channel. There is no overflow edge, so the value inlines directly
+	// through the runtime helper with no temp or deopt: an arithmetic right shift only
+	// ever shrinks the magnitude. A float operand keeps it boxed at M4.
+	if n.Op == OpRShift {
+		if lr.Scalar == SFloat || rr.Scalar == SFloat {
+			return nil, Repr{}, fmt.Errorf("emit: %s on a float operand is not a static operation", n.Op)
+		}
+		lx, rx = toInt(lx, lr), toInt(rx, rr)
+		b.guardNegShift(rx)
+		return callExpr(sel(runtimePkg, "RShiftInt64"), lx, rx), Repr{Go: "int64", Scalar: SInt}, nil
+	}
+
 	// A float on either side promotes the whole operation to float, total and
 	// unguarded; the int side coerces up.
 	if lr.Scalar == SFloat || rr.Scalar == SFloat {
@@ -364,6 +416,18 @@ func (b *Builder) guardZeroDivInt(divisor ast.Expr) {
 	b.pre = append(b.pre, ifStmt(
 		binary(token.EQL, divisor, intLit(0)),
 		ret(b.ret.zero(), callExpr(sel(runtimePkg, "ZeroDivisionError"), strLit("division by zero"))),
+	))
+}
+
+// guardNegShift appends the semantic check that a shift by a negative count raises
+// ValueError through the D14 channel, the same "negative shift count" message
+// python3.14 raises for both << and >>, which the boxed twin raises too, so the two
+// tiers agree. The count is the already-coerced int64 expression, so the compare is
+// against the int literal 0.
+func (b *Builder) guardNegShift(count ast.Expr) {
+	b.pre = append(b.pre, ifStmt(
+		binary(token.LSS, count, intLit(0)),
+		ret(b.ret.zero(), callExpr(sel(runtimePkg, "ValueError"), strLit("negative shift count"))),
 	))
 }
 

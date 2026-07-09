@@ -199,6 +199,66 @@ func TestBitwiseOnFloatIsRefused(t *testing.T) {
 	}
 }
 
+func TestLeftShiftGuardsNegativeAndOverflow(t *testing.T) {
+	_, iR, _ := reprs()
+	// a << b on two ints is int left shift: a negative count raises ValueError, the
+	// value comes through the runtime helper, and the overflow past int64 routes to the
+	// deopt edge like any other int overflow.
+	src := emitOneReturn(t, "shl", iR, []Param{{Name: "a", Repr: iR}, {Name: "b", Repr: iR}},
+		Bin{Op: OpLShift, L: Var{Name: "a", Repr: iR}, R: Var{Name: "b", Repr: iR}})
+	if !strings.Contains(src, "if b < 0") {
+		t.Fatalf("left shift should guard a negative count:\n%s", src)
+	}
+	if !strings.Contains(src, `rt.ValueError("negative shift count")`) {
+		t.Fatalf("the negative-count guard should raise ValueError:\n%s", src)
+	}
+	if !strings.Contains(src, "rt.LShiftInt64(a, b)") {
+		t.Fatalf("left shift should route through the overflow-checking helper:\n%s", src)
+	}
+	if !strings.Contains(src, "shl_deopt0(a, b)") {
+		t.Fatalf("the overflow flag should route to the deopt edge:\n%s", src)
+	}
+	if strings.Contains(src, "a << b") {
+		t.Fatalf("left shift must not lower to a bare Go shift that wraps silently:\n%s", src)
+	}
+}
+
+func TestRightShiftGuardsNegativeWithoutDeopt(t *testing.T) {
+	_, iR, _ := reprs()
+	// a >> b on two ints is arithmetic right shift: a negative count raises ValueError,
+	// the value comes through the runtime helper inline, and there is no overflow flag
+	// or deopt edge because an arithmetic right shift only shrinks the magnitude.
+	src := emitOneReturn(t, "shr", iR, []Param{{Name: "a", Repr: iR}, {Name: "b", Repr: iR}},
+		Bin{Op: OpRShift, L: Var{Name: "a", Repr: iR}, R: Var{Name: "b", Repr: iR}})
+	if !strings.Contains(src, "if b < 0") {
+		t.Fatalf("right shift should guard a negative count:\n%s", src)
+	}
+	if !strings.Contains(src, `rt.ValueError("negative shift count")`) {
+		t.Fatalf("the negative-count guard should raise ValueError:\n%s", src)
+	}
+	if !strings.Contains(src, "return rt.RShiftInt64(a, b), nil") {
+		t.Fatalf("right shift should return the helper inline:\n%s", src)
+	}
+	if strings.Contains(src, "deopt") || strings.Contains(src, "ovf") {
+		t.Fatalf("right shift never overflows, so it must carry no deopt edge:\n%s", src)
+	}
+}
+
+func TestShiftOnFloatIsRefused(t *testing.T) {
+	fR, iR, _ := reprs()
+	// A float operand is a TypeError for shifts in Python, so the static tier refuses
+	// it rather than lowering a form that would not compile on a float.
+	for _, op := range []Op{OpLShift, OpRShift} {
+		_, err := EmitFunc(Func{
+			Name: "bad", Ret: fR,
+			Body: []Stmt{Return{Value: Bin{Op: op, L: Var{Name: "a", Repr: iR}, R: Float{V: 2}}}},
+		})
+		if err == nil {
+			t.Fatalf("%s with a float operand should be refused, not miscompiled", op)
+		}
+	}
+}
+
 func TestIntAugAssignIsGuarded(t *testing.T) {
 	_, iR, _ := reprs()
 	// An int accumulator lowers through the guarded add, not a bare +=, so it
@@ -314,7 +374,7 @@ func TestRangeNeedsList(t *testing.T) {
 }
 
 func TestOpStrings(t *testing.T) {
-	for op, want := range map[Op]string{OpAdd: "+", OpSub: "-", OpMul: "*", OpDiv: "/", OpFloorDiv: "//", OpMod: "%", OpPow: "**", OpBitAnd: "&", OpBitOr: "|", OpBitXor: "^"} {
+	for op, want := range map[Op]string{OpAdd: "+", OpSub: "-", OpMul: "*", OpDiv: "/", OpFloorDiv: "//", OpMod: "%", OpPow: "**", OpBitAnd: "&", OpBitOr: "|", OpBitXor: "^", OpLShift: "<<", OpRShift: ">>"} {
 		if op.String() != want {
 			t.Fatalf("Op(%d).String() = %q, want %q", op, op.String(), want)
 		}

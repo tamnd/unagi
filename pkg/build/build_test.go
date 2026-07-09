@@ -426,6 +426,69 @@ func TestBuildForcedStaticPowerComputesAndDeopts(t *testing.T) {
 	}
 }
 
+// TestBuildForcedStaticLeftShiftShiftsAndDeopts drives integer left shift end to end
+// under forced static, proving the emitted Go computes the exact shift for a count
+// whose result fits int64 and deopts to the boxed twin on the overflow past int64,
+// where Python grows the value into a big int. Every expected value is what
+// python3.14 prints for the same call.
+func TestBuildForcedStaticLeftShiftShiftsAndDeopts(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	sh := "def sh(a: int, b: int) -> int:\n    return a << b\n\n"
+	cases := []struct {
+		name string
+		call string
+		want string
+	}{
+		// Counts whose result fits int64 shift exactly on the static path.
+		{"small", "print(sh(255, 4))\n", "4080\n"},
+		{"negative operand", "print(sh(-3, 2))\n", "-12\n"},
+		{"fills sign bit", "print(sh(-1, 63))\n", "-9223372036854775808\n"},
+		{"max that fits", "print(sh(1, 62))\n", "4611686018427387904\n"},
+		// 1 << 63 is 2**63, one past int64, and deopts to the boxed twin's big int.
+		{"overflow deopt", "print(sh(1, 63))\n", "9223372036854775808\n"},
+		{"wide overflow deopt", "print(sh(1, 100))\n", "1267650600228229401496703205376\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			py := filepath.Join(dir, "main.py")
+			writeFile(t, py, sh+tc.call)
+
+			gen := filepath.Join(dir, "gen")
+			bin, err := Build(context.Background(), py, Options{
+				Out:    filepath.Join(dir, "prog"),
+				EmitGo: gen,
+				Tier:   partition.ModeForceStatic,
+			})
+			if err != nil {
+				t.Fatalf("build: %v", err)
+			}
+
+			static, err := os.ReadFile(filepath.Join(gen, "static.go"))
+			if err != nil {
+				t.Fatalf("static.go not emitted: %v", err)
+			}
+			for _, want := range []string{"rt.LShiftInt64(a, b)", "return static_sh_deopt(d0, d1)"} {
+				if !bytes.Contains(static, []byte(want)) {
+					t.Errorf("static.go missing %q:\n%s", want, static)
+				}
+			}
+
+			var stdout bytes.Buffer
+			cmd := exec.Command(bin)
+			cmd.Stdout = &stdout
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("run: %v", err)
+			}
+			if got := stdout.String(); got != tc.want {
+				t.Errorf("output = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestBuildTierForceStaticEmitsCostLosingForm proves --tier static overrides the
 // cost model on the real build path: a single guarded int add auto-boxes on the
 // guard budget, so an auto build emits no static form for it, but the forced-static

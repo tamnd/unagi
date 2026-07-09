@@ -112,6 +112,32 @@ func TestCostBitwiseIsUnguardedInt(t *testing.T) {
 	}
 }
 
+func TestCostLeftShiftIsGuardedInt(t *testing.T) {
+	// Left shift yields an int and can overflow past int64, so it carries an overflow
+	// guard and a deopt edge, the same as an int add. The negative-count check is a
+	// separate semantic ValueError, not counted here.
+	c := costOfSrc(t, "def f(a: int, b: int) -> int:\n    return a << b\n")
+	if c.UnboxedOps != 1 {
+		t.Errorf("UnboxedOps = %d, want 1", c.UnboxedOps)
+	}
+	if c.EntryGuards != 1 {
+		t.Errorf("left shift should carry an overflow guard, got %d", c.EntryGuards)
+	}
+}
+
+func TestCostRightShiftIsUnguardedInt(t *testing.T) {
+	// Right shift yields an int but an arithmetic shift only shrinks the magnitude, so
+	// it never overflows: it is a total operation with only the negative-count semantic
+	// guard, no overflow guard and no deopt edge, the same classification as modulo.
+	c := costOfSrc(t, "def f(a: int, b: int) -> int:\n    return a >> b\n")
+	if c.UnboxedOps != 1 {
+		t.Errorf("UnboxedOps = %d, want 1", c.UnboxedOps)
+	}
+	if c.EntryGuards != 0 {
+		t.Errorf("right shift should not carry an overflow guard, got %d", c.EntryGuards)
+	}
+}
+
 func TestCostCountsAugAssign(t *testing.T) {
 	// The seed accumulator binds an int local then adds into it twice; the two
 	// += operations are guarded int adds.
