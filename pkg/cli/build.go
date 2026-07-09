@@ -22,6 +22,9 @@ func newBuildCmd() *cobra.Command {
 			if !ok {
 				return fmt.Errorf("unknown --tier %q: want auto, static, or boxed", tier)
 			}
+			// A one-shot build gets no reuse from the binary cache, so drop its
+			// store on the way out rather than leaving a directory in the temp root.
+			defer build.CleanupCache()
 			_, err := build.Build(cmd.Context(), args[0], build.Options{Out: out, EmitGo: emitGo, Report: report, Tier: mode})
 			return err
 		},

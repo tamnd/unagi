@@ -106,18 +106,28 @@ func Build(ctx context.Context, pyPath string, opts Options) (string, error) {
 		return "", err
 	}
 
-	// -trimpath keeps the generated module's temp path out of the compiled
+	// link runs the Go toolchain for the module in genDir, writing the binary to
+	// dst. -trimpath keeps the generated module's temp path out of the compiled
 	// objects. The module is laid out in a fresh temp directory every build, so
 	// without it that changing absolute path is baked into every object as debug
 	// info, which gives each build a new build-cache key and defeats the cache:
 	// the same program recompiles from scratch on every invocation and the cache
 	// grows without bound. Trimming the path also makes the emitted binary
 	// reproducible, which the determinism gate wants anyway.
-	cmd := exec.CommandContext(ctx, "go", "build", "-trimpath", "-o", out, ".")
-	cmd.Dir = genDir
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
-	if msg, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("go build failed: %v\n%s", err, msg)
+	link := func(dst string) error {
+		cmd := exec.CommandContext(ctx, "go", "build", "-trimpath", "-o", dst, ".")
+		cmd.Dir = genDir
+		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+		if msg, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("go build failed: %v\n%s", err, msg)
+		}
+		return nil
+	}
+	// The binary cache links a distinct program once per run and copies the
+	// cached executable on later hits, so the conformance suite's per-tier
+	// rebuilds of an identical program cost a file copy instead of a fresh link.
+	if err := binCache.buildBinary(genDir, out, link); err != nil {
+		return "", err
 	}
 	return out, nil
 }

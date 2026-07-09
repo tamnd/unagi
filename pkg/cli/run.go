@@ -26,6 +26,9 @@ func newRunCmd() *cobra.Command {
 		Short: "Compile and run a Python file",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// A one-shot run gets no reuse from the binary cache, so drop its
+			// store on the way out rather than leaving a directory in the temp root.
+			defer build.CleanupCache()
 			code, err := build.Run(cmd.Context(), args[0])
 			if err != nil {
 				return err
