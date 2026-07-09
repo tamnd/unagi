@@ -321,25 +321,29 @@ func lowerStmt(s frontend.Stmt, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr
 		return []emit.Stmt{emit.Define{Name: name.Id, Value: v}}, nil, false, nil
 
 	case *frontend.AugAssign:
-		if n.Op != frontend.BinAdd {
-			return nil, nil, false, unsupported("augmented assignment other than +=")
+		// Only +=, -=, *= lower here: they keep the target's representation, so the
+		// accumulator's type is unchanged. /= would promote an int target to float
+		// (a rebinding), and the rest are outside the scalar seed (binOp refuses them).
+		if n.Op != frontend.BinAdd && n.Op != frontend.BinSub && n.Op != frontend.BinMul {
+			return nil, nil, false, unsupported("augmented assignment other than +=, -=, *=")
 		}
+		op, _ := binOp(n.Op)
 		name, ok := n.Target.(*frontend.Name)
 		if !ok {
 			return nil, nil, false, unsupported("augmented assignment target is not a plain name")
 		}
 		tr, ok := sc[name.Id]
 		if !ok {
-			return nil, nil, false, unsupported("%s += reads %s before it is bound", name.Id, name.Id)
+			return nil, nil, false, unsupported("%s %s= reads %s before it is bound", name.Id, op, name.Id)
 		}
 		v, vr, err := lowerExpr(n.Value, sc, ctx)
 		if err != nil {
 			return nil, nil, false, err
 		}
-		if _, err := binResult(emit.OpAdd, tr, vr); err != nil {
+		if _, err := binResult(op, tr, vr); err != nil {
 			return nil, nil, false, err
 		}
-		return []emit.Stmt{emit.AddAssign{Name: name.Id, Repr: tr, Value: v}}, nil, false, nil
+		return []emit.Stmt{emit.AugAssign{Name: name.Id, Op: op, Repr: tr, Value: v}}, nil, false, nil
 	}
 	return nil, nil, false, unsupported("statement %T", s)
 }

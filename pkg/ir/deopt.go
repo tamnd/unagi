@@ -141,7 +141,7 @@ func stmtGuarded(s emit.Stmt) bool {
 		return exprGuarded(n.Value)
 	case emit.Bind:
 		return slices.ContainsFunc(n.Values, exprGuarded)
-	case emit.AddAssign:
+	case emit.AugAssign:
 		return n.Repr.Scalar == emit.SInt || exprGuarded(n.Value)
 	case emit.Return:
 		return exprGuarded(n.Value)

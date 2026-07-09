@@ -21,10 +21,10 @@ func TestStringConcatChain(t *testing.T) {
 	}
 }
 
-// TestStringAddAssignConcatenates checks an augmented string assignment lowers to an
+// TestStringAugAssignConcatenates checks an augmented string assignment lowers to an
 // explicit rebind through concat (s = s + piece), the total str form, not the int
 // guarded path and not a wrapping numeric +=.
-func TestStringAddAssignConcatenates(t *testing.T) {
+func TestStringAugAssignConcatenates(t *testing.T) {
 	strR := Repr{Go: "string", Scalar: SStr, Total: true}
 	got, err := EmitFunc(Func{
 		Name:   "acc",
@@ -32,7 +32,7 @@ func TestStringAddAssignConcatenates(t *testing.T) {
 		Ret:    strR,
 		Body: []Stmt{
 			Define{Name: "s", Value: Str{V: ""}},
-			AddAssign{Name: "s", Repr: strR, Value: Var{Name: "p", Repr: strR}},
+			AugAssign{Name: "s", Repr: strR, Value: Var{Name: "p", Repr: strR}},
 			Return{Value: Var{Name: "s", Repr: strR}},
 		},
 	})

@@ -159,6 +159,87 @@ func TestBuildForcedStaticDeoptPositions(t *testing.T) {
 	}
 }
 
+// TestBuildForcedStaticAugAssignDeoptsInLoop drives an augmented-assignment
+// accumulator (`total -= step`, `total *= step`) past int64 inside a loop under
+// forced static. Each op carries its own overflow guard and deopt edge, so the
+// overflow hands off to the boxed twin and the loop finishes on the arbitrary
+// precision big-int, matching CPython exactly. This pins doc 02's `-=`/`*=`
+// guarded-accumulation cases, the augmented siblings of the `+=` path.
+func TestBuildForcedStaticAugAssignDeoptsInLoop(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	cases := []struct {
+		name string
+		fn   string
+		call string
+		edge string
+		want string
+	}{
+		// total starts at 0 and adds a near-half-max step three times, so the running
+		// total overflows past 2**63 partway through and finishes on the boxed big-int.
+		{
+			name: "add",
+			fn:   "def run(n: int, step: int) -> int:\n    total = 0\n    for i in range(n):\n        total += step\n    return total\n\n",
+			call: "print(run(3, 4611686018427387904))\n",
+			edge: "return static_run_deopt(d0, d1)",
+			want: "13835058055282163712\n",
+		},
+		// total starts at 0 and subtracts a near-half-max step three times, so the
+		// running total underflows past -2**63 partway through and finishes boxed.
+		{
+			name: "sub",
+			fn:   "def run(n: int, step: int) -> int:\n    total = 0\n    for i in range(n):\n        total -= step\n    return total\n\n",
+			call: "print(run(3, 4611686018427387904))\n",
+			edge: "return static_run_deopt(d0, d1)",
+			want: "-13835058055282163712\n",
+		},
+		// total starts at 1 and doubles a hundred times, overflowing mid-loop.
+		{
+			name: "mul",
+			fn:   "def run(n: int, seed: int) -> int:\n    total = seed\n    for i in range(n):\n        total *= 2\n    return total\n\n",
+			call: "print(run(100, 1))\n",
+			edge: "return static_run_deopt(d0, d1)",
+			want: "1267650600228229401496703205376\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			py := filepath.Join(dir, "main.py")
+			writeFile(t, py, tc.fn+tc.call)
+
+			gen := filepath.Join(dir, "gen")
+			bin, err := Build(context.Background(), py, Options{
+				Out:    filepath.Join(dir, "prog"),
+				EmitGo: gen,
+				Tier:   partition.ModeForceStatic,
+			})
+			if err != nil {
+				t.Fatalf("build: %v", err)
+			}
+
+			static, err := os.ReadFile(filepath.Join(gen, "static.go"))
+			if err != nil {
+				t.Fatalf("static.go not emitted: %v", err)
+			}
+			if !bytes.Contains(static, []byte(tc.edge)) {
+				t.Errorf("static.go missing the deopt edge %q:\n%s", tc.edge, static)
+			}
+
+			var stdout bytes.Buffer
+			cmd := exec.Command(bin)
+			cmd.Stdout = &stdout
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("run: %v", err)
+			}
+			if got := stdout.String(); got != tc.want {
+				t.Errorf("output = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestBuildTierForceStaticEmitsCostLosingForm proves --tier static overrides the
 // cost model on the real build path: a single guarded int add auto-boxes on the
 // guard budget, so an auto build emits no static form for it, but the forced-static

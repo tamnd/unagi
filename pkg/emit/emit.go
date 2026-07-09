@@ -77,9 +77,17 @@ func setStmt(lhs, rhs ast.Expr) *ast.AssignStmt {
 	return &ast.AssignStmt{Lhs: []ast.Expr{lhs}, Tok: token.ASSIGN, Rhs: []ast.Expr{rhs}}
 }
 
-// addAssign is `name += rhs`, the total form float accumulation lowers to.
-func addAssign(name string, rhs ast.Expr) *ast.AssignStmt {
-	return &ast.AssignStmt{Lhs: []ast.Expr{ident(name)}, Tok: token.ADD_ASSIGN, Rhs: []ast.Expr{rhs}}
+// augAssign is `name += rhs` and its `-=`/`*=` siblings, the total form a float
+// accumulation lowers to; op picks the Go compound-assignment token.
+func augAssign(name string, op Op, rhs ast.Expr) *ast.AssignStmt {
+	tok := token.ADD_ASSIGN
+	switch op {
+	case OpSub:
+		tok = token.SUB_ASSIGN
+	case OpMul:
+		tok = token.MUL_ASSIGN
+	}
+	return &ast.AssignStmt{Lhs: []ast.Expr{ident(name)}, Tok: tok, Rhs: []ast.Expr{rhs}}
 }
 
 // ifStmt is `if cond { body }` with no else.

@@ -65,7 +65,7 @@ func TestIntForRangeGuardsAccumulator(t *testing.T) {
 			ForRange{
 				Bind: "x",
 				Over: Var{Name: "xs", Repr: listIntR},
-				Body: []Stmt{AddAssign{Name: "total", Repr: intR, Value: Var{Name: "x", Repr: intR}}},
+				Body: []Stmt{AugAssign{Name: "total", Repr: intR, Value: Var{Name: "x", Repr: intR}}},
 			},
 			Return{Value: Var{Name: "total", Repr: intR}},
 		},
