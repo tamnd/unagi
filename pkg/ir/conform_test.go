@@ -270,6 +270,21 @@ func TestStaticTierMatchesCPython(t *testing.T) {
 		{"const fold lshift", "def f(a: int) -> int:\n    return 1 << 10\n", "f(0)"},
 		{"const fold rshift", "def f(a: int) -> int:\n    return 255 >> 4\n", "f(0)"},
 		{"const fold mixed chain", "def f(a: int) -> int:\n    return 2 ** 10 - 1\n", "f(0)"},
+
+		// Integer identity simplification: an identity operand collapses the op to the
+		// variable, so a nonzero argument proves the collapsed form still carries the
+		// value through byte-for-byte, and a negative one proves it for the sign too.
+		{"identity add zero", "def f(a: int) -> int:\n    return a + 0\n", "f(41)"},
+		{"identity add zero left", "def f(a: int) -> int:\n    return 0 + a\n", "f(-41)"},
+		{"identity subtract zero", "def f(a: int) -> int:\n    return a - 0\n", "f(-7)"},
+		{"identity multiply one", "def f(a: int) -> int:\n    return a * 1\n", "f(41)"},
+		{"identity multiply one left", "def f(a: int) -> int:\n    return 1 * a\n", "f(-41)"},
+		{"identity floordiv one", "def f(a: int) -> int:\n    return a // 1\n", "f(-7)"},
+		{"identity power one", "def f(a: int) -> int:\n    return a ** 1\n", "f(-9)"},
+		{"identity bitor zero", "def f(a: int) -> int:\n    return a | 0\n", "f(-5)"},
+		{"identity bitxor zero", "def f(a: int) -> int:\n    return a ^ 0\n", "f(-5)"},
+		{"identity lshift zero", "def f(a: int) -> int:\n    return a << 0\n", "f(-5)"},
+		{"identity rshift zero", "def f(a: int) -> int:\n    return a >> 0\n", "f(-256)"},
 	}
 
 	dir := t.TempDir()

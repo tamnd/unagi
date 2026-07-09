@@ -114,3 +114,68 @@ func foldIntOp(op emit.Op, l, r int64) (int64, bool) {
 	}
 	return 0, false
 }
+
+// simplifyIntIdentity is the value-numbering half of the doc 11 Tier 3 item: where
+// the constant fold above needs both operands constant, this rewrites a binary int op
+// with a constant *identity* operand and a variable one to the variable alone, so
+// `x + 0`, `x * 1`, `x << 0` and their friends lower to a bare read of x with no op
+// and no overflow guard. It reports ok false when nothing applies.
+//
+// The rewrite is sound because it keeps the variable operand's own emit node, so any
+// guard inside x still fires; the only thing removed is the outer op's overflow guard,
+// which is provably dead since an identity never overflows (x + 0, x * 1, x << 0 all
+// equal x). It fires only when the kept operand and the result are both plain int
+// (SInt), which keeps byte-identity two ways: a float identity is unsafe (`x + 0.0`
+// turns -0.0 into +0.0, `x * 1.0` is fine but the pair is not worth splitting), and a
+// bool operand (`True + 0`) must stay on the coercing path that yields an int, not fold
+// to the bool. Annihilators (`x * 0`, `x & 0`) are deliberately absent: collapsing them
+// to a literal would drop x's evaluation, which is unsound when x can raise (`(a // b)
+// * 0` must still raise ZeroDivisionError on b == 0), so they wait for a later slice
+// that carries a non-raising proof.
+func simplifyIntIdentity(op emit.Op, l emit.Expr, lr emit.Repr, r emit.Expr, rr emit.Repr, res emit.Repr) (emit.Expr, emit.Repr, bool) {
+	if res.Scalar != emit.SInt {
+		return nil, emit.Repr{}, false
+	}
+	// `x op c -> x` when c is op's right identity and x is a plain int.
+	if c, ok := rightIdentity(op); ok && lr.Scalar == emit.SInt && isIntConst(r, c) {
+		return l, lr, true
+	}
+	// `c op x -> x` when op is commutative and c is its left identity, so `0 - x`
+	// (negation) and `1 // x` never match through this arm.
+	if c, ok := leftIdentity(op); ok && rr.Scalar == emit.SInt && isIntConst(l, c) {
+		return r, rr, true
+	}
+	return nil, emit.Repr{}, false
+}
+
+// isIntConst reports whether e is the int literal v.
+func isIntConst(e emit.Expr, v int64) bool {
+	n, ok := e.(emit.Int)
+	return ok && n.V == v
+}
+
+// rightIdentity returns the operand value c for which `x op c == x` holds for every
+// int64 x, and whether op has such a right identity. Add, subtract, the bitwise or and
+// xor, and both shifts have 0; multiply, floor division, and power have 1.
+func rightIdentity(op emit.Op) (int64, bool) {
+	switch op {
+	case emit.OpAdd, emit.OpSub, emit.OpBitOr, emit.OpBitXor, emit.OpLShift, emit.OpRShift:
+		return 0, true
+	case emit.OpMul, emit.OpFloorDiv, emit.OpPow:
+		return 1, true
+	}
+	return 0, false
+}
+
+// leftIdentity returns the operand value c for which `c op x == x` holds for every
+// int64 x, defined only for the commutative ops so that subtraction (`0 - x` is `-x`),
+// floor division (`1 // x`), and the shifts never match a left identity.
+func leftIdentity(op emit.Op) (int64, bool) {
+	switch op {
+	case emit.OpAdd, emit.OpBitOr, emit.OpBitXor:
+		return 0, true
+	case emit.OpMul:
+		return 1, true
+	}
+	return 0, false
+}
