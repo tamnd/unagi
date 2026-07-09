@@ -5,10 +5,11 @@ import (
 	"testing"
 )
 
-// This file covers the while lowering (milestones/M4/06 lines 37-40): a guard-free
-// while over a scalar condition lowers to a Go `for`, a break or continue inside the
-// loop lowers to Go's own, and the forms with no safe static shape at M4 (a guarded
-// condition or body, a stray break or continue, a while-else) keep the unit boxed.
+// This file covers the while lowering (milestones/M4/06 lines 37-40): a while over a
+// scalar condition lowers to a Go `for`, a break or continue inside the loop lowers to
+// Go's own, a guard in the body deopts to the boxed twin and so lowers static, and the
+// forms with no safe static shape at M4 (a guarded condition, a stray break or
+// continue, a while-else) keep the unit boxed.
 
 // TestLowerWhileAccumulates proves the canonical guard-free loop lowers: a float
 // accumulator whose condition is a comparison and whose body reassigns an outer name
@@ -40,8 +41,9 @@ func TestLowerWhileBreakContinue(t *testing.T) {
 }
 
 // TestLowerWhileRefuses pins the while forms that stay boxed at M4. A guarded condition
-// or body has no loop back-edge resume point yet (line 39), a stray break or continue
-// has no loop to leave (line 38), and a while-else has no static form at M4 (line 40).
+// fires before the body and its cheapest resume is the loop back-edge, which is a later
+// slice (line 39); a stray break or continue has no loop to leave (line 38); a
+// while-else has no static form at M4 (line 40).
 func TestLowerWhileRefuses(t *testing.T) {
 	cases := []struct {
 		name string
@@ -50,7 +52,6 @@ func TestLowerWhileRefuses(t *testing.T) {
 		{"break outside a loop", "def f(n: int) -> int:\n    break\n    return n\n"},
 		{"continue outside a loop", "def f(n: int) -> int:\n    continue\n    return n\n"},
 		{"guarded condition", "def f(n: int) -> int:\n    while n + 1 != 0:\n        return n\n    return n\n"},
-		{"guarded body", "def f(n: int) -> int:\n    total = 0\n    while total != n:\n        total = total + 1\n    return total\n"},
 		{"while-else", "def f(n: int) -> int:\n    while n != 0:\n        return 1\n    else:\n        return 0\n"},
 	}
 	for _, c := range cases {
@@ -62,10 +63,20 @@ func TestLowerWhileRefuses(t *testing.T) {
 	}
 }
 
-// TestCostWhileFoldsBodyGuardsIntoLoopBucket is a guard-classification pin: an
-// accepted while carries no guards today because the bridge refuses a guarded one, so
-// its census stays guard-free. This asserts the accepted float loop reads as guard-free
-// static, which is what keeps it eligible for the differential runner.
+// TestLowerWhileGuardedBodyLowers proves a while whose body carries an overflow guard
+// lowers static rather than refusing: the guard's deopt edge falls back to the boxed
+// twin, which re-runs the effect-free unit from the top, so the loop is safe to admit.
+func TestLowerWhileGuardedBodyLowers(t *testing.T) {
+	src := "def f(n: int) -> int:\n    total = 0\n    while total != n:\n        total = total + 1\n    return total\n"
+	if _, err := LowerFunc(parseFunc(t, src)); err != nil {
+		t.Fatalf("a guarded while body should lower static, got %v", err)
+	}
+}
+
+// TestCostWhileFoldsBodyGuardsIntoLoopBucket is a guard-classification pin: a float
+// accumulator loop carries no arithmetic that can overflow, so its census stays
+// guard-free. This asserts the float loop reads as guard-free static, which is what
+// keeps it eligible for the differential runner without a deopt edge.
 func TestCostWhileFoldsBodyGuardsIntoLoopBucket(t *testing.T) {
 	src := "def count(n: float) -> float:\n    total = 0.0\n    while total != n:\n        total = total + 1.0\n    return total\n"
 	c := costOfSrc(t, src)
