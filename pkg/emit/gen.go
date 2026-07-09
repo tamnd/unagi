@@ -156,6 +156,18 @@ func genNext(b *Builder, gen Generator) (*ast.FuncDecl, error) {
 		cases = append(cases, &ast.CaseClause{List: []ast.Expr{intLit(done)}, Body: body})
 	}
 
+	// A guard anywhere in the machine (a segment's pre-statements, its yield, a
+	// loop bound, or the trailer) reaches deoptEdge, which for a paramless handler-
+	// less generator builder emits a single-value `return name_deopt0()` into the
+	// three-value Next: broken Go. The static generator has no boxed-frame resume at
+	// M4 (doc 06 sections 8.2 and 8.3 defer materializing the resumable frame), so
+	// there is nowhere for a mid-machine guard to fall back to. Refuse rather than
+	// emit wrong Go; the unit stays boxed and its guard deopts through the boxed
+	// generator instead.
+	if b.deoptUsed || b.nDeopt > 0 {
+		return nil, fmt.Errorf("emit: generator %s carries a guard with no static deopt edge; keep it boxed", gen.Name)
+	}
+
 	stmts := []ast.Stmt{
 		&ast.SwitchStmt{Tag: sel(genRecv, stateField), Body: block(cases...)},
 		ret(gen.Elem.zero(), ident("true"), ident("nil")),
