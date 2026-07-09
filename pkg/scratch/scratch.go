@@ -36,7 +36,7 @@ const basePrefix = "unagi-scratch-"
 // and die with it, so a bare one sitting in the shared temp root is either a
 // pre-Scope orphan or a stray from the unagi CLI; either way it is reclaimed by
 // age, never while it could still be in use.
-var legacyPrefixes = []string{"unagi-gen-", "unagi-conf-", "unagi-run-"}
+var legacyPrefixes = []string{"unagi-gen-", "unagi-conf-", "unagi-run-", "unagi-buildcache-"}
 
 // staleAfter is how old a legacy scratch directory must be before Scope reclaims
 // it. It is set well above the longest plausible build or CLI run so a directory
@@ -45,10 +45,24 @@ const staleAfter = 2 * time.Hour
 
 // Scope confines the calling process's scratch to a base directory under the
 // current temp root, reclaims orphans that earlier killed runs left beside it,
-// and points $TMPDIR at the base so every os.MkdirTemp("") and child `go build`
-// writes underneath it. It returns a cleanup that restores $TMPDIR and removes
-// the base; a test binary calls it from TestMain so the whole package's scratch
-// lives and dies with the run.
+// and points both $TMPDIR and $GOCACHE at the base so every os.MkdirTemp("")
+// and child `go build` writes underneath it. It returns a cleanup that restores
+// the environment and removes the base; a test binary calls it from TestMain so
+// the whole package's scratch lives and dies with the run.
+//
+// Scoping GOCACHE is what keeps the shared build cache from growing without
+// bound, and it is a root cause, not a cap. The suite builds one throwaway
+// binary per fixture per tier, hundreds of unique programs, and `go build`
+// records every one in GOCACHE. Go only evicts cache entries by age, days later,
+// so each change to the compiler re-keys every fixture and a fresh generation of
+// throwaway binaries piles on top of the last, and the shared cache at
+// ~/Library/Caches/go-build climbs into the gigabytes across a day of
+// iteration. Pointing GOCACHE at the per-run base means those throwaway
+// artifacts land in a directory this run deletes on the way out, so they are
+// reclaimed when the run ends rather than lingering for days. The Go toolchain
+// packages the fixtures link against compile once into this base and are reused
+// for the rest of the run, so the cost is a single cold build per run, not per
+// fixture, and the shared cache is never touched by the suite at all.
 func Scope() (cleanup func(), err error) {
 	root := os.TempDir()
 	self := os.Getpid()
@@ -59,18 +73,40 @@ func Scope() (cleanup func(), err error) {
 	if err != nil {
 		return nil, err
 	}
-	prev, had := os.LookupEnv("TMPDIR")
-	if err := os.Setenv("TMPDIR", base); err != nil {
+	restoreTmp, err := scopeEnv("TMPDIR", base)
+	if err != nil {
 		_ = os.RemoveAll(base)
+		return nil, err
+	}
+	// The go tool refuses GOCACHE unless the directory exists, so create it
+	// before pointing the environment at it.
+	goCache := filepath.Join(base, "gocache")
+	restoreGoCache := func() {}
+	if mkErr := os.MkdirAll(goCache, 0o755); mkErr == nil {
+		if restore, envErr := scopeEnv("GOCACHE", goCache); envErr == nil {
+			restoreGoCache = restore
+		}
+	}
+	return func() {
+		restoreGoCache()
+		restoreTmp()
+		_ = os.RemoveAll(base)
+	}, nil
+}
+
+// scopeEnv sets an environment variable to value and returns a function that
+// restores it to what it was, whether that was a different value or unset.
+func scopeEnv(name, value string) (restore func(), err error) {
+	prev, had := os.LookupEnv(name)
+	if err := os.Setenv(name, value); err != nil {
 		return nil, err
 	}
 	return func() {
 		if had {
-			_ = os.Setenv("TMPDIR", prev)
+			_ = os.Setenv(name, prev)
 		} else {
-			_ = os.Unsetenv("TMPDIR")
+			_ = os.Unsetenv(name)
 		}
-		_ = os.RemoveAll(base)
 	}, nil
 }
 
