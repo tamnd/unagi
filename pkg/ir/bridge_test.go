@@ -92,12 +92,12 @@ func TestLowerFloorDivisionGuardsZeroAndOverflow(t *testing.T) {
 	src := "def q(a: int, b: int) -> int:\n    return a // b\n"
 	got := emitOf(t, src)
 	// Floor division on two ints stays int, floors through the runtime helper, guards a
-	// zero divisor with the integer-division message, and routes its one overflow to
-	// the deopt edge.
+	// zero divisor with the bare "division by zero" message, and routes its one overflow
+	// to the deopt edge.
 	for _, want := range []string{
 		"(int64, error)",
 		"rt.FloorDivInt64(a, b)",
-		`rt.ZeroDivisionError("integer division or modulo by zero")`,
+		`rt.ZeroDivisionError("division by zero")`,
 		"q_deopt0(a, b)",
 	} {
 		if !strings.Contains(got, want) {
