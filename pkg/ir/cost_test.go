@@ -236,3 +236,60 @@ func TestCostIgnoresUnknownNodes(t *testing.T) {
 		t.Errorf("a bare return should have no cost, got %+v", c)
 	}
 }
+
+// TestCostConstFoldIsFree pins that a constant-folded integer expression carries no
+// operation and no guard: the fold replaces the whole binary tree with one literal
+// before the cost model walks it, so the census reads zero, which is what lets the
+// partitioner treat the folded case as the guard-free static it is.
+func TestCostConstFoldIsFree(t *testing.T) {
+	cases := []struct {
+		name, src string
+	}{
+		{"add", "def f(a: int) -> int:\n    return 2 + 3\n"},
+		{"nested", "def f(a: int) -> int:\n    return (2 + 3) * 4\n"},
+		{"power", "def f(a: int) -> int:\n    return 2 ** 10\n"},
+		{"shift chain", "def f(a: int) -> int:\n    return 1 << 10 | 1\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := costOfSrc(t, tc.src)
+			if c.UnboxedOps != 0 || c.EntryGuards != 0 || c.LoopGuards != 0 {
+				t.Errorf("a folded constant should have no cost, got %+v", c)
+			}
+		})
+	}
+}
+
+// TestCostConstFoldBailStillGuards pins the bail path in the cost model: a constant
+// expression that overflows int64 is not folded, so it keeps its runtime helper and
+// its overflow guard and reads as one guarded operation, exactly as a variable
+// operation would.
+func TestCostConstFoldBailStillGuards(t *testing.T) {
+	c := costOfSrc(t, "def f(a: int) -> int:\n    return 4611686018427387904 * 2\n")
+	if c.UnboxedOps != 1 {
+		t.Errorf("an overflowing constant product is one operation, got %d", c.UnboxedOps)
+	}
+	if c.EntryGuards != 1 {
+		t.Errorf("an unfolded overflowing product keeps its overflow guard, got %d", c.EntryGuards)
+	}
+}
+
+// TestConstFoldOpensNoGuardSite pins that a folded constant opens no deopt site,
+// while its overflowing sibling opens exactly one: the deopt-site walk and the cost
+// model agree because both key on the same guarded emit.Bin the fold removes.
+func TestConstFoldOpensNoGuardSite(t *testing.T) {
+	folded, err := LowerFunc(parseFunc(t, "def f(a: int) -> int:\n    return 2 ** 10\n"))
+	if err != nil {
+		t.Fatalf("LowerFunc folded: %v", err)
+	}
+	if sites := GuardSitesOf(folded); len(sites) != 0 {
+		t.Errorf("a folded constant opens no guard site, got %d", len(sites))
+	}
+	bailed, err := LowerFunc(parseFunc(t, "def f(a: int) -> int:\n    return 2 ** 63\n"))
+	if err != nil {
+		t.Fatalf("LowerFunc bailed: %v", err)
+	}
+	if sites := GuardSitesOf(bailed); len(sites) != 1 {
+		t.Errorf("an unfolded overflowing power opens one guard site, got %d", len(sites))
+	}
+}

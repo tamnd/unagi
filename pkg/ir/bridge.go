@@ -1035,7 +1035,20 @@ func lowerExpr(e frontend.Expr, sc scope, ctx lowerCtx) (emit.Expr, emit.Repr, e
 		if err != nil {
 			return nil, emit.Repr{}, err
 		}
-		return emit.Bin{Op: op, L: l, R: r}, res, nil
+		node := emit.Bin{Op: op, L: l, R: r}
+		// A binary integer expression whose operands are all compile-time int constants
+		// folds to a single literal when its exact value fits int64 without raising or
+		// deopting, which removes the overflow guard the runtime path would carry (doc 11
+		// Tier 3). Folding into an emit.Int here, before the cost model and deopt walk see
+		// the tree, keeps all three consumers agreeing the folded case is guard-free. A
+		// fold that would overflow, divide by zero, take a negative power exponent, or
+		// shift by a negative count is left as the emit.Bin below, which raises or deopts
+		// exactly as CPython does. The folded literal keeps res, which foldConstInt only
+		// returns a value for when res is an int.
+		if v, ok := foldConstInt(node); ok {
+			return emit.Int{V: v}, res, nil
+		}
+		return node, res, nil
 
 	case *frontend.Compare:
 		return lowerCompare(n, sc, ctx)
