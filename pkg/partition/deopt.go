@@ -123,12 +123,13 @@ type Violation struct {
 
 // The verifier's violation codes, stable so tests and diagnostics agree.
 const (
-	ViolGuardNotInterior   = "guard-not-interior"
-	ViolResumeMidExpr      = "resume-mid-expression"
-	ViolEffectBeforeDeopt  = "effect-before-deopt"
-	ViolLiveVarUnmapped    = "live-var-unmapped"
-	ViolTransferNotLive    = "transfer-not-live"
-	ViolPointerCopyBoxless = "pointer-copy-not-escaped"
+	ViolGuardNotInterior    = "guard-not-interior"
+	ViolResumeMidExpr       = "resume-mid-expression"
+	ViolEffectBeforeDeopt   = "effect-before-deopt"
+	ViolLiveVarUnmapped     = "live-var-unmapped"
+	ViolTransferNotLive     = "transfer-not-live"
+	ViolPointerCopyBoxless  = "pointer-copy-not-escaped"
+	ViolDeoptHandlerMissing = "deopt-handler-missing"
 )
 
 // VerifyDeopt checks one deopt site against the section 8 invariants and returns
@@ -181,11 +182,25 @@ func VerifyDeopt(s DeoptSite) []Violation {
 }
 
 // VerifyPlan runs VerifyDeopt over a set of sites and returns the flattened
-// violations, the whole-unit check the IR verifier runs before lowering.
+// violations, the whole-unit check the IR verifier runs before lowering. It
+// adds one plan-scoped check the per-site pass cannot make: a deopt edge must
+// name a handler that exists. Each site's resume point becomes a `<fn>_deopt<k>`
+// switch target in the boxed form's head, so the set of defined handlers is the
+// resume-point ids across the plan. An interior guard whose Resume names an id
+// no site defines is a dangling edge that would compile to a call into a handler
+// the boxed form never emits, so the verifier rejects it.
 func VerifyPlan(sites []DeoptSite) []Violation {
+	defined := make(map[int]bool, len(sites))
+	for _, s := range sites {
+		defined[s.Resume.ID] = true
+	}
 	var out []Violation
 	for _, s := range sites {
 		out = append(out, VerifyDeopt(s)...)
+		if s.Guard.Edge == EdgeDeopt && !defined[s.Guard.Resume] {
+			out = append(out, Violation{ViolDeoptHandlerMissing,
+				fmt.Sprintf("guard at %s deopts to resume point %d, which no site defines", s.Guard.Site, s.Guard.Resume)})
+		}
 	}
 	return out
 }
