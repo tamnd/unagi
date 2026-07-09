@@ -174,12 +174,36 @@ type Bin struct {
 	L, R Expr
 }
 
-func (Var) isExpr()   {}
-func (Int) isExpr()   {}
-func (Float) isExpr() {}
-func (Bool) isExpr()  {}
-func (Str) isExpr()   {}
-func (Bin) isExpr()   {}
+// Index is a bounds-guarded read of one element from a scalar list, xs[i]. Base
+// carries a list representation (a Repr with a non-nil Elem) and Idx an int. The
+// static form handles only the non-negative in-range fast path: a negative or
+// out-of-range index fails the guard and deopts to the boxed twin, which has
+// CPython's full indexing semantics (negative wraparound and the exact
+// IndexError). The read yields the element representation Base.Elem names.
+type Index struct {
+	Base Expr
+	Idx  Expr
+}
+
+// ListLit is a scalar list literal, [a, b, c], lowering to a Go slice literal
+// []T{a, b, c}. Elem is the proven element representation every item shares; an
+// int item coerces up when the element type is float, the same coercion a mixed
+// scalar assignment uses, so the slice stays uniform. Inference proves the
+// element representation before this node is built, so a heterogeneous list
+// never reaches here; it stays boxed.
+type ListLit struct {
+	Elem  Repr
+	Items []Expr
+}
+
+func (Var) isExpr()     {}
+func (Int) isExpr()     {}
+func (Float) isExpr()   {}
+func (Bool) isExpr()    {}
+func (Str) isExpr()     {}
+func (Bin) isExpr()     {}
+func (Index) isExpr()   {}
+func (ListLit) isExpr() {}
 
 // lowerExpr lowers one expression to a Go expression and its representation,
 // appending any guard statements it needs (an integer overflow check, a division
@@ -207,6 +231,10 @@ func (b *Builder) lowerExpr(e Expr) (ast.Expr, Repr, error) {
 		return strLit(n.V), Repr{Go: "string", Scalar: SStr, Total: true}, nil
 	case Bin:
 		return b.lowerBin(n)
+	case Index:
+		return b.lowerIndex(n)
+	case ListLit:
+		return b.lowerListLit(n)
 	case Cmp:
 		return b.lowerCmp(n)
 	case And:
@@ -390,6 +418,68 @@ func (b *Builder) lowerBin(n Bin) (ast.Expr, Repr, error) {
 		ifStmt(ident(ovf), b.deoptEdge()),
 	)
 	return ident(val), Repr{Go: "int64", Scalar: SInt}, nil
+}
+
+// lowerListLit lowers a scalar list literal to a Go slice literal. Each item
+// lowers to the element representation: an int item coerces up when the element
+// type is float, and a value whose scalar class does not match the element is an
+// inference bug the lowering refuses rather than emitting a slice of the wrong
+// element type. A list literal is a pure value with no guard, so it appends
+// nothing to the pending list.
+func (b *Builder) lowerListLit(n ListLit) (ast.Expr, Repr, error) {
+	elts := make([]ast.Expr, len(n.Items))
+	for i, it := range n.Items {
+		ix, ir, err := b.lowerExpr(it)
+		if err != nil {
+			return nil, Repr{}, err
+		}
+		switch {
+		case ir.Scalar == n.Elem.Scalar:
+			elts[i] = ix
+		case n.Elem.Scalar == SFloat && numeric(ir):
+			elts[i] = toFloat(ix, ir)
+		default:
+			return nil, Repr{}, fmt.Errorf("emit: list item %d has representation %q, not the element type %q", i, ir.Go, n.Elem.Go)
+		}
+	}
+	elem := n.Elem
+	list := Repr{Go: "[]" + elem.Go, Total: true, Elem: &elem}
+	return &ast.CompositeLit{Type: list.goType(), Elts: elts}, list, nil
+}
+
+// lowerIndex lowers a bounds-guarded list read xs[i]. It binds the base and the
+// index to temps in that order so a compound base or index evaluates once and
+// left to right, appends the bounds guard, and returns the plain Go slice read.
+// The guard `i < 0 || i >= int64(len(xs))` fails to the unit's deopt edge, so a
+// negative or out-of-range index leaves the static tier for the boxed twin,
+// which owns CPython's negative-wraparound and IndexError semantics. The static
+// form therefore only ever runs the in-range fast path, never a wrong answer.
+func (b *Builder) lowerIndex(n Index) (ast.Expr, Repr, error) {
+	bx, br, err := b.lowerExpr(n.Base)
+	if err != nil {
+		return nil, Repr{}, err
+	}
+	if br.Elem == nil {
+		return nil, Repr{}, fmt.Errorf("emit: index base has representation %q, not a list", br.Go)
+	}
+	ix, ir, err := b.lowerExpr(n.Idx)
+	if err != nil {
+		return nil, Repr{}, err
+	}
+	if ir.Scalar != SInt {
+		return nil, Repr{}, fmt.Errorf("emit: list index has representation %q, not an int", ir.Go)
+	}
+	base, idx := b.temp(), b.temp()
+	oob := binary(token.LOR,
+		binary(token.LSS, ident(idx), intLit(0)),
+		binary(token.GEQ, ident(idx), callExpr(ident("int64"), callExpr(ident("len"), ident(base)))),
+	)
+	b.pre = append(b.pre,
+		define(base, bx),
+		define(idx, ix),
+		ifStmt(oob, b.deoptEdge()),
+	)
+	return &ast.IndexExpr{X: ident(base), Index: ident(idx)}, *br.Elem, nil
 }
 
 // guardZeroDiv appends the section 7.5 semantic check that a division by a zero
