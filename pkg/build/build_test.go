@@ -7,6 +7,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/tamnd/unagi/pkg/frontend"
+	"github.com/tamnd/unagi/pkg/partition"
 )
 
 // The behavioral corpus lives in conformance/fixtures and runs through
@@ -272,6 +275,118 @@ func TestBuildDeoptReplaysEntryParamsNotRebound(t *testing.T) {
 	}
 	// CPython: (10**18 + 1) * 10**18 = 1000000000000000001000000000000000000.
 	want := "1000000000000000001000000000000000000\n"
+	if got := stdout.String(); got != want {
+		t.Errorf("output = %q, want %q", got, want)
+	}
+}
+
+// deoptFixtureModule parses a function that lands a deopt-target static unit: a
+// float-heavy body that clears the guard budget, one overflowing int multiply as
+// the guard, scalar params, top level. planStatic proves it static with a
+// non-empty, well-formed deopt plan, which is the input the VerifyPlan gate reads.
+func deoptFixtureModule(t *testing.T) *frontend.Module {
+	t.Helper()
+	pad := "    p = p + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x\n"
+	src := "def g(a: int, b: int, x: float) -> int:\n" +
+		"    p = 0.0\n" + pad + pad + pad +
+		"    if p > 0.0:\n" +
+		"        return a * b\n" +
+		"    return 0\n"
+	mod, err := frontend.Parse([]byte(src), "main.py")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	return mod
+}
+
+// TestPlanStaticGatesDeoptOnVerifyPlan checks the B2 safety gate: a deopt-target
+// unit earns a static form only when VerifyPlan clears its transfer table, because
+// the static form's parameter replay reproduces the boxed frame only for a
+// well-formed plan. A clean plan keeps the unit static; the same plan with an
+// observable effect marked before the deopt fails VerifyPlan, and the unit demotes
+// to boxed-only rather than ship a form that would answer wrong on deopt.
+func TestPlanStaticGatesDeoptOnVerifyPlan(t *testing.T) {
+	mod := deoptFixtureModule(t)
+	decisions := partition.Drive(entryModule, mod)
+
+	// The well-formed plan proves static and carries the deopt target.
+	plan := planStatic(mod, decisions)
+	if plan == nil || !plan.deopt["<module>.g"] {
+		t.Fatalf("well-formed deopt plan should keep the unit static, got plan=%+v", plan)
+	}
+
+	// Mark an observable effect before the deopt on the same plan. VerifyPlan now
+	// reports a violation, so the gate must drop the unit from the static set.
+	found := false
+	for i := range decisions {
+		if decisions[i].Unit.Name != "<module>.g" {
+			continue
+		}
+		if len(decisions[i].Deopts) == 0 {
+			t.Fatal("fixture decision carries no deopt sites")
+		}
+		decisions[i].Deopts[0].EffectBefore = true
+		if len(partition.VerifyPlan(decisions[i].Deopts)) == 0 {
+			t.Fatal("perturbation did not make VerifyPlan report a violation")
+		}
+		found = true
+	}
+	if !found {
+		t.Fatal("did not find the <module>.g decision to perturb")
+	}
+	demoted := planStatic(mod, decisions)
+	if demoted != nil && demoted.deopt["<module>.g"] {
+		t.Errorf("unsound deopt plan should demote the unit to boxed-only, but it stayed static")
+	}
+}
+
+// TestBuildMaterializesEveryTransferKind checks the materialization reboxes each
+// live local through the constructor its scalar kind names, so the boxed twin
+// receives exactly the frame the boxed tier would hold. The fixture carries one
+// parameter of every scalar kind; only the int multiply overflows, but the deopt
+// hand-off must rebox the str, bool, and float parameters too, each with its own
+// constructor, or the twin runs on a mismatched frame.
+func TestBuildMaterializesEveryTransferKind(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	dir := t.TempDir()
+	pad := "    p = p + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x\n"
+	src := "def g(a: int, b: int, s: str, flag: bool, x: float) -> int:\n" +
+		"    p = 0.0\n" + pad + pad + pad +
+		"    if p > 0.0:\n" +
+		"        return a * b\n" +
+		"    return 0\n\n" +
+		"print(g(10**18, 10**18, \"hi\", True, 1.0))\n"
+	py := filepath.Join(dir, "main.py")
+	writeFile(t, py, src)
+
+	gen := filepath.Join(dir, "gen")
+	bin, err := Build(context.Background(), py, Options{
+		Out:    filepath.Join(dir, "prog"),
+		EmitGo: gen,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	// The hand-off reboxes each parameter through the constructor its kind names.
+	main, err := os.ReadFile(filepath.Join(gen, "main.go"))
+	if err != nil {
+		t.Fatalf("main.go not emitted: %v", err)
+	}
+	if want := "def0_g(objects.NewInt(p0), objects.NewInt(p1), objects.NewStr(p2), objects.NewBool(p3), objects.NewFloat(p4))"; !bytes.Contains(main, []byte(want)) {
+		t.Errorf("materialization missing per-kind reboxers %q:\n%s", want, main)
+	}
+
+	var stdout bytes.Buffer
+	cmd := exec.Command(bin)
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	// 10**18 * 10**18 overflows int64, deopts, and the twin produces the big int.
+	want := "1000000000000000000000000000000000000\n"
 	if got := stdout.String(); got != want {
 		t.Errorf("output = %q, want %q", got, want)
 	}
