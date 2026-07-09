@@ -7,6 +7,7 @@ import (
 	"github.com/tamnd/unagi/pkg/emit"
 	"github.com/tamnd/unagi/pkg/frontend"
 	"github.com/tamnd/unagi/pkg/ir"
+	"github.com/tamnd/unagi/pkg/lower"
 	"github.com/tamnd/unagi/pkg/partition"
 )
 
@@ -29,16 +30,23 @@ import (
 // "static and no deopt sites". A guarded static unit stays boxed-only until its
 // twin lands.
 
-// staticForms renders the static-tier Go for every guard-free provable unit in
-// the module, as one `package main` file to sit next to the boxed main.go. It
-// returns nil when no unit qualifies, so the build writes the file only when
-// there is a static form to carry. The units are emitted in source order, which
-// the decision set and the function walk both follow, so the output is
-// deterministic.
-func staticForms(mod *frontend.Module, decisions []partition.Decision) ([]byte, error) {
-	// A guard-free static unit is one the partitioner proved static and left with
-	// an empty deopt plan. Index those by qualified name so the function walk can
-	// look each candidate up.
+// staticPlan is the shared static-tier layout for one module: the guard-free
+// provable units, their fixed emitted Go names, and the resolver a caller lowers
+// direct calls against. Both the static-form file and the entry-shim map read it,
+// so a call site and the function it names always agree on the emitted name.
+type staticPlan struct {
+	funcs      []qualFunc
+	staticFree map[string]bool
+	names      map[string]string
+	resolve    ir.CalleeResolver
+}
+
+// planStatic builds the static plan from the partitioner's decisions. A
+// guard-free static unit is one it proved static and left with an empty deopt
+// plan; those units index by qualified name and take a fixed emitted Go name in
+// source order, so the two emission passes name the same functions. It returns
+// nil when no unit qualifies, so the build carries no static tier at all.
+func planStatic(mod *frontend.Module, decisions []partition.Decision) *staticPlan {
 	staticFree := make(map[string]bool, len(decisions))
 	for _, d := range decisions {
 		if d.State.IsStatic() && len(d.Deopts) == 0 {
@@ -46,15 +54,10 @@ func staticForms(mod *frontend.Module, decisions []partition.Decision) ([]byte, 
 		}
 	}
 	if len(staticFree) == 0 {
-		return nil, nil
+		return nil
 	}
-
 	var funcs []qualFunc
 	collectFuncs(partition.ModuleUnitName, mod.Body, &funcs)
-
-	// The emitted Go name of every static form is fixed first, in source order, so
-	// a call lowered against the resolver names the exact function the emit loop
-	// later writes. staticName dedups in this same order, so the two passes agree.
 	names := map[string]string{}
 	seen := map[string]bool{}
 	for _, qf := range funcs {
@@ -62,24 +65,110 @@ func staticForms(mod *frontend.Module, decisions []partition.Decision) ([]byte, 
 			names[qf.qual] = staticName(qf.qual, seen)
 		}
 	}
+	return &staticPlan{
+		funcs:      funcs,
+		staticFree: staticFree,
+		names:      names,
+		resolve:    staticResolver(funcs, staticFree, names),
+	}
+}
 
-	resolve := staticResolver(funcs, staticFree, names)
+// staticEntries builds the entry-shim map the boxed lowering routes through: a
+// top-level guard-free static function keyed by its bare name, carrying its
+// emitted static Go name and the scalar kinds the shim guards, unboxes, and
+// reboxes. A function whose signature steps outside the scalar subset the shim
+// handles is left out, so its boxed call stays boxed. It returns nil when no
+// function qualifies, which leaves the boxed lowering exactly as it was.
+func staticEntries(plan *staticPlan) map[string]lower.StaticEntry {
+	if plan == nil {
+		return nil
+	}
+	out := map[string]lower.StaticEntry{}
+	for _, qf := range plan.funcs {
+		if !plan.staticFree[qf.qual] {
+			continue
+		}
+		bare, ok := topLevelName(qf.qual)
+		if !ok {
+			continue
+		}
+		f, err := ir.LowerFuncWith(qf.def, plan.resolve)
+		if err != nil {
+			continue
+		}
+		sc := ir.SignatureOf(f, plan.names[qf.qual])
+		entry, ok := shimEntry(sc, plan.names[qf.qual])
+		if !ok {
+			continue
+		}
+		out[bare] = entry
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
 
+// shimEntry translates a static callee's unboxed signature into the entry the
+// shim consumes, reporting false when any parameter or the result is a
+// representation the shim does not handle (an aggregate, a list). The gate keeps
+// the shim to the scalar boundary it can guard exactly.
+func shimEntry(sc ir.StaticCallee, static string) (lower.StaticEntry, bool) {
+	params := make([]lower.StaticScalar, len(sc.Params))
+	for i, r := range sc.Params {
+		s, ok := shimScalar(r.Scalar)
+		if !ok {
+			return lower.StaticEntry{}, false
+		}
+		params[i] = s
+	}
+	ret, ok := shimScalar(sc.Ret.Scalar)
+	if !ok {
+		return lower.StaticEntry{}, false
+	}
+	return lower.StaticEntry{Static: static, Params: params, Ret: ret}, true
+}
+
+// shimScalar maps an emit scalar class onto the shim's scalar kind, reporting
+// false for a non-scalar representation the shim cannot cross.
+func shimScalar(s emit.Scalar) (lower.StaticScalar, bool) {
+	switch s {
+	case emit.SInt:
+		return lower.StaticInt, true
+	case emit.SFloat:
+		return lower.StaticFloat, true
+	case emit.SBool:
+		return lower.StaticBool, true
+	case emit.SStr:
+		return lower.StaticStr, true
+	}
+	return lower.StaticNone, false
+}
+
+// staticForms renders the static-tier Go for every guard-free provable unit in
+// the module, as one `package main` file to sit next to the boxed main.go. It
+// returns nil when the plan is empty, so the build writes the file only when
+// there is a static form to carry. The units are emitted in source order, which
+// the plan's function walk follows, so the output is deterministic.
+func staticForms(plan *staticPlan) ([]byte, error) {
+	if plan == nil {
+		return nil, nil
+	}
 	var b strings.Builder
 	b.WriteString("// Code generated by unagi. DO NOT EDIT.\npackage main\n")
 	emitted := 0
-	for _, qf := range funcs {
-		if !staticFree[qf.qual] {
+	for _, qf := range plan.funcs {
+		if !plan.staticFree[qf.qual] {
 			continue
 		}
-		f, err := ir.LowerFuncWith(qf.def, resolve)
+		f, err := ir.LowerFuncWith(qf.def, plan.resolve)
 		if err != nil {
 			// A unit the partitioner proved static lowers here too; a lowering
 			// failure means the decision and the bridge disagree, which is a bug
 			// worth surfacing rather than silently dropping the form.
 			return nil, fmt.Errorf("static unit %s decided static but did not lower: %w", qf.qual, err)
 		}
-		f.Name = names[qf.qual]
+		f.Name = plan.names[qf.qual]
 		src, err := emit.EmitFunc(f)
 		if err != nil {
 			return nil, fmt.Errorf("static unit %s: %w", qf.qual, err)

@@ -60,15 +60,17 @@ func Build(ctx context.Context, pyPath string, opts Options) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	goSrc, err := lower.ModuleStars(mod, pyPath, src, stars)
+	// The static tier rides alongside the boxed module: a provable function's
+	// unboxed Go is emitted next to main.go so the two share one binary, and a
+	// boxed caller of a guard-free static function routes through an entry shim
+	// into that static form. The plan is built once so the shim's call site and
+	// the emitted static function agree on the name.
+	plan := planStatic(mod, partition.Drive(entryModule, mod))
+	goSrc, err := lower.ModuleStatic(mod, pyPath, src, stars, staticEntries(plan))
 	if err != nil {
 		return "", err
 	}
-	// The static tier rides alongside the boxed module: a provable function's
-	// unboxed Go is emitted next to main.go so the two share one binary. It is
-	// dead code at M4 (the boxed tier still drives execution), present so the
-	// static lowering is proven through the real toolchain, not a golden alone.
-	staticSrc, err := staticForms(mod, partition.Drive(entryModule, mod))
+	staticSrc, err := staticForms(plan)
 	if err != nil {
 		return "", err
 	}
