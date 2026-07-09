@@ -31,7 +31,7 @@ func TestSumSqGolden(t *testing.T) {
 				Bind: "x",
 				Over: Var{Name: "xs", Repr: listR},
 				Body: []Stmt{
-					AddAssign{Name: "total", Repr: fR, Value: Bin{Op: OpMul, L: Var{Name: "x", Repr: fR}, R: Var{Name: "x", Repr: fR}}},
+					AugAssign{Name: "total", Repr: fR, Value: Bin{Op: OpMul, L: Var{Name: "x", Repr: fR}, R: Var{Name: "x", Repr: fR}}},
 				},
 			},
 			Return{Value: Var{Name: "total", Repr: fR}},

@@ -114,6 +114,30 @@ func TestLowerAugAssignAccumulates(t *testing.T) {
 	}
 }
 
+func TestLowerAugAssignSubMul(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"sub", "def acc(a: int, b: int) -> int:\n    a -= b\n    return a\n", "rt.SubInt64(a, b)"},
+		{"mul", "def acc(a: int, b: int) -> int:\n    a *= b\n    return a\n", "rt.MulInt64(a, b)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := emitOf(t, tc.src)
+			// -= and *= on an int target accumulate through the same overflow helper
+			// += uses, so the guarded op appears and the result rebinds the target.
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("int %s should route through %q:\n%s", tc.name, tc.want, got)
+			}
+			if !strings.Contains(got, "a = ") {
+				t.Errorf("int %s should rebind the target:\n%s", tc.name, got)
+			}
+		})
+	}
+}
+
 // TestLowerPassEmitsNothing proves 06 line 54: `pass` is a no-op that lowers to no
 // statement at all, so it changes no control flow. A function whose body is a `pass`
 // followed by a return emits exactly the return, with no artifact standing in for the

@@ -47,7 +47,7 @@ func TestTrueDivisionGuardsZero(t *testing.T) {
 	}
 }
 
-func TestIntAddAssignIsGuarded(t *testing.T) {
+func TestIntAugAssignIsGuarded(t *testing.T) {
 	_, iR, _ := reprs()
 	// An int accumulator lowers through the guarded add, not a bare +=, so it
 	// cannot wrap silently.
@@ -57,7 +57,7 @@ func TestIntAddAssignIsGuarded(t *testing.T) {
 		Ret:    iR,
 		Body: []Stmt{
 			Define{Name: "s", Value: Int{V: 0}},
-			AddAssign{Name: "s", Repr: iR, Value: Var{Name: "n", Repr: iR}},
+			AugAssign{Name: "s", Repr: iR, Value: Var{Name: "n", Repr: iR}},
 			Return{Value: Var{Name: "s", Repr: iR}},
 		},
 	})
@@ -69,6 +69,72 @@ func TestIntAddAssignIsGuarded(t *testing.T) {
 	}
 	if strings.Contains(got, "s += n") {
 		t.Fatalf("int accumulation must not use a bare += that can wrap:\n%s", got)
+	}
+}
+
+func TestIntSubMulAugAssignAreGuarded(t *testing.T) {
+	_, iR, _ := reprs()
+	// `-=` and `*=` on an int accumulator route through the same overflow-checked
+	// helpers `+=` does, never a bare compound assignment that could wrap.
+	cases := []struct {
+		op    Op
+		want  string
+		wrong string
+	}{
+		{OpSub, "rt.SubInt64(s, n)", "s -= n"},
+		{OpMul, "rt.MulInt64(s, n)", "s *= n"},
+	}
+	for _, tc := range cases {
+		got, err := EmitFunc(Func{
+			Name:   "acc",
+			Params: []Param{{Name: "n", Repr: iR}},
+			Ret:    iR,
+			Body: []Stmt{
+				Define{Name: "s", Value: Int{V: 0}},
+				AugAssign{Name: "s", Op: tc.op, Repr: iR, Value: Var{Name: "n", Repr: iR}},
+				Return{Value: Var{Name: "s", Repr: iR}},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(got, tc.want) {
+			t.Fatalf("int %s= should route through %q:\n%s", tc.op, tc.want, got)
+		}
+		if strings.Contains(got, tc.wrong) {
+			t.Fatalf("int %s= must not use a bare %q that can wrap:\n%s", tc.op, tc.wrong, got)
+		}
+	}
+}
+
+func TestFloatAugAssignUsesCompoundToken(t *testing.T) {
+	fR, _, _ := reprs()
+	// Float arithmetic is total, so `-=` and `*=` lower to Go's compound assignment
+	// directly with no overflow guard.
+	cases := []struct {
+		op   Op
+		want string
+	}{
+		{OpSub, "s -= x"},
+		{OpMul, "s *= x"},
+	}
+	for _, tc := range cases {
+		got, err := EmitFunc(Func{
+			Name:   "acc",
+			Params: []Param{{Name: "x", Repr: fR}},
+			Ret:    fR,
+			Body: []Stmt{
+				Define{Name: "s", Value: Float{V: 1.0}},
+				AugAssign{Name: "s", Op: tc.op, Repr: fR, Value: Var{Name: "x", Repr: fR}},
+				Return{Value: Var{Name: "s", Repr: fR}},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(got, tc.want) {
+			t.Fatalf("float %s= should lower to %q:\n%s", tc.op, tc.want, got)
+		}
 	}
 }
 

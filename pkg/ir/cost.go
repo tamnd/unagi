@@ -50,7 +50,7 @@ func costStmt(s emit.Stmt, c *Cost) {
 	case emit.VarDecl:
 		// A join declaration carries no value and no arithmetic; it only names a local
 		// and its Go type ahead of the branch that assigns it, so it costs nothing.
-	case emit.AddAssign:
+	case emit.AugAssign:
 		// An accumulating += is one arithmetic operation, and on an int target it
 		// carries the same overflow guard a written-out add would.
 		costExpr(n.Value, c)

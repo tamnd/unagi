@@ -21,11 +21,16 @@ type Define struct {
 	Value Expr
 }
 
-// AddAssign is augmented addition, `name += value`. On a float target it lowers
-// to Go's += directly, since float addition is total; on an int target it lowers
-// through the overflow-guarded add so accumulation cannot silently wrap.
-type AddAssign struct {
+// AugAssign is an augmented arithmetic assignment, `name += value` and its `-=`
+// and `*=` siblings, with Op naming the operator (OpAdd, OpSub, or OpMul). On a
+// float target it lowers to Go's matching compound assignment directly, since
+// float arithmetic is total; on an int target it lowers through the same
+// overflow-guarded operation a written-out `name = name OP value` would, so
+// accumulation cannot silently wrap. Op's zero value is OpAdd, so a plain `+=`
+// need not set it.
+type AugAssign struct {
 	Name  string
+	Op    Op
 	Repr  Repr
 	Value Expr
 }
@@ -128,7 +133,7 @@ func (Define) isStmt()    {}
 func (Assign) isStmt()    {}
 func (VarDecl) isStmt()   {}
 func (Bind) isStmt()      {}
-func (AddAssign) isStmt() {}
+func (AugAssign) isStmt() {}
 func (Return) isStmt()    {}
 func (ForRange) isStmt()  {}
 func (ForCount) isStmt()  {}
@@ -224,7 +229,7 @@ func (b *Builder) lowerStmt(s Stmt) ([]ast.Stmt, error) {
 		}
 		return append(b.flush(), &ast.AssignStmt{Lhs: lhs, Tok: tok, Rhs: rhs}), nil
 
-	case AddAssign:
+	case AugAssign:
 		if n.Repr.Scalar == SFloat {
 			x, xr, err := b.lowerExpr(n.Value)
 			if err != nil {
@@ -233,11 +238,11 @@ func (b *Builder) lowerStmt(s Stmt) ([]ast.Stmt, error) {
 			if xr.Scalar != SFloat {
 				x = toFloat(x, xr)
 			}
-			return append(b.flush(), addAssign(n.Name, x)), nil
+			return append(b.flush(), augAssign(n.Name, n.Op, x)), nil
 		}
-		// An int target accumulates through the guarded add: name = name + value,
-		// with the overflow check the add emits flushed ahead of the assignment.
-		x, _, err := b.lowerExpr(Bin{Op: OpAdd, L: Var{Name: n.Name, Repr: n.Repr}, R: n.Value})
+		// An int target accumulates through the guarded op: name = name OP value,
+		// with the overflow check the op emits flushed ahead of the assignment.
+		x, _, err := b.lowerExpr(Bin{Op: n.Op, L: Var{Name: n.Name, Repr: n.Repr}, R: n.Value})
 		if err != nil {
 			return nil, err
 		}
