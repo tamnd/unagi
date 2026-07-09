@@ -27,6 +27,30 @@ func TestInterningIsPointerIdentity(t *testing.T) {
 	}
 }
 
+// TestMalformedListArityInternsWithoutPanic proves the key computation survives a
+// list type of the wrong arity, the zero- or multi-element list an inference bug
+// could hand the interner. Before, writeKey indexed elems[0] unconditionally and a
+// non-unary list panicked the whole build; now it keys every element, so the
+// malformed type interns to a distinct key and a downstream pass can refuse it and
+// box, the R5-safe outcome, rather than the compiler dying on an index.
+func TestMalformedListArityInternsWithoutPanic(t *testing.T) {
+	in := NewInterner()
+
+	empty := in.ListN()
+	pair := in.ListN(in.Int(), in.Str())
+	good := in.List(in.Int())
+
+	// Each malformed arity keys distinctly from the well-formed list and from each
+	// other, so interning does not collapse them onto list[int].
+	if empty == good || pair == good || empty == pair {
+		t.Fatalf("malformed list arities collapsed onto a well-formed key")
+	}
+	// The same malformed arity interns to one pointer, so the key is stable.
+	if in.ListN() != empty || in.ListN(in.Int(), in.Str()) != pair {
+		t.Fatalf("a malformed list arity does not intern deterministically")
+	}
+}
+
 func TestInternerDeterministicIDs(t *testing.T) {
 	// Two interners built by the same sequence assign the same ids, which is
 	// what makes the evidence table byte-identical across builds (D9).

@@ -124,9 +124,21 @@ func (in *Interner) classRef(name string, mro []string) *ClassRef {
 	return ref
 }
 
-// List returns the interned list[elem] element.
+// List returns the interned list[elem] element, the one-element homogeneous list
+// every real annotation and inference join produces.
 func (in *Interner) List(elem *Type) *Type {
-	return in.intern(&Type{kind: KindList, elems: []*Type{elem}})
+	return in.ListN(elem)
+}
+
+// ListN returns the interned list element over an explicit slice of element types.
+// A well-formed list carries exactly one element type, which List builds; the
+// general form exists so a malformed arity, the zero- or multi-element list an
+// inference bug could produce, can be built and handed to a representation or
+// lowering pass that must refuse it rather than index a missing or ambiguous
+// element. It stays out of the normal construction path, which always goes through
+// List.
+func (in *Interner) ListN(elems ...*Type) *Type {
+	return in.intern(&Type{kind: KindList, elems: append([]*Type(nil), elems...)})
 }
 
 // Set returns the interned set[elem] element.

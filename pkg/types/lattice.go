@@ -184,8 +184,18 @@ func (t *Type) writeKey(b *strings.Builder) {
 		b.WriteByte(':')
 		b.WriteString(t.class.Name)
 	case KindList, KindSet:
+		// A well-formed list or set carries exactly one element type, but a malformed
+		// arity from an inference bug must key to something distinct rather than panic
+		// indexing a missing element, so the key writes every element it has. The
+		// downstream representation and lowering passes then refuse the malformed type
+		// and box it, the R5-safe outcome, instead of the build dying on an index.
 		b.WriteByte('<')
-		t.elems[0].writeKey(b)
+		for i, e := range t.elems {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			e.writeKey(b)
+		}
 		b.WriteByte('>')
 	case KindDict:
 		b.WriteByte('<')
