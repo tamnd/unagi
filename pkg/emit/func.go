@@ -50,6 +50,20 @@ type Builder struct {
 	nErr      int
 	nDeopt    int
 	pre       []ast.Stmt
+	// resume is the stack of active loop resume frames, innermost last. A guard
+	// that fires while a frame is active re-enters the boxed twin mid-loop through
+	// the frame's hand-off instead of the from-top edge; an empty stack means every
+	// guard replays from the top.
+	resume []resumeFrame
+}
+
+// resumeFrame is one loop's mid-loop resume hand-off and the arguments a guard
+// inside that loop passes it: the loop counter, the live carried accumulators,
+// and the entry-parameter snapshots, already assembled in the twin's parameter
+// order.
+type resumeFrame struct {
+	handler string
+	args    []ast.Expr
 }
 
 // deoptParam is the name of the entry snapshot for the i-th parameter, the value
@@ -92,6 +106,15 @@ func (b *Builder) errName() string {
 // handler the edge falls back to the per-site placeholder name the goldens use,
 // which keeps the unit self-describing when it is emitted outside a build.
 func (b *Builder) deoptEdge() ast.Stmt {
+	// A guard inside a resume-enabled loop re-enters the boxed twin at the current
+	// iteration, carrying the loop counter and live accumulators instead of only
+	// the entry parameters. The frame's arguments include the entry snapshots, so
+	// mark the snapshot needed the same way the from-top edge does.
+	if len(b.resume) > 0 {
+		b.deoptUsed = true
+		f := b.resume[len(b.resume)-1]
+		return ret(callExpr(ident(f.handler), f.args...))
+	}
 	if b.deopt != "" {
 		b.deoptUsed = true
 		args := make([]ast.Expr, len(b.params))

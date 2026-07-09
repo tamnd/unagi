@@ -605,6 +605,28 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 					return nil, err
 				}
 			}
+			// A static form the build proved resumable also carries a mid-loop
+			// re-entry: the boxed twin restarts the loop from the failing iteration,
+			// and the resume hand-off reboxes the loop counter, the accumulator, and
+			// the entry parameters into it. A guard inside the loop tail-calls the
+			// hand-off instead of replaying the whole unit from the top.
+			if se.Resume != nil {
+				twin := se.Resume.Twin
+				twinDecl, err := e.emitFuncDecl(twin, se.Resume.TwinName, twin.Name, twin.Name)
+				if err != nil {
+					return nil, err
+				}
+				fmt.Fprintf(&out, "// %s re-enters the proven loop of %s at a seeded iteration.\n",
+					se.Resume.TwinName, defs[i].Name)
+				if err := writeDecl(&out, twinDecl); err != nil {
+					return nil, err
+				}
+				fmt.Fprintf(&out, "// %s re-enters %s mid-loop when an overflow guard fails inside its loop.\n",
+					se.Resume.Handler, defs[i].Name)
+				if err := writeDecl(&out, e.resumeHandlerDecl(se)); err != nil {
+					return nil, err
+				}
+			}
 		}
 	}
 	for _, m := range methodDecls {
@@ -667,6 +689,25 @@ type StaticEntry struct {
 	Params []StaticScalar
 	Ret    StaticScalar
 	Deopt  bool
+	// Resume, when set, carries the mid-loop resume plan: the boxed twin that
+	// re-enters the proven loop at the iteration a guard failed on, and the
+	// hand-off the guard tail-calls to reach it. It is an optimization over the
+	// from-top deopt hand-off (Deopt), sound only for the single-accumulator
+	// counting loop the build proves; every other deopt still replays from the top.
+	Resume *ResumePlan
+}
+
+// ResumePlan describes the mid-loop resume path for one static form. Twin is the
+// synthesized boxed function that restarts the loop from a seeded counter and
+// accumulator; TwinName is its emitted Go name; Handler is the hand-off the
+// guard's failure edge tail-calls. Lead names the scalar kinds of the leading
+// re-entry parameters the hand-off reboxes before the entry parameters, always
+// [counter int, accumulator int] for the proven shape.
+type ResumePlan struct {
+	Handler  string
+	TwinName string
+	Twin     *frontend.FuncDef
+	Lead     []StaticScalar
 }
 
 // StaticScalar names the unboxed scalar kind of a static value, the subset of

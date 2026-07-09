@@ -89,3 +89,76 @@ func TestForCountDownRenders(t *testing.T) {
 		t.Fatalf("a descending loop should test i > b and step i--:\n%s", got)
 	}
 }
+
+// TestForCountResumeEdge proves that a ForCount carrying a Resume plan routes an
+// overflow guard inside its body through the mid-loop resume hand-off instead of
+// the from-top deopt edge: the tail call carries the loop counter, the live
+// accumulator, and the entry-parameter snapshots, in the twin's parameter order.
+// This is the emit half of B3b; the build half proves the shape the plan is set
+// for.
+func TestForCountResumeEdge(t *testing.T) {
+	_, iR, _ := reprs()
+	got, err := EmitFunc(Func{
+		Name:   "run",
+		Params: []Param{{Name: "n", Repr: iR}, {Name: "seed", Repr: iR}},
+		Ret:    iR,
+		Body: []Stmt{
+			Define{Name: "total", Value: Var{Name: "seed", Repr: iR}},
+			ForCount{
+				Var:   "i",
+				Start: Int{V: 0},
+				Stop:  Var{Name: "n", Repr: iR},
+				Body: []Stmt{
+					AugAssign{Name: "total", Op: OpMul, Repr: iR, Value: Int{V: 2}},
+				},
+				Resume: &ResumeInfo{Handler: "static_run_resume", Carried: []string{"total"}},
+			},
+			Return{Value: Var{Name: "total", Repr: iR}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "return static_run_resume(i, total, d0, d1)") {
+		t.Fatalf("an in-loop guard should resume with the counter, accumulator, and entry snapshots:\n%s", got)
+	}
+	// The entry snapshot the resume edge hands off must be taken at the top, so the
+	// twin re-derives from the values the unit was entered with.
+	if !strings.Contains(got, "d0, d1 := n, seed") {
+		t.Fatalf("a resume hand-off still needs the entry-parameter snapshot:\n%s", got)
+	}
+}
+
+// TestForCountNoResumeKeepsFromTopEdge proves that without a Resume plan the same
+// guarded loop keeps the from-top deopt edge, so the resume path is opt-in and the
+// default stays the always-correct whole-unit replay.
+func TestForCountNoResumeKeepsFromTopEdge(t *testing.T) {
+	_, iR, _ := reprs()
+	got, err := EmitFunc(Func{
+		Name:         "run",
+		Params:       []Param{{Name: "n", Repr: iR}, {Name: "seed", Repr: iR}},
+		Ret:          iR,
+		DeoptHandler: "static_run_deopt",
+		Body: []Stmt{
+			Define{Name: "total", Value: Var{Name: "seed", Repr: iR}},
+			ForCount{
+				Var:   "i",
+				Start: Int{V: 0},
+				Stop:  Var{Name: "n", Repr: iR},
+				Body: []Stmt{
+					AugAssign{Name: "total", Op: OpMul, Repr: iR, Value: Int{V: 2}},
+				},
+			},
+			Return{Value: Var{Name: "total", Repr: iR}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "return static_run_deopt(d0, d1)") {
+		t.Fatalf("without a resume plan the in-loop guard should replay from the top:\n%s", got)
+	}
+	if strings.Contains(got, "static_run_resume") {
+		t.Fatalf("no resume plan should emit no resume edge:\n%s", got)
+	}
+}

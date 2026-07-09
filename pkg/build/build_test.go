@@ -147,8 +147,9 @@ func TestBuildDocstringFunctionStaysStatic(t *testing.T) {
 // model would box on the guard budget, so the deopt edge is real and the entry
 // shim routes into it. The seeds are valid int64 values so the call enters the
 // static form rather than falling back at the shim's unbox guard, which is what
-// makes the deopt fire inside the native loop. From-top replay recomputes the
-// whole loop boxed, so every deopt lands on CPython's big int.
+// makes the deopt fire inside the native loop. Mid-loop resume re-enters the
+// boxed twin at the failing iteration carrying the live accumulator, so every
+// deopt finishes on CPython's big int without redoing the iterations already run.
 func TestBuildForcedStaticDeoptPositions(t *testing.T) {
 	if testing.Short() {
 		t.Skip("compiles binaries; skipped in -short")
@@ -186,14 +187,16 @@ func TestBuildForcedStaticDeoptPositions(t *testing.T) {
 				t.Fatalf("build: %v", err)
 			}
 
-			// The static form carries the guarded loop and a deopt edge, so the
-			// overflow at this position actually hands off rather than wrapping.
+			// The static form carries the guarded loop and a mid-loop resume edge:
+			// the accumulator is the single guarded update, so an overflow re-enters
+			// the boxed twin at the failing iteration carrying the loop counter and
+			// the live accumulator instead of replaying the whole unit from the top.
 			static, err := os.ReadFile(filepath.Join(gen, "static.go"))
 			if err != nil {
 				t.Fatalf("static.go not emitted: %v", err)
 			}
-			if want := "return static_accum_deopt(d0, d1)"; !bytes.Contains(static, []byte(want)) {
-				t.Errorf("static.go missing the deopt edge %q:\n%s", want, static)
+			if want := "return static_accum_resume(i, total, d0, d1)"; !bytes.Contains(static, []byte(want)) {
+				t.Errorf("static.go missing the resume edge %q:\n%s", want, static)
 			}
 
 			var stdout bytes.Buffer
@@ -232,7 +235,7 @@ func TestBuildForcedStaticAugAssignDeoptsInLoop(t *testing.T) {
 			name: "add",
 			fn:   "def run(n: int, step: int) -> int:\n    total = 0\n    for i in range(n):\n        total += step\n    return total\n\n",
 			call: "print(run(3, 4611686018427387904))\n",
-			edge: "return static_run_deopt(d0, d1)",
+			edge: "return static_run_resume(i, total, d0, d1)",
 			want: "13835058055282163712\n",
 		},
 		// total starts at 0 and subtracts a near-half-max step three times, so the
@@ -241,7 +244,7 @@ func TestBuildForcedStaticAugAssignDeoptsInLoop(t *testing.T) {
 			name: "sub",
 			fn:   "def run(n: int, step: int) -> int:\n    total = 0\n    for i in range(n):\n        total -= step\n    return total\n\n",
 			call: "print(run(3, 4611686018427387904))\n",
-			edge: "return static_run_deopt(d0, d1)",
+			edge: "return static_run_resume(i, total, d0, d1)",
 			want: "-13835058055282163712\n",
 		},
 		// total starts at 1 and doubles a hundred times, overflowing mid-loop.
@@ -249,7 +252,7 @@ func TestBuildForcedStaticAugAssignDeoptsInLoop(t *testing.T) {
 			name: "mul",
 			fn:   "def run(n: int, seed: int) -> int:\n    total = seed\n    for i in range(n):\n        total *= 2\n    return total\n\n",
 			call: "print(run(100, 1))\n",
-			edge: "return static_run_deopt(d0, d1)",
+			edge: "return static_run_resume(i, total, d0, d1)",
 			want: "1267650600228229401496703205376\n",
 		},
 	}
@@ -287,6 +290,87 @@ func TestBuildForcedStaticAugAssignDeoptsInLoop(t *testing.T) {
 				t.Errorf("output = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestBuildResumesLoopAtFailingIteration pins B3b: a single-accumulator counting
+// loop deopts through a mid-loop resume rather than a from-top replay. The static
+// form's in-loop guard tail-calls the resume hand-off with the loop counter and
+// the live accumulator, and the boxed twin restarts the loop from that counter
+// (runtime.Range(u_i, u_n), the range(i, n) re-entry) carrying the accumulator, so
+// it re-runs only the failing iteration onward instead of redoing the ones the
+// native loop already committed. Because the guard fires before the update commits,
+// the accumulator at the guard is the start-of-iteration value, which is exactly
+// what makes the re-entry result equal the from-top result. Every expected value is
+// what python3.14 prints for the same call, so a wrong seed or a double-applied
+// iteration would show up as a mismatched big int.
+func TestBuildResumesLoopAtFailingIteration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	accum := "def accum(n: int, seed: int) -> int:\n" +
+		"    total = seed\n" +
+		"    for i in range(n):\n" +
+		"        total = total * 2\n" +
+		"    return total\n\n"
+
+	dir := t.TempDir()
+	py := filepath.Join(dir, "main.py")
+	// A mid-loop overflow is the interesting position: some iterations run native
+	// and the rest finish in the twin.
+	writeFile(t, py, accum+"print(accum(100, 1))\n")
+
+	gen := filepath.Join(dir, "gen")
+	bin, err := Build(context.Background(), py, Options{
+		Out:    filepath.Join(dir, "prog"),
+		EmitGo: gen,
+		Tier:   partition.ModeForceStatic,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	// The static form's in-loop guard resumes rather than replaying from the top.
+	static, err := os.ReadFile(filepath.Join(gen, "static.go"))
+	if err != nil {
+		t.Fatalf("static.go not emitted: %v", err)
+	}
+	if want := "return static_accum_resume(i, total, d0, d1)"; !bytes.Contains(static, []byte(want)) {
+		t.Errorf("static.go missing the resume edge %q:\n%s", want, static)
+	}
+	if bad := "static_accum_deopt(i, total"; bytes.Contains(static, []byte(bad)) {
+		t.Errorf("static.go should route the in-loop guard through the resume edge, not %q:\n%s", bad, static)
+	}
+
+	// The boxed twin and hand-off live next to the boxed module. The twin restarts
+	// the loop from the seeded counter (range(i, n)), which is what re-enters at the
+	// failing iteration instead of from zero, and the hand-off reboxes the counter,
+	// the accumulator, and the two entry parameters and wraps the result as the
+	// deopt sentinel the entry shim unwraps.
+	main, err := os.ReadFile(filepath.Join(gen, "main.go"))
+	if err != nil {
+		t.Fatalf("main.go not emitted: %v", err)
+	}
+	for _, want := range []string{
+		"func static_accum_resume(p0 int64, p1 int64, p2 int64, p3 int64) (int64, error)",
+		"func static_accum_resume_twin(",
+		"static_accum_resume_twin(objects.NewInt(p0), objects.NewInt(p1), objects.NewInt(p2), objects.NewInt(p3))",
+		"runtime.Range(u_i, u_n)",
+		"&objects.Deopt{Value: r}",
+	} {
+		if !bytes.Contains(main, []byte(want)) {
+			t.Errorf("main.go missing %q:\n%s", want, main)
+		}
+	}
+
+	var stdout bytes.Buffer
+	cmd := exec.Command(bin)
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got, want := stdout.String(), "1267650600228229401496703205376\n"; got != want {
+		t.Errorf("output = %q, want %q", got, want)
 	}
 }
 
