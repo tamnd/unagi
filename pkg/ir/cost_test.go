@@ -293,3 +293,50 @@ func TestConstFoldOpensNoGuardSite(t *testing.T) {
 		t.Errorf("an unfolded overflowing power opens one guard site, got %d", len(sites))
 	}
 }
+
+// TestCostIntIdentityIsFree pins that collapsing an identity is free in the cost model:
+// `a + 0` reads as zero operations and zero guards because the op and its overflow guard
+// are gone, while the non-identity `a + 1` reads as one guarded operation. The
+// value-numbering half of the fold removes cost the same way the constant half does.
+func TestCostIntIdentityIsFree(t *testing.T) {
+	free := []struct{ name, src string }{
+		{"add zero", "def f(a: int) -> int:\n    return a + 0\n"},
+		{"multiply one", "def f(a: int) -> int:\n    return a * 1\n"},
+		{"shift zero", "def f(a: int) -> int:\n    return a << 0\n"},
+		{"power one", "def f(a: int) -> int:\n    return a ** 1\n"},
+	}
+	for _, tc := range free {
+		t.Run(tc.name, func(t *testing.T) {
+			c := costOfSrc(t, tc.src)
+			if c.UnboxedOps != 0 || c.EntryGuards != 0 || c.LoopGuards != 0 {
+				t.Errorf("a collapsed identity should have no cost, got %+v", c)
+			}
+		})
+	}
+	// The non-identity add keeps its one guarded operation, so the identity really did
+	// remove cost rather than the cost model ignoring adds.
+	c := costOfSrc(t, "def f(a: int) -> int:\n    return a + 1\n")
+	if c.UnboxedOps != 1 || c.EntryGuards != 1 {
+		t.Errorf("a non-identity add stays one guarded op, got %+v", c)
+	}
+}
+
+// TestIntIdentityOpensNoGuardSite pins that a collapsed identity opens no deopt site,
+// while its non-identity sibling opens one: the deopt-site walk sees the removed op the
+// same way the cost model does, because both key on the emit.Bin the rewrite drops.
+func TestIntIdentityOpensNoGuardSite(t *testing.T) {
+	collapsed, err := LowerFunc(parseFunc(t, "def f(a: int) -> int:\n    return a + 0\n"))
+	if err != nil {
+		t.Fatalf("LowerFunc collapsed: %v", err)
+	}
+	if sites := GuardSitesOf(collapsed); len(sites) != 0 {
+		t.Errorf("a collapsed identity opens no guard site, got %d", len(sites))
+	}
+	kept, err := LowerFunc(parseFunc(t, "def f(a: int) -> int:\n    return a + 1\n"))
+	if err != nil {
+		t.Fatalf("LowerFunc kept: %v", err)
+	}
+	if sites := GuardSitesOf(kept); len(sites) != 1 {
+		t.Errorf("a non-identity add opens one guard site, got %d", len(sites))
+	}
+}

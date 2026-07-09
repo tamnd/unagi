@@ -1048,6 +1048,15 @@ func lowerExpr(e frontend.Expr, sc scope, ctx lowerCtx) (emit.Expr, emit.Repr, e
 		if v, ok := foldConstInt(node); ok {
 			return emit.Int{V: v}, res, nil
 		}
+		// The value-numbering half of the same doc 11 Tier 3 item: when only one operand
+		// is constant and it is an identity for the op (`x + 0`, `x * 1`, `x << 0`), the
+		// expression collapses to the other operand, dropping the op and its now-dead
+		// overflow guard. Like the fold, this fires before cost and deopt see the tree, so
+		// they agree the site is guard-free; unlike the fold, it keeps the variable operand
+		// as-is, so any guard inside it survives.
+		if s, sr, ok := simplifyIntIdentity(op, l, lr, r, rr, res); ok {
+			return s, sr, nil
+		}
 		return node, res, nil
 
 	case *frontend.Compare:

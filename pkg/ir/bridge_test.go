@@ -709,3 +709,65 @@ func TestConstFoldBailsKeepsGuardedPath(t *testing.T) {
 		t.Errorf("a constant zero divisor must keep its ZeroDivisionError check:\n%s", got)
 	}
 }
+
+// TestSimplifyIntIdentityCollapses pins the value-numbering half of the fold: a binary
+// int op whose constant operand is an identity collapses to a bare read of the variable
+// operand, dropping the op and the overflow guard it would have carried. Every case
+// returns the variable unchanged and emits no runtime helper, overflow flag, or deopt
+// edge, because an identity never overflows.
+func TestSimplifyIntIdentityCollapses(t *testing.T) {
+	cases := []struct{ name, src string }{
+		{"add right zero", "def f(a: int) -> int:\n    return a + 0\n"},
+		{"add left zero", "def f(a: int) -> int:\n    return 0 + a\n"},
+		{"subtract zero", "def f(a: int) -> int:\n    return a - 0\n"},
+		{"multiply right one", "def f(a: int) -> int:\n    return a * 1\n"},
+		{"multiply left one", "def f(a: int) -> int:\n    return 1 * a\n"},
+		{"floordiv one", "def f(a: int) -> int:\n    return a // 1\n"},
+		{"power one", "def f(a: int) -> int:\n    return a ** 1\n"},
+		{"bitor right zero", "def f(a: int) -> int:\n    return a | 0\n"},
+		{"bitor left zero", "def f(a: int) -> int:\n    return 0 | a\n"},
+		{"bitxor right zero", "def f(a: int) -> int:\n    return a ^ 0\n"},
+		{"bitxor left zero", "def f(a: int) -> int:\n    return 0 ^ a\n"},
+		{"lshift zero", "def f(a: int) -> int:\n    return a << 0\n"},
+		{"rshift zero", "def f(a: int) -> int:\n    return a >> 0\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := emitOf(t, tc.src)
+			if !strings.Contains(got, "return a, nil") {
+				t.Errorf("identity should collapse to the variable operand:\n%s", got)
+			}
+			for _, absent := range []string{"rt.", "deopt", "ovf"} {
+				if strings.Contains(got, absent) {
+					t.Errorf("collapsed identity should not emit %q:\n%s", absent, got)
+				}
+			}
+		})
+	}
+}
+
+// TestSimplifyIntIdentityKeepsNonIdentity pins the boundary: a constant operand that is
+// not an identity, a left operand on a non-commutative op (`0 - a` is negation, `1 // a`
+// is not identity), the annihilator `a * 0` (excluded because collapsing it would drop
+// the variable's evaluation and its possible raise), and a float `a + 0.0` (where -0.0
+// makes zero not an identity) all keep their real op rather than collapsing.
+func TestSimplifyIntIdentityKeepsNonIdentity(t *testing.T) {
+	cases := []struct{ name, src, want string }{
+		{"non-identity add", "def f(a: int) -> int:\n    return a + 1\n", "rt.AddInt64(a, 1)"},
+		{"left subtract is negation", "def f(a: int) -> int:\n    return 0 - a\n", "rt.SubInt64(0, a)"},
+		{"annihilator kept", "def f(a: int) -> int:\n    return a * 0\n", "rt.MulInt64(a, 0)"},
+		{"left floordiv not identity", "def f(a: int) -> int:\n    return 1 // a\n", "rt.FloorDivInt64(1, a)"},
+		{"float zero not identity", "def f(a: float) -> float:\n    return a + 0.0\n", "a + 0.0"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := emitOf(t, tc.src)
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("non-identity should keep %q:\n%s", tc.want, got)
+			}
+			if strings.Contains(got, "return a, nil") {
+				t.Errorf("non-identity must not collapse to the variable operand:\n%s", got)
+			}
+		})
+	}
+}
