@@ -85,6 +85,40 @@ func FloorModInt64(a, b int64) int64 {
 	return r
 }
 
+// PowInt64 raises a to the b power for a non-negative exponent and reports whether
+// the static tier must deopt to the boxed twin instead of trusting the result. It
+// deopts on a negative exponent, because Python promotes a ** -b to a float
+// (2 ** -1 is 0.5) and 0 ** -1 raises ZeroDivisionError, neither of which an int
+// return can carry, and it deopts when a checked multiply carries the running
+// power past int64, because Python spills to a big int there. A non-negative
+// exponent whose exact power fits int64 returns that power with deopt false; the
+// squaring is guarded so the final shift never squares a base it will not use,
+// which would flag a false overflow. 0 ** 0 is 1, matching Python.
+func PowInt64(a, b int64) (int64, bool) {
+	if b < 0 {
+		return 0, true
+	}
+	result, base, e := int64(1), a, b
+	for e > 0 {
+		if e&1 == 1 {
+			v, ovf := MulInt64(result, base)
+			if ovf {
+				return 0, true
+			}
+			result = v
+		}
+		e >>= 1
+		if e > 0 {
+			v, ovf := MulInt64(base, base)
+			if ovf {
+				return 0, true
+			}
+			base = v
+		}
+	}
+	return result, false
+}
+
 // BoolToInt returns 1 for true and 0 for false, the int value CPython gives a
 // bool used as a number: bool is a subtype of int, so `True + 1` is `2` and
 // `False * 3.0` is `0.0`. The static tier calls this to coerce a bool operand

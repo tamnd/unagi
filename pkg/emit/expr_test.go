@@ -123,6 +123,42 @@ func TestModuloOnFloatIsRefused(t *testing.T) {
 	}
 }
 
+func TestPowerGuardsNegativeAndOverflow(t *testing.T) {
+	_, iR, _ := reprs()
+	// a ** b on two ints is the int power: the runtime helper folds both escape
+	// hatches into one deopt flag, so a single edge routes a negative exponent (which
+	// Python turns into a float, and 0 ** -1 raises) and an int64 overflow (which
+	// Python spills to a big int) to the boxed twin. There is no zero-divisor check
+	// because ** has no zero divisor.
+	src := emitOneReturn(t, "power", iR, []Param{{Name: "a", Repr: iR}, {Name: "b", Repr: iR}},
+		Bin{Op: OpPow, L: Var{Name: "a", Repr: iR}, R: Var{Name: "b", Repr: iR}})
+	if !strings.Contains(src, "rt.PowInt64(a, b)") {
+		t.Fatalf("power should route through the repeated-squaring helper:\n%s", src)
+	}
+	if !strings.Contains(src, "power_deopt0(a, b)") {
+		t.Fatalf("the deopt flag should route to the deopt edge:\n%s", src)
+	}
+	if strings.Contains(src, "ZeroDivisionError") {
+		t.Fatalf("power has no zero divisor, so it must carry no zero-division guard:\n%s", src)
+	}
+	if strings.Contains(src, "a ** b") {
+		t.Fatalf("Go has no ** operator, so power must not lower to a bare token:\n%s", src)
+	}
+}
+
+func TestPowerOnFloatIsRefused(t *testing.T) {
+	fR, iR, _ := reprs()
+	// A float operand keeps power boxed at M4, so the static tier refuses it rather
+	// than lowering a float ** that would need math.Pow.
+	_, err := EmitFunc(Func{
+		Name: "bad", Ret: fR,
+		Body: []Stmt{Return{Value: Bin{Op: OpPow, L: Var{Name: "a", Repr: iR}, R: Float{V: 2}}}},
+	})
+	if err == nil {
+		t.Fatal("power with a float operand should be refused, not miscompiled")
+	}
+}
+
 func TestIntAugAssignIsGuarded(t *testing.T) {
 	_, iR, _ := reprs()
 	// An int accumulator lowers through the guarded add, not a bare +=, so it
@@ -238,7 +274,7 @@ func TestRangeNeedsList(t *testing.T) {
 }
 
 func TestOpStrings(t *testing.T) {
-	for op, want := range map[Op]string{OpAdd: "+", OpSub: "-", OpMul: "*", OpDiv: "/", OpFloorDiv: "//", OpMod: "%"} {
+	for op, want := range map[Op]string{OpAdd: "+", OpSub: "-", OpMul: "*", OpDiv: "/", OpFloorDiv: "//", OpMod: "%", OpPow: "**"} {
 		if op.String() != want {
 			t.Fatalf("Op(%d).String() = %q, want %q", op, op.String(), want)
 		}
