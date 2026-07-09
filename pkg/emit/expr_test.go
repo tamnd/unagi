@@ -73,6 +73,48 @@ func TestFloorDivGuardsZeroAndOverflow(t *testing.T) {
 	}
 }
 
+func TestIndexGuardsBoundsAndDeopts(t *testing.T) {
+	_, iR, _ := reprs()
+	elem := iR
+	intList := Repr{Go: "[]int64", Total: true, Elem: &elem}
+	// xs[i] on a list[int] and an int index: the base and the index bind to temps
+	// in evaluation order, the bounds guard `i < 0 || i >= int64(len(xs))` fails to
+	// the unit's deopt edge so a negative or out-of-range index leaves for the boxed
+	// twin, and the in-range read is a plain Go slice access yielding the element
+	// representation. No boxing crosses the read.
+	src := emitOneReturn(t, "get", iR,
+		[]Param{{Name: "xs", Repr: intList}, {Name: "i", Repr: iR}},
+		Index{Base: Var{Name: "xs", Repr: intList}, Idx: Var{Name: "i", Repr: iR}})
+	if !strings.Contains(src, "t0 := xs") || !strings.Contains(src, "t1 := i") {
+		t.Fatalf("the base and index should bind to temps in order:\n%s", src)
+	}
+	if !strings.Contains(src, "if t1 < 0 || t1 >= int64(len(t0)) {") {
+		t.Fatalf("the read should guard the index against the slice bounds:\n%s", src)
+	}
+	if !strings.Contains(src, "return get_deopt0(xs, i)") {
+		t.Fatalf("an out-of-range index should deopt to the boxed twin:\n%s", src)
+	}
+	if !strings.Contains(src, "return t0[t1], nil") {
+		t.Fatalf("the in-range read should be a plain slice access:\n%s", src)
+	}
+	if strings.Contains(src, "objects.") {
+		t.Fatalf("the read must not box the element:\n%s", src)
+	}
+}
+
+func TestIndexRejectsNonListBase(t *testing.T) {
+	_, iR, _ := reprs()
+	// Indexing a scalar is an inference bug reaching emit; the lowering refuses it
+	// rather than emitting a Go slice access on a non-slice, which would not compile.
+	_, err := EmitFunc(Func{
+		Name: "bad", Ret: iR,
+		Body: []Stmt{Return{Value: Index{Base: Var{Name: "n", Repr: iR}, Idx: Int{V: 0}}}},
+	})
+	if err == nil {
+		t.Fatal("indexing a non-list base should be refused, not miscompiled")
+	}
+}
+
 func TestFloorDivOnFloatIsRefused(t *testing.T) {
 	fR, iR, _ := reprs()
 	// A float operand keeps floor division boxed at M4, so the static tier refuses it
