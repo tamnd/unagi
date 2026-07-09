@@ -39,9 +39,25 @@ type GenField struct {
 
 // Segment is one run of the machine: statements that execute up to a yield, then
 // the yielded value. The statements and the value read saved state through Recv.
+// A segment with Loop set is a counting loop turned inside out: it re-enters its
+// own state on each call until the counter reaches the bound.
 type Segment struct {
 	Pre   []Stmt
 	Yield Expr
+	Loop  *LoopYield
+}
+
+// LoopYield turns a `for i in range(bound): ...; yield e` into a self-resuming
+// segment, the loop-carried case doc 06 section 8.7 requires. Induction names the
+// saved int field that holds the loop counter i: it starts at the field's zero
+// value, the machine reads it to build each yield, then increments it. Bound is
+// the range's exclusive upper bound. While i < bound the segment yields and stays
+// in its own state, so the next call re-enters the loop body at the saved counter;
+// once i reaches bound the machine advances to the following state. The counter is
+// a field, not a local, precisely because it is live across the suspension.
+type LoopYield struct {
+	Induction string
+	Bound     Expr
 }
 
 // Recv is a reference to a saved field, g.Name, the way a generator segment names
@@ -110,26 +126,16 @@ func genStruct(gen Generator) *ast.GenDecl {
 func genNext(b *Builder, gen Generator) (*ast.FuncDecl, error) {
 	var cases []ast.Stmt
 	for i, seg := range gen.Segments {
-		pre, err := b.lowerBlock(seg.Pre)
+		var body []ast.Stmt
+		var err error
+		if seg.Loop != nil {
+			body, err = loopCase(b, gen, seg, i)
+		} else {
+			body, err = linearCase(b, gen, seg, i)
+		}
 		if err != nil {
 			return nil, err
 		}
-		val, vr, err := b.lowerExpr(seg.Yield)
-		if err != nil {
-			return nil, err
-		}
-		flushed := b.flush()
-		if !assignable(vr, gen.Elem) {
-			return nil, fmt.Errorf("emit: generator yields %s but is declared to yield %s", vr.Scalar, gen.Elem.Scalar)
-		}
-		if vr.Scalar == SInt && gen.Elem.Scalar == SFloat {
-			val = toFloat(val, vr)
-		}
-		body := append(pre, flushed...)
-		body = append(body,
-			setStmt(sel(genRecv, stateField), intLit(int64(i+1))),
-			ret(val, ident("false"), ident("nil")),
-		)
 		cases = append(cases, &ast.CaseClause{List: []ast.Expr{intLit(int64(i))}, Body: body})
 	}
 
@@ -160,6 +166,87 @@ func genNext(b *Builder, gen Generator) (*ast.FuncDecl, error) {
 		},
 		Body: block(stmts...),
 	}, nil
+}
+
+// linearCase builds a straight-line segment's case: run its pre-statements, flush
+// any guards the yield lowered, advance the discriminant to the next state, and
+// return the yielded value with done false.
+func linearCase(b *Builder, gen Generator, seg Segment, i int) ([]ast.Stmt, error) {
+	pre, err := b.lowerBlock(seg.Pre)
+	if err != nil {
+		return nil, err
+	}
+	val, err := lowerYield(b, gen, seg.Yield)
+	if err != nil {
+		return nil, err
+	}
+	flushed := b.flush()
+	body := append(pre, flushed...)
+	body = append(body,
+		setStmt(sel(genRecv, stateField), intLit(int64(i+1))),
+		ret(val, ident("false"), ident("nil")),
+	)
+	return body, nil
+}
+
+// loopCase builds a counting loop turned inside out. The case guards the loop body
+// on `g.<induction> < <bound>`: while in range it runs the body, captures the yield
+// into a local so the increment cannot disturb it, advances the saved counter, and
+// returns without changing the discriminant so the next call re-enters the same
+// state at the next counter value. When the counter reaches the bound the guard
+// falls through and the machine advances to the following state.
+func loopCase(b *Builder, gen Generator, seg Segment, i int) ([]ast.Stmt, error) {
+	boundVal, _, err := b.lowerExpr(seg.Loop.Bound)
+	if err != nil {
+		return nil, err
+	}
+	boundFlush := b.flush()
+	pre, err := b.lowerBlock(seg.Pre)
+	if err != nil {
+		return nil, err
+	}
+	val, err := lowerYield(b, gen, seg.Yield)
+	if err != nil {
+		return nil, err
+	}
+	yieldFlush := b.flush()
+
+	loopBody := append([]ast.Stmt{}, pre...)
+	loopBody = append(loopBody, yieldFlush...)
+	loopBody = append(loopBody,
+		define(loopYieldTmp, val),
+		&ast.IncDecStmt{X: sel(genRecv, seg.Loop.Induction), Tok: token.INC},
+		ret(ident(loopYieldTmp), ident("false"), ident("nil")),
+	)
+
+	cond := binary(token.LSS, sel(genRecv, seg.Loop.Induction), boundVal)
+	body := append([]ast.Stmt{}, boundFlush...)
+	body = append(body,
+		ifStmt(cond, loopBody...),
+		setStmt(sel(genRecv, stateField), intLit(int64(i+1))),
+	)
+	return body, nil
+}
+
+// loopYieldTmp is the local a loop segment binds the yielded value to before it
+// advances the counter, so the returned value is the one from before the bump.
+const loopYieldTmp = "v"
+
+// lowerYield lowers a segment's yield expression and applies the int-to-float
+// coercion an int yield into a float generator takes, refusing a yield whose
+// scalar class does not fit the declared element type.
+func lowerYield(b *Builder, gen Generator, y Expr) (ast.Expr, error) {
+	val, vr, err := b.lowerExpr(y)
+	if err != nil {
+		return nil, err
+	}
+	if !assignable(vr, gen.Elem) {
+		return nil, fmt.Errorf("emit: generator yields %s but is declared to yield %s", vr.Scalar, gen.Elem.Scalar)
+	}
+	if vr.Scalar == SInt && gen.Elem.Scalar == SFloat {
+		val = toFloat(val, vr)
+	}
+	return val, nil
 }
 
 // assignable reports whether a yielded value's representation fits the generator's
