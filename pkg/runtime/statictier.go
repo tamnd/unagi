@@ -232,3 +232,66 @@ func AndStr(a, b string) string {
 func ZeroDivisionError(msg string) error {
 	return objects.Raise(objects.ZeroDivisionError, "%s", msg)
 }
+
+// The Rebind family keeps a module-level scalar global's typed shadow and its
+// world-age version in step with the live boxed binding. The boxed tier owns the
+// binding: every assignment to the global stores the object and then calls the
+// matching Rebind, which returns the unboxed value the static tier reads on its
+// fast path and the version the static form's entry guard compares against.
+//
+// Version 1 means the current binding is exactly the scalar type the static form
+// was specialized against, so the returned shadow is a faithful native copy and
+// the fast path is sound. Any other binding (a different scalar type, a spilled
+// big int the shadow cannot hold, a non-scalar object) returns version 2, and the
+// unbound state the counter starts at is version 0; both fail the entry guard's
+// `== 1` test and route the read to the boxed twin, which reads the live binding
+// and matches CPython. The type test is exact on the dynamic type, matching the
+// entry shim's parameter guard: a bool is not an int here, because the two print
+// and format differently, so a bool rebind of an int global must deopt.
+
+// RebindInt returns the int64 shadow and version for an int-typed global's new
+// binding. A value that is exactly an int fitting int64 is version 1; a bool, a
+// float, a spilled big int, or any other object is version 2.
+func RebindInt(o objects.Object) (int64, int64) {
+	if o != nil && o.TypeName() == "int" {
+		if v, ok := objects.AsInt(o); ok {
+			return v, 1
+		}
+	}
+	return 0, 2
+}
+
+// RebindFloat returns the float64 shadow and version for a float-typed global's
+// new binding. Only an exact float is version 1; an int or bool that would coerce
+// is version 2, so the static form never reads a coerced value the boxed tier
+// would have kept distinct.
+func RebindFloat(o objects.Object) (float64, int64) {
+	if o != nil && o.TypeName() == "float" {
+		if v, ok := objects.AsFloat(o); ok {
+			return v, 1
+		}
+	}
+	return 0, 2
+}
+
+// RebindBool returns the bool shadow and version for a bool-typed global's new
+// binding. Only an exact bool is version 1.
+func RebindBool(o objects.Object) (bool, int64) {
+	if o != nil && o.TypeName() == "bool" {
+		if v, ok := objects.AsBool(o); ok {
+			return v, 1
+		}
+	}
+	return false, 2
+}
+
+// RebindStr returns the string shadow and version for a str-typed global's new
+// binding. Only an exact str is version 1.
+func RebindStr(o objects.Object) (string, int64) {
+	if o != nil && o.TypeName() == "str" {
+		if v, ok := objects.AsStr(o); ok {
+			return v, 1
+		}
+	}
+	return "", 2
+}
