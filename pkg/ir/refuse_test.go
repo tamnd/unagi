@@ -38,11 +38,10 @@ func TestStaticTierRefusesUnsafeForms(t *testing.T) {
 		{"identity is not", "def f(a: int, b: int) -> bool:\n    return a is not b\n"},
 		{"scalar membership", "def f(a: int, xs: list) -> bool:\n    return a in xs\n"},
 
-		// Integer operators outside the guarded four (02, line 45): floor division,
-		// modulo, power, and the bitwise operators have no M4 static form. Python
-		// floor-division and modulo floor toward negative infinity where Go truncates
-		// toward zero, so a naive lowering is a wrong answer (a frontier item).
-		{"int floor division", "def f(a: int, b: int) -> int:\n    return a // b\n"},
+		// Integer operators still outside the guarded set (02, line 45): modulo, power,
+		// and the bitwise operators have no M4 static form yet. Floor division has
+		// graduated to a guarded static form (it corrects Go's truncation down to
+		// Python's floor in the runtime helper), so it is no longer in this list.
 		{"int modulo", "def f(a: int, b: int) -> int:\n    return a % b\n"},
 		{"int power", "def f(a: int, b: int) -> int:\n    return a ** b\n"},
 		{"int bit and", "def f(a: int, b: int) -> int:\n    return a & b\n"},

@@ -73,6 +73,38 @@ func TestMulInt64(t *testing.T) {
 	}
 }
 
+func TestFloorDivInt64(t *testing.T) {
+	cases := []struct {
+		a, b, want int64
+		ovf        bool
+	}{
+		// Same-sign operands agree with Go's truncating divide.
+		{7, 2, 3, false},
+		{6, 3, 2, false},
+		{-7, -2, 3, false},
+		{-6, -3, 2, false},
+		// Mixed-sign inexact division floors toward negative infinity, one below
+		// what Go's truncation gives.
+		{-7, 2, -4, false},
+		{7, -2, -4, false},
+		// Mixed-sign exact division needs no correction.
+		{-6, 3, -2, false},
+		{6, -3, -2, false},
+		// Boundaries that must not falsely flag: MinInt64 divided by anything but -1.
+		{math.MinInt64, 1, math.MinInt64, false},
+		{math.MinInt64, 2, math.MinInt64 / 2, false},
+		{math.MaxInt64, 1, math.MaxInt64, false},
+		// The one overflow: MinInt64 // -1 is 2**63, one past int64.
+		{math.MinInt64, -1, 0, true},
+	}
+	for _, c := range cases {
+		got, ovf := FloorDivInt64(c.a, c.b)
+		if ovf != c.ovf || (!ovf && got != c.want) {
+			t.Errorf("FloorDivInt64(%d, %d) = (%d, %v), want (%d, %v)", c.a, c.b, got, ovf, c.want, c.ovf)
+		}
+	}
+}
+
 // TestZeroDivisionError pins that the static tier's divide-by-zero raises the
 // same exception surface as the boxed tier, message and type both.
 func TestZeroDivisionError(t *testing.T) {

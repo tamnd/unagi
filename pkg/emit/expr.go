@@ -28,6 +28,10 @@ const (
 	OpMul
 	// OpDiv is Python /, true division, which always yields a float.
 	OpDiv
+	// OpFloorDiv is Python //, floor division. On two ints it yields an int floored
+	// toward negative infinity, guarded for a zero divisor and for the one overflow
+	// (math.MinInt64 // -1); a float operand keeps it boxed at M4.
+	OpFloorDiv
 )
 
 // String names the operator for diagnostics.
@@ -41,6 +45,8 @@ func (o Op) String() string {
 		return "*"
 	case OpDiv:
 		return "/"
+	case OpFloorDiv:
+		return "//"
 	}
 	return "?"
 }
@@ -183,6 +189,29 @@ func (b *Builder) lowerBin(n Bin) (ast.Expr, Repr, error) {
 		return binary(token.QUO, lx, rx), Repr{Go: "float64", Scalar: SFloat, Total: true}, nil
 	}
 
+	// Floor division on two ints yields a floored int. It carries two checks: a zero
+	// divisor raises ZeroDivisionError through the D14 channel, and the one overflow
+	// (math.MinInt64 // -1, whose true value is one past int64) deopts to the boxed
+	// big-int like any other int overflow. A float operand keeps it boxed at M4, so
+	// only the int-and-bool case reaches here.
+	if n.Op == OpFloorDiv {
+		if lr.Scalar == SFloat || rr.Scalar == SFloat {
+			return nil, Repr{}, fmt.Errorf("emit: %s on a float operand is not a static operation", n.Op)
+		}
+		lx, rx = toInt(lx, lr), toInt(rx, rr)
+		b.guardZeroDivInt(rx)
+		val, ovf := b.temp(), b.flag()
+		b.pre = append(b.pre,
+			&ast.AssignStmt{
+				Lhs: []ast.Expr{ident(val), ident(ovf)},
+				Tok: token.DEFINE,
+				Rhs: []ast.Expr{callExpr(sel(runtimePkg, "FloorDivInt64"), lx, rx)},
+			},
+			ifStmt(ident(ovf), b.deoptEdge()),
+		)
+		return ident(val), Repr{Go: "int64", Scalar: SInt}, nil
+	}
+
 	// A float on either side promotes the whole operation to float, total and
 	// unguarded; the int side coerces up.
 	if lr.Scalar == SFloat || rr.Scalar == SFloat {
@@ -217,6 +246,19 @@ func (b *Builder) guardZeroDiv(divisor ast.Expr) {
 	b.pre = append(b.pre, ifStmt(
 		binary(token.EQL, divisor, floatLit(0)),
 		ret(b.ret.zero(), callExpr(sel(runtimePkg, "ZeroDivisionError"), strLit("division by zero"))),
+	))
+}
+
+// guardZeroDivInt appends the semantic check that an integer floor division by a
+// zero divisor raises ZeroDivisionError through the D14 channel. Python spells this
+// case "integer division or modulo by zero", distinct from the "division by zero"
+// text true division raises, and the boxed twin raises the same string, so both
+// tiers agree. The divisor is the already-coerced int64 expression, so the compare
+// is against the int literal 0, not the float 0 true division tests.
+func (b *Builder) guardZeroDivInt(divisor ast.Expr) {
+	b.pre = append(b.pre, ifStmt(
+		binary(token.EQL, divisor, intLit(0)),
+		ret(b.ret.zero(), callExpr(sel(runtimePkg, "ZeroDivisionError"), strLit("integer division or modulo by zero"))),
 	))
 }
 
