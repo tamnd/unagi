@@ -344,8 +344,40 @@ func lowerStmt(s frontend.Stmt, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr
 			return nil, nil, false, err
 		}
 		return []emit.Stmt{emit.AugAssign{Name: name.Id, Op: op, Repr: tr, Value: v}}, nil, false, nil
+
+	case *frontend.ExprStmt:
+		// A bare expression statement: a docstring, a constant on a line, or a call for
+		// its effect. Lowering the value first validates it the same as any expression,
+		// so an unbound name or an unsupported operator refuses here and boxes the unit
+		// rather than dropping a statement that could raise. A value that is pure and
+		// cannot raise (a literal, a bare name read) has no observable effect once its
+		// result is discarded, so it lowers to no statement at all: this is what lets a
+		// function whose first line is a docstring stay static. Anything else (a call
+		// that can raise, a division with its zero check) becomes a Discard so its
+		// effect runs and its exception still propagates, even though the value is unused.
+		v, _, err := lowerExpr(n.X, sc, ctx)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		if pureDiscardable(v) {
+			return nil, nil, false, nil
+		}
+		return []emit.Stmt{emit.Discard{Value: v}}, nil, false, nil
 	}
 	return nil, nil, false, unsupported("statement %T", s)
+}
+
+// pureDiscardable reports whether an emit expression has no observable effect and
+// cannot raise, so discarding its result on a bare statement line lowers to nothing.
+// A literal and a bare variable read qualify; a call, an arithmetic operation with an
+// overflow guard, and a division with its zero check do not, since each either runs
+// an effect or can raise and so must keep its Discard statement.
+func pureDiscardable(e emit.Expr) bool {
+	switch e.(type) {
+	case emit.Int, emit.Float, emit.Bool, emit.Str, emit.Var:
+		return true
+	}
+	return false
 }
 
 // lowerTupleAssign lowers a scalar tuple unpack `x, y = a, b`. The right side must

@@ -89,6 +89,56 @@ func TestBuildEmitsStaticForm(t *testing.T) {
 	}
 }
 
+// TestBuildDocstringFunctionStaysStatic proves doc 06 line 55 end to end: a
+// function whose first line is a docstring lowers to the static tier rather than
+// boxing on the previously unhandled bare-expression statement. The docstring drops
+// to nothing, so the static form carries only the return, and the program prints
+// the CPython-exact result.
+func TestBuildDocstringFunctionStaysStatic(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	dir := t.TempDir()
+	src := "def scale(a: float, b: float) -> float:\n" +
+		"    \"scale a by b and bias\"\n" +
+		"    return a * b + a\n\n" +
+		"print(scale(3.0, 4.0))\n"
+	py := filepath.Join(dir, "main.py")
+	writeFile(t, py, src)
+
+	gen := filepath.Join(dir, "gen")
+	bin, err := Build(context.Background(), py, Options{
+		Out:    filepath.Join(dir, "prog"),
+		EmitGo: gen,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	// The static form landed with the unboxed signature, and the docstring left no
+	// dead string literal behind in the emitted Go.
+	static, err := os.ReadFile(filepath.Join(gen, "static.go"))
+	if err != nil {
+		t.Fatalf("static.go not emitted, docstring boxed the function: %v", err)
+	}
+	if want := "func static_scale(a float64, b float64) (float64, error)"; !bytes.Contains(static, []byte(want)) {
+		t.Errorf("static.go missing the static signature %q:\n%s", want, static)
+	}
+	if bytes.Contains(static, []byte("scale a by b and bias")) {
+		t.Errorf("the docstring should be dropped, not emitted into static.go:\n%s", static)
+	}
+
+	var stdout bytes.Buffer
+	cmd := exec.Command(bin)
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := stdout.String(); got != "15.0\n" {
+		t.Errorf("output = %q, want %q", got, "15.0\n")
+	}
+}
+
 // TestBuildForcedStaticDeoptPositions is the forced-deopt half of the M4
 // differential band (doc 06 section 10, milestone doc 09): it drives the
 // overflow guard to fail on the first loop iteration, in the middle, and never,
