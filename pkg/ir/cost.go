@@ -60,6 +60,13 @@ func costStmt(s emit.Stmt, c *Cost) {
 		}
 	case emit.Return:
 		costExpr(n.Value, c)
+	case emit.Discard:
+		// A bare expression statement charges its value's operations and nothing more:
+		// the result is thrown away, so there is no binding, but a discarded call still
+		// runs and a discarded guarded operation still guards, so the walk into the value
+		// carries both. A pure discardable value (a docstring, a bare name) folds to a nil
+		// value at the bridge and never reaches here.
+		costExpr(n.Value, c)
 	case emit.If:
 		// The condition and both arms all emit their own guards, so the census walks
 		// every one: a guarded int operation in a condition or a branch still carries

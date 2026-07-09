@@ -145,6 +145,8 @@ func stmtGuarded(s emit.Stmt) bool {
 		return n.Repr.Scalar == emit.SInt || exprGuarded(n.Value)
 	case emit.Return:
 		return exprGuarded(n.Value)
+	case emit.Discard:
+		return exprGuarded(n.Value)
 	case emit.If:
 		return exprGuarded(n.Cond)
 	case emit.While:

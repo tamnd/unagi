@@ -129,6 +129,16 @@ type If struct {
 	Else []Stmt
 }
 
+// Discard is a bare expression statement whose value is thrown away, `f(x)` on a
+// line by itself. Only an expression that can raise or has an effect reaches here:
+// a pure literal or bare name is a no-op the bridge drops before emit. A discarded
+// call binds its result to `_` and still checks the D14 error, so an exception the
+// call raises propagates even though its value is unused; any other discarded
+// expression flushes its guards and binds its value to `_`.
+type Discard struct {
+	Value Expr
+}
+
 func (Define) isStmt()    {}
 func (Assign) isStmt()    {}
 func (VarDecl) isStmt()   {}
@@ -141,6 +151,7 @@ func (While) isStmt()     {}
 func (Break) isStmt()     {}
 func (Continue) isStmt()  {}
 func (If) isStmt()        {}
+func (Discard) isStmt()   {}
 
 // lowerBlock lowers a run of statements, concatenating each statement's flushed
 // guards and the statement itself in order.
@@ -247,6 +258,36 @@ func (b *Builder) lowerStmt(s Stmt) ([]ast.Stmt, error) {
 			return nil, err
 		}
 		return append(b.flush(), setStmt(ident(n.Name), x)), nil
+
+	case Discard:
+		// A discarded call binds its value to `_` so nothing is left unused, and still
+		// checks the error so a raise propagates. This is the clean form; routing it
+		// through lowerCall would bind a value temp only to assign it away.
+		if c, ok := n.Value.(Call); ok {
+			args := make([]ast.Expr, len(c.Args))
+			for i, a := range c.Args {
+				x, _, err := b.lowerExpr(a)
+				if err != nil {
+					return nil, err
+				}
+				args[i] = x
+			}
+			exc := b.errName()
+			call := &ast.AssignStmt{
+				Lhs: []ast.Expr{ident("_"), ident(exc)},
+				Tok: token.DEFINE,
+				Rhs: []ast.Expr{callExpr(ident(c.Name), args...)},
+			}
+			check := ifStmt(binary(token.NEQ, ident(exc), ident("nil")), ret(b.ret.zero(), ident(exc)))
+			return append(b.flush(), call, check), nil
+		}
+		// Any other discarded expression (an arithmetic value with its own guard, a
+		// division with its zero check) evaluates for its guards and binds to `_`.
+		x, _, err := b.lowerExpr(n.Value)
+		if err != nil {
+			return nil, err
+		}
+		return append(b.flush(), setStmt(ident("_"), x)), nil
 
 	case Return:
 		x, _, err := b.lowerExpr(n.Value)
