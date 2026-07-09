@@ -47,6 +47,44 @@ func TestTrueDivisionGuardsZero(t *testing.T) {
 	}
 }
 
+func TestFloorDivGuardsZeroAndOverflow(t *testing.T) {
+	_, iR, _ := reprs()
+	// a // b on two ints is int floor division: the divisor is zero-checked with the
+	// integer-specific message, the value comes through the runtime helper that floors
+	// toward negative infinity, and the one overflow (MinInt64 // -1) routes to the
+	// unit's deopt edge like any other int overflow.
+	src := emitOneReturn(t, "quot", iR, []Param{{Name: "a", Repr: iR}, {Name: "b", Repr: iR}},
+		Bin{Op: OpFloorDiv, L: Var{Name: "a", Repr: iR}, R: Var{Name: "b", Repr: iR}})
+	if !strings.Contains(src, "if b == 0") {
+		t.Fatalf("floor division should guard a zero divisor:\n%s", src)
+	}
+	if !strings.Contains(src, `rt.ZeroDivisionError("integer division or modulo by zero")`) {
+		t.Fatalf("the int zero guard should raise the integer-division message:\n%s", src)
+	}
+	if !strings.Contains(src, "rt.FloorDivInt64(a, b)") {
+		t.Fatalf("floor division should route through the flooring helper:\n%s", src)
+	}
+	if !strings.Contains(src, "quot_deopt0(a, b)") {
+		t.Fatalf("the overflow flag should route to the deopt edge:\n%s", src)
+	}
+	if strings.Contains(src, "a / b") {
+		t.Fatalf("floor division must not lower to a bare Go divide that truncates:\n%s", src)
+	}
+}
+
+func TestFloorDivOnFloatIsRefused(t *testing.T) {
+	fR, iR, _ := reprs()
+	// A float operand keeps floor division boxed at M4, so the static tier refuses it
+	// rather than lowering a float // that would need the runtime's flooring math.
+	_, err := EmitFunc(Func{
+		Name: "bad", Ret: fR,
+		Body: []Stmt{Return{Value: Bin{Op: OpFloorDiv, L: Var{Name: "a", Repr: iR}, R: Float{V: 2}}}},
+	})
+	if err == nil {
+		t.Fatal("floor division with a float operand should be refused, not miscompiled")
+	}
+}
+
 func TestIntAugAssignIsGuarded(t *testing.T) {
 	_, iR, _ := reprs()
 	// An int accumulator lowers through the guarded add, not a bare +=, so it
@@ -162,7 +200,7 @@ func TestRangeNeedsList(t *testing.T) {
 }
 
 func TestOpStrings(t *testing.T) {
-	for op, want := range map[Op]string{OpAdd: "+", OpSub: "-", OpMul: "*", OpDiv: "/"} {
+	for op, want := range map[Op]string{OpAdd: "+", OpSub: "-", OpMul: "*", OpDiv: "/", OpFloorDiv: "//"} {
 		if op.String() != want {
 			t.Fatalf("Op(%d).String() = %q, want %q", op, op.String(), want)
 		}

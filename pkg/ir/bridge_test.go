@@ -88,6 +88,38 @@ func TestLowerTrueDivisionGuardsZero(t *testing.T) {
 	}
 }
 
+func TestLowerFloorDivisionGuardsZeroAndOverflow(t *testing.T) {
+	src := "def q(a: int, b: int) -> int:\n    return a // b\n"
+	got := emitOf(t, src)
+	// Floor division on two ints stays int, floors through the runtime helper, guards a
+	// zero divisor with the integer-division message, and routes its one overflow to
+	// the deopt edge.
+	for _, want := range []string{
+		"(int64, error)",
+		"rt.FloorDivInt64(a, b)",
+		`rt.ZeroDivisionError("integer division or modulo by zero")`,
+		"q_deopt0(a, b)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("emitted floor division is missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "a / b") {
+		t.Errorf("floor division must not lower to Go's truncating divide:\n%s", got)
+	}
+}
+
+func TestLowerFloorDivisionOnFloatStaysBoxed(t *testing.T) {
+	// A float operand keeps floor division boxed at M4, so the unit is refused rather
+	// than lowered to a static form that would need the runtime's flooring math on
+	// floats.
+	src := "def q(a: float, b: float) -> float:\n    return a // b\n"
+	fn := parseFunc(t, src)
+	if _, err := LowerFunc(fn); err == nil {
+		t.Fatal("floor division on floats should be refused, keeping the unit boxed")
+	}
+}
+
 func TestLowerMixedArithmeticPromotesToFloat(t *testing.T) {
 	// An int local added to a float parameter promotes the result to float, so the
 	// function's return type is float64.
@@ -358,7 +390,6 @@ func TestLowerRejects(t *testing.T) {
 		{"big int literal", "def f() -> int:\n    return 100000000000000000000\n"},
 		{"call expression", "def f(a: int) -> int:\n    return g(a)\n"},
 		{"first-class function value", "def f(a: int) -> int:\n    return g(f)\n"},
-		{"floor division", "def f(a: int, b: int) -> int:\n    return a // b\n"},
 		{"attribute access", "def f(a: int) -> int:\n    return a.bit_length\n"},
 		{"async def", "async def f(a: int) -> int:\n    return a\n"},
 		{"no return", "def f(a: int) -> int:\n    a += 1\n"},

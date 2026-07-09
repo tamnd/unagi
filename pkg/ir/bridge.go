@@ -1289,9 +1289,9 @@ func boolName(k frontend.BoolKind) string {
 // package boundary.
 func boolReprIR() emit.Repr { return emit.Repr{Go: "bool", Scalar: emit.SBool, Total: true} }
 
-// binOp maps the frontend's arithmetic operators to the four the scalar tier
-// lowers. Floor division, modulo, power, the bitwise operators, and matrix
-// multiply are not in this seed.
+// binOp maps the frontend's arithmetic operators to the ones the scalar tier
+// lowers: the four core operators plus integer floor division. Modulo, power, the
+// bitwise operators, and matrix multiply are not in this seed.
 func binOp(k frontend.BinKind) (emit.Op, bool) {
 	switch k {
 	case frontend.BinAdd:
@@ -1302,6 +1302,8 @@ func binOp(k frontend.BinKind) (emit.Op, bool) {
 		return emit.OpMul, true
 	case frontend.BinDiv:
 		return emit.OpDiv, true
+	case frontend.BinFloorDiv:
+		return emit.OpFloorDiv, true
 	}
 	return 0, false
 }
@@ -1320,6 +1322,16 @@ func binResult(op emit.Op, l, r emit.Repr) (emit.Repr, error) {
 	}
 	if !numeric(l) || !numeric(r) {
 		return emit.Repr{}, unsupported("%s needs numeric operands, got %s and %s", op, l.Scalar, r.Scalar)
+	}
+	// Floor division lowers only on two ints at M4: the floored-int result carries
+	// the overflow guard and the zero-division check. A float operand would need the
+	// float floor form (math.Floor of the quotient), which stays boxed for now, so it
+	// is refused here rather than lowered to the wrong shape.
+	if op == emit.OpFloorDiv {
+		if l.Scalar == emit.SFloat || r.Scalar == emit.SFloat {
+			return emit.Repr{}, unsupported("// on a float operand stays boxed at M4")
+		}
+		return emit.Repr{Go: "int64", Scalar: emit.SInt}, nil
 	}
 	if op == emit.OpDiv || l.Scalar == emit.SFloat || r.Scalar == emit.SFloat {
 		return emit.Repr{Go: "float64", Scalar: emit.SFloat, Total: true}, nil

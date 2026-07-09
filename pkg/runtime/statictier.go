@@ -51,6 +51,24 @@ func MulInt64(a, b int64) (int64, bool) {
 	return p, p/a != b
 }
 
+// FloorDivInt64 returns the Python floor division a // b and whether it overflowed
+// int64. Python floors toward negative infinity while Go truncates toward zero, so
+// the two agree when the operands share a sign and differ by one when they do not
+// and the division is inexact: the quotient is corrected down in that case. The
+// caller guards a zero divisor before this runs, so the only overflow is
+// math.MinInt64 // -1, whose true value 2**63 is one past int64's range; it is
+// flagged directly before the divide, which would otherwise panic on that pair.
+func FloorDivInt64(a, b int64) (int64, bool) {
+	if a == math.MinInt64 && b == -1 {
+		return 0, true
+	}
+	q := a / b
+	if a%b != 0 && (a < 0) != (b < 0) {
+		q--
+	}
+	return q, false
+}
+
 // BoolToInt returns 1 for true and 0 for false, the int value CPython gives a
 // bool used as a number: bool is a subtype of int, so `True + 1` is `2` and
 // `False * 3.0` is `0.0`. The static tier calls this to coerce a bool operand

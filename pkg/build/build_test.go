@@ -290,6 +290,76 @@ func TestBuildForcedStaticAugAssignDeoptsInLoop(t *testing.T) {
 	}
 }
 
+// TestBuildForcedStaticFloorDivisionFloorsAndDeopts drives integer floor division
+// end to end under forced static. The native path must floor toward negative
+// infinity, one below Go's truncating divide when the operand signs differ and the
+// division is inexact, so the mixed-sign calls exercise the sign correction the
+// runtime helper carries. The one overflow, MinInt64 // -1 whose true value 2**63
+// is one past int64, hands off to the boxed twin and finishes on the arbitrary
+// precision big-int, matching CPython. Every expected value is what python3.14
+// prints for the same call.
+func TestBuildForcedStaticFloorDivisionFloorsAndDeopts(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	fd := "def fd(a: int, b: int) -> int:\n    return a // b\n\n"
+	cases := []struct {
+		name string
+		call string
+		want string
+	}{
+		// Same-sign operands agree with Go's truncating divide, no correction.
+		{"positive", "print(fd(7, 2))\n", "3\n"},
+		{"both negative", "print(fd(-7, -2))\n", "3\n"},
+		// Mixed-sign inexact division floors down, one below truncation.
+		{"negative dividend", "print(fd(-7, 2))\n", "-4\n"},
+		{"negative divisor", "print(fd(7, -2))\n", "-4\n"},
+		// Mixed-sign exact division needs no correction.
+		{"mixed exact", "print(fd(-6, 3))\n", "-2\n"},
+		// MinInt64 // -1 overflows int64 and deopts to the boxed twin's 2**63.
+		{"overflow deopt", "print(fd(-9223372036854775808, -1))\n", "9223372036854775808\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			py := filepath.Join(dir, "main.py")
+			writeFile(t, py, fd+tc.call)
+
+			gen := filepath.Join(dir, "gen")
+			bin, err := Build(context.Background(), py, Options{
+				Out:    filepath.Join(dir, "prog"),
+				EmitGo: gen,
+				Tier:   partition.ModeForceStatic,
+			})
+			if err != nil {
+				t.Fatalf("build: %v", err)
+			}
+
+			// The static form floors through the runtime helper and routes the one
+			// overflow to the deopt hand-off.
+			static, err := os.ReadFile(filepath.Join(gen, "static.go"))
+			if err != nil {
+				t.Fatalf("static.go not emitted: %v", err)
+			}
+			for _, want := range []string{"rt.FloorDivInt64(a, b)", "return static_fd_deopt(d0, d1)"} {
+				if !bytes.Contains(static, []byte(want)) {
+					t.Errorf("static.go missing %q:\n%s", want, static)
+				}
+			}
+
+			var stdout bytes.Buffer
+			cmd := exec.Command(bin)
+			cmd.Stdout = &stdout
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("run: %v", err)
+			}
+			if got := stdout.String(); got != tc.want {
+				t.Errorf("output = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestBuildTierForceStaticEmitsCostLosingForm proves --tier static overrides the
 // cost model on the real build path: a single guarded int add auto-boxes on the
 // guard budget, so an auto build emits no static form for it, but the forced-static
