@@ -48,6 +48,40 @@ func (g *pairGen) Next() (float64, bool, error) {
 	}
 }
 
+// TestGeneratorLocalNotSaved proves a value the machine computes and consumes
+// inside one segment, never crossing a suspension, stays a local inside Next and
+// is not lifted onto the struct. The saved field set is exactly the cross-yield
+// live set (the complement of TestGeneratorGolden's assertion): x outlives the
+// suspension so it is a field, t does not so it is a `:=` local in the case.
+func TestGeneratorLocalNotSaved(t *testing.T) {
+	fR, _, _ := reprs()
+	gen := Generator{
+		Name:   "sqOnce",
+		Elem:   fR,
+		Fields: []GenField{{Name: "x", Repr: fR}},
+		Segments: []Segment{
+			{
+				Pre:   []Stmt{Define{Name: "t", Value: Bin{Op: OpMul, L: Recv{Name: "x", Repr: fR}, R: Recv{Name: "x", Repr: fR}}}},
+				Yield: Var{Name: "t", Repr: fR},
+			},
+		},
+	}
+	got, err := EmitGenerator(gen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "t := g.x * g.x") {
+		t.Fatalf("a value live inside one segment should be a local, not a saved field:\n%s", got)
+	}
+	structPart := got[:strings.Index(got, "func ")]
+	if !strings.Contains(structPart, "\tx ") {
+		t.Fatalf("the cross-yield value x should be a saved field:\n%s", structPart)
+	}
+	if strings.Contains(structPart, "\tt") {
+		t.Fatalf("the segment-local t must not be lifted onto the struct:\n%s", structPart)
+	}
+}
+
 // TestGeneratorComputedYield proves a segment that computes before it yields: the
 // pre-statements and any guards flush inside the case, ahead of the advance and
 // the return.
