@@ -158,6 +158,22 @@ func costExpr(e emit.Expr, c *Cost) {
 			costExpr(a, c)
 		}
 		c.UnboxedOps++
+	case emit.Index:
+		// A bounds-guarded read is one unboxed operation plus the bounds guard that
+		// deopts on a negative or out-of-range index, so it counts a guard the same
+		// way an overflowing int op does. The base and index each contribute their own
+		// operations.
+		costExpr(n.Base, c)
+		costExpr(n.Idx, c)
+		c.UnboxedOps++
+		c.EntryGuards++
+	case emit.ListLit:
+		// A list literal builds one slice value; each item contributes its own
+		// operations. The construction carries no guard of its own.
+		for _, it := range n.Items {
+			costExpr(it, c)
+		}
+		c.UnboxedOps++
 	}
 }
 
@@ -195,6 +211,16 @@ func reprOf(e emit.Expr) emit.Repr {
 		// A direct call's result is the callee's declared return representation, which
 		// the bridge stamped on the node from the resolver's static signature.
 		return n.Ret
+	case emit.Index:
+		// A read yields the base list's element representation.
+		if br := reprOf(n.Base); br.Elem != nil {
+			return *br.Elem
+		}
+		return emit.Repr{}
+	case emit.ListLit:
+		// A literal's representation is a slice of its proven element type.
+		elem := n.Elem
+		return emit.Repr{Go: "[]" + elem.Go, Total: true, Elem: &elem}
 	}
 	return emit.Repr{}
 }

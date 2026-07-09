@@ -184,6 +184,15 @@ func exprGuarded(e emit.Expr) bool {
 		// this caller's. An argument expression can still carry a guard, so the walk
 		// recurses into every one.
 		return slices.ContainsFunc(n.Args, exprGuarded)
+	case emit.Index:
+		// A bounds-guarded read always carries a guard: a negative or out-of-range
+		// index deopts to the boxed twin, so the statement holding the read opens a
+		// deopt site regardless of whether the base or index carry their own guard.
+		return true
+	case emit.ListLit:
+		// A list literal carries no guard of its own, but an item expression can, so
+		// the walk recurses into every one.
+		return slices.ContainsFunc(n.Items, exprGuarded)
 	}
 	return false
 }

@@ -959,6 +959,9 @@ func loadedInExpr(e frontend.Expr, out map[string]bool) {
 		for _, el := range n.Elts {
 			loadedInExpr(el, out)
 		}
+	case *frontend.Subscript:
+		loadedInExpr(n.X, out)
+		loadedInExpr(n.Index, out)
 	}
 }
 
@@ -1083,8 +1086,72 @@ func lowerExpr(e frontend.Expr, sc scope, ctx lowerCtx) (emit.Expr, emit.Repr, e
 			return nil, emit.Repr{}, unsupported("not needs a bool operand, got %s", xr.Scalar)
 		}
 		return emit.Not{X: x}, boolReprIR(), nil
+
+	case *frontend.ListLit:
+		return lowerListLit(n, sc, ctx)
+
+	case *frontend.Subscript:
+		return lowerSubscript(n, sc, ctx)
 	}
 	return nil, emit.Repr{}, unsupported("expression %T", e)
+}
+
+// lowerListLit lowers a scalar list literal to the emit list node and its list
+// representation. Every element must lower to the same scalar class, since a Go
+// slice is uniform and CPython does not coerce a list's elements to a common
+// type: [1, 2.0] is a list holding an int and a float, which has no uniform
+// static form, so a mixed or non-scalar or empty literal stays boxed rather than
+// lowering to a slice that would misrepresent its contents.
+func lowerListLit(n *frontend.ListLit, sc scope, ctx lowerCtx) (emit.Expr, emit.Repr, error) {
+	if len(n.Elts) == 0 {
+		return nil, emit.Repr{}, unsupported("empty list literal has no static element type")
+	}
+	items := make([]emit.Expr, len(n.Elts))
+	var elem emit.Repr
+	for i, el := range n.Elts {
+		ix, ir, err := lowerExpr(el, sc, ctx)
+		if err != nil {
+			return nil, emit.Repr{}, err
+		}
+		if ir.Scalar == emit.NotScalar {
+			return nil, emit.Repr{}, unsupported("a list element has representation %s, not a scalar", ir.Go)
+		}
+		if i == 0 {
+			elem = ir
+		} else if ir.Scalar != elem.Scalar {
+			return nil, emit.Repr{}, unsupported("list elements mix %s and %s, which has no uniform static form", elem.Scalar, ir.Scalar)
+		}
+		items[i] = ix
+	}
+	list := emit.Repr{Go: "[]" + elem.Go, Total: true, Elem: &elem}
+	return emit.ListLit{Elem: elem, Items: items}, list, nil
+}
+
+// lowerSubscript lowers a bounds-guarded list read x[i] to the emit index node
+// and its element representation. The base must carry a list representation and
+// the index an int; a slice form x[a:b], a non-list base, or a non-int index has
+// no static form and keeps the unit boxed. The emitted node carries the bounds
+// guard whose out-of-range edge deopts to the boxed twin, so the negative-index
+// and IndexError semantics live on the boxed side, never in the static read.
+func lowerSubscript(n *frontend.Subscript, sc scope, ctx lowerCtx) (emit.Expr, emit.Repr, error) {
+	if _, ok := n.Index.(*frontend.SliceExpr); ok {
+		return nil, emit.Repr{}, unsupported("a slice subscript has no static form")
+	}
+	base, br, err := lowerExpr(n.X, sc, ctx)
+	if err != nil {
+		return nil, emit.Repr{}, err
+	}
+	if br.Elem == nil {
+		return nil, emit.Repr{}, unsupported("subscript base has representation %s, not a list", br.Go)
+	}
+	idx, ir, err := lowerExpr(n.Index, sc, ctx)
+	if err != nil {
+		return nil, emit.Repr{}, err
+	}
+	if ir.Scalar != emit.SInt {
+		return nil, emit.Repr{}, unsupported("list index has representation %s, not an int", ir.Go)
+	}
+	return emit.Index{Base: base, Idx: idx}, *br.Elem, nil
 }
 
 // lowerCompare lowers a comparison, chained or not. Python expands `a < b < c`

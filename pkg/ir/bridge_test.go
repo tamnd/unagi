@@ -58,6 +58,46 @@ func TestLowerIntArithmeticGuardsOverflow(t *testing.T) {
 	}
 }
 
+func TestLowerListLiteralAndSubscript(t *testing.T) {
+	src := "def probe(i: int) -> int:\n    xs = [10, 20, 30]\n    return xs[i]\n"
+	got := emitOf(t, src)
+	// The list literal lowers to a Go slice literal, and the read binds the base and
+	// index to temps, guards the index against the slice bounds, and deopts to the
+	// boxed twin on a negative or out-of-range index, which owns the IndexError.
+	for _, want := range []string{
+		"func probe(i int64) (int64, error)",
+		"xs := []int64{10, 20, 30}",
+		"if t1 < 0 || t1 >= int64(len(t0)) {",
+		"return probe_deopt0(i)",
+		"return t0[t1], nil",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("emitted subscript read is missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "objects.") {
+		t.Errorf("the read must not box the element:\n%s", got)
+	}
+}
+
+func TestLowerMixedListLiteralStaysBoxed(t *testing.T) {
+	// [1, 2.0] holds an int and a float in CPython, not a coerced float list, so it
+	// has no uniform static form and the bridge keeps the unit boxed.
+	fn := parseFunc(t, "def probe(i: int) -> float:\n    xs = [1, 2.0]\n    return xs[i]\n")
+	if _, err := LowerFunc(fn); err == nil {
+		t.Fatal("a mixed-type list literal should keep the unit boxed, not lower")
+	}
+}
+
+func TestLowerSliceSubscriptStaysBoxed(t *testing.T) {
+	// A slice form xs[a:b] is not an index and has no static form yet, so the unit
+	// stays boxed rather than lowering a read the tier cannot express.
+	fn := parseFunc(t, "def probe(a: int, b: int) -> int:\n    xs = [10, 20, 30]\n    return xs[a:b]\n")
+	if _, err := LowerFunc(fn); err == nil {
+		t.Fatal("a slice subscript should keep the unit boxed, not lower")
+	}
+}
+
 func TestLowerFloatArithmeticIsTotal(t *testing.T) {
 	src := "def fadd(a: float, b: float) -> float:\n    return a + b\n"
 	got := emitOf(t, src)
