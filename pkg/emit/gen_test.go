@@ -249,6 +249,51 @@ func TestGeneratorIfYieldLast(t *testing.T) {
 	}
 }
 
+// TestGeneratorDriveLoop proves the consume side: a static `for x in gen()` lowers
+// to a Go loop that calls Next until the done flag, propagating the D14 error and
+// binding the yielded element at its unboxed representation. The accumulator uses a
+// float element so the add is total and the loop body carries no guard, keeping the
+// drive shape itself the whole assertion.
+func TestGeneratorDriveLoop(t *testing.T) {
+	fR, _, _ := reprs()
+	genR := Repr{Go: "*floatGen", Scalar: NotScalar}
+	got, err := EmitFunc(Func{
+		Name:   "sumGen",
+		Params: []Param{{Name: "it", Repr: genR}},
+		Ret:    fR,
+		Body: []Stmt{
+			Define{Name: "total", Value: Float{V: 0}},
+			ForGen{
+				Bind: "x",
+				Elem: fR,
+				Gen:  Var{Name: "it", Repr: genR},
+				Body: []Stmt{AugAssign{Name: "total", Repr: fR, Value: Var{Name: "x", Repr: fR}}},
+			},
+			Return{Value: Var{Name: "total", Repr: fR}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"for {",
+		"x, done, err := it.Next()",
+		"if err != nil {",
+		"if done {",
+		"break",
+		"total += x",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("a static generator consume should drive Next to done, missing %q:\n%s", want, got)
+		}
+	}
+	// The element x is consumed at the unboxed float representation, so nothing at the
+	// consume boundary reaches the boxed object model.
+	if strings.Contains(got, "objects.") {
+		t.Fatalf("a scalar generator consumed by a static for must not box the element:\n%s", got)
+	}
+}
+
 // TestGeneratorComputedYield proves a segment that computes before it yields: the
 // pre-statements and any guards flush inside the case, ahead of the advance and
 // the return.

@@ -15,6 +15,13 @@ import (
 // Stmt is a node in the scalar statement model.
 type Stmt interface{ isStmt() }
 
+// genDone and genErr are the local names a generator drive loop binds the done
+// flag and the D14 error to on each Next, alongside the element it yields.
+const (
+	genDone = "done"
+	genErr  = "err"
+)
+
 // Define binds a fresh local to a value, `name := value`.
 type Define struct {
 	Name  string
@@ -74,6 +81,21 @@ type Return struct{ Value Expr }
 type ForRange struct {
 	Bind string
 	Over Expr
+	Body []Stmt
+}
+
+// ForGen drives a static generator to exhaustion, the shape `for bind in gen(): body`
+// takes when gen is a proven static generator. Gen lowers to the generator handle
+// (a pointer to the state-machine struct doc 08 emits); each turn calls its Next,
+// propagates a D14 error, breaks on the done flag, and otherwise binds the yielded
+// element to Bind at the element representation. Bind takes the unboxed element
+// Repr, never objects.Object, so a scalar generator consumed by a static for stays
+// static across the consume boundary with nothing boxed. Bind is re-bound every
+// turn, so the body reads the current element.
+type ForGen struct {
+	Bind string
+	Elem Repr
+	Gen  Expr
 	Body []Stmt
 }
 
@@ -165,6 +187,7 @@ func (Bind) isStmt()      {}
 func (AugAssign) isStmt() {}
 func (Return) isStmt()    {}
 func (ForRange) isStmt()  {}
+func (ForGen) isStmt()    {}
 func (ForCount) isStmt()  {}
 func (While) isStmt()     {}
 func (Break) isStmt()     {}
@@ -335,6 +358,34 @@ func (b *Builder) lowerStmt(s Stmt) ([]ast.Stmt, error) {
 			Body:  block(body...),
 		}
 		return append(b.flush(), loop), nil
+
+	case ForGen:
+		gen, _, err := b.lowerExpr(n.Gen)
+		if err != nil {
+			return nil, err
+		}
+		// The generator handle's guards, if any, flush ahead of the loop, so the
+		// header calls Next on a proven value; the body's own guards stay inside the
+		// loop the way ForRange keeps them.
+		pre := b.flush()
+		body, err := b.lowerBlock(n.Body)
+		if err != nil {
+			return nil, err
+		}
+		// Each turn binds the element, the done flag, and the D14 error from one Next.
+		// The element takes the unboxed Elem type, so the consume boundary never boxes;
+		// an error returns the function's zero and the error the way every other node
+		// propagates D14; the done flag ends the loop before the element is used.
+		next := &ast.AssignStmt{
+			Lhs: []ast.Expr{ident(n.Bind), ident(genDone), ident(genErr)},
+			Tok: token.DEFINE,
+			Rhs: []ast.Expr{callExpr(&ast.SelectorExpr{X: gen, Sel: ident("Next")})},
+		}
+		errCheck := ifStmt(binary(token.NEQ, ident(genErr), ident("nil")), ret(b.ret.zero(), ident(genErr)))
+		doneCheck := ifStmt(ident(genDone), &ast.BranchStmt{Tok: token.BREAK})
+		loopBody := append([]ast.Stmt{next, errCheck, doneCheck}, body...)
+		loop := &ast.ForStmt{Body: block(loopBody...)}
+		return append(pre, loop), nil
 
 	case ForCount:
 		start, sr, err := b.lowerExpr(n.Start)
