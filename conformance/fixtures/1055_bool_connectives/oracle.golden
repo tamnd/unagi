@@ -1,0 +1,8 @@
+== exit: 0
+== stdout:
+0 0 4
+0 1 6
+1 0 10
+1 1 11
+== exception:
+== stderr:
