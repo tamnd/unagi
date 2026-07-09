@@ -294,6 +294,43 @@ func TestGeneratorDriveLoop(t *testing.T) {
 	}
 }
 
+// TestForEnumerateIndexIsInt64 proves `for i, x in enumerate(xs)` binds the counter
+// at the int64 representation: the loop ranges with a scratch key and converts it
+// once into the named int64 counter, so the body reads the index through the same
+// int arithmetic as any other int. The value bind is dropped here to keep the body a
+// single int accumulate, which is what pins the index type: feeding i into the
+// guarded int add only compiles if i is int64.
+func TestForEnumerateIndexIsInt64(t *testing.T) {
+	_, iR, listFloatR := reprs()
+	got, err := EmitFunc(Func{
+		Name:   "sumIdx",
+		Params: []Param{{Name: "xs", Repr: listFloatR}},
+		Ret:    iR,
+		Body: []Stmt{
+			Define{Name: "total", Value: Int{V: 0}},
+			ForRange{
+				Bind:  "_",
+				Index: "i",
+				Over:  Var{Name: "xs", Repr: listFloatR},
+				Body:  []Stmt{AugAssign{Name: "total", Repr: iR, Value: Var{Name: "i", Repr: iR}}},
+			},
+			Return{Value: Var{Name: "total", Repr: iR}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"for gi, _ := range xs {",
+		"i := int64(gi)",
+		"rt.AddInt64(total, i)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("an enumerate index should bind as int64, missing %q:\n%s", want, got)
+		}
+	}
+}
+
 // TestGeneratorComputedYield proves a segment that computes before it yields: the
 // pre-statements and any guards flush inside the case, ahead of the advance and
 // the return.

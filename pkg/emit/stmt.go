@@ -22,6 +22,10 @@ const (
 	genErr  = "err"
 )
 
+// enumRawIndex is the scratch name an enumerate loop binds Go's machine-int range
+// index to before converting it into the int64 counter the body reads.
+const enumRawIndex = "gi"
+
 // Define binds a fresh local to a value, `name := value`.
 type Define struct {
 	Name  string
@@ -78,10 +82,17 @@ type Return struct{ Value Expr }
 
 // ForRange iterates a slice, `for _, bind := range over { body }`. Over must lower
 // to a list representation; bind takes the element representation for the body.
+//
+// Index, when set, is the `for i, x in enumerate(xs)` form: the loop also binds a
+// counter named Index. Go's range index is a machine int, but the int
+// representation the body reads is int64, so the counter is converted once at the
+// top of each turn into the named int64 binding. A slice can never hold more than
+// an int's worth of elements, so the widening conversion is always exact.
 type ForRange struct {
-	Bind string
-	Over Expr
-	Body []Stmt
+	Bind  string
+	Index string
+	Over  Expr
+	Body  []Stmt
 }
 
 // ForGen drives a static generator to exhaustion, the shape `for bind in gen(): body`
@@ -350,8 +361,17 @@ func (b *Builder) lowerStmt(s Stmt) ([]ast.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
+		// A plain for-x drops the index with the blank; an enumerate binds Go's int
+		// index under a scratch name and converts it once into the int64 counter the
+		// body reads, so the counter carries the int representation like any other int.
+		key := ident("_")
+		if n.Index != "" {
+			key = ident(enumRawIndex)
+			idx := define(n.Index, callExpr(ident("int64"), ident(enumRawIndex)))
+			body = append([]ast.Stmt{idx}, body...)
+		}
 		loop := &ast.RangeStmt{
-			Key:   ident("_"),
+			Key:   key,
 			Value: ident(n.Bind),
 			Tok:   token.DEFINE,
 			X:     over,
