@@ -72,6 +72,22 @@ func TestReprRejectsNestedList(t *testing.T) {
 	}
 }
 
+// TestReprRejectsMalformedListArity proves the `len(elems) != 1` guard in Of: a
+// list type that carries no element or more than one has no static representation,
+// so Of returns false rather than indexing a missing element (a panic) or silently
+// picking the first of several (a wrong shape). A well-formed list always carries
+// exactly one element type, so this arity can only come from an inference bug
+// reaching emit; the guard turns that bug into a boxed decision, never wrong Go.
+func TestReprRejectsMalformedListArity(t *testing.T) {
+	in := types.NewInterner()
+	if _, ok := Of(in.ListN()); ok {
+		t.Error("a list with no element type has no static representation and must stay boxed")
+	}
+	if _, ok := Of(in.ListN(in.Int(), in.Str())); ok {
+		t.Error("a list with more than one element type has no static representation and must stay boxed")
+	}
+}
+
 // TestReprZeroValues pins the Go zero each representation returns on the error path,
 // the first result of a (T, error) bail before a real value exists. The float zero
 // must keep its decimal point so the error return types float, not int.
