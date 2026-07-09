@@ -106,12 +106,12 @@ func TestReclaimSweepsOnlyAbandoned(t *testing.T) {
 		}
 	}
 
-	mk("unagi-scratch-1001-dead", fixedNow)   // dead pid -> removed
-	mk("unagi-scratch-2002-live", fixedNow)   // live pid -> kept
-	mk("unagi-scratch-4242-self", fixedNow)   // own pid -> kept
-	mk("unagi-gen-old", old)                  // old legacy -> removed
-	mk("unagi-gen-fresh", fixedNow)           // fresh legacy -> kept
-	mk("go-build-unrelated", old)             // unrelated -> kept
+	mk("unagi-scratch-1001-dead", fixedNow) // dead pid -> removed
+	mk("unagi-scratch-2002-live", fixedNow) // live pid -> kept
+	mk("unagi-scratch-4242-self", fixedNow) // own pid -> kept
+	mk("unagi-gen-old", old)                // old legacy -> removed
+	mk("unagi-gen-fresh", fixedNow)         // fresh legacy -> kept
+	mk("go-build-unrelated", old)           // unrelated -> kept
 
 	alivePIDs := map[int]bool{2002: true}
 	isAlive := func(pid int) bool { return alivePIDs[pid] }
