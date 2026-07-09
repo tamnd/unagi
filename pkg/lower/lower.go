@@ -47,14 +47,23 @@ func (e *Error) Error() string {
 // lines; nil skips the embedding and frames render bare, which is what
 // CPython prints when the source file is gone.
 func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
-	return lowerModule(mod, file, source, "__main__", false, nil)
+	return lowerModule(mod, file, source, "__main__", false, nil, nil)
 }
 
 // ModuleStars lowers the entry module of a program that uses star imports:
 // stars maps each compiled module's import name to its export list, computed
 // by ModuleExports, so `from m import *` can bind names statically.
 func ModuleStars(mod *frontend.Module, file string, source []byte, stars map[string]StarExports) ([]byte, error) {
-	return lowerModule(mod, file, source, "__main__", false, stars)
+	return lowerModule(mod, file, source, "__main__", false, stars, nil)
+}
+
+// ModuleStatic lowers the entry module with the static tier lit: statics maps a
+// top-level def name to the guard-free static callee the partitioner proved for
+// it, so a boxed call to that name routes through an entry shim into the static
+// form instead of the boxed body. A name absent from statics lowers exactly as
+// ModuleStars would.
+func ModuleStatic(mod *frontend.Module, file string, source []byte, stars map[string]StarExports, statics map[string]StaticEntry) ([]byte, error) {
+	return lowerModule(mod, file, source, "__main__", false, stars, statics)
 }
 
 // PyModule lowers an imported module to a Go package the build lays out under
@@ -64,14 +73,14 @@ func ModuleStars(mod *frontend.Module, file string, source []byte, stars map[str
 // the module object's live slots and runs the body once; the generated
 // modtable.go registers it in the runtime's import table.
 func PyModule(mod *frontend.Module, name, file string, source []byte) ([]byte, error) {
-	return lowerModule(mod, file, source, name, true, nil)
+	return lowerModule(mod, file, source, name, true, nil, nil)
 }
 
 // PyModuleStars is PyModule for a program that uses star imports, threading
 // the per-module export lists so a `from m import *` inside this module can
 // bind names statically.
 func PyModuleStars(mod *frontend.Module, name, file string, source []byte, stars map[string]StarExports) ([]byte, error) {
-	return lowerModule(mod, file, source, name, true, stars)
+	return lowerModule(mod, file, source, name, true, stars, nil)
 }
 
 // StarExports is one module's contribution to a `from m import *`. All holds a
@@ -222,13 +231,13 @@ func RelativeName(pack string, level int, module string) (string, bool) {
 	return base, true
 }
 
-func lowerModule(mod *frontend.Module, file string, source []byte, modName string, pkgMode bool, stars map[string]StarExports) ([]byte, error) {
+func lowerModule(mod *frontend.Module, file string, source []byte, modName string, pkgMode bool, stars map[string]StarExports, statics map[string]StaticEntry) ([]byte, error) {
 	// Rewrite class-private __names to their mangled _Class__name form before
 	// any name analysis runs, so scope collection and lowering see the same
 	// identifiers CPython would after mangling.
 	frontend.MangleClassPrivates(mod)
 
-	e := &emitter{file: file, source: source, modName: modName, pkgMode: pkgMode, pkgInit: pkgMode && strings.HasSuffix(file, "__init__.py"), stars: stars, escWarns: mod.EscapeWarnings, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}, classOrd: map[string]int{}}
+	e := &emitter{file: file, source: source, modName: modName, pkgMode: pkgMode, pkgInit: pkgMode && strings.HasSuffix(file, "__init__.py"), stars: stars, statics: statics, escWarns: mod.EscapeWarnings, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}, classOrd: map[string]int{}}
 
 	var body []frontend.Stmt
 	var defs []*frontend.FuncDef
@@ -576,6 +585,17 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 		if err := writeDecl(&out, e.implDecl(defs[i])); err != nil {
 			return nil, err
 		}
+		// A def the partitioner proved guard-free static carries an entry shim
+		// beside its boxed form: a boxed caller reaches the shim, which guards the
+		// argument types, enters the static body when they match, and reboxes the
+		// result, falling back to the boxed form when they do not.
+		if se, ok := e.statics[defs[i].Name]; ok {
+			fmt.Fprintf(&out, "// %s enters the static form of %s, guarding the argument types.\n",
+				e.entryName(defs[i].Name), defs[i].Name)
+			if err := writeDecl(&out, e.entryShimDecl(defs[i], se)); err != nil {
+				return nil, err
+			}
+		}
 	}
 	for _, m := range methodDecls {
 		fmt.Fprintf(&out, "// %s\n", m.doc)
@@ -618,7 +638,41 @@ type emitter struct {
 	usedObjects bool
 	usedTB      bool
 	usedGlobals bool // the body calls globals(), so main binds a __main__ module
+	// statics maps a top-level def name to the guard-free static callee the
+	// partitioner proved for it, so a boxed call to that name routes through the
+	// entry shim into the static tier. Empty when the build carries no static
+	// forms, which is every module the static plan did not cover.
+	statics map[string]StaticEntry
 }
+
+// StaticEntry describes a guard-free static callee an entry shim routes into: the
+// emitted static Go function name, and the scalar kind of each parameter and of
+// the result. The parameter kinds pick the exact-type guard and the unbox
+// accessor; the result kind picks the rebox constructor.
+type StaticEntry struct {
+	Static string
+	Params []StaticScalar
+	Ret    StaticScalar
+}
+
+// StaticScalar names the unboxed scalar kind of a static value, the subset of
+// representations the entry shim knows how to guard, unbox, and rebox. A
+// parameter or result outside this set means the build offers no entry for the
+// function and the boxed call stays boxed.
+type StaticScalar uint8
+
+const (
+	// StaticNone is a representation the shim does not handle.
+	StaticNone StaticScalar = iota
+	// StaticInt is Go int64.
+	StaticInt
+	// StaticFloat is Go float64.
+	StaticFloat
+	// StaticBool is Go bool.
+	StaticBool
+	// StaticStr is Go string.
+	StaticStr
+)
 
 // selfPackage is the module's __package__ resolved at compile time: the
 // module's own name for a package, the parent for a submodule, the empty
@@ -865,6 +919,23 @@ func (e *emitter) implName(fname string) string {
 // variable, does not collide with the function implementing it.
 func (e *emitter) defName(fname string) string {
 	return fmt.Sprintf("def%d_%s", e.defOrd[fname], fname)
+}
+
+// entryName is the Go function of one def's static entry shim. It shares the
+// def's ordinal namespace so it never collides with the boxed form or the
+// function-object adapter.
+func (e *emitter) entryName(fname string) string {
+	return fmt.Sprintf("entry%d_%s", e.defOrd[fname], fname)
+}
+
+// callTarget is the Go function a direct positional call to a module-level def
+// enters. A def with a static entry shim routes through the shim so the call
+// reaches the static tier; every other def calls its boxed form directly.
+func (e *emitter) callTarget(fname string) string {
+	if _, ok := e.statics[fname]; ok {
+		return e.entryName(fname)
+	}
+	return e.defName(fname)
 }
 
 // implDecl builds one def's adapter: unpack the bound argument slice into

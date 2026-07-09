@@ -567,6 +567,16 @@ func AsFloat(o Object) (float64, bool) {
 	return 0, false
 }
 
+// AsBool extracts the Go boolean from a bool object. It is exact: an int or a
+// truthy value is not a bool and returns false, so a caller that needs the
+// bool representation, not mere truthiness, can tell the two apart.
+func AsBool(o Object) (bool, bool) {
+	if x, ok := o.(*boolObject); ok {
+		return x.v, true
+	}
+	return false, false
+}
+
 // AsStr extracts the raw string from a str object.
 func AsStr(o Object) (string, bool) {
 	if x, ok := o.(*strObject); ok {

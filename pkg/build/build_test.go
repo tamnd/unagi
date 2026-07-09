@@ -130,7 +130,8 @@ func TestBuildEmitsStaticToStaticCall(t *testing.T) {
 		}
 	}
 
-	// The boxed tier still drives execution, so outer(3.0, 4.0) = 3*4 + 3 = 15.0.
+	// The entry shim routes the float call into the static tier, where
+	// static_outer calls static_scale directly, so outer(3.0, 4.0) = 3*4 + 3 = 15.0.
 	var stdout bytes.Buffer
 	cmd := exec.Command(bin)
 	cmd.Stdout = &stdout
@@ -170,6 +171,63 @@ func TestBuildSkipsStaticFormForGuardedUnit(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(gen, "static.go")); err == nil {
 		data, _ := os.ReadFile(filepath.Join(gen, "static.go"))
 		t.Errorf("a guarded static unit should emit no static form yet, got:\n%s", data)
+	}
+}
+
+// TestBuildRoutesBoxedCallThroughEntryShim checks A4 end to end: a boxed call to
+// a guard-free static function routes through the entry shim, which guards the
+// argument types, enters the static form when they match, and falls back to the
+// boxed form when they do not. The fixture calls the same function with float
+// arguments (static path) and int arguments (fallback path); both must match
+// CPython, which multiplies floats to a float and ints to an int.
+func TestBuildRoutesBoxedCallThroughEntryShim(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	dir := t.TempDir()
+	src := "def area(w: float, h: float) -> float:\n" +
+		"    return w * h\n\n" +
+		"print(area(3.0, 4.0))\n" +
+		"print(area(3, 4))\n"
+	py := filepath.Join(dir, "main.py")
+	writeFile(t, py, src)
+
+	gen := filepath.Join(dir, "gen")
+	bin, err := Build(context.Background(), py, Options{
+		Out:    filepath.Join(dir, "prog"),
+		EmitGo: gen,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	main, err := os.ReadFile(filepath.Join(gen, "main.go"))
+	if err != nil {
+		t.Fatalf("main.go not emitted: %v", err)
+	}
+	for _, want := range []string{
+		"func entry0_area(p0 objects.Object, p1 objects.Object) (objects.Object, error)",
+		`p0.TypeName() != "float"`,
+		"return def0_area(p0, p1)",
+		"static_area(x0, x1)",
+		"return objects.NewFloat(r), nil",
+		"entry0_area(",
+	} {
+		if !bytes.Contains(main, []byte(want)) {
+			t.Errorf("main.go missing %q:\n%s", want, main)
+		}
+	}
+
+	var stdout bytes.Buffer
+	cmd := exec.Command(bin)
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	// area(3.0, 4.0) enters the static float form and prints 12.0; area(3, 4)
+	// fails the float guard, falls back to the boxed form, and prints the int 12.
+	if got := stdout.String(); got != "12.0\n12\n" {
+		t.Errorf("output = %q, want %q", got, "12.0\n12\n")
 	}
 }
 
