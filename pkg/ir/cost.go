@@ -126,10 +126,12 @@ func costExpr(e emit.Expr, c *Cost) {
 		costExpr(n.L, c)
 		costExpr(n.R, c)
 		c.UnboxedOps++
-		// An int add, subtract, or multiply is the one operation this tier guards:
-		// its result stays int only when both operands are int and the operator is
-		// not true division, exactly the case binResult reports as an int result.
-		if r, err := binResult(n.Op, reprOf(n.L), reprOf(n.R)); err == nil && r.Scalar == emit.SInt {
+		// An int add, subtract, multiply, or floor division is an operation this tier
+		// guards: its result stays int, and the operator can carry a value past int64,
+		// so it emits an overflow guard and a deopt edge. Modulo also has an int result
+		// but cannot overflow, so Overflows screens it out, and true division is float,
+		// which the int-result test already excludes.
+		if r, err := binResult(n.Op, reprOf(n.L), reprOf(n.R)); err == nil && r.Scalar == emit.SInt && n.Op.Overflows() {
 			c.EntryGuards++
 		}
 	case emit.Cmp:

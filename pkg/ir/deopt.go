@@ -158,9 +158,10 @@ func stmtGuarded(s emit.Stmt) bool {
 }
 
 // exprGuarded reports whether an expression carries an int overflow guard, the
-// same test the cost model uses: an int add, subtract, or multiply guards, a
-// float or comparison operation does not. It recurses every operand so a guard
-// nested inside a comparison or a float coercion (`a + (m + n)`) is still seen.
+// same test the cost model uses: an int add, subtract, multiply, or floor division
+// guards, while true division (float), modulo (no overflow), and a comparison do
+// not. It recurses every operand so a guard nested inside a comparison or a float
+// coercion (`a + (m + n)`) is still seen.
 func exprGuarded(e emit.Expr) bool {
 	switch n := e.(type) {
 	case emit.Bin:
@@ -168,7 +169,7 @@ func exprGuarded(e emit.Expr) bool {
 			return true
 		}
 		r, err := binResult(n.Op, reprOf(n.L), reprOf(n.R))
-		return err == nil && r.Scalar == emit.SInt
+		return err == nil && r.Scalar == emit.SInt && n.Op.Overflows()
 	case emit.Cmp:
 		return exprGuarded(n.L) || exprGuarded(n.R)
 	case emit.And:

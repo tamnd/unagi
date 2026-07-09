@@ -120,6 +120,60 @@ func TestLowerFloorDivisionOnFloatStaysBoxed(t *testing.T) {
 	}
 }
 
+func TestLowerModuloGuardsZeroWithoutDeopt(t *testing.T) {
+	src := "def r(a: int, b: int) -> int:\n    return a % b\n"
+	got := emitOf(t, src)
+	// Modulo on two ints stays int, floors through the runtime helper, and guards a
+	// zero divisor with the bare "division by zero" message. It never overflows, so it
+	// opens no deopt edge.
+	for _, want := range []string{
+		"(int64, error)",
+		"rt.FloorModInt64(a, b)",
+		`rt.ZeroDivisionError("division by zero")`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("emitted modulo is missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "deopt") {
+		t.Errorf("modulo never overflows, so it must open no deopt edge:\n%s", got)
+	}
+	if strings.Contains(got, "a % b") {
+		t.Errorf("modulo must not lower to Go's dividend-signed remainder:\n%s", got)
+	}
+}
+
+func TestLowerModuloOnFloatStaysBoxed(t *testing.T) {
+	// A float operand keeps modulo boxed at M4.
+	src := "def r(a: float, b: float) -> float:\n    return a % b\n"
+	fn := parseFunc(t, src)
+	if _, err := LowerFunc(fn); err == nil {
+		t.Fatal("modulo on floats should be refused, keeping the unit boxed")
+	}
+}
+
+// TestModuloOpensNoGuardSiteFloorDivisionDoes pins the guard classification the
+// cost model and the deopt-site walk share: floor division carries an overflow
+// guard and opens one deopt site, while modulo carries none. If modulo were counted
+// as guarded, the partitioner would build a boxed twin and a resume plan for a guard
+// that never fires.
+func TestModuloOpensNoGuardSiteFloorDivisionDoes(t *testing.T) {
+	fmod, err := LowerFunc(parseFunc(t, "def r(a: int, b: int) -> int:\n    return a % b\n"))
+	if err != nil {
+		t.Fatalf("LowerFunc modulo: %v", err)
+	}
+	if sites := GuardSitesOf(fmod); len(sites) != 0 {
+		t.Errorf("modulo opens no guard site, got %d", len(sites))
+	}
+	fdiv, err := LowerFunc(parseFunc(t, "def q(a: int, b: int) -> int:\n    return a // b\n"))
+	if err != nil {
+		t.Fatalf("LowerFunc floor division: %v", err)
+	}
+	if sites := GuardSitesOf(fdiv); len(sites) != 1 {
+		t.Errorf("floor division opens one guard site, got %d", len(sites))
+	}
+}
+
 func TestLowerMixedArithmeticPromotesToFloat(t *testing.T) {
 	// An int local added to a float parameter promotes the result to float, so the
 	// function's return type is float64.
