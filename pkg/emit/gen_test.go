@@ -82,6 +82,84 @@ func TestGeneratorLocalNotSaved(t *testing.T) {
 	}
 }
 
+// TestGeneratorLoopYield proves a yield inside a `for i in range(n)` loop: the
+// induction variable is a saved field, and the segment re-enters its own state so
+// resumption picks up at the saved counter, never restarting the loop. The counter
+// advances only after the yield is captured, so the value returned is the one from
+// before the bump, and the machine leaves the loop state only when the counter
+// reaches the bound.
+func TestGeneratorLoopYield(t *testing.T) {
+	_, iR, _ := reprs()
+	gen := Generator{
+		Name: "countGen",
+		Elem: iR,
+		Fields: []GenField{
+			{Name: "n", Repr: iR},
+			{Name: "i", Repr: iR},
+		},
+		Segments: []Segment{
+			{
+				Loop:  &LoopYield{Induction: "i", Bound: Recv{Name: "n", Repr: iR}},
+				Yield: Recv{Name: "i", Repr: iR},
+			},
+		},
+	}
+	got, err := EmitGenerator(gen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `type countGen struct {
+	state int
+	n     int64
+	i     int64
+}
+
+func (g *countGen) Next() (int64, bool, error) {
+	switch g.state {
+	case 0:
+		if g.i < g.n {
+			v := g.i
+			g.i++
+			return v, false, nil
+		}
+		g.state = 1
+	}
+	return 0, true, nil
+}`
+	if strings.TrimSpace(got) != want {
+		t.Fatalf("loop-yield generator emit mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+// TestGeneratorLoopInductionIsField proves the loop counter lives on the struct,
+// not as a `:=` local in the case, because it is live across the suspension the
+// yield introduces.
+func TestGeneratorLoopInductionIsField(t *testing.T) {
+	_, iR, _ := reprs()
+	gen := Generator{
+		Name:   "c",
+		Elem:   iR,
+		Fields: []GenField{{Name: "n", Repr: iR}, {Name: "i", Repr: iR}},
+		Segments: []Segment{
+			{
+				Loop:  &LoopYield{Induction: "i", Bound: Recv{Name: "n", Repr: iR}},
+				Yield: Recv{Name: "i", Repr: iR},
+			},
+		},
+	}
+	got, err := EmitGenerator(gen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	structPart := got[:strings.Index(got, "func ")]
+	if !strings.Contains(structPart, "\ti ") {
+		t.Fatalf("the loop counter should be a saved field:\n%s", structPart)
+	}
+	if strings.Contains(got, "i :=") {
+		t.Fatalf("the loop counter must not be a case-local:\n%s", got)
+	}
+}
+
 // TestGeneratorComputedYield proves a segment that computes before it yields: the
 // pre-statements and any guards flush inside the case, ahead of the advance and
 // the return.
