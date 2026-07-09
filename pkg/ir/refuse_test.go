@@ -64,6 +64,21 @@ func TestStaticTierRefusesUnsafeForms(t *testing.T) {
 		// target twice if lowered naively, so it stays boxed; the plain-name form the
 		// tier does lower reads a single variable, which is evaluated once by construction.
 		{"augmented subscript target", "def f(xs: int, i: int) -> int:\n    xs[i] += 1\n    return xs\n"},
+
+		// The compound statement and comprehension forms with no static shape at M4
+		// (06, Refusals section, line 59). Each carries control flow or scoping the
+		// tier does not lower (an exception frame, a context manager, a match subject,
+		// a nested comprehension scope), so the whole unit stays boxed rather than emit
+		// a partial static body that drops the construct's semantics.
+		{"with statement", "def f(n: int) -> int:\n    with open('x') as h:\n        return n\n    return 0\n"},
+		{"try except", "def f(n: int) -> int:\n    try:\n        return n\n    except Exception:\n        return 0\n"},
+		{"match statement", "def f(n: int) -> int:\n    match n:\n        case 0:\n            return 0\n    return n\n"},
+		{"list comprehension", "def f(n: int) -> int:\n    ys = [i for i in range(n)]\n    return n\n"},
+
+		// A `del` of a name the flow cannot prove stays bound (06, line 60): the
+		// RuleDelPossiblyUnbound path keeps it boxed rather than emit a delete with no
+		// static meaning, and a rebind of a deleted name would read an untyped Go zero.
+		{"del name", "def f(n: int) -> int:\n    x = n\n    del x\n    return n\n"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
