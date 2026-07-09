@@ -40,11 +40,14 @@ type GenField struct {
 // Segment is one run of the machine: statements that execute up to a yield, then
 // the yielded value. The statements and the value read saved state through Recv.
 // A segment with Loop set is a counting loop turned inside out: it re-enters its
-// own state on each call until the counter reaches the bound.
+// own state on each call until the counter reaches the bound. A segment with Guard
+// set is a yield inside an `if`: it yields only when the guard holds and otherwise
+// hands the call on to the following segment.
 type Segment struct {
 	Pre   []Stmt
 	Yield Expr
 	Loop  *LoopYield
+	Guard Expr
 }
 
 // LoopYield turns a `for i in range(bound): ...; yield e` into a self-resuming
@@ -128,9 +131,13 @@ func genNext(b *Builder, gen Generator) (*ast.FuncDecl, error) {
 	for i, seg := range gen.Segments {
 		var body []ast.Stmt
 		var err error
-		if seg.Loop != nil {
+		switch {
+		case seg.Loop != nil:
 			body, err = loopCase(b, gen, seg, i)
-		} else {
+		case seg.Guard != nil:
+			following := i+1 < len(gen.Segments) || len(gen.Trailer) > 0
+			body, err = guardedCase(b, gen, seg, i, following)
+		default:
 			body, err = linearCase(b, gen, seg, i)
 		}
 		if err != nil {
@@ -225,6 +232,46 @@ func loopCase(b *Builder, gen Generator, seg Segment, i int) ([]ast.Stmt, error)
 		ifStmt(cond, loopBody...),
 		setStmt(sel(genRecv, stateField), intLit(int64(i+1))),
 	)
+	return body, nil
+}
+
+// guardedCase builds a yield sitting inside an `if`. When the guard holds the case
+// runs the pre-statements, advances the discriminant past this segment, and returns
+// the yield with done false. When the guard does not hold the yield is skipped: if a
+// following segment exists the case falls through to it in the same call, so the
+// generator produces the following value with no wasted Next; if this is the last
+// segment the case advances to the done state instead, because Go forbids a
+// fallthrough in the final clause and the machine has nothing left to yield.
+func guardedCase(b *Builder, gen Generator, seg Segment, i int, following bool) ([]ast.Stmt, error) {
+	guardVal, _, err := b.lowerExpr(seg.Guard)
+	if err != nil {
+		return nil, err
+	}
+	guardFlush := b.flush()
+	pre, err := b.lowerBlock(seg.Pre)
+	if err != nil {
+		return nil, err
+	}
+	val, err := lowerYield(b, gen, seg.Yield)
+	if err != nil {
+		return nil, err
+	}
+	yieldFlush := b.flush()
+
+	thenBody := append([]ast.Stmt{}, pre...)
+	thenBody = append(thenBody, yieldFlush...)
+	thenBody = append(thenBody,
+		setStmt(sel(genRecv, stateField), intLit(int64(i+1))),
+		ret(val, ident("false"), ident("nil")),
+	)
+
+	body := append([]ast.Stmt{}, guardFlush...)
+	body = append(body, ifStmt(guardVal, thenBody...))
+	if following {
+		body = append(body, &ast.BranchStmt{Tok: token.FALLTHROUGH})
+	} else {
+		body = append(body, setStmt(sel(genRecv, stateField), intLit(int64(i+1))))
+	}
 	return body, nil
 }
 

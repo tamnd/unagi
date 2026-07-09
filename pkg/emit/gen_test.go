@@ -160,6 +160,95 @@ func TestGeneratorLoopInductionIsField(t *testing.T) {
 	}
 }
 
+// TestGeneratorIfYield proves a yield inside an `if`: the guarded segment yields
+// and advances only when the guard holds, and falls through to the following
+// segment in the same call when it does not, so a false guard produces the next
+// value with no wasted Next and the saved state still tracks the machine exactly.
+func TestGeneratorIfYield(t *testing.T) {
+	_, iR, _ := reprs()
+	gen := Generator{
+		Name: "ifGen",
+		Elem: iR,
+		Fields: []GenField{
+			{Name: "flag", Repr: boolRepr()},
+			{Name: "a", Repr: iR},
+			{Name: "b", Repr: iR},
+		},
+		Segments: []Segment{
+			{Guard: Recv{Name: "flag", Repr: boolRepr()}, Yield: Recv{Name: "a", Repr: iR}},
+			{Yield: Recv{Name: "b", Repr: iR}},
+		},
+	}
+	got, err := EmitGenerator(gen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `type ifGen struct {
+	state int
+	flag  bool
+	a     int64
+	b     int64
+}
+
+func (g *ifGen) Next() (int64, bool, error) {
+	switch g.state {
+	case 0:
+		if g.flag {
+			g.state = 1
+			return g.a, false, nil
+		}
+		fallthrough
+	case 1:
+		g.state = 2
+		return g.b, false, nil
+	}
+	return 0, true, nil
+}`
+	if strings.TrimSpace(got) != want {
+		t.Fatalf("if-yield generator emit mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+// TestGeneratorIfYieldLast proves the last-segment case of a guarded yield: with no
+// following segment to fall through to, a false guard advances straight to the done
+// state, because Go forbids a fallthrough in the final clause and the machine has
+// nothing left to yield.
+func TestGeneratorIfYieldLast(t *testing.T) {
+	_, iR, _ := reprs()
+	gen := Generator{
+		Name: "ifLast",
+		Elem: iR,
+		Fields: []GenField{
+			{Name: "flag", Repr: boolRepr()},
+			{Name: "a", Repr: iR},
+		},
+		Segments: []Segment{
+			{Guard: Recv{Name: "flag", Repr: boolRepr()}, Yield: Recv{Name: "a", Repr: iR}},
+		},
+	}
+	got, err := EmitGenerator(gen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "fallthrough") {
+		t.Fatalf("a guarded last segment has nothing to fall through to:\n%s", got)
+	}
+	want := `func (g *ifLast) Next() (int64, bool, error) {
+	switch g.state {
+	case 0:
+		if g.flag {
+			g.state = 1
+			return g.a, false, nil
+		}
+		g.state = 1
+	}
+	return 0, true, nil
+}`
+	if !strings.Contains(got, want) {
+		t.Fatalf("a false guard on the last segment should advance to done:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
 // TestGeneratorComputedYield proves a segment that computes before it yields: the
 // pre-statements and any guards flush inside the case, ahead of the advance and
 // the return.
