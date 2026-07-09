@@ -1097,6 +1097,72 @@ func TestBuildRoutesBoxedCallThroughEntryShim(t *testing.T) {
 	}
 }
 
+// TestBuildTypeGuardDeoptsToBoxed pins the type guard kind (M4/09 item 9, M4/10
+// item 26): a value that violates its assumed representation at the boxed-to-
+// static entry deopts to the boxed body, and the result is byte-identical to
+// CPython. The static form of sq assumes a float; a boxed caller that hands it
+// the int 3 fails the entry shim's TypeName guard and falls to the boxed body,
+// where int * int prints the int 9, exactly as python3.14 does since the
+// annotation is never enforced. The float call sq(3.0) enters the static form
+// and prints 9.0. Conformance fixture 1609_type_guard_deopt forces the same
+// case through the differential harness.
+func TestBuildTypeGuardDeoptsToBoxed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	dir := t.TempDir()
+	src := "def sq(x: float) -> float:\n" +
+		"    return x * x\n\n" +
+		"print(sq(3.0))\n" +
+		"print(sq(3))\n"
+	py := filepath.Join(dir, "main.py")
+	writeFile(t, py, src)
+
+	gen := filepath.Join(dir, "gen")
+	bin, err := Build(context.Background(), py, Options{
+		Out:    filepath.Join(dir, "prog"),
+		EmitGo: gen,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	// The static form assumes float; the entry shim guards that assumption and
+	// falls to the boxed body when it does not hold.
+	static, err := os.ReadFile(filepath.Join(gen, "static.go"))
+	if err != nil {
+		t.Fatalf("static.go not emitted: %v", err)
+	}
+	if want := "func static_sq(x float64) (float64, error)"; !bytes.Contains(static, []byte(want)) {
+		t.Errorf("static.go missing the float static form %q:\n%s", want, static)
+	}
+	main, err := os.ReadFile(filepath.Join(gen, "main.go"))
+	if err != nil {
+		t.Fatalf("main.go not emitted: %v", err)
+	}
+	for _, want := range []string{
+		"func entry0_sq(p0 objects.Object) (objects.Object, error)",
+		`p0.TypeName() != "float"`,
+		"return def0_sq(p0)",
+	} {
+		if !bytes.Contains(main, []byte(want)) {
+			t.Errorf("main.go missing the type guard %q:\n%s", want, main)
+		}
+	}
+
+	var stdout bytes.Buffer
+	cmd := exec.Command(bin)
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	// sq(3.0) enters the static float form and prints 9.0; sq(3) fails the float
+	// type guard, deopts to the boxed body, and prints the int 9.
+	if got := stdout.String(); got != "9.0\n9\n" {
+		t.Errorf("output = %q, want %q", got, "9.0\n9\n")
+	}
+}
+
 // TestResolvePy covers the three on-disk shapes a dotted name can resolve to:
 // a regular package (__init__.py wins), a plain module, and a bare directory
 // that becomes a PEP 420 namespace package.
