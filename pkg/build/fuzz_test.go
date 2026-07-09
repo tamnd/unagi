@@ -35,8 +35,8 @@ func FuzzForcedStaticOverflow(f *testing.F) {
 	// Values chosen to sit just inside and just outside the int64 range when
 	// combined: the largest factor whose square fits, the first that overflows,
 	// and the signed extremes whose negation and doubling overflow.
-	const rootFits = 3037000499  // rootFits*rootFits < MaxInt64
-	const rootOver = 3037000500  // rootOver*rootOver > MaxInt64
+	const rootFits = 3037000499 // rootFits*rootFits < MaxInt64
+	const rootOver = 3037000500 // rootOver*rootOver > MaxInt64
 	seeds := [][2]int64{
 		{rootFits, rootFits},
 		{rootOver, rootOver},
