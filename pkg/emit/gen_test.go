@@ -394,6 +394,27 @@ func TestGeneratorTrailer(t *testing.T) {
 	}
 }
 
+// TestGeneratorGuardedYieldRefused proves a generator segment whose yield carries
+// an overflow guard is refused rather than emitted as wrong Go. An int add reaches
+// the deopt edge, and a paramless static generator has no boxed-frame resume at M4
+// (doc 06 sections 8.2 and 8.3 defer materializing the resumable frame), so the
+// edge would print a single-value `return sumGen_deopt0()` into the three-value
+// Next. The emitter must return an error and keep the unit boxed instead.
+func TestGeneratorGuardedYieldRefused(t *testing.T) {
+	_, iR, _ := reprs()
+	gen := Generator{
+		Name:   "sumGen",
+		Elem:   iR,
+		Fields: []GenField{{Name: "a", Repr: iR}, {Name: "b", Repr: iR}},
+		Segments: []Segment{
+			{Yield: Bin{Op: OpAdd, L: Recv{Name: "a", Repr: iR}, R: Recv{Name: "b", Repr: iR}}},
+		},
+	}
+	if _, err := EmitGenerator(gen); err == nil {
+		t.Fatal("a generator segment with a guarded yield should be refused, not emitted as wrong Go")
+	}
+}
+
 func TestGeneratorYieldTypeMismatch(t *testing.T) {
 	fR, _, _ := reprs()
 	gen := Generator{
