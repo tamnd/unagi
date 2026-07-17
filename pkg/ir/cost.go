@@ -149,6 +149,19 @@ func costStmt(s emit.Stmt, c *Cost) {
 		}
 		c.UnboxedOps += bc.UnboxedOps
 		c.LoopGuards += bc.EntryGuards + bc.LoopGuards
+	case emit.ForGen:
+		// A generator drive runs its body once per element, so a body guard fires on the
+		// loop back-edge and counts as a loop guard, the same classification ForCount makes.
+		// Each turn calls the machine's Next, one unboxed operation folded into the loop,
+		// so the drive scores against the boxed goroutine twin on native-op footing. The
+		// handle read is a plain Var and the construction is costed at its own Define.
+		var bc Cost
+		for _, s := range n.Body {
+			costStmt(s, &bc)
+		}
+		bc.UnboxedOps++
+		c.UnboxedOps += bc.UnboxedOps
+		c.LoopGuards += bc.EntryGuards + bc.LoopGuards
 	}
 }
 
@@ -211,6 +224,14 @@ func costExpr(e emit.Expr, c *Cost) {
 		// operations. The construction carries no guard of its own.
 		for _, it := range n.Items {
 			costExpr(it, c)
+		}
+		c.UnboxedOps++
+	case emit.GenNew:
+		// A generator handle construction allocates one state struct; each saved-field
+		// argument contributes its own operations. The construction is one unboxed
+		// operation and carries no guard of its own.
+		for _, f := range n.Fields {
+			costExpr(f.Value, c)
 		}
 		c.UnboxedOps++
 	}

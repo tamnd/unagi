@@ -134,6 +134,15 @@ func (w *guardWalk) stmt(s emit.Stmt) {
 		base := len(w.scope)
 		w.block(n.Body)
 		w.scope = w.scope[:base]
+	case emit.ForGen:
+		// The generator drive binds the element each turn, then runs the body, exactly
+		// like a range loop. The element is live for a body guard, so it enters the
+		// scope before the body walks; the handle is not a tracked scalar, so it needs
+		// no declaration. The body's names truncate on the way out.
+		base := len(w.scope)
+		w.declare(n.Bind, n.Elem)
+		w.block(n.Body)
+		w.scope = w.scope[:base]
 	}
 }
 
@@ -202,6 +211,10 @@ func exprGuarded(e emit.Expr) bool {
 		// A list literal carries no guard of its own, but an item expression can, so
 		// the walk recurses into every one.
 		return slices.ContainsFunc(n.Items, exprGuarded)
+	case emit.GenNew:
+		// A generator handle construction carries no guard of its own, but a saved-field
+		// argument can, so the walk recurses into every one.
+		return slices.ContainsFunc(n.Fields, func(f emit.GenArg) bool { return exprGuarded(f.Value) })
 	}
 	return false
 }
