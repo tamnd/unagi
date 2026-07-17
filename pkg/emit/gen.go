@@ -76,12 +76,22 @@ func (Recv) isExpr() {}
 // representation Next yields, the saved fields, the yielding segments in source
 // order, and any trailing statements that run after the last yield before the
 // machine reports done.
+//
+// Twin, when set, is the seeded-resume hand-off a guard inside the machine deopts
+// through: the Go name of the function the boxed tier emits next to this machine,
+// which reboxes the discriminant and the saved fields and constructs a boxed
+// generator seeded at that resume point. A guard's failure edge then tail-calls
+// `<Twin>(g.state, g.<field>...).Next()`, so the boxed twin drives the value the
+// static machine would have produced and owns the sequence from there. When Twin
+// is empty the machine has no boxed frame to resume into, so a guarded segment is
+// refused rather than emitted as wrong Go, and the unit stays boxed.
 type Generator struct {
 	Name     string
 	Elem     Repr
 	Fields   []GenField
 	Segments []Segment
 	Trailer  []Stmt
+	Twin     string
 }
 
 // EmitGenerator lowers a static generator to gofmt-clean Go: the state struct
@@ -93,6 +103,13 @@ func EmitGenerator(gen Generator) (string, error) {
 		return "", err
 	}
 	b := &Builder{fn: gen.Name, ret: gen.Elem}
+	if gen.Twin != "" {
+		// A guard inside the machine hands off to the seeded boxed twin instead of a
+		// from-top deopt: the failure edge tail-calls the twin with the discriminant
+		// and the saved fields, and Next drives it for the value the machine would
+		// have produced next.
+		b.genTwin = &genTwin{name: gen.Twin, fields: gen.Fields}
+	}
 	next, err := genNext(b, gen)
 	if err != nil {
 		return "", err
@@ -157,14 +174,13 @@ func genNext(b *Builder, gen Generator) (*ast.FuncDecl, error) {
 	}
 
 	// A guard anywhere in the machine (a segment's pre-statements, its yield, a
-	// loop bound, or the trailer) reaches deoptEdge, which for a paramless handler-
-	// less generator builder emits a single-value `return name_deopt0()` into the
-	// three-value Next: broken Go. The static generator has no boxed-frame resume at
-	// M4 (doc 06 sections 8.2 and 8.3 defer materializing the resumable frame), so
-	// there is nowhere for a mid-machine guard to fall back to. Refuse rather than
-	// emit wrong Go; the unit stays boxed and its guard deopts through the boxed
-	// generator instead.
-	if b.deoptUsed || b.nDeopt > 0 {
+	// loop bound, or the trailer) reaches deoptEdge. With a twin the edge is the
+	// seeded resume hand-off, three-valued and well-formed, so the machine emits.
+	// Without one the edge would print a single-value `return name_deopt0()` into
+	// the three-value Next: broken Go, and there is no boxed frame to fall back to.
+	// Refuse rather than emit wrong Go; the unit stays boxed and its guard deopts
+	// through the boxed generator instead.
+	if b.genTwin == nil && (b.deoptUsed || b.nDeopt > 0) {
 		return nil, fmt.Errorf("emit: generator %s carries a guard with no static deopt edge; keep it boxed", gen.Name)
 	}
 

@@ -75,6 +75,35 @@ type Builder struct {
 	// the frame's hand-off instead of the from-top edge; an empty stack means every
 	// guard replays from the top.
 	resume []resumeFrame
+	// genTwin, when set, makes every guard in a static generator's Next hand off to
+	// the seeded boxed twin instead of a from-top deopt: the edge tail-calls the
+	// twin with the discriminant and the saved fields and drives it once. It is set
+	// only while emitting a generator machine, so a plain function's edge is
+	// unaffected.
+	genTwin *genTwin
+}
+
+// genTwin is a static generator's seeded-resume hand-off: the Go name of the twin
+// constructor and the machine's saved fields, which the failure edge passes after
+// the discriminant so the twin re-enters at the resume point the guard fired at.
+type genTwin struct {
+	name   string
+	fields []GenField
+}
+
+// edge builds the generator failure-edge statement: `return <name>(g.state,
+// g.<field>...).Next()`. The twin is seeded at the current discriminant with the
+// saved fields the machine holds, and Next drives it for the value the static
+// machine would have produced next, so the caller's iteration sees an unbroken
+// sequence and the boxed twin owns the protocol from there.
+func (t *genTwin) edge() ast.Stmt {
+	args := make([]ast.Expr, 0, 1+len(t.fields))
+	args = append(args, sel(genRecv, stateField))
+	for _, f := range t.fields {
+		args = append(args, sel(genRecv, f.Name))
+	}
+	twin := callExpr(ident(t.name), args...)
+	return ret(callExpr(&ast.SelectorExpr{X: twin, Sel: ident("Next")}))
 }
 
 // resumeFrame is one loop's mid-loop resume hand-off and the arguments a guard
@@ -126,6 +155,14 @@ func (b *Builder) errName() string {
 // handler the edge falls back to the per-site placeholder name the goldens use,
 // which keeps the unit self-describing when it is emitted outside a build.
 func (b *Builder) deoptEdge() ast.Stmt {
+	// A guard inside a static generator hands off to the seeded boxed twin: the edge
+	// carries the discriminant and the saved fields and drives the twin once, a
+	// three-valued return the generator's Next requires. It takes precedence over
+	// the function edges below, which are single-valued and shaped for a plain unit.
+	if b.genTwin != nil {
+		b.deoptUsed = true
+		return b.genTwin.edge()
+	}
 	// A guard inside a resume-enabled loop re-enters the boxed twin at the current
 	// iteration, carrying the loop counter and live accumulators instead of only
 	// the entry parameters. The frame's arguments include the entry snapshots, so

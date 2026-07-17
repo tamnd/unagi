@@ -395,11 +395,10 @@ func TestGeneratorTrailer(t *testing.T) {
 }
 
 // TestGeneratorGuardedYieldRefused proves a generator segment whose yield carries
-// an overflow guard is refused rather than emitted as wrong Go. An int add reaches
-// the deopt edge, and a paramless static generator has no boxed-frame resume at M4
-// (doc 06 sections 8.2 and 8.3 defer materializing the resumable frame), so the
-// edge would print a single-value `return sumGen_deopt0()` into the three-value
-// Next. The emitter must return an error and keep the unit boxed instead.
+// an overflow guard is refused when the machine has no twin to resume into. An int
+// add reaches the deopt edge, and a twin-less machine has no boxed frame to fall
+// back to, so the edge would print a single-value `return sumGen_deopt0()` into the
+// three-value Next. The emitter must return an error and keep the unit boxed.
 func TestGeneratorGuardedYieldRefused(t *testing.T) {
 	_, iR, _ := reprs()
 	gen := Generator{
@@ -411,7 +410,32 @@ func TestGeneratorGuardedYieldRefused(t *testing.T) {
 		},
 	}
 	if _, err := EmitGenerator(gen); err == nil {
-		t.Fatal("a generator segment with a guarded yield should be refused, not emitted as wrong Go")
+		t.Fatal("a twin-less generator segment with a guarded yield should be refused, not emitted as wrong Go")
+	}
+}
+
+// TestGeneratorGuardedYieldHandsOff is the inverse: the same guarded machine with a
+// twin named emits, and the overflow guard's failure edge hands off to the seeded
+// boxed twin, tail-calling it with the discriminant and the saved fields and
+// driving it once. This is the resume hand-off that replaces the M4 refusal once a
+// generator has a boxed frame to deopt into.
+func TestGeneratorGuardedYieldHandsOff(t *testing.T) {
+	_, iR, _ := reprs()
+	gen := Generator{
+		Name:   "sumGen",
+		Elem:   iR,
+		Fields: []GenField{{Name: "a", Repr: iR}, {Name: "b", Repr: iR}},
+		Segments: []Segment{
+			{Yield: Bin{Op: OpAdd, L: Recv{Name: "a", Repr: iR}, R: Recv{Name: "b", Repr: iR}}},
+		},
+		Twin: "sumGenTwin",
+	}
+	got, err := EmitGenerator(gen)
+	if err != nil {
+		t.Fatalf("a generator with a twin should emit its guarded segment: %v", err)
+	}
+	if !strings.Contains(got, "return sumGenTwin(g.state, g.a, g.b).Next()") {
+		t.Fatalf("guard should hand off to the seeded twin:\n%s", got)
 	}
 }
 
