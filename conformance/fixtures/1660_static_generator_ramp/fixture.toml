@@ -13,7 +13,10 @@
 # surfaces here. The forced-static rerun is where the static generator runs, and
 # it must land on the same bytes as python3.14, so the differential band is the
 # real proof that the static generator answer is identical.
-tags = ["generator", "static-generator"]
+#
+# No feature tag: the M4 feature registry lists only the cases the auto tier
+# emits static, and generators stay boxed under auto, so this fixture follows the
+# other generator fixtures and carries only a tier pin.
 
 [tiers]
 "<module>.ramp" = "boxed"
