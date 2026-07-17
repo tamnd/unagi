@@ -311,8 +311,11 @@ func staticForms(plan *staticPlan) ([]byte, error) {
 		}
 		// A generator lowers to a struct-and-Next state machine, not a function, so it
 		// takes the generator bridge and the generator emitter under its mangled static
-		// name. A deopt-target generator does not exist at M4 (the emitter refuses a
-		// guarded generator), so a proven-static generator is always guard-free here.
+		// name. A generator that carries an overflow guard is deopt-capable: its Next
+		// returns the deopt signal mid-sequence and the machine emits with the signal
+		// edge enabled, so a proven-static generator here may be guard-free or deopt-
+		// capable. The consumer that drives it carries the from-top deopt, not the
+		// generator itself.
 		if ir.IsGenerator(qf.def) {
 			src, err := generatorForm(qf, plan.names[qf.qual])
 			if err != nil {
@@ -375,6 +378,12 @@ func staticForms(plan *staticPlan) ([]byte, error) {
 	if strings.Contains(forms.String(), runtimeQualifier+".") {
 		fmt.Fprintf(&b, "\nimport %s %q\n", runtimeQualifier, runtimeImportPath)
 	}
+	// A static file that drives a deopt-capable generator names the boxed object
+	// model in the signal edge and the drive loop's type assertion, so import it only
+	// when a form actually references it, keeping a generator-free module import-clean.
+	if strings.Contains(forms.String(), objectsQualifier+".") {
+		fmt.Fprintf(&b, "\nimport %s %q\n", objectsQualifier, objectsImportPath)
+	}
 	b.WriteString(decls)
 	b.WriteString(forms.String())
 	return []byte(b.String()), nil
@@ -394,6 +403,11 @@ func generatorForm(qf qualFunc, static string) (string, error) {
 		return "", fmt.Errorf("static generator %s decided static but did not lower: %w", qf.qual, err)
 	}
 	gen.Name = static
+	// Enable the signal edge so a generator carrying an overflow guard emits its
+	// hand-off instead of refusing; a guard-free generator is unaffected, since it
+	// reaches no guard edge. The partition scored the generator with the same edge
+	// enabled, so the decision and the emitted form agree on which generators lower.
+	gen.Deopt = true
 	src, err := emit.EmitGenerator(gen)
 	if err != nil {
 		return "", fmt.Errorf("static generator %s: %w", qf.qual, err)
@@ -471,6 +485,15 @@ func readGlobals(plan *staticPlan) map[string]string {
 const (
 	runtimeQualifier  = "rt"
 	runtimeImportPath = "github.com/tamnd/unagi/pkg/runtime"
+)
+
+// objectsQualifier is the import name the emitted static tier reaches the boxed
+// object model through, matching the name pkg/emit prints. A deopt-capable
+// generator's signal edge names objects.DeoptSignal and a consumer's drive loop
+// type-asserts *objects.Deopt, so a static file that drives one imports it.
+const (
+	objectsQualifier  = "objects"
+	objectsImportPath = "github.com/tamnd/unagi/pkg/objects"
 )
 
 // staticResolver builds the callee resolver the emit loop lowers direct calls

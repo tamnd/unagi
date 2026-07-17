@@ -202,15 +202,19 @@ func (d *driver) funcInput(fn *frontend.FuncDef) (Profile, []DeoptSite, bool) {
 // A generator the tier lowers to the static state machine becomes a profiled unit
 // the cost model scores against its boxed goroutine twin; one the bridge or the
 // emitter refuses returns the empty profile and stays boxed, so a generator outside
-// the static subset is never scored as if it could lower. A static generator carries
-// no deopt sites at M4, since materializing the resumable frame for a mid-machine
-// guard is a later slice and the emitter refuses any generator that would need one,
-// so the deopt plan is empty.
+// the static subset is never scored as if it could lower. A generator that carries an
+// overflow guard is deopt-capable: its Next returns the deopt signal mid-sequence and
+// the machine emits with the signal edge enabled, so it scores static too. The
+// generator itself carries no from-top deopt site, since its guard hands off through
+// the signal rather than replaying the machine; the consumer that drives it is the
+// deopt-target, and its site comes from the drive node, so the generator's deopt plan
+// is empty.
 func (d *driver) generatorInput(fn *frontend.FuncDef) (Profile, []DeoptSite, bool) {
 	gen, err := ir.LowerGenerator(fn)
 	if err != nil {
 		return Profile{}, nil, false
 	}
+	gen.Deopt = true
 	if _, err := emit.EmitGenerator(gen); err != nil {
 		return Profile{}, nil, false
 	}

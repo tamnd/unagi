@@ -90,6 +90,13 @@ type StaticGenerator struct {
 	GoName string
 	Params []GenParam
 	Elem   emit.Repr
+	// Deopt is set when the generator's machine carries an overflow guard, so its Next
+	// can return the deopt signal mid-sequence. A consumer driving such a generator
+	// sets emit.ForGen.Deopt, which turns the drive into a from-top deopt site: on a
+	// signal the consumer re-runs boxed and drives a boxed generator over the whole
+	// correct sequence. A guard-free generator never signals, so its consumer keeps
+	// the plain propagate-only drive with no deopt site.
+	Deopt bool
 }
 
 // GeneratorResolver reports the static generator a bare name refers to at a for
@@ -129,7 +136,14 @@ func GeneratorSignatureOf(gen emit.Generator, fn *frontend.FuncDef, goName strin
 		}
 		params[i] = GenParam{Name: p.Name, Repr: r, Saved: saved[p.Name]}
 	}
-	return StaticGenerator{GoName: goName, Params: params, Elem: gen.Elem}, true
+	// A guard inside the machine makes the generator deopt-capable: its Next can hand
+	// off mid-sequence, and a consumer must route that signal. A probe that does not
+	// lower means the generator is not drivable at all, so report not a generator.
+	guarded, err := emit.GeneratorGuarded(gen)
+	if err != nil {
+		return StaticGenerator{}, false
+	}
+	return StaticGenerator{GoName: goName, Params: params, Elem: gen.Elem, Deopt: guarded}, true
 }
 
 // SignatureOf reads a lowered function's unboxed signature into a StaticCallee
@@ -1053,8 +1067,13 @@ func lowerForGen(n *frontend.For, target *frontend.Name, call *frontend.Call, si
 	// A body overflow guard deopts to the consumer's boxed twin, which re-runs the
 	// unit from the top: it reconstructs the handle and re-drives the generator, and
 	// because the static subset is effect-free the replayed sequence is identical, so
-	// the from-top edge is sound the same way it is for a counting loop.
-	drive := emit.ForGen{Bind: target.Id, Elem: sig.Elem, Gen: emit.Var{Name: handle, Repr: handleRepr}, Body: body}
+	// the from-top edge is sound the same way it is for a counting loop. A deopt-capable
+	// generator adds a second trigger of that same from-top edge: when its Next returns
+	// the deopt signal, the drive routes it into the consumer's boxed twin, which
+	// re-runs and drives a boxed generator over the whole correct sequence, past the
+	// overflow the static machine could not carry. Deopt marks the drive so the loop
+	// tells that signal apart from a real raised exception.
+	drive := emit.ForGen{Bind: target.Id, Elem: sig.Elem, Gen: emit.Var{Name: handle, Repr: handleRepr}, Body: body, Deopt: sig.Deopt}
 	return append(pre, drive), nil, false, nil
 }
 

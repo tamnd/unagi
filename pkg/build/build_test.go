@@ -982,6 +982,91 @@ func TestBuildDrivesStaticGeneratorEndToEnd(t *testing.T) {
 	}
 }
 
+// TestBuildDrivesDeoptCapableGeneratorEndToEnd checks the generator deopt-signal ABI
+// end to end. The generator yields i*i, an int multiply that carries an overflow
+// guard, so its Next returns the deopt signal when the product overflows. The two
+// consumers are pure: total accumulates into a local and last rebinds it, so each
+// re-runs boxed from the top on a signal without an observable effect before the
+// loop completes. total carries its own int-add guard, but last has no arithmetic
+// guard of its own; driving a deopt-capable generator is what makes last a deopt-
+// target, so it earns a hand-off to a boxed twin too. The small argument stays inside
+// int64, so the static path runs and the differential fixture exercises the overflow
+// hand-off against CPython.
+func TestBuildDrivesDeoptCapableGeneratorEndToEnd(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	dir := t.TempDir()
+	src := "def squares(n: int):\n" +
+		"    for i in range(n):\n" +
+		"        yield i * i\n\n" +
+		"def total(n: int) -> int:\n" +
+		"    s = 0\n" +
+		"    for x in squares(n):\n" +
+		"        s = s + x\n" +
+		"    return s\n\n" +
+		"def last(n: int) -> int:\n" +
+		"    r = 0\n" +
+		"    for x in squares(n):\n" +
+		"        r = x\n" +
+		"    return r\n\n" +
+		"print(total(5))\n" +
+		"print(last(5))\n"
+	py := filepath.Join(dir, "main.py")
+	writeFile(t, py, src)
+
+	gen := filepath.Join(dir, "gen")
+	bin, err := Build(context.Background(), py, Options{
+		Out:    filepath.Join(dir, "prog"),
+		EmitGo: gen,
+		Tier:   partition.ModeForceStatic,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	static, err := os.ReadFile(filepath.Join(gen, "static.go"))
+	if err != nil {
+		t.Fatalf("static.go not emitted: %v", err)
+	}
+	// The generator's machine emits with the signal edge: an overflow in the yield
+	// hands off through objects.DeoptSignal on Next's error channel, and the file
+	// imports the boxed object model the edge names.
+	for _, want := range []string{
+		"func (g *static_squares) Next() (int64, bool, error)",
+		"return 0, false, objects.DeoptSignal",
+		"import objects \"github.com/tamnd/unagi/pkg/objects\"",
+	} {
+		if !bytes.Contains(static, []byte(want)) {
+			t.Errorf("static.go missing generator signal edge %q:\n%s", want, static)
+		}
+	}
+	// A consumer that drives a deopt-capable generator routes the signal into its own
+	// from-top hand-off, so last, which has no arithmetic guard of its own, still
+	// earns a boxed twin and a deopt edge.
+	for _, want := range []string{
+		"if _, ok := err.(*objects.Deopt); ok {",
+		"static_last_deopt",
+		"static_total_deopt",
+	} {
+		if !bytes.Contains(static, []byte(want)) {
+			t.Errorf("static.go missing consumer deopt routing %q:\n%s", want, static)
+		}
+	}
+
+	// The static path runs for a small argument: total(5) sums 0+1+4+9+16 and last(5)
+	// takes the final square.
+	var stdout bytes.Buffer
+	cmd := exec.Command(bin)
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got, want := stdout.String(), "30\n16\n"; got != want {
+		t.Errorf("output = %q, want %q", got, want)
+	}
+}
+
 // TestBuildDeoptsGuardedUnitToBoxedTwin checks the B1 acceptance end to end: a
 // static unit that carries an overflow guard emits its static form, and the
 // guard's failure edge hands off to the boxed twin through the deopt sentinel.

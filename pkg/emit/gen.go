@@ -113,6 +113,22 @@ func EmitGenerator(gen Generator) (string, error) {
 	return typ + "\n\n" + text, nil
 }
 
+// GeneratorGuarded reports whether a generator's machine carries an overflow guard
+// that reaches a deopt edge, so the bridge can mark the generator deopt-capable and
+// a consumer driving it can route the deopt signal. It builds the Next body on a
+// probe builder with the signal edge enabled, so a guard does not refuse, and reads
+// back whether any guard was flushed rather than printing. A lowering error (a yield
+// whose type does not fit) surfaces the same way EmitGenerator would report it, so a
+// caller can treat a probe error as not drivable.
+func GeneratorGuarded(gen Generator) (bool, error) {
+	gen.Deopt = true
+	b := &Builder{fn: gen.Name, ret: gen.Elem, genDeopt: true}
+	if _, err := genNext(b, gen); err != nil {
+		return false, err
+	}
+	return b.deoptUsed, nil
+}
+
 // genStruct builds the state-machine struct: the int discriminant first, then the
 // saved fields in source order, so the layout is deterministic.
 func genStruct(gen Generator) *ast.GenDecl {
