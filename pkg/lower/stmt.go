@@ -416,6 +416,7 @@ func (f *fnCtx) assignTo(target frontend.Expr, v ast.Expr) error {
 			return nil
 		}
 		f.add(set(ident(mangle(t.Id)), v))
+		f.bumpShadow(t.Id)
 		return nil
 	case *frontend.Subscript:
 		x, err := f.expr(t.X)
@@ -515,6 +516,10 @@ func (f *fnCtx) delStmt(s *frontend.Del) error {
 			}
 			f.fallibleVoid(sel("runtime", fn), ident(mangle(t.Id)), strLit(t.Id))
 			f.add(set(ident(mangle(t.Id)), ident("nil")))
+			// A delete unbinds the global, so the shadow update sees a nil object and
+			// bumps the version off 1, which deopts the static reader to the boxed twin
+			// where reading an unbound global raises NameError.
+			f.bumpShadow(t.Id)
 		case *frontend.Subscript:
 			x, err := f.expr(t.X)
 			if err != nil {
@@ -584,6 +589,7 @@ func (f *fnCtx) augAssign(s *frontend.AugAssign) error {
 			return err
 		}
 		f.add(set(ident(mangle(t.Id)), inPlace(cur, v)))
+		f.bumpShadow(t.Id)
 		return nil
 	case *frontend.Subscript:
 		x, err := f.expr(t.X)
