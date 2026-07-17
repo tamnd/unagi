@@ -909,6 +909,79 @@ func TestBuildEmitsMutuallyRecursiveStaticCycle(t *testing.T) {
 	}
 }
 
+// TestBuildDrivesStaticGeneratorEndToEnd checks the GT4 acceptance end to end: a
+// module generator emits its state struct and Next into the static file under a
+// mangled name, and a consumer that drives it with a for loop constructs the handle
+// once and loops on Next. Forcing the tier static emits both forms and gives the
+// consumer an entry shim, so a boxed call to the consumer routes into the static
+// tier and the whole result is produced by the static generator machine, byte for
+// byte what CPython prints. The consumer takes the last yielded value, a guard-free
+// rebinding, so it stays a plain static form with no deopt edge; the sequence runs
+// to n-1, which proves the machine advanced through every element.
+func TestBuildDrivesStaticGeneratorEndToEnd(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	dir := t.TempDir()
+	src := "def seq(n: int):\n" +
+		"    for i in range(n):\n" +
+		"        yield i\n\n" +
+		"def last(n: int) -> int:\n" +
+		"    r = 0\n" +
+		"    for x in seq(n):\n" +
+		"        r = x\n" +
+		"    return r\n\n" +
+		"print(last(10))\n"
+	py := filepath.Join(dir, "main.py")
+	writeFile(t, py, src)
+
+	gen := filepath.Join(dir, "gen")
+	bin, err := Build(context.Background(), py, Options{
+		Out:    filepath.Join(dir, "prog"),
+		EmitGo: gen,
+		Tier:   partition.ModeForceStatic,
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	static, err := os.ReadFile(filepath.Join(gen, "static.go"))
+	if err != nil {
+		t.Fatalf("static.go not emitted: %v", err)
+	}
+	// The generator's state struct and Next method emit under the mangled static
+	// name, so they never collide with the boxed seq, and the consumer constructs the
+	// handle once ahead of the loop and drives it by Next.
+	for _, want := range []string{
+		"type static_seq struct {",
+		"func (g *static_seq) Next() (int64, bool, error)",
+		"func static_last(n int64) (int64, error)",
+		"&static_seq{n: n}",
+		".Next()",
+	} {
+		if !bytes.Contains(static, []byte(want)) {
+			t.Errorf("static.go missing %q:\n%s", want, static)
+		}
+	}
+	// The consumer only rebinds across the loop, so it carries no guard and no
+	// hand-off to a boxed twin.
+	if bytes.Contains(static, []byte("static_last_deopt")) {
+		t.Errorf("a guard-free consumer should have no deopt edge:\n%s", static)
+	}
+
+	// The entry shim routes the boxed call into static_last, which drives the static
+	// generator to exhaustion, so the last value the machine yields is 9.
+	var stdout bytes.Buffer
+	cmd := exec.Command(bin)
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got, want := stdout.String(), "9\n"; got != want {
+		t.Errorf("output = %q, want %q", got, want)
+	}
+}
+
 // TestBuildDeoptsGuardedUnitToBoxedTwin checks the B1 acceptance end to end: a
 // static unit that carries an overflow guard emits its static form, and the
 // guard's failure edge hands off to the boxed twin through the deopt sentinel.

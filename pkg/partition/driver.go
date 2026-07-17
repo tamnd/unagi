@@ -74,7 +74,7 @@ func DriveWith(module string, m *frontend.Module, mode Mode) []Decision {
 // its call and can itself be proven static.
 func driveOnce(module string, m *frontend.Module, resolve ir.CalleeResolver, mode Mode) []Decision {
 	p := New()
-	d := &driver{p: p, module: module, resolve: resolve, mode: mode, tracked: ir.TrackedGlobals(m), shapes: ir.TrackedShapes(m)}
+	d := &driver{p: p, module: module, resolve: resolve, mode: mode, tracked: ir.TrackedGlobals(m), shapes: ir.TrackedShapes(m), gens: driveGenerators(m)}
 	// The module top level is itself a unit, executed as boxed code at M4.
 	mu := d.enter(ModuleUnitName, frontend.Pos{Line: 1, Col: 1})
 	d.scanStmts(mu, m.Body)
@@ -100,6 +100,23 @@ type driver struct {
 	// and is scored on the field reads that struct enables. Empty when the module
 	// has no class the static tier can shape, which is the common case.
 	shapes map[string]emit.Repr
+	// gens resolves a name at a for loop's iterable to the static generator it
+	// constructs and drives, so a consumer that drives a module generator lowers its
+	// drive site and is scored on the native-op footing that gives, rather than
+	// refusing the for and boxing. It is nil when the module proved no drivable
+	// generator, which is the common case. The generator's drivability needs no
+	// callee resolver, so this table is stable across the fixpoint rounds.
+	gens ir.GeneratorResolver
+}
+
+// driveGenerators builds the module's drive-site generator resolver for the
+// partitioner. It names each generator by its own Python name, a placeholder the
+// partitioner never emits: it lowers a consumer only to measure its cost, so the Go
+// struct type the handle would construct as is immaterial to the decision, and only
+// the build, which emits the struct, needs the mangled name. Sharing the builder
+// with the build through ir keeps the set of drivable generators identical in both.
+func driveGenerators(m *frontend.Module) ir.GeneratorResolver {
+	return ir.GeneratorResolverFor(m, func(name string) string { return name })
 }
 
 // scope is one enclosing unit during the walk: the unit itself and its
@@ -171,7 +188,7 @@ func (d *driver) funcInput(fn *frontend.FuncDef) (Profile, []DeoptSite, bool) {
 	if ir.IsGenerator(fn) {
 		return d.generatorInput(fn)
 	}
-	f, err := ir.LowerFuncFull(fn, d.resolve, ir.GlobalResolverFor(fn, d.tracked), ir.ShapeResolverFor(d.shapes))
+	f, err := ir.LowerFuncGen(fn, d.resolve, ir.GlobalResolverFor(fn, d.tracked), ir.ShapeResolverFor(d.shapes), d.gens)
 	if err != nil {
 		return Profile{}, nil, false
 	}
