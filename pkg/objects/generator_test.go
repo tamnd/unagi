@@ -49,6 +49,67 @@ func TestGeneratorIterates(t *testing.T) {
 	}
 }
 
+// countTwin is a boxed twin body shaped like the one pkg/lower emits for a
+// deopted counting generator: it resumes the loop at a seeded counter when the
+// seed is non-zero and runs from the top when the seed is zero. The seeded
+// counter crosses the boundary as the closure capture iSeed, the way the resume
+// handler rebinds the saved field, and the seed discriminant selects the resume
+// point.
+func countTwin(iSeed int64) func(Yielder, int) (Object, error) {
+	return func(y Yielder, seed int) (Object, error) {
+		i := int64(0)
+		if seed != 0 {
+			i = iSeed
+		}
+		for i < 5 {
+			if _, err := y.Yield(NewInt(i)); err != nil {
+				return nil, err
+			}
+			i++
+		}
+		return None, nil
+	}
+}
+
+func TestGeneratorAtResumesTail(t *testing.T) {
+	// The static machine yielded 0 and 1, deopted computing 2, and seeds the
+	// twin at state 1 with the loop counter materialized to 2. The boxed twin
+	// must yield only the tail, 2 3 4, never replaying the prefix.
+	g := NewGeneratorAt("count", 1, countTwin(2))
+	vals, err := drain(g)
+	if err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+	want := []int64{2, 3, 4}
+	if len(vals) != len(want) {
+		t.Fatalf("got %d values, want %d", len(vals), len(want))
+	}
+	for i, v := range vals {
+		if n, _ := AsInt(v); n != want[i] {
+			t.Fatalf("value %d = %v, want %d", i, Str(v), want[i])
+		}
+	}
+}
+
+func TestGeneratorAtSeedZeroRunsFromTop(t *testing.T) {
+	// A seed of 0 is the fresh generator: the body ignores the seeded counter and
+	// runs the whole sequence, so NewGeneratorAt with seed 0 matches NewGenerator.
+	g := NewGeneratorAt("count", 0, countTwin(99))
+	vals, err := drain(g)
+	if err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+	want := []int64{0, 1, 2, 3, 4}
+	if len(vals) != len(want) {
+		t.Fatalf("got %d values, want %d", len(vals), len(want))
+	}
+	for i, v := range vals {
+		if n, _ := AsInt(v); n != want[i] {
+			t.Fatalf("value %d = %v, want %d", i, Str(v), want[i])
+		}
+	}
+}
+
 func TestGeneratorSend(t *testing.T) {
 	// Echo the sent value back out; the first yield produces 0.
 	g := NewGenerator("echo", func(y Yielder) (Object, error) {
