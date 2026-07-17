@@ -36,8 +36,14 @@ type genEvent struct {
 }
 
 type generatorObject struct {
-	qual       string
-	body       func(Yielder) (Object, error)
+	qual string
+	body func(Yielder, int) (Object, error)
+	// seed is the resume-point discriminant the body switches on at entry. A
+	// from-top generator carries seed 0 and its body ignores it; a generator
+	// built by NewGeneratorAt to continue a deopted static machine carries the
+	// state the static Next last passed, so the body jumps to the yield boundary
+	// after it and continues the tail of the sequence.
+	seed       int
 	isCoro     bool // true for a coroutine: reports "coroutine", reprs and awaits as one
 	isAsyncGen bool // true for an async generator: driven through the async protocol
 	started    bool
@@ -64,10 +70,29 @@ func (g *generatorObject) TypeName() string {
 	}
 }
 
+// fromTop adapts a top-of-body generator closure to the seeded body signature by
+// ignoring the seed, so a from-top generator and a seeded one share one body
+// type and one start path.
+func fromTop(body func(Yielder) (Object, error)) func(Yielder, int) (Object, error) {
+	return func(y Yielder, _ int) (Object, error) { return body(y) }
+}
+
 // NewGenerator wraps a lowered generator body as a generator object. qual is
 // the function's __qualname__, used only for repr.
 func NewGenerator(qual string, body func(Yielder) (Object, error)) Object {
-	return &generatorObject{qual: qual, body: body, ret: None}
+	return &generatorObject{qual: qual, body: fromTop(body), ret: None}
+}
+
+// NewGeneratorAt wraps a boxed twin body that resumes a deopted static generator
+// mid-stream. seed is the discriminant the static machine last passed, and body
+// switches on it at entry to jump to the yield boundary after it, with the saved
+// fields already bound as boxed locals in the closure. This is the frame the
+// static generator's deopt edge materializes: the static machine runs the
+// guard-free prefix, and on a guard failure it constructs one of these seeded at
+// the current state so the boxed twin yields the tail of the sequence CPython
+// would. A seed of 0 resumes at the top, the same as a fresh generator.
+func NewGeneratorAt(qual string, seed int, body func(Yielder, int) (Object, error)) Object {
+	return &generatorObject{qual: qual, seed: seed, body: body, ret: None}
 }
 
 // NewCoroutine wraps a lowered async def body as a coroutine object. A coroutine
@@ -76,7 +101,7 @@ func NewGenerator(qual string, body func(Yielder) (Object, error)) Object {
 // await drives it. Real suspension against an event loop is a later milestone;
 // a coroutine that never awaits runs to completion on the first send(None).
 func NewCoroutine(qual string, body func(Yielder) (Object, error)) Object {
-	return &generatorObject{qual: qual, body: body, ret: None, isCoro: true}
+	return &generatorObject{qual: qual, body: fromTop(body), ret: None, isCoro: true}
 }
 
 // Await turns an await operand into the object to delegate to, CPython's
@@ -110,7 +135,7 @@ func (g *generatorObject) start() {
 	g.started = true
 	go func() {
 		<-g.resume // first resume just wakes the body; its value is discarded
-		ret, err := g.body(g)
+		ret, err := g.body(g, g.seed)
 		if err != nil {
 			if g.isAsyncGen {
 				err = asyncGenPep479(err)

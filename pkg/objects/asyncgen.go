@@ -18,7 +18,7 @@ package objects
 // frame flagged as an async generator, so the frame stepper drives it while the
 // public surface is the async-generator protocol.
 func NewAsyncGenerator(qual string, body func(Yielder) (Object, error)) Object {
-	return &generatorObject{qual: qual, body: body, ret: None, isAsyncGen: true}
+	return &generatorObject{qual: qual, body: fromTop(body), ret: None, isAsyncGen: true}
 }
 
 // asyncGenSend is the awaitable __anext__, asend, athrow, and aclose return: a
