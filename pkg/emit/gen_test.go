@@ -415,6 +415,78 @@ func TestGeneratorGuardedYieldRefused(t *testing.T) {
 	}
 }
 
+// TestGeneratorDeoptSignalEdge proves that a generator marked deopt-capable emits a
+// guard's failure edge as the bare deopt signal on Next's three-value channel rather
+// than refusing. The same int-add overflow that TestGeneratorGuardedYieldRefused
+// keeps boxed here flushes to `return 0, false, objects.DeoptSignal`; the consumer
+// driving the machine routes that signal into its own from-top deopt. The done
+// return stays the ordinary `return 0, true, nil`, so an exhausted machine still
+// ends the drive loop cleanly.
+func TestGeneratorDeoptSignalEdge(t *testing.T) {
+	_, iR, _ := reprs()
+	gen := Generator{
+		Name:   "sumGen",
+		Elem:   iR,
+		Fields: []GenField{{Name: "a", Repr: iR}, {Name: "b", Repr: iR}},
+		Segments: []Segment{
+			{Yield: Bin{Op: OpAdd, L: Recv{Name: "a", Repr: iR}, R: Recv{Name: "b", Repr: iR}}},
+		},
+		Deopt: true,
+	}
+	got, err := EmitGenerator(gen)
+	if err != nil {
+		t.Fatalf("a deopt-capable generator should emit the signal edge, not refuse: %v", err)
+	}
+	if !strings.Contains(got, "return 0, false, objects.DeoptSignal") {
+		t.Fatalf("an overflow guard in a deopt-capable generator should return the deopt signal:\n%s", got)
+	}
+	if !strings.Contains(got, "return 0, true, nil") {
+		t.Fatalf("the done return should stay a clean three-value nil-error return:\n%s", got)
+	}
+}
+
+// TestGeneratorDriveLoopDeoptRoutes proves the consumer half of the signal ABI. A
+// ForGen marked Deopt tells the driven generator's deopt signal apart from a real
+// raised exception by *objects.Deopt type: a signal routes into the consumer's own
+// from-top deopt edge, so the consumer re-runs boxed and drives a boxed generator
+// over the whole correct sequence; any other error propagates the way every node
+// does. Driving a deoptable generator makes the consumer a deopt site, so the entry
+// snapshot the from-top edge replays is prepended too.
+func TestGeneratorDriveLoopDeoptRoutes(t *testing.T) {
+	fR, _, _ := reprs()
+	genR := Repr{Go: "*sumGen", Scalar: NotScalar}
+	got, err := EmitFunc(Func{
+		Name:   "drive",
+		Params: []Param{{Name: "it", Repr: genR}},
+		Ret:    fR,
+		Body: []Stmt{
+			Define{Name: "total", Value: Float{V: 0}},
+			ForGen{
+				Bind:  "x",
+				Elem:  fR,
+				Gen:   Var{Name: "it", Repr: genR},
+				Body:  []Stmt{AugAssign{Name: "total", Repr: fR, Value: Var{Name: "x", Repr: fR}}},
+				Deopt: true,
+			},
+			Return{Value: Var{Name: "total", Repr: fR}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"x, done, err := it.Next()",
+		"if err != nil {",
+		"if _, ok := err.(*objects.Deopt); ok {",
+		"return drive_deopt0(",
+		"return 0.0, err",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("a deoptable-generator drive should route the signal into the from-top edge, missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestGeneratorYieldTypeMismatch(t *testing.T) {
 	fR, _, _ := reprs()
 	gen := Generator{

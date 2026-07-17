@@ -82,6 +82,15 @@ type Generator struct {
 	Fields   []GenField
 	Segments []Segment
 	Trailer  []Stmt
+	// Deopt allows a guard inside the machine to hand off instead of forcing the
+	// whole generator boxed. When set, a guard's failure edge returns the bare deopt
+	// signal on Next's error channel (see Builder.genDeopt); the consumer driving the
+	// generator catches the signal and re-runs boxed, so the sequence continues
+	// through a boxed generator. When clear, a guard has nowhere to fall back to and
+	// genNext refuses, keeping the unit boxed. The bridge sets Deopt for a generator
+	// whose only guard is an overflow it can prove a pure-bodied consumer re-runs
+	// correctly; a build outside that path leaves it clear and the goldens stay boxed.
+	Deopt bool
 }
 
 // EmitGenerator lowers a static generator to gofmt-clean Go: the state struct
@@ -92,7 +101,7 @@ func EmitGenerator(gen Generator) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	b := &Builder{fn: gen.Name, ret: gen.Elem}
+	b := &Builder{fn: gen.Name, ret: gen.Elem, genDeopt: gen.Deopt}
 	next, err := genNext(b, gen)
 	if err != nil {
 		return "", err
@@ -156,15 +165,16 @@ func genNext(b *Builder, gen Generator) (*ast.FuncDecl, error) {
 		cases = append(cases, &ast.CaseClause{List: []ast.Expr{intLit(done)}, Body: body})
 	}
 
-	// A guard anywhere in the machine (a segment's pre-statements, its yield, a
-	// loop bound, or the trailer) reaches deoptEdge, which for a paramless handler-
-	// less generator builder emits a single-value `return name_deopt0()` into the
-	// three-value Next: broken Go. The static generator has no boxed-frame resume at
-	// M4 (doc 06 sections 8.2 and 8.3 defer materializing the resumable frame), so
-	// there is nowhere for a mid-machine guard to fall back to. Refuse rather than
-	// emit wrong Go; the unit stays boxed and its guard deopts through the boxed
-	// generator instead.
-	if b.deoptUsed || b.nDeopt > 0 {
+	// A guard anywhere in the machine (a segment's pre-statements, its yield, a loop
+	// bound, or the trailer) reaches deoptEdge. When the generator is deopt-capable
+	// that edge returned the bare deopt signal, a well-formed three-value return the
+	// consumer routes into its own from-top deopt; the machine needs no boxed-frame
+	// resume of its own. When it is not, deoptEdge would emit a single-value
+	// `return name_deopt0()` into the three-value Next, broken Go, and there is
+	// nowhere for the guard to fall back to, so refuse and keep the unit boxed. The
+	// nDeopt check catches a placeholder edge; deoptUsed alone is set by the signal
+	// edge too, so it is only a refusal when the generator was not marked deopt.
+	if !gen.Deopt && (b.deoptUsed || b.nDeopt > 0) {
 		return nil, fmt.Errorf("emit: generator %s carries a guard with no static deopt edge; keep it boxed", gen.Name)
 	}
 
