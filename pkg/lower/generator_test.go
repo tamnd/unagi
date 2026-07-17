@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
@@ -106,6 +107,66 @@ func TestAsyncGeneratorLowersToFrame(t *testing.T) {
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("emitted source missing %q:\n%s", want, got)
+		}
+	}
+}
+
+// twinDecl lowers the first def in src to its boxed generator twin and prints it,
+// so a test can pin the resume-point switch the seeded twin carries. It builds an
+// emitter and a fnCtx the way lowerModule does, then renders the single decl.
+func twinDecl(t *testing.T, src string) string {
+	t.Helper()
+	mod, err := frontend.Parse([]byte(src), "gen.py")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var def *frontend.FuncDef
+	for _, s := range mod.Body {
+		if d, ok := s.(*frontend.FuncDef); ok {
+			def = d
+			break
+		}
+	}
+	if def == nil {
+		t.Fatal("no def in source")
+	}
+	e := &emitter{
+		modName:    "__main__",
+		defs:       map[string]*frontend.FuncDef{},
+		defOrd:     map[string]int{},
+		rebound:    map[string]bool{},
+		globalDecl: map[string]bool{},
+		moduleVars: map[string]bool{},
+		classOrd:   map[string]int{},
+	}
+	f := newFnCtx(e, true, def.Name)
+	f.qual = def.Name
+	decl, err := e.fillFrameTwinDecl(f, def, def.Name+"_gentwin", "NewGeneratorAt")
+	if err != nil {
+		t.Fatalf("twin: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := writeDecl(&buf, decl); err != nil {
+		t.Fatalf("print: %v", err)
+	}
+	return buf.String()
+}
+
+func TestGeneratorTwinCarriesResumeSwitch(t *testing.T) {
+	// The seeded twin is a NewGeneratorAt boxed generator whose closure takes the
+	// seed and switches on it: seed zero runs the whole body from the top, so the
+	// case-zero arm holds the same yields fillFrameDecl emits, and the outer decl
+	// forwards the seed into the constructor.
+	got := twinDecl(t, "def g(n):\n    i = 0\n    while i < n:\n        yield i\n        i += 1\n")
+	for _, want := range []string{
+		"func g_gentwin(u_n objects.Object, seed int) (objects.Object, error)",
+		"objects.NewGeneratorAt(\"g\", seed, func(gy objects.Yielder, seed int) (objects.Object, error) {",
+		"switch seed {",
+		"case 0:",
+		"gy.Yield(u_i)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("twin missing %q:\n%s", want, got)
 		}
 	}
 }

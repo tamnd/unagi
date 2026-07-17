@@ -210,10 +210,50 @@ func hasYield(body []frontend.Stmt) bool {
 // lands in the closure the constructor drives, so each call mints a fresh frame
 // with its own locals captured from the outer parameters.
 func (e *emitter) fillFrameDecl(f *fnCtx, d *frontend.FuncDef, declName, ctor string) (*ast.FuncDecl, error) {
+	closureBody, err := e.frameClosureBody(f, d)
+	if err != nil {
+		return nil, err
+	}
+	closure := &ast.FuncLit{
+		Type: &ast.FuncType{
+			Params:  fieldList(field(e.obj("Yielder"), f.genYielder)),
+			Results: fieldList(field(e.obj("Object")), field(ident("error"))),
+		},
+		Body: closureBody,
+	}
+	body := block(&ast.ReturnStmt{Results: []ast.Expr{
+		callExpr(e.obj(ctor), strLit(f.qual), closure),
+		ident("nil"),
+	}})
+	return &ast.FuncDecl{
+		Name: ident(declName),
+		Type: &ast.FuncType{
+			Params:  frameParams(e, d),
+			Results: fieldList(field(e.obj("Object")), field(ident("error"))),
+		},
+		Body: body,
+	}, nil
+}
+
+// frameParams builds the boxed parameter list a frame function takes, one
+// objects.Object field per Python parameter so each name carries its own type.
+func frameParams(e *emitter, d *frontend.FuncDef) *ast.FieldList {
 	params := &ast.FieldList{}
 	for _, p := range d.Params {
-		f.locals[p.Name] = true
 		params.List = append(params.List, field(e.obj("Object"), mangle(p.Name)))
+	}
+	return params
+}
+
+// frameClosureBody lowers a generator or coroutine body into the block the frame
+// constructor drives. It marks the parameters and every plain local, declares
+// the locals, lowers the statements through the yielder handle, and falls off the
+// end with a None return, the shape a bare return lowers to. Both the plain frame
+// closure and the seeded twin closure share it, so the two stay byte-identical up
+// to the resume-point switch the twin wraps around it.
+func (e *emitter) frameClosureBody(f *fnCtx, d *frontend.FuncDef) (*ast.BlockStmt, error) {
+	for _, p := range d.Params {
+		f.locals[p.Name] = true
 	}
 	f.genYielder = "gy"
 	collectGlobals(d.Body, f.globals)
@@ -238,15 +278,61 @@ func (e *emitter) fillFrameDecl(f *fnCtx, d *frontend.FuncDef, declName, ctor st
 	// Falling off the end returns None as the StopIteration value, the same
 	// shape a bare return lowers to.
 	f.add(&ast.ReturnStmt{Results: []ast.Expr{e.obj("None"), ident("nil")}})
+	return f.pop(), nil
+}
+
+// genSeed is the resume-point discriminant the seeded twin closure switches on:
+// zero is top-of-body, so NewGenerator stays the seed == 0 special case, and each
+// non-zero value is a resume point the static machine assigns. It is unmangled,
+// so it never collides with a Python local, which always lowers to a u_ name.
+const genSeed = "seed"
+
+// fillFrameTwinDecl builds the boxed generator twin a static generator deopts
+// into: a boxed generator whose body carries a resume-point switch on the seed,
+// so a guard that fires mid-machine hands off to it and it continues the sequence
+// at the yield boundary the static machine last passed. It is the fillFrameDecl
+// analog, the generator mirror of resumeHandlerDecl on the function side: the
+// static form reboxes the discriminant and the saved fields and constructs this
+// twin through NewGeneratorAt, seeded at the failing resume point.
+//
+// The twin closure takes the seed and switches on it at entry. Seed zero is
+// top-of-body, so its case runs the whole body from the top exactly as
+// fillFrameDecl's closure does; every non-zero seed is a resume point the static
+// machine assigns, filled with the segment that re-runs from that boundary when
+// the deopt edge and the resume proof land in GT8 and GT9. Until then the twin is
+// dark: the build routes no generator into it, so the from-top case is the only
+// one the runtime can reach, and it reproduces the boxed generator fillFrameDecl
+// already emits. A seed the switch does not name falls straight to the None
+// return, which the dark twin never reaches.
+func (e *emitter) fillFrameTwinDecl(f *fnCtx, d *frontend.FuncDef, declName, ctor string) (*ast.FuncDecl, error) {
+	closureBody, err := e.frameClosureBody(f, d)
+	if err != nil {
+		return nil, err
+	}
+	sw := &ast.SwitchStmt{
+		Tag: ident(genSeed),
+		Body: block(&ast.CaseClause{
+			List: []ast.Expr{intLit("0")},
+			Body: closureBody.List,
+		}),
+	}
 	closure := &ast.FuncLit{
 		Type: &ast.FuncType{
-			Params:  fieldList(field(e.obj("Yielder"), f.genYielder)),
+			Params: fieldList(
+				field(e.obj("Yielder"), f.genYielder),
+				field(ident("int"), genSeed),
+			),
 			Results: fieldList(field(e.obj("Object")), field(ident("error"))),
 		},
-		Body: f.pop(),
+		Body: block(sw, &ast.ReturnStmt{Results: []ast.Expr{e.obj("None"), ident("nil")}}),
 	}
+	// The twin takes the seed after the boxed parameters and hands it to the
+	// constructor, which drives the closure with it; the static form's resume
+	// hand-off fills that seed with the discriminant the guard fired at.
+	params := frameParams(e, d)
+	params.List = append(params.List, field(ident("int"), genSeed))
 	body := block(&ast.ReturnStmt{Results: []ast.Expr{
-		callExpr(e.obj(ctor), strLit(f.qual), closure),
+		callExpr(e.obj(ctor), strLit(f.qual), ident(genSeed), closure),
 		ident("nil"),
 	}})
 	return &ast.FuncDecl{
