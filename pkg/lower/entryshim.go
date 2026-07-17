@@ -34,38 +34,52 @@ func (e *emitter) entryShimDecl(d *frontend.FuncDef, se StaticEntry) *ast.FuncDe
 	n := len(se.Params)
 	pnames := make([]string, n)
 	pfields := make([]*ast.Field, n)
-	pidents := make([]ast.Expr, n)
 	for i := range n {
 		pnames[i] = fmt.Sprintf("p%d", i)
 		pfields[i] = field(e.obj("Object"), pnames[i])
-		pidents[i] = ident(pnames[i])
+	}
+
+	// fallback is the boxed form every failed guard falls back to, re-run on the
+	// original boxed arguments, which is always correct. It is rebuilt fresh each
+	// time so no AST node is shared between two return sites.
+	fallback := func() *ast.BlockStmt {
+		args := make([]ast.Expr, n)
+		for i := range n {
+			args[i] = ident(pnames[i])
+		}
+		return block(&ast.ReturnStmt{Results: []ast.Expr{
+			callExpr(ident(e.defName(d.Name)), args...),
+		}})
 	}
 
 	var body []ast.Stmt
-	// Unbox every parameter and OR its two failure terms into the guard: the
+	// Unbox every scalar parameter and OR its two failure terms into the guard: the
 	// unbox did not succeed, or the dynamic type is not the exact one the static
-	// form expects. A zero-parameter function skips the guard and enters directly.
+	// form expects. A shape parameter cannot fold into a boolean OR, since
+	// materializing it reads slots that can each fail, so it emits its own guarded
+	// early returns instead. A zero-parameter function skips the guard and enters
+	// directly.
 	var guard ast.Expr
 	for i := range n {
+		p := se.Params[i]
+		if p.Shape != nil {
+			body = append(body, e.materializeShape(i, p.Shape, pnames[i], fallback)...)
+			continue
+		}
 		xname := fmt.Sprintf("x%d", i)
 		okname := fmt.Sprintf("ok%d", i)
 		body = append(body, assign(token.DEFINE,
 			[]ast.Expr{ident(xname), ident(okname)},
-			callExpr(e.obj(unboxAccessor(se.Params[i])), ident(pnames[i]))))
+			callExpr(e.obj(unboxAccessor(p.Scalar)), ident(pnames[i]))))
 		guard = orJoin(guard, notExpr(ident(okname)))
 		guard = orJoin(guard, &ast.BinaryExpr{
 			X:  callExpr(sel(pnames[i], "TypeName")),
 			Op: token.NEQ,
-			Y:  strLit(scalarTypeName(se.Params[i])),
+			Y:  strLit(scalarTypeName(p.Scalar)),
 		})
 	}
 	if guard != nil {
-		body = append(body, &ast.IfStmt{
-			Cond: guard,
-			Body: block(&ast.ReturnStmt{Results: []ast.Expr{
-				callExpr(ident(e.defName(d.Name)), pidents...),
-			}}),
-		})
+		body = append(body, &ast.IfStmt{Cond: guard, Body: fallback()})
 	}
 
 	// Enter the static body with the unboxed values, handle the error channel,
@@ -110,6 +124,53 @@ func (e *emitter) entryShimDecl(d *frontend.FuncDef, se StaticEntry) *ast.FuncDe
 	}
 }
 
+// materializeShape builds the statements that turn boxed parameter p{i} into the
+// Go struct the static form takes for a fixed-shape parameter. It guards the
+// receiver's exact class, reads each slot out of the boxed instance through the
+// public attribute read, unboxes it to its native scalar, and assembles the
+// struct into x{i}. Any failure (the wrong class, an unset or unreadable slot, a
+// value that does not fit its native scalar) takes the boxed fallback, so the
+// struct the static body sees only ever describes an instance of the exact class
+// with every slot present and representable. The fallback is a thunk so each
+// early return gets its own fresh AST node.
+func (e *emitter) materializeShape(i int, sh *StaticShape, pname string, fallback func() *ast.BlockStmt) []ast.Stmt {
+	// The exact-class guard runs first, so the slot reads below only ever run on
+	// the class whose fixed layout the struct models.
+	stmts := []ast.Stmt{&ast.IfStmt{
+		Cond: &ast.BinaryExpr{
+			X:  callExpr(sel(pname, "TypeName")),
+			Op: token.NEQ,
+			Y:  strLit(sh.Name),
+		},
+		Body: fallback(),
+	}}
+
+	elts := make([]ast.Expr, len(sh.Fields))
+	for j, f := range sh.Fields {
+		rawname := fmt.Sprintf("s%d_%d", i, j)  // the boxed slot value
+		valname := fmt.Sprintf("f%d_%d", i, j)  // its native scalar
+		okname := fmt.Sprintf("sok%d_%d", i, j) // whether the unbox held
+		stmts = append(stmts,
+			// Read the slot out of the boxed instance. An error here means the slot
+			// is unset or not a plain slot, which the boxed form handles.
+			assign(token.DEFINE, []ast.Expr{ident(rawname), ident("err")},
+				callExpr(e.obj("LoadAttr"), ident(pname), strLit(f.Name))),
+			&ast.IfStmt{Cond: errNotNil(), Body: fallback()},
+			// Unbox the slot to its native scalar. A spilled or mistyped value fails
+			// the unbox, so a big int in an int slot leaves the static path.
+			assign(token.DEFINE, []ast.Expr{ident(valname), ident(okname)},
+				callExpr(e.obj(unboxAccessor(f.Scalar)), ident(rawname))),
+			&ast.IfStmt{Cond: notExpr(ident(okname)), Body: fallback()},
+		)
+		elts[j] = kv(f.Name, ident(valname))
+	}
+
+	// Assemble the struct the static form receives.
+	return append(stmts, assign(token.DEFINE,
+		[]ast.Expr{ident(fmt.Sprintf("x%d", i))},
+		&ast.CompositeLit{Type: ident(sh.Name), Elts: elts}))
+}
+
 // deoptHandlerName is the hand-off function the static form of a deopt-target def
 // tail-calls, derived from the static form's own name so the static side and this
 // side agree on it without threading a separate identifier.
@@ -128,8 +189,8 @@ func (e *emitter) deoptHandlerDecl(d *frontend.FuncDef, se StaticEntry) *ast.Fun
 	reboxed := make([]ast.Expr, n)
 	for i := range n {
 		pname := fmt.Sprintf("p%d", i)
-		pfields[i] = field(scalarGoType(se.Params[i]), pname)
-		reboxed[i] = callExpr(e.obj(reboxConstructor(se.Params[i])), ident(pname))
+		pfields[i] = field(scalarGoType(se.Params[i].Scalar), pname)
+		reboxed[i] = callExpr(e.obj(reboxConstructor(se.Params[i].Scalar)), ident(pname))
 	}
 	sentinel := &ast.UnaryExpr{Op: token.AND, X: &ast.CompositeLit{
 		Type: e.obj("Deopt"),
@@ -166,7 +227,13 @@ func (e *emitter) deoptHandlerDecl(d *frontend.FuncDef, se StaticEntry) *ast.Fun
 // that equality holds.
 func (e *emitter) resumeHandlerDecl(se StaticEntry) *ast.FuncDecl {
 	r := se.Resume
-	scalars := append(append([]StaticScalar{}, r.Lead...), se.Params...)
+	// The resume hand-off reboxes the leading re-entry scalars and then the entry
+	// parameters, all of which are scalars: the build gates mid-loop resume to the
+	// counting-loop shape, whose entries never carry a shape parameter.
+	scalars := append([]StaticScalar{}, r.Lead...)
+	for _, p := range se.Params {
+		scalars = append(scalars, p.Scalar)
+	}
 	pfields := make([]*ast.Field, len(scalars))
 	reboxed := make([]ast.Expr, len(scalars))
 	for i, s := range scalars {

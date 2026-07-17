@@ -198,13 +198,13 @@ func staticEntries(plan *staticPlan) map[string]lower.StaticEntry {
 // representation the shim does not handle (an aggregate, a list). The gate keeps
 // the shim to the scalar boundary it can guard exactly.
 func shimEntry(sc ir.StaticCallee, static string) (lower.StaticEntry, bool) {
-	params := make([]lower.StaticScalar, len(sc.Params))
+	params := make([]lower.StaticParam, len(sc.Params))
 	for i, r := range sc.Params {
 		s, ok := shimScalar(r.Scalar)
 		if !ok {
 			return lower.StaticEntry{}, false
 		}
-		params[i] = s
+		params[i] = lower.ScalarParam(s)
 	}
 	ret, ok := shimScalar(sc.Ret.Scalar)
 	if !ok {

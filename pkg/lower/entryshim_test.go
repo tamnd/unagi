@@ -26,7 +26,7 @@ func areaModule() *frontend.Module {
 // the boxed form on a mismatch, enters the static form, and reboxes the result.
 func TestEntryShimGuardsUnboxesReboxes(t *testing.T) {
 	statics := map[string]StaticEntry{
-		"area": {Static: "static_area", Params: []StaticScalar{StaticFloat, StaticFloat}, Ret: StaticFloat},
+		"area": {Static: "static_area", Params: []StaticParam{ScalarParam(StaticFloat), ScalarParam(StaticFloat)}, Ret: StaticFloat},
 	}
 	src, err := ModuleStatic(areaModule(), "area.py", nil, nil, statics)
 	if err != nil {
@@ -53,7 +53,7 @@ func TestEntryShimGuardsUnboxesReboxes(t *testing.T) {
 // rather than the boxed form directly, so the static tier is reached at runtime.
 func TestEntryShimRoutesBoxedCall(t *testing.T) {
 	statics := map[string]StaticEntry{
-		"area": {Static: "static_area", Params: []StaticScalar{StaticFloat, StaticFloat}, Ret: StaticFloat},
+		"area": {Static: "static_area", Params: []StaticParam{ScalarParam(StaticFloat), ScalarParam(StaticFloat)}, Ret: StaticFloat},
 	}
 	src, err := ModuleStatic(areaModule(), "area.py", nil, nil, statics)
 	if err != nil {
@@ -72,7 +72,7 @@ func TestEntryShimRoutesBoxedCall(t *testing.T) {
 // raised error. A real exception still propagates unchanged.
 func TestDeoptEntryEmitsHandlerAndUnwrapsSentinel(t *testing.T) {
 	statics := map[string]StaticEntry{
-		"area": {Static: "static_area", Params: []StaticScalar{StaticFloat, StaticFloat}, Ret: StaticFloat, Deopt: true},
+		"area": {Static: "static_area", Params: []StaticParam{ScalarParam(StaticFloat), ScalarParam(StaticFloat)}, Ret: StaticFloat, Deopt: true},
 	}
 	src, err := ModuleStatic(areaModule(), "area.py", nil, nil, statics)
 	if err != nil {
@@ -97,7 +97,7 @@ func TestDeoptEntryEmitsHandlerAndUnwrapsSentinel(t *testing.T) {
 // unit can actually deopt.
 func TestNoDeoptEntrySkipsHandler(t *testing.T) {
 	statics := map[string]StaticEntry{
-		"area": {Static: "static_area", Params: []StaticScalar{StaticFloat, StaticFloat}, Ret: StaticFloat},
+		"area": {Static: "static_area", Params: []StaticParam{ScalarParam(StaticFloat), ScalarParam(StaticFloat)}, Ret: StaticFloat},
 	}
 	src, err := ModuleStatic(areaModule(), "area.py", nil, nil, statics)
 	if err != nil {
