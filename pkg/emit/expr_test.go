@@ -503,6 +503,40 @@ func TestFloatAugAssignUsesCompoundToken(t *testing.T) {
 	}
 }
 
+func TestGenNewConstructsHandle(t *testing.T) {
+	_, iR, _ := reprs()
+	// A generator handle construction lowers to &countGen{n: n} taking the address
+	// of a composite literal: each saved field binds to its argument by name, the
+	// state discriminant and any induction field are left out so Go zero-initializes
+	// them at the top of the machine, and the result is a pointer to the state struct.
+	handle := Repr{Go: "*countGen", Scalar: NotScalar}
+	src := emitOneReturn(t, "make", handle, []Param{{Name: "n", Repr: iR}},
+		GenNew{Type: "countGen", Fields: []GenArg{{Name: "n", Value: Var{Name: "n", Repr: iR}}}})
+	if !strings.Contains(src, "func make(n int64) (*countGen, error)") {
+		t.Fatalf("the returning function should carry the pointer result type:\n%s", src)
+	}
+	if !strings.Contains(src, "return &countGen{n: n}, nil") {
+		t.Fatalf("a generator handle should lower to the address of a keyed composite literal:\n%s", src)
+	}
+	if strings.Contains(src, "state:") {
+		t.Fatalf("the discriminant must be left to Go's zero value, not set explicitly:\n%s", src)
+	}
+}
+
+func TestGenNewCoercesCompoundArgument(t *testing.T) {
+	fR, _, _ := reprs()
+	// An argument that is itself an expression evaluates once at construction, exactly
+	// where the call site placed it, so a saved field can carry a computed seed. A total
+	// float add lowers inline with no guard, so the composite literal reads it directly.
+	handle := Repr{Go: "*acc", Scalar: NotScalar}
+	src := emitOneReturn(t, "make", handle, []Param{{Name: "a", Repr: fR}, {Name: "b", Repr: fR}},
+		GenNew{Type: "acc", Fields: []GenArg{{Name: "s", Value: Bin{Op: OpAdd,
+			L: Var{Name: "a", Repr: fR}, R: Var{Name: "b", Repr: fR}}}}})
+	if !strings.Contains(src, "s: a + b") {
+		t.Fatalf("a compound argument should lower in place as the field value:\n%s", src)
+	}
+}
+
 func TestNonNumericOperandRejected(t *testing.T) {
 	fR, _, _ := reprs()
 	strR := Repr{Go: "string", Scalar: SStr, Total: true}
