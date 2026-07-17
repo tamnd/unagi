@@ -54,11 +54,51 @@ func (s Scalar) String() string {
 // whether every operation on it is total (float, str, bool have no narrowing
 // guard; int does not, its arithmetic guards overflow per doc 06 section 7.5),
 // and, for a list, the element representation the loop and index paths need.
+//
+// A fixed-shape class instance is the one non-scalar, non-list category: its Go
+// text is the generated struct type name, Scalar is NotScalar, and Shape names
+// the ordered field layout the attribute-read path resolves a field name
+// against. It carries no Elem. An aggregate category is expressed by a
+// discriminator field like Elem or Shape, never by a new Scalar, so the
+// arithmetic lowering keeps branching on the scalar set alone.
 type Repr struct {
 	Go     string
 	Scalar Scalar
 	Total  bool
 	Elem   *Repr
+	Shape  *Shape
+}
+
+// Shape is the fixed field layout of a __slots__ class instance the static tier
+// lowers to a Go struct: the struct type name and its fields in declaration
+// order, each a name and the representation the field holds. A class earns a
+// Shape only when its slots are fixed and every slot has a scalar
+// representation, so a field read resolves to a plain Go struct field load with
+// no boxing. The layout is proven before this is built, so a field the read
+// names is always present.
+type Shape struct {
+	Name   string
+	Fields []ShapeField
+}
+
+// ShapeField is one field of a Shape: the Go field name and the representation
+// the field load yields.
+type ShapeField struct {
+	Name string
+	Repr Repr
+}
+
+// Field returns the representation of the named field and whether the shape
+// carries it. A read of an absent field never reaches here once inference has
+// proven the layout, so the false result is the emit-time guard against a
+// miscompiled attribute read rather than a runtime path.
+func (s *Shape) Field(name string) (Repr, bool) {
+	for _, f := range s.Fields {
+		if f.Name == name {
+			return f.Repr, true
+		}
+	}
+	return Repr{}, false
 }
 
 // goType builds the go/ast type node for the representation. Scalars are a bare
@@ -83,6 +123,12 @@ func (r Repr) zero() ast.Expr {
 		return ident("false")
 	case SStr:
 		return &ast.BasicLit{Kind: token.STRING, Value: `""`}
+	}
+	// A fixed-shape struct value zeroes to a bare composite literal, T{}, not nil:
+	// it is a Go value type, so an error-path return of it must be a real zero
+	// struct rather than a nil an untyped return would reject.
+	if r.Shape != nil {
+		return &ast.CompositeLit{Type: ident(r.Shape.Name)}
 	}
 	return ident("nil")
 }

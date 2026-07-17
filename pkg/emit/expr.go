@@ -196,6 +196,18 @@ type ListLit struct {
 	Items []Expr
 }
 
+// Attr is an attribute read of a fixed-shape class instance, obj.x, lowering to
+// a plain Go struct field load base.Name. Base carries a Shape representation
+// (its class layout is proven), and Name is a field the Shape lists, so the read
+// is total and unguarded: the shape guard that makes it safe fired once at the
+// boxed-to-static entry, so by the time the field load runs the receiver is
+// already the proven struct. The read yields the field's representation. A
+// mismatched shape never reaches here; it deopted to the boxed twin at the entry.
+type Attr struct {
+	Base Expr
+	Name string
+}
+
 func (Var) isExpr()     {}
 func (Int) isExpr()     {}
 func (Float) isExpr()   {}
@@ -204,6 +216,7 @@ func (Str) isExpr()     {}
 func (Bin) isExpr()     {}
 func (Index) isExpr()   {}
 func (ListLit) isExpr() {}
+func (Attr) isExpr()    {}
 
 // lowerExpr lowers one expression to a Go expression and its representation,
 // appending any guard statements it needs (an integer overflow check, a division
@@ -233,6 +246,8 @@ func (b *Builder) lowerExpr(e Expr) (ast.Expr, Repr, error) {
 		return b.lowerBin(n)
 	case Index:
 		return b.lowerIndex(n)
+	case Attr:
+		return b.lowerAttr(n)
 	case ListLit:
 		return b.lowerListLit(n)
 	case Cmp:
@@ -454,6 +469,28 @@ func (b *Builder) lowerListLit(n ListLit) (ast.Expr, Repr, error) {
 // negative or out-of-range index leaves the static tier for the boxed twin,
 // which owns CPython's negative-wraparound and IndexError semantics. The static
 // form therefore only ever runs the in-range fast path, never a wrong answer.
+// lowerAttr lowers obj.x on a fixed-shape instance to a plain Go struct field
+// load. The base must carry a Shape representation and the name must be one of
+// its fields; both are proven before this node is built, so a base that is not a
+// shape or a field the shape does not list is a miscompile the emitter refuses
+// rather than lowering to a wrong access. There is no guard here: the shape
+// guard that admits the receiver fired at the boxed-to-static entry, so the read
+// is a total field load yielding the field's representation, no boxing crossed.
+func (b *Builder) lowerAttr(n Attr) (ast.Expr, Repr, error) {
+	bx, br, err := b.lowerExpr(n.Base)
+	if err != nil {
+		return nil, Repr{}, err
+	}
+	if br.Shape == nil {
+		return nil, Repr{}, fmt.Errorf("emit: attribute base has representation %q, not a fixed-shape instance", br.Go)
+	}
+	fr, ok := br.Shape.Field(n.Name)
+	if !ok {
+		return nil, Repr{}, fmt.Errorf("emit: shape %q has no field %q", br.Shape.Name, n.Name)
+	}
+	return &ast.SelectorExpr{X: bx, Sel: ident(n.Name)}, fr, nil
+}
+
 func (b *Builder) lowerIndex(n Index) (ast.Expr, Repr, error) {
 	bx, br, err := b.lowerExpr(n.Base)
 	if err != nil {
