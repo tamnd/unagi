@@ -52,6 +52,16 @@ type StaticCallee struct {
 // unit stays boxed, which is how a caller with no known-static callees behaves.
 type CalleeResolver func(name string) (StaticCallee, bool)
 
+// GlobalResolver reports the representation of a module-level scalar global the
+// function may read through its typed shadow, or false when the name is not a
+// tracked global. The build hands the bridge a resolver already restricted to the
+// globals this function reads freely, with every name the function binds locally
+// removed, so a name the resolver accepts is always a genuine free global read and
+// never a not-yet-bound local. A nil resolver tracks no global, so every free name
+// refuses and the unit stays boxed, which is how a function with no known globals
+// behaves.
+type GlobalResolver func(name string) (emit.Repr, bool)
+
 // SignatureOf reads a lowered function's unboxed signature into a StaticCallee
 // under the given emitted Go name, so a caller's resolver can describe this
 // function without re-deriving its parameter and result representations from the
@@ -116,7 +126,41 @@ type lowerCtx struct {
 	reads   map[string]bool
 	inLoop  bool
 	resolve CalleeResolver
+	// globals resolves a free name to a tracked module scalar global's shadow
+	// representation, or reports false. It is nil when the function reads no
+	// tracked global.
+	globals GlobalResolver
+	// guards accumulates the world-age binding guards the function carries, one
+	// per distinct tracked global it reads. It is a pointer so a lowerCtx copied
+	// by value into a branch or loop still records into the one function-wide set.
+	guards *bindingGuards
 }
+
+// bindingGuards collects the distinct tracked globals a function reads, in
+// first-read order, so each contributes exactly one entry-level world-age guard.
+type bindingGuards struct {
+	seen  map[string]bool
+	order []emit.BindingGuard
+}
+
+// use records a read of tracked global name, adding its entry guard the first
+// time the name is seen. The version is 1, the specialized binding the static
+// form assumes; the boxed tier bumps the counter off 1 on any incompatible
+// rebind, so the entry guard fails and the read routes to the boxed twin.
+func (g *bindingGuards) use(name string) {
+	if g.seen[name] {
+		return
+	}
+	g.seen[name] = true
+	g.order = append(g.order, emit.BindingGuard{VerVar: shadowVer(name), Version: 1})
+}
+
+// shadowVar and shadowVer name the package-level typed shadow and world-age
+// version counter the lower tier declares for a tracked global. The static form
+// reads the shadow on its fast path and guards the counter at entry; both names
+// must match the ones lower emits, so they are spelled once here.
+func shadowVar(name string) string { return "bshadow_" + name }
+func shadowVer(name string) string { return "bver_" + name }
 
 // scalarRepr is the doc 04 representation of a scalar type named by a bare
 // annotation. It is the same table emit.Of builds from a lattice type, spelled
@@ -141,7 +185,7 @@ func scalarRepr(name string) (emit.Repr, bool) {
 // outside the scalar subset pkg/emit lowers. On success the returned Func prints,
 // through emit.EmitFunc, to the same unboxed Go the hand-built models produced.
 func LowerFunc(fn *frontend.FuncDef) (emit.Func, error) {
-	return LowerFuncWith(fn, nil)
+	return LowerFuncFull(fn, nil, nil)
 }
 
 // LowerFuncWith lowers a function with a resolver for its static-tier callees, so
@@ -149,6 +193,16 @@ func LowerFunc(fn *frontend.FuncDef) (emit.Func, error) {
 // A nil resolver refuses every call, which is exactly LowerFunc's behavior. The
 // resolver is a pure function of the callee name, so lowering stays deterministic.
 func LowerFuncWith(fn *frontend.FuncDef, resolve CalleeResolver) (emit.Func, error) {
+	return LowerFuncFull(fn, resolve, nil)
+}
+
+// LowerFuncFull lowers a function with both a callee resolver and a resolver for
+// the module scalar globals it may read through a typed shadow. A free name the
+// global resolver accepts lowers to a read of that global's shadow, and the
+// function carries one entry-level world-age guard per distinct global it reads,
+// so a rebinding that no longer fits the shadow deopts to the boxed twin. Passing
+// a nil global resolver tracks no global, which is exactly LowerFuncWith.
+func LowerFuncFull(fn *frontend.FuncDef, resolve CalleeResolver, globals GlobalResolver) (emit.Func, error) {
 	if fn.Async {
 		return emit.Func{}, unsupported("async def %s", fn.Name)
 	}
@@ -183,7 +237,8 @@ func LowerFuncWith(fn *frontend.FuncDef, resolve CalleeResolver) (emit.Func, err
 	// unit boxed rather than emit a local Go rejects.
 	reads := map[string]bool{}
 	loadedNames(fn.Body, reads)
-	ctx := lowerCtx{reads: reads, resolve: resolve}
+	guards := &bindingGuards{seen: map[string]bool{}}
+	ctx := lowerCtx{reads: reads, resolve: resolve, globals: globals, guards: guards}
 
 	body, ret, terminates, err := lowerBody(fn.Body, sc, ctx)
 	if err != nil {
@@ -213,7 +268,7 @@ func LowerFuncWith(fn *frontend.FuncDef, resolve CalleeResolver) (emit.Func, err
 		}
 	}
 
-	return emit.Func{Name: fn.Name, Params: params, Ret: *ret, Body: body}, nil
+	return emit.Func{Name: fn.Name, Params: params, Ret: *ret, Body: body, BindingGuards: guards.order}, nil
 }
 
 // annotationRepr reads a bare-name scalar annotation. Only `int`, `float`,
@@ -1039,11 +1094,20 @@ func joinReturns(then, els *emit.Repr) (*emit.Repr, error) {
 func lowerExpr(e frontend.Expr, sc scope, ctx lowerCtx) (emit.Expr, emit.Repr, error) {
 	switch n := e.(type) {
 	case *frontend.Name:
-		r, ok := sc[n.Id]
-		if !ok {
-			return nil, emit.Repr{}, unsupported("name %s is read before it is bound", n.Id)
+		if r, ok := sc[n.Id]; ok {
+			return emit.Var{Name: n.Id, Repr: r}, r, nil
 		}
-		return emit.Var{Name: n.Id, Repr: r}, r, nil
+		// A free name the global resolver accepts is a module scalar global the
+		// static tier reads through its typed shadow. The read carries a world-age
+		// guard the function flushes at entry, so a rebinding that no longer fits the
+		// shadow deopts to the boxed twin before this read runs against a stale value.
+		if ctx.globals != nil {
+			if r, ok := ctx.globals(n.Id); ok {
+				ctx.guards.use(n.Id)
+				return emit.Var{Name: shadowVar(n.Id), Repr: r}, r, nil
+			}
+		}
+		return nil, emit.Repr{}, unsupported("name %s is read before it is bound", n.Id)
 
 	case *frontend.IntLit:
 		v, err := strconv.ParseInt(n.Text, 10, 64)

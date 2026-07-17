@@ -50,6 +50,15 @@ func GuardSitesOf(f emit.Func) []GuardSite {
 	for _, p := range f.Params {
 		w.declare(p.Name, p.Repr)
 	}
+	// A function that reads a module global carries a world-age guard at entry,
+	// ahead of the body. Its failure edge reboxes into the boxed twin, which
+	// re-runs the unit from the top, so the site opens before the first statement
+	// with the entry parameters as its live set: no local is bound yet and no
+	// observable effect precedes the guard. One site covers every binding guard,
+	// since they share the entry resume point.
+	if len(f.BindingGuards) > 0 {
+		w.sites = append(w.sites, GuardSite{Live: w.snapshot()})
+	}
 	w.block(f.Body)
 	return w.sites
 }
