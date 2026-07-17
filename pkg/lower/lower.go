@@ -47,14 +47,14 @@ func (e *Error) Error() string {
 // lines; nil skips the embedding and frames render bare, which is what
 // CPython prints when the source file is gone.
 func Module(mod *frontend.Module, file string, source []byte) ([]byte, error) {
-	return lowerModule(mod, file, source, "__main__", false, nil, nil)
+	return lowerModule(mod, file, source, "__main__", false, nil, nil, nil)
 }
 
 // ModuleStars lowers the entry module of a program that uses star imports:
 // stars maps each compiled module's import name to its export list, computed
 // by ModuleExports, so `from m import *` can bind names statically.
 func ModuleStars(mod *frontend.Module, file string, source []byte, stars map[string]StarExports) ([]byte, error) {
-	return lowerModule(mod, file, source, "__main__", false, stars, nil)
+	return lowerModule(mod, file, source, "__main__", false, stars, nil, nil)
 }
 
 // ModuleStatic lowers the entry module with the static tier lit: statics maps a
@@ -63,7 +63,19 @@ func ModuleStars(mod *frontend.Module, file string, source []byte, stars map[str
 // form instead of the boxed body. A name absent from statics lowers exactly as
 // ModuleStars would.
 func ModuleStatic(mod *frontend.Module, file string, source []byte, stars map[string]StarExports, statics map[string]StaticEntry) ([]byte, error) {
-	return lowerModule(mod, file, source, "__main__", false, stars, statics)
+	return lowerModule(mod, file, source, "__main__", false, stars, statics, nil)
+}
+
+// ModuleStaticGlobals is ModuleStatic with the module globals a static form reads
+// tracked: tracked maps each such global's name to its scalar type ("int",
+// "float", "bool", "str"). The module gains a typed shadow and a world-age
+// version counter for each, declared at package level, and every boxed store to
+// one of those globals is followed by a Rebind call that refreshes the shadow and
+// bumps the version. A static reader guards that version at entry, so a rebind the
+// shadow cannot hold deopts to the boxed twin. A nil map tracks no global, which
+// is exactly ModuleStatic.
+func ModuleStaticGlobals(mod *frontend.Module, file string, source []byte, stars map[string]StarExports, statics map[string]StaticEntry, tracked map[string]string) ([]byte, error) {
+	return lowerModule(mod, file, source, "__main__", false, stars, statics, tracked)
 }
 
 // PyModule lowers an imported module to a Go package the build lays out under
@@ -73,14 +85,14 @@ func ModuleStatic(mod *frontend.Module, file string, source []byte, stars map[st
 // the module object's live slots and runs the body once; the generated
 // modtable.go registers it in the runtime's import table.
 func PyModule(mod *frontend.Module, name, file string, source []byte) ([]byte, error) {
-	return lowerModule(mod, file, source, name, true, nil, nil)
+	return lowerModule(mod, file, source, name, true, nil, nil, nil)
 }
 
 // PyModuleStars is PyModule for a program that uses star imports, threading
 // the per-module export lists so a `from m import *` inside this module can
 // bind names statically.
 func PyModuleStars(mod *frontend.Module, name, file string, source []byte, stars map[string]StarExports) ([]byte, error) {
-	return lowerModule(mod, file, source, name, true, stars, nil)
+	return lowerModule(mod, file, source, name, true, stars, nil, nil)
 }
 
 // StarExports is one module's contribution to a `from m import *`. All holds a
@@ -231,13 +243,13 @@ func RelativeName(pack string, level int, module string) (string, bool) {
 	return base, true
 }
 
-func lowerModule(mod *frontend.Module, file string, source []byte, modName string, pkgMode bool, stars map[string]StarExports, statics map[string]StaticEntry) ([]byte, error) {
+func lowerModule(mod *frontend.Module, file string, source []byte, modName string, pkgMode bool, stars map[string]StarExports, statics map[string]StaticEntry, tracked map[string]string) ([]byte, error) {
 	// Rewrite class-private __names to their mangled _Class__name form before
 	// any name analysis runs, so scope collection and lowering see the same
 	// identifiers CPython would after mangling.
 	frontend.MangleClassPrivates(mod)
 
-	e := &emitter{file: file, source: source, modName: modName, pkgMode: pkgMode, pkgInit: pkgMode && strings.HasSuffix(file, "__init__.py"), stars: stars, statics: statics, escWarns: mod.EscapeWarnings, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}, classOrd: map[string]int{}}
+	e := &emitter{file: file, source: source, modName: modName, pkgMode: pkgMode, pkgInit: pkgMode && strings.HasSuffix(file, "__init__.py"), stars: stars, statics: statics, tracked: tracked, escWarns: mod.EscapeWarnings, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}, classOrd: map[string]int{}}
 
 	var body []frontend.Stmt
 	var defs []*frontend.FuncDef
@@ -546,6 +558,19 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 		}
 		out.WriteString(")\n\n")
 	}
+	if len(e.tracked) > 0 {
+		// The typed shadow holds the last binding a static reader can trust; the
+		// version counter starts at 0, the unbound state the entry guard rejects,
+		// and the boxed store bumps it to 1 when the shadow is a faithful native
+		// copy. A rebind the shadow cannot hold leaves the counter off 1, so the
+		// reader deopts to the boxed twin.
+		out.WriteString("// Typed shadows and world-age versions for the module globals the static\n// tier reads. The boxed store keeps each in step with the live binding.\nvar (\n")
+		for _, n := range sortedShadows(e.tracked) {
+			fmt.Fprintf(&out, "\t%s %s\n", shadowVar(n), shadowGoType(e.tracked[n]))
+			fmt.Fprintf(&out, "\t%s int64\n", shadowVer(n))
+		}
+		out.WriteString(")\n\n")
+	}
 	if pkgMode {
 		out.WriteString("// Exec binds every module-scope variable as a live slot on the module\n// object, then runs the body. The import machinery calls it at most once.\n")
 		if err := writeDecl(&out, execDecl(sortedNames(e.moduleVars))); err != nil {
@@ -675,6 +700,12 @@ type emitter struct {
 	// entry shim into the static tier. Empty when the build carries no static
 	// forms, which is every module the static plan did not cover.
 	statics map[string]StaticEntry
+	// tracked maps a module scalar global a static form reads to its scalar type
+	// ("int", "float", "bool", "str"). Each gets a typed shadow and a world-age
+	// version counter at package level, and every boxed store to the global is
+	// followed by a Rebind that refreshes the shadow and bumps the version. Empty
+	// when no static form reads a module global.
+	tracked map[string]string
 }
 
 // StaticEntry describes a static callee an entry shim routes into: the emitted
