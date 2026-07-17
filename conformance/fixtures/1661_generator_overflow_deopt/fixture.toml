@@ -1,0 +1,40 @@
+# A counting generator whose yield carries an int overflow guard, driven by two
+# pure static consumers. scaled yields base*i for i climbing from 1 to n: the
+# multiply overflows int64 once base*i passes the max, so unlike the guard-free
+# ramp in 1660 this generator cannot always run native. That guard is the whole
+# point of this fixture. It exercises the deopt-signal path the two generator
+# deopt items in doc 08 close: when the multiply overflows, the static
+# generator's Next returns objects.DeoptSignal on its error channel instead of a
+# value, the drive loop routes that signal into the consumer's own from-top
+# deopt edge, and the consumer re-runs boxed from the top, driving a boxed
+# generator that yields the correct big-int sequence past the overflow.
+#
+# total accumulates and last rebinds. last matters most here: its body has no
+# arithmetic of its own, so the only reason it is a deopt-target is that it
+# drives a generator whose Next can signal. total carries its own s = s + v
+# overflow guard on top, so it deopts either from the generator signal or from
+# its own accumulator, whichever trips first, and both land on the same from-top
+# boxed re-run. The from-top re-run is byte-identical because the drive body is
+# pure: it only reads the element and writes a local, with no observable effect
+# before the loop finishes, so replaying it boxed reproduces the same output.
+#
+# The four prints cover both sides of the guard. total(3, 5) and last(3, 5) stay
+# in range and run the native static path start to finish. total and last with
+# base 1e18 and n 20 overflow partway through the sequence and must fall to the
+# boxed twin and finish with the exact CPython big integers 210000000000000000000
+# and 20000000000000000000. The forced-static rerun in the differential band is
+# where the static generator and its deopt actually run, and landing on the same
+# bytes as python3.14 is the proof that the overflow-to-boxed handoff is
+# transparent.
+#
+# Under the auto tier the cost model still leaves every unit boxed: with no
+# generator cost model the static and boxed scores tie at zero and the tie goes
+# to boxed, so the pin locks that in and a future accidental promotion surfaces
+# here. No feature tag: the M4 feature registry lists only the cases the auto
+# tier emits static, and generators stay boxed under auto, so this fixture
+# carries only a tier pin like the other generator fixtures.
+
+[tiers]
+"<module>.scaled" = "boxed"
+"<module>.total" = "boxed"
+"<module>.last" = "boxed"
