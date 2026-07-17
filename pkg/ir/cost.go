@@ -32,6 +32,45 @@ func CostOf(f emit.Func) Cost {
 	return c
 }
 
+// CostOfGenerator walks a lowered static generator and returns its operation
+// census, the same measure CostOf takes of a scalar function so the partitioner
+// scores a generator against its boxed goroutine twin on the same footing. It
+// costs each segment's pre-statements, its loop bound or guard, and its yield,
+// plus any trailer. A generator the emitter accepts carries no overflow guard,
+// since a guarded yield is refused before it can be emitted, so the guard buckets
+// stay zero; the walk keeps the same loop-versus-entry classification as CostOf so
+// a future guarded generator slots in without reshaping the profile.
+func CostOfGenerator(gen emit.Generator) Cost {
+	var c Cost
+	for _, seg := range gen.Segments {
+		if seg.Loop != nil {
+			// A loop segment runs its body once per iteration, so its operations and any
+			// guards fold into the loop bucket, the same classification CostOf makes for a
+			// ForCount. The induction step and the bound test carry no guard of their own.
+			var bc Cost
+			costExpr(seg.Loop.Bound, &bc)
+			for _, s := range seg.Pre {
+				costStmt(s, &bc)
+			}
+			costExpr(seg.Yield, &bc)
+			c.UnboxedOps += bc.UnboxedOps
+			c.LoopGuards += bc.EntryGuards + bc.LoopGuards
+			continue
+		}
+		if seg.Guard != nil {
+			costExpr(seg.Guard, &c)
+		}
+		for _, s := range seg.Pre {
+			costStmt(s, &c)
+		}
+		costExpr(seg.Yield, &c)
+	}
+	for _, s := range gen.Trailer {
+		costStmt(s, &c)
+	}
+	return c
+}
+
 // costStmt adds one statement's operations to the running census.
 func costStmt(s emit.Stmt, c *Cost) {
 	switch n := s.(type) {
@@ -184,6 +223,10 @@ func costExpr(e emit.Expr, c *Cost) {
 func reprOf(e emit.Expr) emit.Repr {
 	switch n := e.(type) {
 	case emit.Var:
+		return n.Repr
+	case emit.Recv:
+		// A saved-field read carries the field's representation, so a generator yield
+		// that reads g.<field> is classified the same as a local read of that scalar.
 		return n.Repr
 	case emit.Int:
 		return emit.Repr{Go: "int64", Scalar: emit.SInt}

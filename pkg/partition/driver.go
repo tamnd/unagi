@@ -168,6 +168,9 @@ func (sc scope) child(name string) string { return sc.qual + "." + name }
 // scalar subset the bridge refuses it, and the empty profile keeps the unit
 // boxed, so a function the tier cannot yet lower is never scored as if it could.
 func (d *driver) funcInput(fn *frontend.FuncDef) (Profile, []DeoptSite, bool) {
+	if ir.IsGenerator(fn) {
+		return d.generatorInput(fn)
+	}
 	f, err := ir.LowerFuncFull(fn, d.resolve, ir.GlobalResolverFor(fn, d.tracked), ir.ShapeResolverFor(d.shapes))
 	if err != nil {
 		return Profile{}, nil, false
@@ -175,6 +178,28 @@ func (d *driver) funcInput(fn *frontend.FuncDef) (Profile, []DeoptSite, bool) {
 	c := ir.CostOf(f)
 	prof := Profile{UnboxedOps: c.UnboxedOps, EntryGuards: c.EntryGuards, LoopGuards: c.LoopGuards}
 	return prof, deoptSites(ir.GuardSitesOf(f), d.span(fn.Pos_)), true
+}
+
+// generatorInput measures a generator by lowering it through the generator bridge
+// and confirming it emits, the same success-is-the-gate rule the scalar path uses.
+// A generator the tier lowers to the static state machine becomes a profiled unit
+// the cost model scores against its boxed goroutine twin; one the bridge or the
+// emitter refuses returns the empty profile and stays boxed, so a generator outside
+// the static subset is never scored as if it could lower. A static generator carries
+// no deopt sites at M4, since materializing the resumable frame for a mid-machine
+// guard is a later slice and the emitter refuses any generator that would need one,
+// so the deopt plan is empty.
+func (d *driver) generatorInput(fn *frontend.FuncDef) (Profile, []DeoptSite, bool) {
+	gen, err := ir.LowerGenerator(fn)
+	if err != nil {
+		return Profile{}, nil, false
+	}
+	if _, err := emit.EmitGenerator(gen); err != nil {
+		return Profile{}, nil, false
+	}
+	c := ir.CostOfGenerator(gen)
+	prof := Profile{UnboxedOps: c.UnboxedOps, EntryGuards: c.EntryGuards, LoopGuards: c.LoopGuards}
+	return prof, nil, true
 }
 
 // deoptSites turns the bridge's guard sites into the partition deopt plan. Each

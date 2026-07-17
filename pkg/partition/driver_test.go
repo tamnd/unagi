@@ -360,6 +360,30 @@ func TestDriveForceBoxedDemotesProvenStatic(t *testing.T) {
 	}
 }
 
+func TestDriveForceStaticProvesGenerator(t *testing.T) {
+	// A guard-free counting generator lowers through the generator bridge to the
+	// static state machine, so the tier lever reaches it and forced static emits it
+	// static, the same success-is-the-gate rule a scalar function takes. This is the
+	// partition half of the static generator tier: a generator is now a unit the
+	// driver can decide static, not one that always runs on the boxed goroutine tier.
+	src := "def gen(n: int):\n    for i in range(n):\n        yield i\n"
+	forced := byName(driveWith(t, src, ModeForceStatic))["<module>.gen"]
+	if forced.State != StaticProven {
+		t.Fatalf("forced static should prove the generator static, got %v with %+v", forced.State, forced.Reasons)
+	}
+}
+
+func TestDriveForceStaticSkipsUnlowerableGenerator(t *testing.T) {
+	// A generator with an unannotated parameter never lowers, so it falls back to
+	// auto and stays boxed rather than being forced into a static machine that does
+	// not exist, exactly as an unlowerable scalar function does.
+	src := "def gen(a):\n    yield a\n"
+	ds := byName(driveWith(t, src, ModeForceStatic))
+	if d := ds["<module>.gen"]; d.State.IsStatic() {
+		t.Fatalf("an unlowerable generator must not be forced static, got %v", d.State)
+	}
+}
+
 func TestDriveForceStaticStillBoxesEvalUnit(t *testing.T) {
 	// eval is a hard census disqualifier, so even forced static keeps the unit
 	// boxed: there is no sound static form to force for a genuinely dynamic body.
