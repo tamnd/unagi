@@ -43,9 +43,12 @@ func (e *emitter) entryShimDecl(d *frontend.FuncDef, se StaticEntry) *ast.FuncDe
 	// original boxed arguments, which is always correct. It is rebuilt fresh each
 	// time so no AST node is shared between two return sites.
 	fallback := func() *ast.BlockStmt {
-		args := make([]ast.Expr, n)
+		// The shim carries the caller's thread and hands it to the boxed form; the
+		// static body below runs thread-less, its subtree proven identity-free.
+		args := make([]ast.Expr, n+1)
+		args[0] = threadArg()
 		for i := range n {
-			args[i] = ident(pnames[i])
+			args[i+1] = ident(pnames[i])
 		}
 		return block(&ast.ReturnStmt{Results: []ast.Expr{
 			callExpr(ident(e.defName(d.Name)), args...),
@@ -117,7 +120,7 @@ func (e *emitter) entryShimDecl(d *frontend.FuncDef, se StaticEntry) *ast.FuncDe
 	return &ast.FuncDecl{
 		Name: ident(e.entryName(d.Name)),
 		Type: &ast.FuncType{
-			Params:  fieldList(pfields...),
+			Params:  fieldList(append([]*ast.Field{threadParam()}, pfields...)...),
 			Results: fieldList(field(e.obj("Object")), field(ident("error"))),
 		},
 		Body: block(body...),
@@ -197,8 +200,11 @@ func (e *emitter) deoptHandlerDecl(d *frontend.FuncDef, se StaticEntry) *ast.Fun
 		Elts: []ast.Expr{kv("Value", ident("r"))},
 	}}
 	body := []ast.Stmt{
+		// The static form tail-calls this hand-off with no thread of its own, so
+		// its boxed twin re-runs under the main thread; the static subtree is
+		// proven identity-free, so no identity is lost.
 		assign(token.DEFINE, []ast.Expr{ident("r"), ident("err")},
-			callExpr(ident(e.defName(d.Name)), reboxed...)),
+			callExpr(ident(e.defName(d.Name)), append([]ast.Expr{mainThreadArg()}, reboxed...)...)),
 		&ast.IfStmt{
 			Cond: errNotNil(),
 			Body: block(&ast.ReturnStmt{Results: []ast.Expr{scalarZero(se.Ret), ident("err")}}),
@@ -246,8 +252,10 @@ func (e *emitter) resumeHandlerDecl(se StaticEntry) *ast.FuncDecl {
 		Elts: []ast.Expr{kv("Value", ident("r"))},
 	}}
 	body := []ast.Stmt{
+		// Like the from-top hand-off, the resume path re-enters the boxed twin
+		// under the main thread: the resumable loop shape is identity-free.
 		assign(token.DEFINE, []ast.Expr{ident("r"), ident("err")},
-			callExpr(ident(r.TwinName), reboxed...)),
+			callExpr(ident(r.TwinName), append([]ast.Expr{mainThreadArg()}, reboxed...)...)),
 		&ast.IfStmt{
 			Cond: errNotNil(),
 			Body: block(&ast.ReturnStmt{Results: []ast.Expr{scalarZero(se.Ret), ident("err")}}),

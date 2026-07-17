@@ -34,12 +34,12 @@ func TestEntryShimGuardsUnboxesReboxes(t *testing.T) {
 	}
 	got := string(src)
 	for _, want := range []string{
-		"func entry0_area(p0 objects.Object, p1 objects.Object) (objects.Object, error)",
+		"func entry0_area(t *runtime.Thread, p0 objects.Object, p1 objects.Object) (objects.Object, error)",
 		"x0, ok0 := objects.AsFloat(p0)",
 		"x1, ok1 := objects.AsFloat(p1)",
 		`p0.TypeName() != "float"`,
 		`p1.TypeName() != "float"`,
-		"return def0_area(p0, p1)",
+		"return def0_area(t, p0, p1)",
 		"r, err := static_area(x0, x1)",
 		"return objects.NewFloat(r), nil",
 	} {
@@ -81,7 +81,7 @@ func TestDeoptEntryEmitsHandlerAndUnwrapsSentinel(t *testing.T) {
 	got := string(src)
 	for _, want := range []string{
 		"func static_area_deopt(p0 float64, p1 float64) (float64, error)",
-		"r, err := def0_area(objects.NewFloat(p0), objects.NewFloat(p1))",
+		"r, err := def0_area(runtime.NewMainThread(), objects.NewFloat(p0), objects.NewFloat(p1))",
 		"return 0, &objects.Deopt{Value: r}",
 		"if d, ok := err.(*objects.Deopt); ok",
 		"return d.Value, nil",

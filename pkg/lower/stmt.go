@@ -167,7 +167,7 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 				dfltsExpr = f.objSlice(dflts)
 			}
 			f.add(set(ident(f.e.fnObjName(s.Name)),
-				f.e.withDoc(callExpr(f.e.obj("NewFunction"), strLit(s.Name), f.e.paramSpecLit(s.Params), dfltsExpr, ident(f.e.implName(s.Name))), s.Body)))
+				f.e.withDoc(callExpr(f.e.obj("NewFunctionT"), strLit(s.Name), f.e.paramSpecLit(s.Params), dfltsExpr, ident(f.e.implName(s.Name))), s.Body)))
 			return ident(f.e.fnObjName(s.Name)), nil
 		}
 		if len(s.Decorators) == 0 {

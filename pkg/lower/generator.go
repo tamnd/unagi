@@ -235,10 +235,12 @@ func (e *emitter) fillFrameDecl(f *fnCtx, d *frontend.FuncDef, declName, ctor st
 	}, nil
 }
 
-// frameParams builds the boxed parameter list a frame function takes, one
-// objects.Object field per Python parameter so each name carries its own type.
+// frameParams builds the boxed parameter list a frame function takes: the
+// hidden thread first, then one objects.Object field per Python parameter so
+// each name carries its own type. The frame closure the body runs in captures
+// this thread, so a call inside a generator or coroutine threads it on.
 func frameParams(e *emitter, d *frontend.FuncDef) *ast.FieldList {
-	params := &ast.FieldList{}
+	params := &ast.FieldList{List: []*ast.Field{threadParam()}}
 	for _, p := range d.Params {
 		params.List = append(params.List, field(e.obj("Object"), mangle(p.Name)))
 	}
