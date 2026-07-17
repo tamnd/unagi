@@ -71,6 +71,67 @@ type GlobalResolver func(name string) (emit.Repr, bool)
 // shape class behaves.
 type ShapeResolver func(name string) (emit.Repr, bool)
 
+// GenParam is one parameter of a static generator as its drive site sees it: the
+// parameter name, its scalar representation, and whether the state machine saves it
+// as a field. A saved parameter receives its argument into the constructed handle's
+// field; an unsaved parameter is one the body never reads across a suspension, so
+// the handle carries no field for it and its argument is evaluated only for effect.
+type GenParam struct {
+	Name  string
+	Repr  emit.Repr
+	Saved bool
+}
+
+// StaticGenerator describes a static generator a consumer's for-loop may construct
+// and drive directly, the generator analogue of StaticCallee. GoName is the state
+// struct type, Params are its parameters in call-argument order, and Elem is the
+// element representation Next yields, which the loop binds its target to.
+type StaticGenerator struct {
+	GoName string
+	Params []GenParam
+	Elem   emit.Repr
+}
+
+// GeneratorResolver reports the static generator a bare name refers to at a for
+// loop's iterable, or false when the name is not a generator the consumer may drive
+// statically. A nil resolver resolves nothing, so a for over a call falls through to
+// the range forms and a non-range call keeps the consumer boxed.
+type GeneratorResolver func(name string) (StaticGenerator, bool)
+
+// GeneratorSignatureOf reads a lowered generator's drive-site signature from its
+// emit model and its def, so a consumer's resolver can construct and drive it
+// without re-deriving the parameter layout. A parameter is saved exactly when the
+// machine carries a field of the same name; the field order the emitter lays down
+// (referenced parameters in signature order, then inductions) keeps a parameter
+// field's name equal to the parameter, so the lookup is by name. It reports false
+// when a parameter is not a plain annotated scalar, since without a scalar shape the
+// drive site cannot pass a typed argument, and false when the generator yields a
+// non-scalar element, which no static consume boundary can bind.
+func GeneratorSignatureOf(gen emit.Generator, fn *frontend.FuncDef, goName string) (StaticGenerator, bool) {
+	if gen.Elem.Scalar == emit.NotScalar {
+		return StaticGenerator{}, false
+	}
+	saved := map[string]bool{}
+	for _, f := range gen.Fields {
+		saved[f.Name] = true
+	}
+	params := make([]GenParam, len(fn.Params))
+	for i, p := range fn.Params {
+		if p.Kind != frontend.ParamPlain && p.Kind != frontend.ParamPosOnly {
+			return StaticGenerator{}, false
+		}
+		if p.Default != nil || p.Annotation == nil {
+			return StaticGenerator{}, false
+		}
+		r, ok := annotationRepr(p.Annotation)
+		if !ok {
+			return StaticGenerator{}, false
+		}
+		params[i] = GenParam{Name: p.Name, Repr: r, Saved: saved[p.Name]}
+	}
+	return StaticGenerator{GoName: goName, Params: params, Elem: gen.Elem}, true
+}
+
 // SignatureOf reads a lowered function's unboxed signature into a StaticCallee
 // under the given emitted Go name, so a caller's resolver can describe this
 // function without re-deriving its parameter and result representations from the
@@ -147,6 +208,11 @@ type lowerCtx struct {
 	// representation, or reports false. It is nil when the function has no
 	// class-shaped parameter to lower.
 	shapes ShapeResolver
+	// gens resolves a name at a for loop's iterable to the static generator it
+	// constructs and drives, or reports false. It is nil when the module proved no
+	// static generator a consumer could drive, so every for over a call falls
+	// through to the range forms.
+	gens GeneratorResolver
 }
 
 // bindingGuards collects the distinct tracked globals a function reads, in
@@ -216,6 +282,16 @@ func LowerFuncWith(fn *frontend.FuncDef, resolve CalleeResolver) (emit.Func, err
 // so a rebinding that no longer fits the shadow deopts to the boxed twin. Passing
 // a nil global resolver tracks no global, which is exactly LowerFuncWith.
 func LowerFuncFull(fn *frontend.FuncDef, resolve CalleeResolver, globals GlobalResolver, shapes ShapeResolver) (emit.Func, error) {
+	return LowerFuncGen(fn, resolve, globals, shapes, nil)
+}
+
+// LowerFuncGen lowers a function with the callee, global, and shape resolvers plus
+// a resolver for the static generators it drives. A `for x in gen(args)` whose
+// callee the generator resolver accepts lowers to constructing the generator handle
+// once and looping on its Next, so a static consumer drives a static generator with
+// nothing boxed across the boundary. Passing a nil generator resolver drives no
+// generator, which is exactly LowerFuncFull.
+func LowerFuncGen(fn *frontend.FuncDef, resolve CalleeResolver, globals GlobalResolver, shapes ShapeResolver, gens GeneratorResolver) (emit.Func, error) {
 	if fn.Async {
 		return emit.Func{}, unsupported("async def %s", fn.Name)
 	}
@@ -258,7 +334,7 @@ func LowerFuncFull(fn *frontend.FuncDef, resolve CalleeResolver, globals GlobalR
 	reads := map[string]bool{}
 	loadedNames(fn.Body, reads)
 	guards := &bindingGuards{seen: map[string]bool{}}
-	ctx := lowerCtx{reads: reads, resolve: resolve, globals: globals, guards: guards, shapes: shapes}
+	ctx := lowerCtx{reads: reads, resolve: resolve, globals: globals, guards: guards, shapes: shapes, gens: gens}
 
 	body, ret, terminates, err := lowerBody(fn.Body, sc, ctx)
 	if err != nil {
@@ -790,7 +866,19 @@ func lowerFor(n *frontend.For, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr,
 		return nil, nil, false, unsupported("a for over a non-range iterable has no counting-loop form yet")
 	}
 	fnName, ok := call.Fn.(*frontend.Name)
-	if !ok || fnName.Id != "range" {
+	if !ok {
+		return nil, nil, false, unsupported("a for over a non-name call has no static form yet")
+	}
+	// A for over a call to a name the generator resolver knows drives that static
+	// generator: the handle is constructed once and the loop reads its Next, so the
+	// consume boundary stays unboxed. A name the resolver does not know, or the
+	// builtin range, falls through to the counting-loop forms below.
+	if fnName.Id != "range" && ctx.gens != nil {
+		if sig, ok := ctx.gens(fnName.Id); ok {
+			return lowerForGen(n, target, call, sig, sc, ctx)
+		}
+	}
+	if fnName.Id != "range" {
 		return nil, nil, false, unsupported("a for over a non-range call has no counting-loop form yet")
 	}
 	for _, a := range call.Args {
@@ -894,6 +982,80 @@ func lowerFor(n *frontend.For, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr,
 	// and the VerifyPlan gate demotes any unit whose plan gains an effect before a
 	// guard, so admitting the body's guards here cannot ship a wrong answer.
 	return append(pre, emit.ForCount{Var: target.Id, Start: start, Stop: stop, Down: down, Body: body}), nil, false, nil
+}
+
+// lowerForGen lowers a `for x in gen(args): body` whose callee the generator
+// resolver knows into constructing the generator handle once and looping on its
+// Next. Each argument lowers as an ordinary scalar expression: a saved parameter's
+// argument becomes a field of the constructed handle, an unsaved parameter's
+// argument is evaluated for effect ahead of the handle when it can raise and dropped
+// otherwise, so the call's argument evaluation matches Python's. The handle binds to
+// a fresh local ahead of the loop, never a struct literal rebuilt each turn, so the
+// loop drives one machine across its whole run. The loop target binds the element
+// representation, so the consume boundary stays unboxed. It refuses a keyword or star
+// argument, an argument count that disagrees with the signature, an argument whose
+// scalar class does not match its parameter, and a body that reassigns the loop
+// target, keeping the consumer boxed in each case rather than driving a machine the
+// arguments do not fit.
+func lowerForGen(n *frontend.For, target *frontend.Name, call *frontend.Call, sig StaticGenerator, sc scope, ctx lowerCtx) ([]emit.Stmt, *emit.Repr, bool, error) {
+	if len(n.Else) > 0 {
+		return nil, nil, false, unsupported("a for-else has no static form at M4")
+	}
+	for _, a := range call.Args {
+		if a.Star != 0 || a.Name != "" {
+			return nil, nil, false, unsupported("a generator call with a keyword or star argument has no static drive form")
+		}
+	}
+	if len(call.Args) != len(sig.Params) {
+		return nil, nil, false, unsupported("generator %s expects %d arguments, got %d", sig.GoName, len(sig.Params), len(call.Args))
+	}
+	if bodyAssigns(n.Body, target.Id) {
+		return nil, nil, false, unsupported("the loop body reassigns the loop variable %s, which perturbs the generator consume loop", target.Id)
+	}
+
+	var pre []emit.Stmt
+	var fields []emit.GenArg
+	for i, a := range call.Args {
+		v, r, err := lowerExpr(a.Value, sc, ctx)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		p := sig.Params[i]
+		if r.Scalar != p.Repr.Scalar {
+			return nil, nil, false, unsupported("generator %s argument %d is %s but the parameter is %s", sig.GoName, i, r.Scalar, p.Repr.Scalar)
+		}
+		if p.Saved {
+			fields = append(fields, emit.GenArg{Name: p.Name, Value: v})
+			continue
+		}
+		// An unsaved parameter carries no field, but Python still evaluates its
+		// argument at the call. A pure argument (a literal, a bare name) has no
+		// observable effect once dropped, so it lowers to nothing; anything that can
+		// raise runs as a Discard ahead of the handle so its exception still fires.
+		if !pureDiscardable(v) {
+			pre = append(pre, emit.Discard{Value: v})
+		}
+	}
+
+	handle := freshLocal(sc, n.Body, target.Id, "g")
+	handleRepr := emit.Repr{Go: "*" + sig.GoName, Scalar: emit.NotScalar}
+	pre = append(pre, emit.Define{Name: handle, Value: emit.GenNew{Type: sig.GoName, Fields: fields}})
+
+	loopSc := cloneScope(sc)
+	loopSc[handle] = handleRepr
+	loopSc[target.Id] = sig.Elem
+	bodyCtx := ctx
+	bodyCtx.inLoop = true
+	body, _, _, err := lowerBody(n.Body, loopSc, bodyCtx)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	// A body overflow guard deopts to the consumer's boxed twin, which re-runs the
+	// unit from the top: it reconstructs the handle and re-drives the generator, and
+	// because the static subset is effect-free the replayed sequence is identical, so
+	// the from-top edge is sound the same way it is for a counting loop.
+	drive := emit.ForGen{Bind: target.Id, Elem: sig.Elem, Gen: emit.Var{Name: handle, Repr: handleRepr}, Body: body}
+	return append(pre, drive), nil, false, nil
 }
 
 // constStep reads a range step written as an integer literal, optionally negated once, and
