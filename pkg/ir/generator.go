@@ -248,7 +248,7 @@ func LowerGenerator(fn *frontend.FuncDef) (emit.Generator, error) {
 	fields := make([]emit.GenField, 0, len(params)+len(inductions))
 	for _, p := range params {
 		if referenced[p.Name] {
-			fields = append(fields, emit.GenField{Name: p.Name, Repr: p.Repr})
+			fields = append(fields, emit.GenField(p))
 		}
 	}
 	// The saved layout is the cross-yield-live parameters in signature order, then
@@ -411,7 +411,7 @@ func recvify(e emit.Expr, isParam, curLocals, referenced map[string]bool) (emit.
 	case emit.Var:
 		if isParam[n.Name] {
 			referenced[n.Name] = true
-			return emit.Recv{Name: n.Name, Repr: n.Repr}, nil
+			return emit.Recv(n), nil
 		}
 		if curLocals[n.Name] {
 			return n, nil
