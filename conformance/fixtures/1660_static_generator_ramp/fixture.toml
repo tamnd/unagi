@@ -1,0 +1,21 @@
+# A guard-free counting generator driven by two static consumers. ramp yields a
+# float ramp with no guard on the body: the while comparison is total and the
+# float add cannot overflow, so the partitioner can prove it static and the
+# build emits it as a struct with a Next method. total and last each drive it
+# through the static for-over-generator path, one accumulating and one keeping
+# the last value, so this is the end-to-end static-consumer-drives-static-
+# generator case the module-level and builtin-driven generator fixtures never
+# reach.
+#
+# Under the auto tier the cost model still leaves every unit boxed: with no
+# generator cost model yet the static and boxed scores tie at zero and the tie
+# goes to boxed, so the pin locks that in and a future accidental promotion
+# surfaces here. The forced-static rerun is where the static generator runs, and
+# it must land on the same bytes as python3.14, so the differential band is the
+# real proof that the static generator answer is identical.
+tags = ["generator", "static-generator"]
+
+[tiers]
+"<module>.ramp" = "boxed"
+"<module>.total" = "boxed"
+"<module>.last" = "boxed"
