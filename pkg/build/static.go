@@ -40,6 +40,11 @@ type staticPlan struct {
 	deopt      map[string]bool
 	names      map[string]string
 	resolve    ir.CalleeResolver
+	// tracked is the whole-module table of scalar globals a static form may read
+	// through its shadow, keyed by name to scalar type. Every lowering pass in the
+	// plan hands the bridge a per-function resolver derived from it, so a function
+	// proven static during partitioning lowers the same tracked read here.
+	tracked map[string]string
 	// resume holds the mid-loop resume plan for each deopt-target unit whose
 	// counting loop is provably safe to re-enter at the failing iteration. A unit
 	// absent here keeps the from-top deopt edge, which is always correct.
@@ -82,11 +87,13 @@ func planStatic(mod *frontend.Module, decisions []partition.Decision) *staticPla
 			names[qf.qual] = staticName(qf.qual, seen)
 		}
 	}
+	tracked := ir.TrackedGlobals(mod)
 	plan := &staticPlan{
 		funcs:      funcs,
 		staticFree: staticFree,
 		names:      names,
-		resolve:    staticResolver(funcs, staticFree, names),
+		tracked:    tracked,
+		resolve:    staticResolver(funcs, staticFree, names, tracked),
 	}
 	// A deopt-target unit only earns a static form once it also earns an entry
 	// shim: the form's deopt edge tail-calls a hand-off the shim machinery emits,
@@ -132,7 +139,7 @@ func planStatic(mod *frontend.Module, decisions []partition.Decision) *staticPla
 // outside the scalar subset the shim crosses. It is the shared gate the plan uses
 // to decide which units earn a static form and shim.
 func (plan *staticPlan) shimEntryFor(qf qualFunc) (lower.StaticEntry, bool) {
-	f, err := ir.LowerFuncWith(qf.def, plan.resolve)
+	f, err := ir.LowerFuncFull(qf.def, plan.resolve, ir.GlobalResolverFor(qf.def, plan.tracked))
 	if err != nil {
 		return lower.StaticEntry{}, false
 	}
@@ -239,7 +246,7 @@ func staticForms(plan *staticPlan) ([]byte, error) {
 		if !plan.staticFree[qf.qual] && !plan.deopt[qf.qual] {
 			continue
 		}
-		f, err := ir.LowerFuncWith(qf.def, plan.resolve)
+		f, err := ir.LowerFuncFull(qf.def, plan.resolve, ir.GlobalResolverFor(qf.def, plan.tracked))
 		if err != nil {
 			// A unit the partitioner proved static lowers here too; a lowering
 			// failure means the decision and the bridge disagree, which is a bug
@@ -284,6 +291,41 @@ func staticForms(plan *staticPlan) ([]byte, error) {
 	return []byte(b.String()), nil
 }
 
+// readGlobals is the subset of the module's tracked scalar globals that an
+// emitted static form actually reads through its shadow, keyed by name to scalar
+// type. It walks the same emitted-form set staticForms renders, lowers each, and
+// unions the world-age guard the bridge attached, mapping each guard's version
+// variable (bver_<name>) back to the global's name. The build hands this subset,
+// not the whole tracked table, to the boxed lowering, so only a global a static
+// form reads gets its shadow declared and its boxed stores instrumented; a
+// tracked global no static form reads carries no shadow and no Rebind bump. It
+// returns nil when no emitted form reads a tracked global.
+func readGlobals(plan *staticPlan) map[string]string {
+	if plan == nil || len(plan.tracked) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for _, qf := range plan.funcs {
+		if !plan.staticFree[qf.qual] && !plan.deopt[qf.qual] {
+			continue
+		}
+		f, err := ir.LowerFuncFull(qf.def, plan.resolve, ir.GlobalResolverFor(qf.def, plan.tracked))
+		if err != nil {
+			continue
+		}
+		for _, g := range f.BindingGuards {
+			name := strings.TrimPrefix(g.VerVar, "bver_")
+			if scalar, ok := plan.tracked[name]; ok {
+				out[name] = scalar
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // runtimeQualifier is the import alias the emitted static tier reaches its
 // runtime helpers through, matching the alias pkg/emit prints. runtimeImportPath
 // is the package that alias binds to.
@@ -301,7 +343,7 @@ const (
 // it stops, at most one entry per pass. This mirrors the partitioner's own call
 // graph fixpoint, so the set of resolvable callees here matches the set the
 // decision proved static, which is why every guard-free static caller lowers.
-func staticResolver(funcs []qualFunc, staticFree map[string]bool, names map[string]string) ir.CalleeResolver {
+func staticResolver(funcs []qualFunc, staticFree map[string]bool, names map[string]string, tracked map[string]string) ir.CalleeResolver {
 	callees := map[string]ir.StaticCallee{}
 	resolve := func(name string) (ir.StaticCallee, bool) {
 		c, ok := callees[name]
@@ -342,7 +384,7 @@ func staticResolver(funcs []qualFunc, staticFree map[string]bool, names map[stri
 			if _, done := callees[bare]; done {
 				continue
 			}
-			f, err := ir.LowerFuncWith(qf.def, resolve)
+			f, err := ir.LowerFuncFull(qf.def, resolve, ir.GlobalResolverFor(qf.def, tracked))
 			if err != nil {
 				// The callee calls a static unit not yet in the resolver; a later pass
 				// resolves it. A callee that never lowers is not top-level guard-free

@@ -213,6 +213,19 @@ func (c *globalScope) stmt(s Stmt) {
 	}
 }
 
+// LocalBindings returns the names a function binds as its own locals: its
+// parameters and every name it assigns, iterates, captures with a walrus, or
+// defines, minus the names it declares global or nonlocal. A name in this set is
+// a local of the function, so a read of it resolves to that local, never to a
+// module global of the same name; a name absent from it that the function reads
+// is a free name, which may be a module global. The static tier uses this to
+// decide whether a free name in a function body can be a tracked-global read: a
+// name the function binds locally is off limits, since reading it before its
+// assignment is an UnboundLocalError rather than a global load.
+func LocalBindings(fn *FuncDef) map[string]bool {
+	return boundNames(fn.Body, fn.Params)
+}
+
 // boundNames gathers every name a scope binds directly: parameters, every
 // assignment, augmented-assignment, for, with, and except-as target, del
 // targets, walrus targets, and nested def and class names. It descends

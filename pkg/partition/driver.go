@@ -73,7 +73,7 @@ func DriveWith(module string, m *frontend.Module, mode Mode) []Decision {
 // its call and can itself be proven static.
 func driveOnce(module string, m *frontend.Module, resolve ir.CalleeResolver, mode Mode) []Decision {
 	p := New()
-	d := &driver{p: p, module: module, resolve: resolve, mode: mode}
+	d := &driver{p: p, module: module, resolve: resolve, mode: mode, tracked: ir.TrackedGlobals(m)}
 	// The module top level is itself a unit, executed as boxed code at M4.
 	mu := d.enter(ModuleUnitName, frontend.Pos{Line: 1, Col: 1})
 	d.scanStmts(mu, m.Body)
@@ -89,6 +89,11 @@ type driver struct {
 	module  string
 	resolve ir.CalleeResolver
 	mode    Mode
+	// tracked is the module's scalar-global table, so a function that reads a
+	// module global lowers against the same shadow the build will emit and is
+	// scored with the entry guard that read carries. Empty when the module has no
+	// global the static tier can shadow, which is the common case.
+	tracked map[string]string
 }
 
 // scope is one enclosing unit during the walk: the unit itself and its
@@ -157,7 +162,7 @@ func (sc scope) child(name string) string { return sc.qual + "." + name }
 // scalar subset the bridge refuses it, and the empty profile keeps the unit
 // boxed, so a function the tier cannot yet lower is never scored as if it could.
 func (d *driver) funcInput(fn *frontend.FuncDef) (Profile, []DeoptSite, bool) {
-	f, err := ir.LowerFuncWith(fn, d.resolve)
+	f, err := ir.LowerFuncFull(fn, d.resolve, ir.GlobalResolverFor(fn, d.tracked))
 	if err != nil {
 		return Profile{}, nil, false
 	}

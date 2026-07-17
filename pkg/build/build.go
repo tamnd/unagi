@@ -71,7 +71,12 @@ func Build(ctx context.Context, pyPath string, opts Options) (string, error) {
 	// into that static form. The plan is built once so the shim's call site and
 	// the emitted static function agree on the name.
 	plan := planStatic(mod, partition.DriveWith(entryModule, mod, opts.Tier))
-	goSrc, err := lower.ModuleStatic(mod, pyPath, src, stars, staticEntries(plan))
+	// A global a static form reads through its shadow needs that shadow declared in
+	// the boxed module and its boxed stores instrumented with a Rebind bump, so the
+	// two tiers stay in step. The subset an emitted form actually reads drives that
+	// instrumentation, not the whole tracked table, so a global no static form reads
+	// carries no shadow.
+	goSrc, err := lower.ModuleStaticGlobals(mod, pyPath, src, stars, staticEntries(plan), readGlobals(plan))
 	if err != nil {
 		return "", err
 	}
