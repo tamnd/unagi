@@ -672,6 +672,72 @@ func TestBuildStaticFileDeclaresModuleShapeStruct(t *testing.T) {
 	}
 }
 
+// TestBuildStaticShapeParamReadsFieldEndToEnd proves the objects tier end to end:
+// a function taking a fixed-shape class parameter lowers its attribute read to a
+// Go struct field load, the boxed call routes through an entry shim that guards
+// the receiver's class and materializes the struct from its slots, and the static
+// form runs to the CPython-exact value. The static file types the form against the
+// Point struct it also declares, and the boxed module's shim reads each slot with
+// objects.LoadAttr before assembling the struct, so the whole path from a boxed
+// instance to a native field load is exercised. Forced static emits the form the
+// cost model would box (a bare field read proves no unboxed work), so the shim and
+// the struct-typed form are real rather than dead.
+func TestBuildStaticShapeParamReadsFieldEndToEnd(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	dir := t.TempDir()
+	src := "class Point:\n" +
+		"    __slots__ = (\"x\", \"y\")\n" +
+		"    x: int\n" +
+		"    y: float\n" +
+		"    def __init__(self, a, b):\n" +
+		"        self.x = a\n" +
+		"        self.y = b\n\n" +
+		"def get_x(p: Point) -> int:\n" +
+		"    return p.x\n\n" +
+		"print(get_x(Point(7, 2.5)))\n"
+	py := filepath.Join(dir, "main.py")
+	writeFile(t, py, src)
+
+	gen := filepath.Join(dir, "gen")
+	bin, err := Build(context.Background(), py, Options{Out: filepath.Join(dir, "prog"), EmitGo: gen, Tier: partition.ModeForceStatic})
+	if err != nil {
+		t.Fatalf("forced-static build: %v", err)
+	}
+
+	// The static form takes the Point struct and reads the field directly.
+	static, err := os.ReadFile(filepath.Join(gen, "static.go"))
+	if err != nil {
+		t.Fatalf("static.go not emitted under forced static: %v", err)
+	}
+	for _, want := range []string{"type Point struct", "func static_get_x(p Point) (int64, error)", "return p.x, nil"} {
+		if !bytes.Contains(static, []byte(want)) {
+			t.Errorf("static.go missing shape fragment %q:\n%s", want, static)
+		}
+	}
+
+	// The boxed module carries the entry shim that materializes the struct from
+	// the boxed instance's slots, so the boxed call reaches the static form.
+	main, err := os.ReadFile(filepath.Join(gen, "main.go"))
+	if err != nil {
+		t.Fatalf("main.go not emitted: %v", err)
+	}
+	if !bytes.Contains(main, []byte("LoadAttr")) {
+		t.Errorf("main.go missing the shape shim's slot reads (LoadAttr):\n%s", main)
+	}
+
+	var stdout bytes.Buffer
+	cmd := exec.Command(bin)
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := stdout.String(); got != "7\n" {
+		t.Errorf("output = %q, want %q", got, "7\n")
+	}
+}
+
 // TestBuildTierForceBoxedEmitsNoStaticForm proves --tier boxed demotes a unit the
 // cost model would emit static: a total float function auto-proves static and emits
 // its static Go, but under forced boxed the build emits no static form and the
