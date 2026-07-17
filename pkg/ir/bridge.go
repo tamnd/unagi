@@ -62,6 +62,15 @@ type CalleeResolver func(name string) (StaticCallee, bool)
 // behaves.
 type GlobalResolver func(name string) (emit.Repr, bool)
 
+// ShapeResolver reports the representation of a fixed-shape class named by an
+// annotation, or false when the name is not a class the static tier lowers to a
+// Go struct. A parameter annotated with a resolved class gets that struct
+// representation, so a read of one of its fields lowers to a plain Go field load.
+// A nil resolver resolves nothing, so a class-annotated parameter has no static
+// form and the unit stays boxed, which is how a function whose module proved no
+// shape class behaves.
+type ShapeResolver func(name string) (emit.Repr, bool)
+
 // SignatureOf reads a lowered function's unboxed signature into a StaticCallee
 // under the given emitted Go name, so a caller's resolver can describe this
 // function without re-deriving its parameter and result representations from the
@@ -134,6 +143,10 @@ type lowerCtx struct {
 	// per distinct tracked global it reads. It is a pointer so a lowerCtx copied
 	// by value into a branch or loop still records into the one function-wide set.
 	guards *bindingGuards
+	// shapes resolves a class-annotation name to its fixed-shape struct
+	// representation, or reports false. It is nil when the function has no
+	// class-shaped parameter to lower.
+	shapes ShapeResolver
 }
 
 // bindingGuards collects the distinct tracked globals a function reads, in
@@ -185,7 +198,7 @@ func scalarRepr(name string) (emit.Repr, bool) {
 // outside the scalar subset pkg/emit lowers. On success the returned Func prints,
 // through emit.EmitFunc, to the same unboxed Go the hand-built models produced.
 func LowerFunc(fn *frontend.FuncDef) (emit.Func, error) {
-	return LowerFuncFull(fn, nil, nil)
+	return LowerFuncFull(fn, nil, nil, nil)
 }
 
 // LowerFuncWith lowers a function with a resolver for its static-tier callees, so
@@ -193,7 +206,7 @@ func LowerFunc(fn *frontend.FuncDef) (emit.Func, error) {
 // A nil resolver refuses every call, which is exactly LowerFunc's behavior. The
 // resolver is a pure function of the callee name, so lowering stays deterministic.
 func LowerFuncWith(fn *frontend.FuncDef, resolve CalleeResolver) (emit.Func, error) {
-	return LowerFuncFull(fn, resolve, nil)
+	return LowerFuncFull(fn, resolve, nil, nil)
 }
 
 // LowerFuncFull lowers a function with both a callee resolver and a resolver for
@@ -202,7 +215,7 @@ func LowerFuncWith(fn *frontend.FuncDef, resolve CalleeResolver) (emit.Func, err
 // function carries one entry-level world-age guard per distinct global it reads,
 // so a rebinding that no longer fits the shadow deopts to the boxed twin. Passing
 // a nil global resolver tracks no global, which is exactly LowerFuncWith.
-func LowerFuncFull(fn *frontend.FuncDef, resolve CalleeResolver, globals GlobalResolver) (emit.Func, error) {
+func LowerFuncFull(fn *frontend.FuncDef, resolve CalleeResolver, globals GlobalResolver, shapes ShapeResolver) (emit.Func, error) {
 	if fn.Async {
 		return emit.Func{}, unsupported("async def %s", fn.Name)
 	}
@@ -224,6 +237,13 @@ func LowerFuncFull(fn *frontend.FuncDef, resolve CalleeResolver, globals GlobalR
 		}
 		r, ok := annotationRepr(p.Annotation)
 		if !ok {
+			// A parameter annotated with a fixed-shape class lowers to its Go struct,
+			// so a read of one of its fields is a plain field load. With no shape
+			// resolver, or a class the resolver does not know, the parameter has no
+			// static form and the unit stays boxed.
+			r, ok = shapeAnnotationRepr(p.Annotation, shapes)
+		}
+		if !ok {
 			return emit.Func{}, unsupported("parameter %s has a non-scalar annotation", p.Name)
 		}
 		params[i] = emit.Param{Name: p.Name, Repr: r}
@@ -238,7 +258,7 @@ func LowerFuncFull(fn *frontend.FuncDef, resolve CalleeResolver, globals GlobalR
 	reads := map[string]bool{}
 	loadedNames(fn.Body, reads)
 	guards := &bindingGuards{seen: map[string]bool{}}
-	ctx := lowerCtx{reads: reads, resolve: resolve, globals: globals, guards: guards}
+	ctx := lowerCtx{reads: reads, resolve: resolve, globals: globals, guards: guards, shapes: shapes}
 
 	body, ret, terminates, err := lowerBody(fn.Body, sc, ctx)
 	if err != nil {
@@ -280,6 +300,22 @@ func annotationRepr(e frontend.Expr) (emit.Repr, bool) {
 		return emit.Repr{}, false
 	}
 	return scalarRepr(name.Id)
+}
+
+// shapeAnnotationRepr reads a bare-name class annotation into its fixed-shape
+// struct representation through the shape resolver. Only a plain name resolves,
+// and only when the resolver knows it as a shape class; a qualified, subscripted,
+// or unknown annotation, or a nil resolver, reports false so the parameter stays
+// boxed.
+func shapeAnnotationRepr(e frontend.Expr, shapes ShapeResolver) (emit.Repr, bool) {
+	if shapes == nil {
+		return emit.Repr{}, false
+	}
+	name, ok := e.(*frontend.Name)
+	if !ok {
+		return emit.Repr{}, false
+	}
+	return shapes(name.Id)
 }
 
 // lowerBody translates a statement block and reports the representation the block
@@ -1057,6 +1093,8 @@ func loadedInExpr(e frontend.Expr, out map[string]bool) {
 	case *frontend.Subscript:
 		loadedInExpr(n.X, out)
 		loadedInExpr(n.Index, out)
+	case *frontend.Attribute:
+		loadedInExpr(n.X, out)
 	}
 }
 
@@ -1196,6 +1234,9 @@ func lowerExpr(e frontend.Expr, sc scope, ctx lowerCtx) (emit.Expr, emit.Repr, e
 
 	case *frontend.Subscript:
 		return lowerSubscript(n, sc, ctx)
+
+	case *frontend.Attribute:
+		return lowerAttribute(n, sc, ctx)
 	}
 	return nil, emit.Repr{}, unsupported("expression %T", e)
 }
@@ -1256,6 +1297,28 @@ func lowerSubscript(n *frontend.Subscript, sc scope, ctx lowerCtx) (emit.Expr, e
 		return nil, emit.Repr{}, unsupported("list index has representation %s, not an int", ir.Go)
 	}
 	return emit.Index{Base: base, Idx: idx}, *br.Elem, nil
+}
+
+// lowerAttribute lowers an attribute read obj.x on a fixed-shape instance to the
+// emit field-load node and the field's representation. The base must carry a
+// shape representation and the name must be one of its fields; a base with no
+// shape, or a field the shape does not list, has no static form and keeps the
+// unit boxed. The read carries no guard of its own: the shape guard that admits
+// the receiver fires once at the boxed-to-static entry, so by the time this field
+// load runs the receiver is already the proven struct.
+func lowerAttribute(n *frontend.Attribute, sc scope, ctx lowerCtx) (emit.Expr, emit.Repr, error) {
+	base, br, err := lowerExpr(n.X, sc, ctx)
+	if err != nil {
+		return nil, emit.Repr{}, err
+	}
+	if br.Shape == nil {
+		return nil, emit.Repr{}, unsupported("attribute base has representation %s, not a fixed-shape instance", br.Go)
+	}
+	fr, ok := br.Shape.Field(n.Name)
+	if !ok {
+		return nil, emit.Repr{}, unsupported("shape %s has no field %s", br.Shape.Name, n.Name)
+	}
+	return emit.Attr{Base: base, Name: n.Name}, fr, nil
 }
 
 // lowerCompare lowers a comparison, chained or not. Python expands `a < b < c`

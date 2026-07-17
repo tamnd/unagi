@@ -46,7 +46,7 @@ func moduleCallees(m *frontend.Module, decisions []Decision, resolve ir.CalleeRe
 		if !staticFree[ModuleUnitName+"."+fn.Name] {
 			continue
 		}
-		f, err := ir.LowerFuncFull(fn, resolve, ir.GlobalResolverFor(fn, tracked))
+		f, err := ir.LowerFuncFull(fn, resolve, ir.GlobalResolverFor(fn, tracked), nil)
 		if err != nil {
 			// The unit decided static, so it lowers here too; a refusal would mean the
 			// decision and the bridge disagree. Skip it rather than record a callee with

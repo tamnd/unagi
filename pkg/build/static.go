@@ -139,7 +139,7 @@ func planStatic(mod *frontend.Module, decisions []partition.Decision) *staticPla
 // outside the scalar subset the shim crosses. It is the shared gate the plan uses
 // to decide which units earn a static form and shim.
 func (plan *staticPlan) shimEntryFor(qf qualFunc) (lower.StaticEntry, bool) {
-	f, err := ir.LowerFuncFull(qf.def, plan.resolve, ir.GlobalResolverFor(qf.def, plan.tracked))
+	f, err := ir.LowerFuncFull(qf.def, plan.resolve, ir.GlobalResolverFor(qf.def, plan.tracked), nil)
 	if err != nil {
 		return lower.StaticEntry{}, false
 	}
@@ -246,7 +246,7 @@ func staticForms(plan *staticPlan) ([]byte, error) {
 		if !plan.staticFree[qf.qual] && !plan.deopt[qf.qual] {
 			continue
 		}
-		f, err := ir.LowerFuncFull(qf.def, plan.resolve, ir.GlobalResolverFor(qf.def, plan.tracked))
+		f, err := ir.LowerFuncFull(qf.def, plan.resolve, ir.GlobalResolverFor(qf.def, plan.tracked), nil)
 		if err != nil {
 			// A unit the partitioner proved static lowers here too; a lowering
 			// failure means the decision and the bridge disagree, which is a bug
@@ -309,7 +309,7 @@ func readGlobals(plan *staticPlan) map[string]string {
 		if !plan.staticFree[qf.qual] && !plan.deopt[qf.qual] {
 			continue
 		}
-		f, err := ir.LowerFuncFull(qf.def, plan.resolve, ir.GlobalResolverFor(qf.def, plan.tracked))
+		f, err := ir.LowerFuncFull(qf.def, plan.resolve, ir.GlobalResolverFor(qf.def, plan.tracked), nil)
 		if err != nil {
 			continue
 		}
@@ -384,7 +384,7 @@ func staticResolver(funcs []qualFunc, staticFree map[string]bool, names map[stri
 			if _, done := callees[bare]; done {
 				continue
 			}
-			f, err := ir.LowerFuncFull(qf.def, resolve, ir.GlobalResolverFor(qf.def, tracked))
+			f, err := ir.LowerFuncFull(qf.def, resolve, ir.GlobalResolverFor(qf.def, tracked), nil)
 			if err != nil {
 				// The callee calls a static unit not yet in the resolver; a later pass
 				// resolves it. A callee that never lowers is not top-level guard-free
