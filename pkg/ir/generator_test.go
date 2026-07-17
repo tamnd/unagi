@@ -83,6 +83,101 @@ func TestLowerGeneratorUnreferencedParamNotSaved(t *testing.T) {
 	}
 }
 
+// TestLowerGeneratorLoopYield proves a `for i in range(n): yield i` lowers to a
+// self-resuming loop segment: the induction i is a saved field after the parameter
+// n, the bound reads g.n, and the segment yields g.i. The emitted machine matches
+// the hand-built countGen golden exactly.
+func TestLowerGeneratorLoopYield(t *testing.T) {
+	got := genEmit(t, "def countGen(n: int):\n    for i in range(n):\n        yield i\n")
+	want := `type countGen struct {
+	state int
+	n     int64
+	i     int64
+}
+
+func (g *countGen) Next() (int64, bool, error) {
+	switch g.state {
+	case 0:
+		if g.i < g.n {
+			v := g.i
+			g.i++
+			return v, false, nil
+		}
+		g.state = 1
+	}
+	return 0, true, nil
+}`
+	if strings.TrimSpace(got) != want {
+		t.Fatalf("loop-yield lowering mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+// TestLowerGeneratorIfYield proves an `if flag: yield a` followed by a plain
+// `yield b` lowers to a guarded segment that falls through to the following linear
+// segment when the guard is false, matching the hand-built ifGen golden.
+func TestLowerGeneratorIfYield(t *testing.T) {
+	got := genEmit(t, "def ifGen(flag: bool, a: int, b: int):\n    if flag:\n        yield a\n    yield b\n")
+	want := `type ifGen struct {
+	state int
+	flag  bool
+	a     int64
+	b     int64
+}
+
+func (g *ifGen) Next() (int64, bool, error) {
+	switch g.state {
+	case 0:
+		if g.flag {
+			g.state = 1
+			return g.a, false, nil
+		}
+		fallthrough
+	case 1:
+		g.state = 2
+		return g.b, false, nil
+	}
+	return 0, true, nil
+}`
+	if strings.TrimSpace(got) != want {
+		t.Fatalf("if-yield lowering mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+// TestLowerGeneratorIfYieldLast proves a guarded yield with no following segment
+// advances straight to the done state on a false guard, with no fallthrough, since
+// Go forbids a fallthrough in the final switch clause.
+func TestLowerGeneratorIfYieldLast(t *testing.T) {
+	got := genEmit(t, "def ifLast(flag: bool, a: int):\n    if flag:\n        yield a\n")
+	if strings.Contains(got, "fallthrough") {
+		t.Fatalf("a guarded last segment has nothing to fall through to:\n%s", got)
+	}
+	want := `func (g *ifLast) Next() (int64, bool, error) {
+	switch g.state {
+	case 0:
+		if g.flag {
+			g.state = 1
+			return g.a, false, nil
+		}
+		g.state = 1
+	}
+	return 0, true, nil
+}`
+	if !strings.Contains(got, want) {
+		t.Fatalf("a false guard on the last segment should advance to done:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+// TestLowerGeneratorLoopInductionSavedUnreferenced proves the induction is saved
+// even when the yield never reads it, because the loop machinery drives the counter
+// regardless: `for i in range(n): yield n` still carries i as a field.
+func TestLowerGeneratorLoopInductionSavedUnreferenced(t *testing.T) {
+	got := genEmit(t, "def c(n: int):\n    for i in range(n):\n        yield n\n")
+	structPart := got[:strings.Index(got, "func ")]
+	if !strings.Contains(structPart, "\ti ") {
+		t.Fatalf("the loop counter should be a saved field even when the yield ignores it:\n%s", structPart)
+	}
+}
+
 func TestLowerGeneratorRefusals(t *testing.T) {
 	cases := []struct {
 		name string
@@ -91,12 +186,17 @@ func TestLowerGeneratorRefusals(t *testing.T) {
 		{"not a generator", "def f(a: int) -> int:\n    return a\n"},
 		{"yield from", "def f(a: int):\n    yield from a\n"},
 		{"bare yield", "def f(a: int):\n    yield\n"},
-		{"loop around yield", "def f(n: int):\n    for i in range(n):\n        yield i\n"},
-		{"if around yield", "def f(a: int):\n    if a:\n        yield a\n"},
 		{"cross-segment local", "def f(a: int):\n    t = a\n    yield a\n    yield t\n"},
 		{"valued return", "def f(a: int):\n    yield a\n    return a\n"},
 		{"async", "async def f(a: int):\n    yield a\n"},
 		{"mixed element type", "def f(a: int, b: float):\n    yield a\n    yield b\n"},
+		{"non-bool guard", "def f(a: int):\n    if a:\n        yield a\n"},
+		{"if-else guard", "def f(flag: bool, a: int, b: int):\n    if flag:\n        yield a\n    else:\n        yield b\n"},
+		{"two-arg range", "def f(n: int):\n    for i in range(1, n):\n        yield i\n"},
+		{"non-range loop", "def f(xs: list):\n    for x in xs:\n        yield x\n"},
+		{"for-else", "def f(n: int):\n    for i in range(n):\n        yield i\n    else:\n        yield n\n"},
+		{"multi-statement loop body", "def f(n: int):\n    for i in range(n):\n        t = i\n        yield t\n"},
+		{"multi-statement guard body", "def f(flag: bool, a: int):\n    if flag:\n        t = a\n        yield t\n"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
