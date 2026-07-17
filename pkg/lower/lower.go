@@ -717,7 +717,7 @@ type emitter struct {
 // that sentinel comes from.
 type StaticEntry struct {
 	Static string
-	Params []StaticScalar
+	Params []StaticParam
 	Ret    StaticScalar
 	Deopt  bool
 	// Resume, when set, carries the mid-loop resume plan: the boxed twin that
@@ -739,6 +739,37 @@ type ResumePlan struct {
 	TwinName string
 	Twin     *frontend.FuncDef
 	Lead     []StaticScalar
+}
+
+// StaticParam is one parameter of a static entry: either a scalar the shim
+// unboxes from its boxed argument, or a fixed-shape instance the shim
+// materializes into a Go struct. A param with Shape nil is the plain scalar named
+// by Scalar; a param with Shape set is a shape, and Scalar is unused.
+type StaticParam struct {
+	Scalar StaticScalar
+	Shape  *StaticShape
+}
+
+// ScalarParam wraps a scalar kind as a StaticParam, the plain non-shape case the
+// build produces for every parameter the objects tier does not touch.
+func ScalarParam(s StaticScalar) StaticParam { return StaticParam{Scalar: s} }
+
+// StaticShape describes a fixed-shape class parameter the entry shim materializes
+// from a boxed instance. Name is the class name: both the exact TypeName the
+// shape guard matches and the Go struct type the static form takes, which the
+// build emits under the same name. Fields are the struct fields in declaration
+// order; the shim reads each slot out of the boxed instance and unboxes it to its
+// native scalar before assembling the struct.
+type StaticShape struct {
+	Name   string
+	Fields []StaticShapeField
+}
+
+// StaticShapeField is one field of a shape: the slot name, which is also the Go
+// field name, and the scalar kind the static form reads it as.
+type StaticShapeField struct {
+	Name   string
+	Scalar StaticScalar
 }
 
 // StaticScalar names the unboxed scalar kind of a static value, the subset of
