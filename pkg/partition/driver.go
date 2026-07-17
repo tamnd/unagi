@@ -1,6 +1,7 @@
 package partition
 
 import (
+	"github.com/tamnd/unagi/pkg/emit"
 	"github.com/tamnd/unagi/pkg/frontend"
 	"github.com/tamnd/unagi/pkg/ir"
 	"github.com/tamnd/unagi/pkg/types"
@@ -73,7 +74,7 @@ func DriveWith(module string, m *frontend.Module, mode Mode) []Decision {
 // its call and can itself be proven static.
 func driveOnce(module string, m *frontend.Module, resolve ir.CalleeResolver, mode Mode) []Decision {
 	p := New()
-	d := &driver{p: p, module: module, resolve: resolve, mode: mode, tracked: ir.TrackedGlobals(m)}
+	d := &driver{p: p, module: module, resolve: resolve, mode: mode, tracked: ir.TrackedGlobals(m), shapes: ir.TrackedShapes(m)}
 	// The module top level is itself a unit, executed as boxed code at M4.
 	mu := d.enter(ModuleUnitName, frontend.Pos{Line: 1, Col: 1})
 	d.scanStmts(mu, m.Body)
@@ -94,6 +95,11 @@ type driver struct {
 	// scored with the entry guard that read carries. Empty when the module has no
 	// global the static tier can shadow, which is the common case.
 	tracked map[string]string
+	// shapes is the module's fixed-shape class table, so a function that takes a
+	// class-annotated parameter lowers it to the same Go struct the build will emit
+	// and is scored on the field reads that struct enables. Empty when the module
+	// has no class the static tier can shape, which is the common case.
+	shapes map[string]emit.Repr
 }
 
 // scope is one enclosing unit during the walk: the unit itself and its
@@ -162,7 +168,7 @@ func (sc scope) child(name string) string { return sc.qual + "." + name }
 // scalar subset the bridge refuses it, and the empty profile keeps the unit
 // boxed, so a function the tier cannot yet lower is never scored as if it could.
 func (d *driver) funcInput(fn *frontend.FuncDef) (Profile, []DeoptSite, bool) {
-	f, err := ir.LowerFuncFull(fn, d.resolve, ir.GlobalResolverFor(fn, d.tracked), nil)
+	f, err := ir.LowerFuncFull(fn, d.resolve, ir.GlobalResolverFor(fn, d.tracked), ir.ShapeResolverFor(d.shapes))
 	if err != nil {
 		return Profile{}, nil, false
 	}

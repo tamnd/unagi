@@ -94,13 +94,14 @@ func planStatic(mod *frontend.Module, decisions []partition.Decision) *staticPla
 		}
 	}
 	tracked := ir.TrackedGlobals(mod)
+	shapes := ir.TrackedShapes(mod)
 	plan := &staticPlan{
 		funcs:      funcs,
 		staticFree: staticFree,
 		names:      names,
 		tracked:    tracked,
-		shapes:     ir.TrackedShapes(mod),
-		resolve:    staticResolver(funcs, staticFree, names, tracked),
+		shapes:     shapes,
+		resolve:    staticResolver(funcs, staticFree, names, tracked, shapes),
 	}
 	// A deopt-target unit only earns a static form once it also earns an entry
 	// shim: the form's deopt edge tail-calls a hand-off the shim machinery emits,
@@ -146,7 +147,7 @@ func planStatic(mod *frontend.Module, decisions []partition.Decision) *staticPla
 // outside the scalar subset the shim crosses. It is the shared gate the plan uses
 // to decide which units earn a static form and shim.
 func (plan *staticPlan) shimEntryFor(qf qualFunc) (lower.StaticEntry, bool) {
-	f, err := ir.LowerFuncFull(qf.def, plan.resolve, ir.GlobalResolverFor(qf.def, plan.tracked), nil)
+	f, err := ir.LowerFuncFull(qf.def, plan.resolve, ir.GlobalResolverFor(qf.def, plan.tracked), ir.ShapeResolverFor(plan.shapes))
 	if err != nil {
 		return lower.StaticEntry{}, false
 	}
@@ -202,22 +203,61 @@ func staticEntries(plan *staticPlan) map[string]lower.StaticEntry {
 
 // shimEntry translates a static callee's unboxed signature into the entry the
 // shim consumes, reporting false when any parameter or the result is a
-// representation the shim does not handle (an aggregate, a list). The gate keeps
-// the shim to the scalar boundary it can guard exactly.
+// representation the shim does not handle (a list, or a shape whose slot steps
+// outside the scalar set). A scalar parameter the shim unboxes; a fixed-shape
+// parameter the shim materializes from a boxed instance into a Go struct. The
+// result must be a scalar the shim reboxes.
 func shimEntry(sc ir.StaticCallee, static string) (lower.StaticEntry, bool) {
 	params := make([]lower.StaticParam, len(sc.Params))
 	for i, r := range sc.Params {
-		s, ok := shimScalar(r.Scalar)
+		p, ok := shimParam(r)
 		if !ok {
 			return lower.StaticEntry{}, false
 		}
-		params[i] = lower.ScalarParam(s)
+		params[i] = p
 	}
 	ret, ok := shimScalar(sc.Ret.Scalar)
 	if !ok {
 		return lower.StaticEntry{}, false
 	}
 	return lower.StaticEntry{Static: static, Params: params, Ret: ret}, true
+}
+
+// shimParam maps one parameter's representation onto the entry the shim consumes.
+// A shaped representation becomes a shape the shim materializes, a scalar becomes
+// a scalar it unboxes, and anything else (a list) reports false, which keeps the
+// whole function boxed.
+func shimParam(r emit.Repr) (lower.StaticParam, bool) {
+	if r.Shape != nil {
+		sh, ok := shimShape(r.Shape)
+		if !ok {
+			return lower.StaticParam{}, false
+		}
+		return lower.StaticParam{Shape: sh}, true
+	}
+	s, ok := shimScalar(r.Scalar)
+	if !ok {
+		return lower.StaticParam{}, false
+	}
+	return lower.ScalarParam(s), true
+}
+
+// shimShape translates a shape representation into the shim's shape descriptor:
+// the class name the shape guard matches and the Go struct type the static form
+// takes, plus each field's slot name and the scalar kind the shim unboxes it to.
+// A field outside the scalar set leaves the whole shape off the static path,
+// though the shape analysis admits only scalar slots, so that guard never trips
+// in practice.
+func shimShape(sh *emit.Shape) (*lower.StaticShape, bool) {
+	fields := make([]lower.StaticShapeField, len(sh.Fields))
+	for i, f := range sh.Fields {
+		s, ok := shimScalar(f.Repr.Scalar)
+		if !ok {
+			return nil, false
+		}
+		fields[i] = lower.StaticShapeField{Name: f.Name, Scalar: s}
+	}
+	return &lower.StaticShape{Name: sh.Name, Fields: fields}, true
 }
 
 // shimScalar maps an emit scalar class onto the shim's scalar kind, reporting
@@ -253,7 +293,7 @@ func staticForms(plan *staticPlan) ([]byte, error) {
 		if !plan.staticFree[qf.qual] && !plan.deopt[qf.qual] {
 			continue
 		}
-		f, err := ir.LowerFuncFull(qf.def, plan.resolve, ir.GlobalResolverFor(qf.def, plan.tracked), nil)
+		f, err := ir.LowerFuncFull(qf.def, plan.resolve, ir.GlobalResolverFor(qf.def, plan.tracked), ir.ShapeResolverFor(plan.shapes))
 		if err != nil {
 			// A unit the partitioner proved static lowers here too; a lowering
 			// failure means the decision and the bridge disagree, which is a bug
@@ -356,7 +396,7 @@ func readGlobals(plan *staticPlan) map[string]string {
 		if !plan.staticFree[qf.qual] && !plan.deopt[qf.qual] {
 			continue
 		}
-		f, err := ir.LowerFuncFull(qf.def, plan.resolve, ir.GlobalResolverFor(qf.def, plan.tracked), nil)
+		f, err := ir.LowerFuncFull(qf.def, plan.resolve, ir.GlobalResolverFor(qf.def, plan.tracked), ir.ShapeResolverFor(plan.shapes))
 		if err != nil {
 			continue
 		}
@@ -390,7 +430,7 @@ const (
 // it stops, at most one entry per pass. This mirrors the partitioner's own call
 // graph fixpoint, so the set of resolvable callees here matches the set the
 // decision proved static, which is why every guard-free static caller lowers.
-func staticResolver(funcs []qualFunc, staticFree map[string]bool, names map[string]string, tracked map[string]string) ir.CalleeResolver {
+func staticResolver(funcs []qualFunc, staticFree map[string]bool, names map[string]string, tracked map[string]string, shapes map[string]emit.Repr) ir.CalleeResolver {
 	callees := map[string]ir.StaticCallee{}
 	resolve := func(name string) (ir.StaticCallee, bool) {
 		c, ok := callees[name]
@@ -431,7 +471,7 @@ func staticResolver(funcs []qualFunc, staticFree map[string]bool, names map[stri
 			if _, done := callees[bare]; done {
 				continue
 			}
-			f, err := ir.LowerFuncFull(qf.def, resolve, ir.GlobalResolverFor(qf.def, tracked), nil)
+			f, err := ir.LowerFuncFull(qf.def, resolve, ir.GlobalResolverFor(qf.def, tracked), ir.ShapeResolverFor(shapes))
 			if err != nil {
 				// The callee calls a static unit not yet in the resolver; a later pass
 				// resolves it. A callee that never lowers is not top-level guard-free
