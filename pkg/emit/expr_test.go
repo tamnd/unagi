@@ -102,6 +102,77 @@ func TestIndexGuardsBoundsAndDeopts(t *testing.T) {
 	}
 }
 
+func TestAttrLowersToStructFieldLoad(t *testing.T) {
+	fR, iR, _ := reprs()
+	point := Repr{Go: "Point", Shape: &Shape{Name: "Point", Fields: []ShapeField{
+		{Name: "x", Repr: iR},
+		{Name: "y", Repr: fR},
+	}}}
+	// p.x on a fixed-shape Point instance: the receiver is already the proven
+	// struct by the time the body runs (the shape guard fired at the entry), so
+	// the read is a plain Go field load p.x yielding the field's int
+	// representation, with no bounds check, no boxing, and no deopt edge.
+	src := emitOneReturn(t, "getx", iR, []Param{{Name: "p", Repr: point}},
+		Attr{Base: Var{Name: "p", Repr: point}, Name: "x"})
+	if !strings.Contains(src, "func getx(p Point) (int64, error)") {
+		t.Fatalf("a shape param should render as its struct type:\n%s", src)
+	}
+	if !strings.Contains(src, "return p.x, nil") {
+		t.Fatalf("an attribute read should lower to a plain field load:\n%s", src)
+	}
+	if strings.Contains(src, "objects.") || strings.Contains(src, "LoadAttr") {
+		t.Fatalf("the field load must not box or route through the boxed getattr:\n%s", src)
+	}
+	if strings.Contains(src, "getx_deopt") {
+		t.Fatalf("a proven field load carries no per-read deopt edge:\n%s", src)
+	}
+}
+
+func TestAttrOnFloatFieldYieldsFloatRepr(t *testing.T) {
+	fR, iR, _ := reprs()
+	point := Repr{Go: "Point", Shape: &Shape{Name: "Point", Fields: []ShapeField{
+		{Name: "x", Repr: iR},
+		{Name: "y", Repr: fR},
+	}}}
+	// p.y resolves to the float field, so the returning function's result type is
+	// float64: the read yields the field's representation, not the receiver's.
+	src := emitOneReturn(t, "gety", fR, []Param{{Name: "p", Repr: point}},
+		Attr{Base: Var{Name: "p", Repr: point}, Name: "y"})
+	if !strings.Contains(src, "func gety(p Point) (float64, error)") || !strings.Contains(src, "return p.y, nil") {
+		t.Fatalf("a float field read should yield the float representation:\n%s", src)
+	}
+}
+
+func TestAttrRejectsNonShapeBase(t *testing.T) {
+	_, iR, _ := reprs()
+	// A scalar int base has no shape, so an attribute read of it is a miscompile
+	// inference should never have proven; emit refuses it rather than emitting a
+	// field access on a Go int64.
+	_, err := EmitFunc(Func{
+		Name: "bad", Ret: iR, Params: []Param{{Name: "n", Repr: iR}},
+		Body: []Stmt{Return{Value: Attr{Base: Var{Name: "n", Repr: iR}, Name: "x"}}},
+	})
+	if err == nil {
+		t.Fatal("an attribute read on a non-shape base should be refused, not miscompiled")
+	}
+}
+
+func TestAttrRejectsUnknownField(t *testing.T) {
+	_, iR, _ := reprs()
+	point := Repr{Go: "Point", Shape: &Shape{Name: "Point", Fields: []ShapeField{
+		{Name: "x", Repr: iR},
+	}}}
+	// A field the shape does not list never survives inference; emit refuses the
+	// read rather than lowering to a struct field the generated type lacks.
+	_, err := EmitFunc(Func{
+		Name: "bad", Ret: iR, Params: []Param{{Name: "p", Repr: point}},
+		Body: []Stmt{Return{Value: Attr{Base: Var{Name: "p", Repr: point}, Name: "z"}}},
+	})
+	if err == nil {
+		t.Fatal("an attribute read of a field absent from the shape should be refused")
+	}
+}
+
 func TestListLiteralLowersToSliceLiteral(t *testing.T) {
 	_, iR, _ := reprs()
 	intList := Repr{Go: "[]int64", Total: true, Elem: &iR}
