@@ -55,6 +55,13 @@ type staticPlan struct {
 	// counting loop is provably safe to re-enter at the failing iteration. A unit
 	// absent here keeps the from-top deopt edge, which is always correct.
 	resume map[string]*resumeShape
+	// gens resolves a name at a consumer's for loop to the static generator it
+	// constructs and drives, so a consumer that drives a module generator lowers its
+	// drive site against the same struct type the static file emits. It names each
+	// generator by its mangled static Go name, the type the generator struct is
+	// declared under, so the handle construction and the struct always agree. It is
+	// nil when the module emits no drivable generator.
+	gens ir.GeneratorResolver
 }
 
 // planStatic builds the static plan from the partitioner's decisions. A
@@ -95,13 +102,22 @@ func planStatic(mod *frontend.Module, decisions []partition.Decision) *staticPla
 	}
 	tracked := ir.TrackedGlobals(mod)
 	shapes := ir.TrackedShapes(mod)
+	// A generator's handle is constructed as the Go struct the static file emits it
+	// under, so the drive-site resolver names each generator by its mangled static
+	// name. A generator not proven static carries no emitted name, so the mapper
+	// returns the empty string and the resolver drops it: a consumer never drives a
+	// generator the build did not emit.
+	gens := ir.GeneratorResolverFor(mod, func(name string) string {
+		return names[partition.ModuleUnitName+"."+name]
+	})
 	plan := &staticPlan{
 		funcs:      funcs,
 		staticFree: staticFree,
 		names:      names,
 		tracked:    tracked,
 		shapes:     shapes,
-		resolve:    staticResolver(funcs, staticFree, names, tracked, shapes),
+		gens:       gens,
+		resolve:    staticResolver(funcs, staticFree, names, tracked, shapes, gens),
 	}
 	// A deopt-target unit only earns a static form once it also earns an entry
 	// shim: the form's deopt edge tail-calls a hand-off the shim machinery emits,
@@ -147,7 +163,7 @@ func planStatic(mod *frontend.Module, decisions []partition.Decision) *staticPla
 // outside the scalar subset the shim crosses. It is the shared gate the plan uses
 // to decide which units earn a static form and shim.
 func (plan *staticPlan) shimEntryFor(qf qualFunc) (lower.StaticEntry, bool) {
-	f, err := ir.LowerFuncFull(qf.def, plan.resolve, ir.GlobalResolverFor(qf.def, plan.tracked), ir.ShapeResolverFor(plan.shapes))
+	f, err := ir.LowerFuncGen(qf.def, plan.resolve, ir.GlobalResolverFor(qf.def, plan.tracked), ir.ShapeResolverFor(plan.shapes), plan.gens)
 	if err != nil {
 		return lower.StaticEntry{}, false
 	}
@@ -293,7 +309,22 @@ func staticForms(plan *staticPlan) ([]byte, error) {
 		if !plan.staticFree[qf.qual] && !plan.deopt[qf.qual] {
 			continue
 		}
-		f, err := ir.LowerFuncFull(qf.def, plan.resolve, ir.GlobalResolverFor(qf.def, plan.tracked), ir.ShapeResolverFor(plan.shapes))
+		// A generator lowers to a struct-and-Next state machine, not a function, so it
+		// takes the generator bridge and the generator emitter under its mangled static
+		// name. A deopt-target generator does not exist at M4 (the emitter refuses a
+		// guarded generator), so a proven-static generator is always guard-free here.
+		if ir.IsGenerator(qf.def) {
+			src, err := generatorForm(qf, plan.names[qf.qual])
+			if err != nil {
+				return nil, err
+			}
+			forms.WriteString("\n")
+			forms.WriteString(src)
+			forms.WriteString("\n")
+			emitted++
+			continue
+		}
+		f, err := ir.LowerFuncGen(qf.def, plan.resolve, ir.GlobalResolverFor(qf.def, plan.tracked), ir.ShapeResolverFor(plan.shapes), plan.gens)
 		if err != nil {
 			// A unit the partitioner proved static lowers here too; a lowering
 			// failure means the decision and the bridge disagree, which is a bug
@@ -349,6 +380,27 @@ func staticForms(plan *staticPlan) ([]byte, error) {
 	return []byte(b.String()), nil
 }
 
+// generatorForm renders one static generator's Go: the state struct and the Next
+// method the emitter produces from the generator bridge's state machine. The struct
+// is declared under the mangled static name, not the generator's Python name, so it
+// never collides with the boxed generator function of the same name and so a
+// consumer's handle construction, which the drive-site resolver names by the same
+// mangled name, references the type the file declares. A generator the partitioner
+// proved static lowers and emits here too, so a failure means the decision and the
+// bridge disagree, a bug worth surfacing rather than dropping the form.
+func generatorForm(qf qualFunc, static string) (string, error) {
+	gen, err := ir.LowerGenerator(qf.def)
+	if err != nil {
+		return "", fmt.Errorf("static generator %s decided static but did not lower: %w", qf.qual, err)
+	}
+	gen.Name = static
+	src, err := emit.EmitGenerator(gen)
+	if err != nil {
+		return "", fmt.Errorf("static generator %s: %w", qf.qual, err)
+	}
+	return src, nil
+}
+
 // shapeDecls renders the module's fixed-shape classes as Go struct type
 // declarations, in class-name order so the emitted file is deterministic. An
 // empty table renders nothing, so a module with no shape class carries no struct.
@@ -396,7 +448,7 @@ func readGlobals(plan *staticPlan) map[string]string {
 		if !plan.staticFree[qf.qual] && !plan.deopt[qf.qual] {
 			continue
 		}
-		f, err := ir.LowerFuncFull(qf.def, plan.resolve, ir.GlobalResolverFor(qf.def, plan.tracked), ir.ShapeResolverFor(plan.shapes))
+		f, err := ir.LowerFuncGen(qf.def, plan.resolve, ir.GlobalResolverFor(qf.def, plan.tracked), ir.ShapeResolverFor(plan.shapes), plan.gens)
 		if err != nil {
 			continue
 		}
@@ -430,7 +482,7 @@ const (
 // it stops, at most one entry per pass. This mirrors the partitioner's own call
 // graph fixpoint, so the set of resolvable callees here matches the set the
 // decision proved static, which is why every guard-free static caller lowers.
-func staticResolver(funcs []qualFunc, staticFree map[string]bool, names map[string]string, tracked map[string]string, shapes map[string]emit.Repr) ir.CalleeResolver {
+func staticResolver(funcs []qualFunc, staticFree map[string]bool, names map[string]string, tracked map[string]string, shapes map[string]emit.Repr, gens ir.GeneratorResolver) ir.CalleeResolver {
 	callees := map[string]ir.StaticCallee{}
 	resolve := func(name string) (ir.StaticCallee, bool) {
 		c, ok := callees[name]
@@ -471,7 +523,7 @@ func staticResolver(funcs []qualFunc, staticFree map[string]bool, names map[stri
 			if _, done := callees[bare]; done {
 				continue
 			}
-			f, err := ir.LowerFuncFull(qf.def, resolve, ir.GlobalResolverFor(qf.def, tracked), ir.ShapeResolverFor(shapes))
+			f, err := ir.LowerFuncGen(qf.def, resolve, ir.GlobalResolverFor(qf.def, tracked), ir.ShapeResolverFor(shapes), gens)
 			if err != nil {
 				// The callee calls a static unit not yet in the resolver; a later pass
 				// resolves it. A callee that never lowers is not top-level guard-free
