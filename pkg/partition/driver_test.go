@@ -384,6 +384,38 @@ func TestDriveForceStaticSkipsUnlowerableGenerator(t *testing.T) {
 	}
 }
 
+func TestDriveProvesGeneratorConsumerStatic(t *testing.T) {
+	// A consumer that drives a module generator with `for x in gen(n)` lowers its
+	// drive site now that the driver hands the bridge the module's drivable
+	// generators, so forced static reaches the consumer and proves it static. Without
+	// the generator wiring the for over a call would refuse and the consumer would
+	// fall back to auto and box, so this is the partition proof that the consume side
+	// of the static generator tier is scored on native-op footing, not boxed.
+	src := "def gen(n: int):\n    for i in range(n):\n        yield i\n" +
+		"def total(n: int) -> int:\n    s = 0\n    for x in gen(n):\n        s += x\n    return s\n"
+	ds := byName(driveWith(t, src, ModeForceStatic))
+	if d := ds["<module>.total"]; d.State != StaticProven {
+		t.Fatalf("the generator-driving consumer should prove static, got %v with %+v", d.State, d.Reasons)
+	}
+	if d := ds["<module>.gen"]; d.State != StaticProven {
+		t.Fatalf("the driven generator should prove static, got %v", d.State)
+	}
+}
+
+func TestDriveBoxesConsumerOfUnlowerableGenerator(t *testing.T) {
+	// A generator the bridge refuses (an unannotated parameter) is not in the module's
+	// drivable set, so a consumer that drives it finds no static generator at its for
+	// loop, refuses the for over a call, and falls back to auto and boxes even under
+	// forced static. This is the R5-safe pairing: a consumer only drives a generator
+	// the module actually proved, never a half-lowered machine.
+	src := "def gen(a):\n    yield a\n" +
+		"def total(n: int) -> int:\n    s = 0\n    for x in gen(n):\n        s += x\n    return s\n"
+	ds := byName(driveWith(t, src, ModeForceStatic))
+	if d := ds["<module>.total"]; d.State.IsStatic() {
+		t.Fatalf("a consumer of an unlowerable generator must not be forced static, got %v", d.State)
+	}
+}
+
 func TestDriveForceStaticStillBoxesEvalUnit(t *testing.T) {
 	// eval is a hard census disqualifier, so even forced static keeps the unit
 	// boxed: there is no sound static form to force for a genuinely dynamic body.
