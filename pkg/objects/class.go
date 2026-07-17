@@ -392,7 +392,7 @@ func (c *classObject) runInitSubclass(kwNames []string, kwVals []Object) error {
 		if !ok {
 			return Raise(TypeError, "__init_subclass__ must be a plain function in this tier")
 		}
-		_, err := fn.bind([]Object{c}, kwNames, kwVals)
+		_, err := fn.bind(mainThread, []Object{c}, kwNames, kwVals)
 		return err
 	}
 	if len(kwNames) > 0 {
@@ -1060,7 +1060,7 @@ func metaCheckHook(c *classObject, name string, arg Object) (Object, bool, error
 	if !ok {
 		return nil, false, nil
 	}
-	r, err := fn.bind([]Object{c, arg}, nil, nil)
+	r, err := fn.bind(mainThread, []Object{c, arg}, nil, nil)
 	if err != nil {
 		return nil, true, err
 	}
@@ -1091,7 +1091,7 @@ func classMetaIter(c *classObject) (Iterator, bool, error) {
 	if !ok {
 		return nil, false, nil
 	}
-	r, err := fn.bind([]Object{c}, nil, nil)
+	r, err := fn.bind(mainThread, []Object{c}, nil, nil)
 	if err != nil {
 		return nil, true, err
 	}
@@ -1115,7 +1115,7 @@ func classMetaLen(c *classObject) (Object, bool, error) {
 	if !ok {
 		return nil, false, nil
 	}
-	r, err := fn.bind([]Object{c}, nil, nil)
+	r, err := fn.bind(mainThread, []Object{c}, nil, nil)
 	return r, true, err
 }
 
@@ -1135,7 +1135,7 @@ func classMetaContains(c *classObject, item Object) (Object, bool, error) {
 	if !ok {
 		return nil, false, nil
 	}
-	res, err := fn.bind([]Object{c, item}, nil, nil)
+	res, err := fn.bind(mainThread, []Object{c, item}, nil, nil)
 	if err != nil {
 		return nil, true, err
 	}
@@ -1369,7 +1369,7 @@ func Instantiate(c *classObject, pos []Object, kwNames []string, kwVals []Object
 	if meta, ok := userMetaclass(c); ok {
 		if call, ok := meta.lookup("__call__"); ok {
 			if fn, ok := call.(*functionObject); ok {
-				return fn.bind(append([]Object{Object(c)}, pos...), kwNames, kwVals)
+				return fn.bind(mainThread, append([]Object{Object(c)}, pos...), kwNames, kwVals)
 			}
 		}
 	}
@@ -1425,7 +1425,7 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 			return nil, Raise(TypeError, "%s() argument after __init__ is not a plain function", c.name)
 		}
 		withSelf := append([]Object{e}, pos...)
-		ret, err := fn.bind(withSelf, kwNames, kwVals)
+		ret, err := fn.bind(mainThread, withSelf, kwNames, kwVals)
 		if err != nil {
 			return nil, err
 		}
@@ -1476,7 +1476,7 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 		return nil, Raise(TypeError, "%s() argument after __init__ is not a plain function", c.name)
 	}
 	withSelf := append([]Object{inst}, pos...)
-	ret, err := fn.bind(withSelf, kwNames, kwVals)
+	ret, err := fn.bind(mainThread, withSelf, kwNames, kwVals)
 	if err != nil {
 		return nil, err
 	}
@@ -1509,7 +1509,7 @@ func callInit(c *classObject, obj Object, pos []Object, kwNames []string, kwVals
 	if !ok {
 		return Raise(TypeError, "%s() argument after __init__ is not a plain function", c.name)
 	}
-	ret, err := fn.bind(append([]Object{obj}, pos...), kwNames, kwVals)
+	ret, err := fn.bind(mainThread, append([]Object{obj}, pos...), kwNames, kwVals)
 	if err != nil {
 		return err
 	}

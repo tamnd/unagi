@@ -43,7 +43,7 @@ func InPlace(sym string, a, b Object) (Object, error) {
 		return nil, unsupported(sym, a, b)
 	}
 	if fn := instDunderFn(a, spec.dunder); fn != nil {
-		res, err := fn.bind([]Object{a, b}, nil, nil)
+		res, err := fn.bind(mainThread, []Object{a, b}, nil, nil)
 		if err != nil {
 			return nil, err
 		}

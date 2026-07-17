@@ -152,7 +152,7 @@ func binaryDunder(forward, reflected string, a, b Object) (Object, bool, error) 
 		if c.fn == nil {
 			continue
 		}
-		res, err := c.fn.bind([]Object{c.recv, c.x}, nil, nil)
+		res, err := c.fn.bind(mainThread, []Object{c.recv, c.x}, nil, nil)
 		if err != nil {
 			return nil, true, err
 		}

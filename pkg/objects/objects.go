@@ -430,16 +430,25 @@ func NewRange(start, stop, step int64) Object {
 	return &rangeObject{start: start, stop: stop, step: step}
 }
 
-// Call invokes a function object with positional arguments.
+// Call invokes a function object with positional arguments. It is the
+// thread-state-less entry the secondary dispatch paths still use; the threaded
+// spine calls CallT.
 func Call(f Object, args []Object) (Object, error) {
+	return CallT(mainThread, f, args)
+}
+
+// CallT is Call threading the caller's Thread into a compiled callable, so a
+// target invoked dynamically runs its body under the goroutine that called it
+// and thread-identity lookups inside it are correct.
+func CallT(t *Thread, f Object, args []Object) (Object, error) {
 	if u, ok := f.(*functionObject); ok {
-		return u.bind(args, nil, nil)
+		return u.bind(t, args, nil, nil)
 	}
-	if t, ok := f.(*namedTupleType); ok {
-		return t.build.bind(args, nil, nil)
+	if nt, ok := f.(*namedTupleType); ok {
+		return nt.build.bind(t, args, nil, nil)
 	}
 	if m, ok := f.(*boundMethod); ok {
-		return m.fn.bind(append([]Object{m.self}, args...), nil, nil)
+		return m.fn.bind(t, append([]Object{m.self}, args...), nil, nil)
 	}
 	if p, ok := f.(*partialObject); ok {
 		return partialCall(p, args, nil, nil)
