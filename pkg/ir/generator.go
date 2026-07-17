@@ -12,12 +12,14 @@ import (
 // the segments read across a suspension onto the saved-field set, and hands emit
 // the segments in source order.
 //
-// This first slice lowers the flat shape only: a body that is a sequence of
-// `yield <expr>` statements with optional within-segment locals, over scalar
-// parameters. A loop or an `if` around a yield, a local that outlives its
-// segment, a `yield from`, a bare or valued `return`, or a yield used as a
-// sub-expression all refuse here, so the unit stays boxed until the loop and
-// guarded-segment shapes land. The refusal is the R5-safe outcome: an
+// The lowered shapes are the flat sequence of `yield <expr>` statements with
+// optional within-segment locals, the counting loop `for i in range(n): yield e`
+// that becomes a self-resuming loop segment with the induction saved as a field,
+// and the guarded yield `if cond: yield e` that becomes a segment that fires only
+// when the guard holds. A local that outlives its segment, a `yield from`, a bare
+// or valued `return`, a two-argument range, a for-else or if-else, a multi-statement
+// loop or guard body, or a yield used as a sub-expression all refuse here, so the
+// unit stays boxed until those shapes land. The refusal is the R5-safe outcome: an
 // unrecognized generator runs on the boxed goroutine tier, byte-identical to
 // python3.14, never a half-lowered machine.
 
@@ -142,7 +144,24 @@ func LowerGenerator(fn *frontend.FuncDef) (emit.Generator, error) {
 	var segs []emit.Segment
 	var pre []emit.Stmt
 	curLocals := map[string]bool{}
+	var inductions []emit.GenField
+	inductionSet := map[string]bool{}
 	var elem *emit.Repr
+
+	// setElem pins the generator's element representation to the first yield's
+	// scalar class and refuses a later yield that would change it, so a static
+	// generator has one Go element type across every segment.
+	setElem := func(r emit.Repr) error {
+		if elem == nil {
+			rr := r
+			elem = &rr
+			return nil
+		}
+		if elem.Scalar != r.Scalar {
+			return unsupported("%s yields %s in one segment and %s in another", fn.Name, elem.Scalar, r.Scalar)
+		}
+		return nil
+	}
 
 	for _, s := range fn.Body {
 		switch n := s.(type) {
@@ -165,15 +184,28 @@ func LowerGenerator(fn *frontend.FuncDef) (emit.Generator, error) {
 			if err != nil {
 				return emit.Generator{}, err
 			}
-			if elem == nil {
-				rr := r
-				elem = &rr
-			} else if elem.Scalar != r.Scalar {
-				return emit.Generator{}, unsupported("%s yields %s in one segment and %s in another", fn.Name, elem.Scalar, r.Scalar)
+			if err := setElem(r); err != nil {
+				return emit.Generator{}, err
 			}
 			segs = append(segs, emit.Segment{Pre: pre, Yield: v})
 			pre = nil
 			curLocals = map[string]bool{}
+
+		case *frontend.For:
+			seg, ind, err := loopSegment(n, sc, ctx, isParam, curLocals, referenced, inductionSet, pre, setElem)
+			if err != nil {
+				return emit.Generator{}, err
+			}
+			inductionSet[ind.Name] = true
+			inductions = append(inductions, ind)
+			segs = append(segs, seg)
+
+		case *frontend.If:
+			seg, err := guardSegment(n, sc, ctx, isParam, curLocals, referenced, pre, setElem)
+			if err != nil {
+				return emit.Generator{}, err
+			}
+			segs = append(segs, seg)
 
 		case *frontend.Assign:
 			if len(n.Targets) != 1 {
@@ -213,13 +245,157 @@ func LowerGenerator(fn *frontend.FuncDef) (emit.Generator, error) {
 		return emit.Generator{}, unsupported("%s runs statements after its last yield, which needs the trailer form", fn.Name)
 	}
 
-	fields := make([]emit.GenField, 0, len(params))
+	fields := make([]emit.GenField, 0, len(params)+len(inductions))
 	for _, p := range params {
 		if referenced[p.Name] {
 			fields = append(fields, emit.GenField{Name: p.Name, Repr: p.Repr})
 		}
 	}
+	// The saved layout is the cross-yield-live parameters in signature order, then
+	// the loop inductions in loop order. An induction is always live across the
+	// suspension its yield introduces, so it is saved unconditionally, never filtered
+	// by the referenced set the way a parameter is.
+	fields = append(fields, inductions...)
 	return emit.Generator{Name: fn.Name, Elem: *elem, Fields: fields, Segments: segs}, nil
+}
+
+// loopSegment lowers a `for i in range(bound): yield e` into a self-resuming loop
+// segment and the int64 induction field it saves. It refuses every shape the
+// counting form does not cover yet: a linear statement pending before the loop, a
+// for-else, a non-plain-name or shadowing loop variable, a non-range or multi-arg
+// range iterable, a non-int bound, or a loop body that is not a single yield. Each
+// refusal keeps the generator boxed rather than emitting a half-formed machine.
+func loopSegment(n *frontend.For, sc scope, ctx lowerCtx, isParam, curLocals, referenced, inductionSet map[string]bool, pre []emit.Stmt, setElem func(emit.Repr) error) (emit.Segment, emit.GenField, error) {
+	if len(pre) != 0 {
+		return emit.Segment{}, emit.GenField{}, unsupported("a statement before a generator counting loop has no segment home yet")
+	}
+	if len(n.Else) != 0 {
+		return emit.Segment{}, emit.GenField{}, unsupported("a for-else in a generator has no static form yet")
+	}
+	target, ok := n.Target.(*frontend.Name)
+	if !ok {
+		return emit.Segment{}, emit.GenField{}, unsupported("a generator loop target is not a plain name")
+	}
+	if isParam[target.Id] {
+		return emit.Segment{}, emit.GenField{}, unsupported("a generator loop variable %s shadows a parameter", target.Id)
+	}
+	if inductionSet[target.Id] {
+		return emit.Segment{}, emit.GenField{}, unsupported("a generator reuses the loop variable %s", target.Id)
+	}
+	if _, exists := sc[target.Id]; exists {
+		return emit.Segment{}, emit.GenField{}, unsupported("a generator loop variable %s shadows an outer binding", target.Id)
+	}
+	call, ok := n.Iter.(*frontend.Call)
+	if !ok {
+		return emit.Segment{}, emit.GenField{}, unsupported("a generator for over a non-range iterable has no counting form yet")
+	}
+	fnName, ok := call.Fn.(*frontend.Name)
+	if !ok || fnName.Id != "range" {
+		return emit.Segment{}, emit.GenField{}, unsupported("a generator for over a non-range call has no counting form yet")
+	}
+	if len(call.Args) != 1 || call.Args[0].Star != 0 || call.Args[0].Name != "" {
+		return emit.Segment{}, emit.GenField{}, unsupported("a generator counting loop needs a single positional range bound")
+	}
+	bound, br, err := lowerExpr(call.Args[0].Value, sc, ctx)
+	if err != nil {
+		return emit.Segment{}, emit.GenField{}, err
+	}
+	if br.Scalar != emit.SInt {
+		return emit.Segment{}, emit.GenField{}, unsupported("a generator range bound must be an int, got %s", br.Scalar)
+	}
+	bound, err = recvify(bound, isParam, curLocals, referenced)
+	if err != nil {
+		return emit.Segment{}, emit.GenField{}, err
+	}
+	y, ok := singleYield(n.Body)
+	if !ok {
+		return emit.Segment{}, emit.GenField{}, unsupported("a generator counting loop body must be a single yield")
+	}
+	// The induction lives in scope as an int64 while the body lowers, then leaves
+	// scope so a later segment cannot read it as a plain local; it survives only as
+	// the saved field the loop's own recvify set below rewrites through the receiver.
+	intRepr := emit.Repr{Go: "int64", Scalar: emit.SInt}
+	sc[target.Id] = intRepr
+	v, r, err := lowerExpr(y.Value, sc, ctx)
+	delete(sc, target.Id)
+	if err != nil {
+		return emit.Segment{}, emit.GenField{}, err
+	}
+	loopSaved := map[string]bool{target.Id: true}
+	for k := range isParam {
+		loopSaved[k] = true
+	}
+	v, err = recvify(v, loopSaved, map[string]bool{}, referenced)
+	if err != nil {
+		return emit.Segment{}, emit.GenField{}, err
+	}
+	if err := setElem(r); err != nil {
+		return emit.Segment{}, emit.GenField{}, err
+	}
+	return emit.Segment{Loop: &emit.LoopYield{Induction: target.Id, Bound: bound}, Yield: v}, emit.GenField{Name: target.Id, Repr: intRepr}, nil
+}
+
+// guardSegment lowers an `if cond: yield e` into a guarded segment that fires only
+// when the bool guard holds. It refuses a linear statement pending before the guard,
+// an if-else, a yield inside the condition, a non-bool guard, and a guarded body that
+// is not a single yield, keeping the generator boxed in each case.
+func guardSegment(n *frontend.If, sc scope, ctx lowerCtx, isParam, curLocals, referenced map[string]bool, pre []emit.Stmt, setElem func(emit.Repr) error) (emit.Segment, error) {
+	if len(pre) != 0 {
+		return emit.Segment{}, unsupported("a statement before a generator guarded yield has no segment home yet")
+	}
+	if len(n.Else) != 0 {
+		return emit.Segment{}, unsupported("an if-else around a generator yield has no static form yet")
+	}
+	if yieldIn(n.Cond) {
+		return emit.Segment{}, unsupported("a yield inside a generator guard has no static form")
+	}
+	cond, cr, err := lowerExpr(n.Cond, sc, ctx)
+	if err != nil {
+		return emit.Segment{}, err
+	}
+	if cr.Scalar != emit.SBool {
+		return emit.Segment{}, unsupported("a generator guard must be a bool, got %s", cr.Scalar)
+	}
+	cond, err = recvify(cond, isParam, curLocals, referenced)
+	if err != nil {
+		return emit.Segment{}, err
+	}
+	y, ok := singleYield(n.Body)
+	if !ok {
+		return emit.Segment{}, unsupported("a generator guarded body must be a single yield")
+	}
+	v, r, err := lowerExpr(y.Value, sc, ctx)
+	if err != nil {
+		return emit.Segment{}, err
+	}
+	v, err = recvify(v, isParam, curLocals, referenced)
+	if err != nil {
+		return emit.Segment{}, err
+	}
+	if err := setElem(r); err != nil {
+		return emit.Segment{}, err
+	}
+	return emit.Segment{Guard: cond, Yield: v}, nil
+}
+
+// singleYield returns the yield of a one-statement block whose only statement is a
+// plain `yield <expr>`, the body shape a counting loop or a guarded segment carries
+// at this slice. A multi-statement body, a non-yield statement, a `yield from`, or a
+// bare yield reports not-ok, so the enclosing form refuses and the generator stays
+// boxed.
+func singleYield(body []frontend.Stmt) (*frontend.Yield, bool) {
+	if len(body) != 1 {
+		return nil, false
+	}
+	es, ok := body[0].(*frontend.ExprStmt)
+	if !ok {
+		return nil, false
+	}
+	y, ok := es.X.(*frontend.Yield)
+	if !ok || y.From || y.Value == nil {
+		return nil, false
+	}
+	return y, true
 }
 
 // recvify rewrites a lowered expression so a reference to a saved field (a
