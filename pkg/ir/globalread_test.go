@@ -29,7 +29,7 @@ func intGlobals(names ...string) GlobalResolver {
 // and the guard is what keeps the read off a stale binding.
 func TestLowerReadsTrackedGlobalThroughShadow(t *testing.T) {
 	fn := parseFunc(t, "def boost(x: int) -> int:\n    return x * FACTOR\n")
-	f, err := LowerFuncFull(fn, nil, intGlobals("FACTOR"))
+	f, err := LowerFuncFull(fn, nil, intGlobals("FACTOR"), nil)
 	if err != nil {
 		t.Fatalf("LowerFuncFull: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestLowerReadsTrackedGlobalThroughShadow(t *testing.T) {
 // on top of the entry one, isolating the binding guard under test.
 func TestTrackedGlobalReadIsOneEntryGuardSite(t *testing.T) {
 	fn := parseFunc(t, "def combine(x: int) -> bool:\n    return A < B\n")
-	f, err := LowerFuncFull(fn, nil, intGlobals("A", "B"))
+	f, err := LowerFuncFull(fn, nil, intGlobals("A", "B"), nil)
 	if err != nil {
 		t.Fatalf("LowerFuncFull: %v", err)
 	}
@@ -83,10 +83,10 @@ func TestTrackedGlobalReadIsOneEntryGuardSite(t *testing.T) {
 // shadow that was never declared.
 func TestUntrackedFreeNameStillRefuses(t *testing.T) {
 	fn := parseFunc(t, "def read() -> int:\n    return MISSING\n")
-	if _, err := LowerFuncFull(fn, nil, nil); err == nil {
+	if _, err := LowerFuncFull(fn, nil, nil, nil); err == nil {
 		t.Fatal("LowerFuncFull lowered a free name with no global resolver, want refusal")
 	}
-	if _, err := LowerFuncFull(fn, nil, intGlobals("OTHER")); err == nil {
+	if _, err := LowerFuncFull(fn, nil, intGlobals("OTHER"), nil); err == nil {
 		t.Fatal("LowerFuncFull lowered a name the resolver rejects, want refusal")
 	}
 }

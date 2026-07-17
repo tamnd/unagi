@@ -162,7 +162,7 @@ func (sc scope) child(name string) string { return sc.qual + "." + name }
 // scalar subset the bridge refuses it, and the empty profile keeps the unit
 // boxed, so a function the tier cannot yet lower is never scored as if it could.
 func (d *driver) funcInput(fn *frontend.FuncDef) (Profile, []DeoptSite, bool) {
-	f, err := ir.LowerFuncFull(fn, d.resolve, ir.GlobalResolverFor(fn, d.tracked))
+	f, err := ir.LowerFuncFull(fn, d.resolve, ir.GlobalResolverFor(fn, d.tracked), nil)
 	if err != nil {
 		return Profile{}, nil, false
 	}
