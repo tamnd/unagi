@@ -2,6 +2,7 @@ package build
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/tamnd/unagi/pkg/emit"
@@ -45,6 +46,11 @@ type staticPlan struct {
 	// plan hands the bridge a per-function resolver derived from it, so a function
 	// proven static during partitioning lowers the same tracked read here.
 	tracked map[string]string
+	// shapes is the whole-module table of fixed-shape classes the static tier gives
+	// a Go struct, keyed by class name to its struct representation. The static file
+	// declares one struct per entry so a form typed against the class has a real
+	// type to name; the pass that types forms against them lands in a later slice.
+	shapes map[string]emit.Repr
 	// resume holds the mid-loop resume plan for each deopt-target unit whose
 	// counting loop is provably safe to re-enter at the failing iteration. A unit
 	// absent here keeps the from-top deopt edge, which is always correct.
@@ -93,6 +99,7 @@ func planStatic(mod *frontend.Module, decisions []partition.Decision) *staticPla
 		staticFree: staticFree,
 		names:      names,
 		tracked:    tracked,
+		shapes:     ir.TrackedShapes(mod),
 		resolve:    staticResolver(funcs, staticFree, names, tracked),
 	}
 	// A deopt-target unit only earns a static form once it also earns an entry
@@ -281,14 +288,54 @@ func staticForms(plan *staticPlan) ([]byte, error) {
 		// not surface, so there is nothing to write after all.
 		return nil, nil
 	}
+	// The static file declares one Go struct per module shape class, the type a
+	// form typed against that class names and an attribute read loads a field of.
+	// The declarations are unused until a later slice types a form against them,
+	// which is legal Go, so the file carries every module shape whether or not a
+	// form references it yet. They emit in class-name order so the output is
+	// deterministic.
+	decls, err := shapeDecls(plan.shapes)
+	if err != nil {
+		return nil, err
+	}
 	// The static tier reaches its overflow helpers through rt; import it only when
 	// a form actually names one, so a module of purely total forms stays
 	// import-clean.
 	if strings.Contains(forms.String(), runtimeQualifier+".") {
 		fmt.Fprintf(&b, "\nimport %s %q\n", runtimeQualifier, runtimeImportPath)
 	}
+	b.WriteString(decls)
 	b.WriteString(forms.String())
 	return []byte(b.String()), nil
+}
+
+// shapeDecls renders the module's fixed-shape classes as Go struct type
+// declarations, in class-name order so the emitted file is deterministic. An
+// empty table renders nothing, so a module with no shape class carries no struct.
+func shapeDecls(shapes map[string]emit.Repr) (string, error) {
+	if len(shapes) == 0 {
+		return "", nil
+	}
+	names := make([]string, 0, len(shapes))
+	for name := range shapes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var b strings.Builder
+	for _, name := range names {
+		r := shapes[name]
+		if r.Shape == nil {
+			continue
+		}
+		src, err := emit.EmitShape(*r.Shape)
+		if err != nil {
+			return "", fmt.Errorf("shape %s: %w", name, err)
+		}
+		b.WriteString("\n")
+		b.WriteString(src)
+		b.WriteString("\n")
+	}
+	return b.String(), nil
 }
 
 // readGlobals is the subset of the module's tracked scalar globals that an

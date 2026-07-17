@@ -624,6 +624,54 @@ func TestBuildTierForceStaticEmitsCostLosingForm(t *testing.T) {
 	}
 }
 
+// TestBuildStaticFileDeclaresModuleShapeStruct proves the static file declares a
+// Go struct for each module fixed-shape class. A __slots__ class with scalar slot
+// annotations lowers to a flat struct the static tier will type an instance
+// against; here the module also carries a scalar static function so a static file
+// is emitted, and that file declares the Point struct in slot order. The struct is
+// unused so far (no form is typed against it until the wiring slice), which is
+// legal Go, so the module still builds and runs byte-identical.
+func TestBuildStaticFileDeclaresModuleShapeStruct(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles binaries; skipped in -short")
+	}
+	dir := t.TempDir()
+	src := "class Point:\n" +
+		"    __slots__ = (\"x\", \"y\")\n" +
+		"    x: int\n" +
+		"    y: float\n\n" +
+		"def add(a: int, b: int) -> int:\n" +
+		"    return a + b\n\n" +
+		"print(add(2, 3))\n"
+	py := filepath.Join(dir, "main.py")
+	writeFile(t, py, src)
+
+	gen := filepath.Join(dir, "gen")
+	bin, err := Build(context.Background(), py, Options{Out: filepath.Join(dir, "prog"), EmitGo: gen, Tier: partition.ModeForceStatic})
+	if err != nil {
+		t.Fatalf("forced-static build: %v", err)
+	}
+	static, err := os.ReadFile(filepath.Join(gen, "static.go"))
+	if err != nil {
+		t.Fatalf("static.go not emitted under forced static: %v", err)
+	}
+	for _, want := range []string{"type Point struct", "x int64", "y float64"} {
+		if !bytes.Contains(static, []byte(want)) {
+			t.Errorf("static.go missing shape struct fragment %q:\n%s", want, static)
+		}
+	}
+
+	var stdout bytes.Buffer
+	cmd := exec.Command(bin)
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := stdout.String(); got != "5\n" {
+		t.Errorf("output = %q, want %q", got, "5\n")
+	}
+}
+
 // TestBuildTierForceBoxedEmitsNoStaticForm proves --tier boxed demotes a unit the
 // cost model would emit static: a total float function auto-proves static and emits
 // its static Go, but under forced boxed the build emits no static form and the
