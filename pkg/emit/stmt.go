@@ -108,6 +108,16 @@ type ForGen struct {
 	Elem Repr
 	Gen  Expr
 	Body []Stmt
+	// Deopt marks the driven generator as one whose Next can hand off mid-sequence:
+	// a guard inside the machine returns the bare deopt signal on the error channel
+	// (see emit.Generator.Deopt). When set, the drive loop tells that signal apart
+	// from a real raised exception by *objects.Deopt type and routes it into the
+	// consumer's own from-top deopt edge, so the consumer re-runs boxed and drives a
+	// boxed generator that yields the whole correct sequence. When clear, the driven
+	// generator never signals, and the loop treats every Next error as an exception to
+	// propagate. A consumer that drives a deoptable generator is itself a deopt site,
+	// so the bridge only sets Deopt when the drive body is pure enough to re-run.
+	Deopt bool
 }
 
 // ForCount is the counting loop `for i := start; i < stop; i++ { body }`, the shape
@@ -401,7 +411,26 @@ func (b *Builder) lowerStmt(s Stmt) ([]ast.Stmt, error) {
 			Tok: token.DEFINE,
 			Rhs: []ast.Expr{callExpr(&ast.SelectorExpr{X: gen, Sel: ident("Next")})},
 		}
-		errCheck := ifStmt(binary(token.NEQ, ident(genErr), ident("nil")), ret(b.ret.zero(), ident(genErr)))
+		// A driven generator's Next carries two kinds of error. A real raised exception
+		// propagates the way every other node does: return the function's zero and the
+		// error. A deoptable generator can also return the bare deopt signal, an
+		// *objects.Deopt, when a guard inside the machine fails; that is not an
+		// exception but a request to abandon the static drive. The consumer routes it
+		// into its own from-top deopt edge so it re-runs boxed and drives a boxed
+		// generator over the whole correct sequence. A guard-free generator never
+		// signals, so its loop keeps the plain propagate-only check.
+		var errCheck ast.Stmt
+		if n.Deopt {
+			assert := &ast.TypeAssertExpr{X: ident(genErr), Type: &ast.StarExpr{X: sel("objects", "Deopt")}}
+			isDeopt := &ast.IfStmt{
+				Init: &ast.AssignStmt{Lhs: []ast.Expr{ident("_"), ident("ok")}, Tok: token.DEFINE, Rhs: []ast.Expr{assert}},
+				Cond: ident("ok"),
+				Body: block(b.deoptEdge()),
+			}
+			errCheck = ifStmt(binary(token.NEQ, ident(genErr), ident("nil")), isDeopt, ret(b.ret.zero(), ident(genErr)))
+		} else {
+			errCheck = ifStmt(binary(token.NEQ, ident(genErr), ident("nil")), ret(b.ret.zero(), ident(genErr)))
+		}
 		doneCheck := ifStmt(ident(genDone), &ast.BranchStmt{Tok: token.BREAK})
 		loopBody := append([]ast.Stmt{next, errCheck, doneCheck}, body...)
 		loop := &ast.ForStmt{Body: block(loopBody...)}

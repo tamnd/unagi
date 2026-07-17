@@ -127,6 +127,17 @@ type Deopt struct {
 
 func (d *Deopt) Error() string { return "unagi: unhandled deopt hand-off" }
 
+// DeoptSignal is the bare deopt sentinel a static generator's Next returns when a
+// guard inside the machine fails. Unlike a function's Deopt it carries no Value:
+// a generator has no from-top boxed twin that produces one result, so there is
+// nothing to hand back through the machine itself. Instead the consumer driving
+// the generator sees this on Next's error channel, recognizes it by *Deopt type,
+// and re-runs its own drive loop boxed from the top, where a boxed generator
+// yields the whole correct sequence. The consumer builds its own Deopt{Value} for
+// its result; this shared instance is only the signal that a static generator gave
+// up mid-sequence, so its nil Value is never read.
+var DeoptSignal error = &Deopt{}
+
 // ExcMessageLine is the final traceback line with a user __str__ dispatched:
 // "Kind: str(e)", or the bare kind when str is empty. Error uses the built-in
 // Text, so the traceback renderer calls this instead to honour a subclass that

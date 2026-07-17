@@ -69,7 +69,14 @@ type Builder struct {
 	nFlag     int
 	nErr      int
 	nDeopt    int
-	pre       []ast.Stmt
+	// genDeopt marks the builder as emitting a static generator's Next. A guard
+	// inside a generator machine has no from-top handler and no resume frame to fall
+	// back to, so its failure edge returns the bare deopt signal on Next's error
+	// channel instead; the consumer driving the generator catches the signal and
+	// re-runs boxed. When set, deoptEdge emits that three-value signal return rather
+	// than a hand-off call to a named or placeholder deopt function.
+	genDeopt bool
+	pre      []ast.Stmt
 	// resume is the stack of active loop resume frames, innermost last. A guard
 	// that fires while a frame is active re-enters the boxed twin mid-loop through
 	// the frame's hand-off instead of the from-top edge; an empty stack means every
@@ -126,6 +133,17 @@ func (b *Builder) errName() string {
 // handler the edge falls back to the per-site placeholder name the goldens use,
 // which keeps the unit self-describing when it is emitted outside a build.
 func (b *Builder) deoptEdge() ast.Stmt {
+	// A guard inside a static generator's Next has no from-top handler and no resume
+	// frame: the machine is one step of a suspendable sequence, not a unit that can
+	// replay itself. Its failure edge returns the bare deopt signal on Next's three-
+	// value channel, `return <zero>, false, objects.DeoptSignal`. The consumer's drive
+	// loop recognizes the signal by *objects.Deopt type and re-runs itself boxed, so
+	// the whole sequence continues correctly through a boxed generator. done is false
+	// so the consumer reads the error rather than ending the loop.
+	if b.genDeopt {
+		b.deoptUsed = true
+		return ret(b.ret.zero(), ident("false"), sel("objects", "DeoptSignal"))
+	}
 	// A guard inside a resume-enabled loop re-enters the boxed twin at the current
 	// iteration, carrying the loop counter and live accumulators instead of only
 	// the entry parameters. The frame's arguments include the entry snapshots, so
