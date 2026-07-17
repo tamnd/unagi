@@ -171,6 +171,13 @@ func stmtGuarded(s emit.Stmt) bool {
 		return exprGuarded(n.Cond)
 	case emit.ForCount:
 		return exprGuarded(n.Start) || exprGuarded(n.Stop)
+	case emit.ForGen:
+		// Driving a deopt-capable generator is itself a guard: the generator's Next can
+		// return the deopt signal, which the drive routes into the consumer's from-top
+		// edge, so the consumer must be a deopt-target even when its own body carries no
+		// arithmetic guard. A guard-free generator never signals, so its drive opens no
+		// site. The body's own guards open their own sites as the walk descends.
+		return n.Deopt
 	}
 	return false
 }
