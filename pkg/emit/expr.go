@@ -208,6 +208,26 @@ type Attr struct {
 	Name string
 }
 
+// GenNew constructs a static generator handle, &Type{field: value, ...}, the
+// value an emit.ForGen drives. Type is the generator struct's name, and Fields
+// binds each saved field the caller populates (the referenced parameters) to the
+// argument expression the call passed for it, in field order. The discriminant
+// state and any loop induction field are omitted, so Go zero-initializes them,
+// which is the top-of-body start state and a zero counter. The node's
+// representation is a pointer to the struct, the receiver type Next binds, so a
+// generator handle stays unboxed across the construction.
+type GenNew struct {
+	Type   string
+	Fields []GenArg
+}
+
+// GenArg binds one saved field of a constructed generator handle to the argument
+// the call passed for it.
+type GenArg struct {
+	Name  string
+	Value Expr
+}
+
 func (Var) isExpr()     {}
 func (Int) isExpr()     {}
 func (Float) isExpr()   {}
@@ -217,6 +237,7 @@ func (Bin) isExpr()     {}
 func (Index) isExpr()   {}
 func (ListLit) isExpr() {}
 func (Attr) isExpr()    {}
+func (GenNew) isExpr()  {}
 
 // lowerExpr lowers one expression to a Go expression and its representation,
 // appending any guard statements it needs (an integer overflow check, a division
@@ -250,6 +271,8 @@ func (b *Builder) lowerExpr(e Expr) (ast.Expr, Repr, error) {
 		return b.lowerAttr(n)
 	case ListLit:
 		return b.lowerListLit(n)
+	case GenNew:
+		return b.lowerGenNew(n)
 	case Cmp:
 		return b.lowerCmp(n)
 	case And:
@@ -460,6 +483,25 @@ func (b *Builder) lowerListLit(n ListLit) (ast.Expr, Repr, error) {
 	elem := n.Elem
 	list := Repr{Go: "[]" + elem.Go, Total: true, Elem: &elem}
 	return &ast.CompositeLit{Type: list.goType(), Elts: elts}, list, nil
+}
+
+// lowerGenNew lowers a generator handle construction to &Type{field: value, ...}.
+// Each field's value lowers as an ordinary scalar expression, so a compound
+// argument evaluates once at construction, exactly where the call site placed it;
+// the discriminant and any induction field are left out so Go zero-initializes
+// them. The construction is a pure value with no guard, so it appends nothing to
+// the pending list, and its representation is a pointer to the state-machine struct.
+func (b *Builder) lowerGenNew(n GenNew) (ast.Expr, Repr, error) {
+	elts := make([]ast.Expr, len(n.Fields))
+	for i, f := range n.Fields {
+		v, _, err := b.lowerExpr(f.Value)
+		if err != nil {
+			return nil, Repr{}, err
+		}
+		elts[i] = &ast.KeyValueExpr{Key: ident(f.Name), Value: v}
+	}
+	lit := &ast.UnaryExpr{Op: token.AND, X: &ast.CompositeLit{Type: ident(n.Type), Elts: elts}}
+	return lit, Repr{Go: "*" + n.Type, Scalar: NotScalar}, nil
 }
 
 // lowerIndex lowers a bounds-guarded list read xs[i]. It binds the base and the
