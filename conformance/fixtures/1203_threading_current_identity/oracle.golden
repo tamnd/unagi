@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+main name: MainThread
+main is main_thread: True
+worker 0 name: W0
+worker 0 ident matches: True
+worker 0 not main: True
+worker 0 is own thread: True
+worker 1 name: W1
+worker 1 ident matches: True
+worker 1 not main: True
+worker 1 is own thread: True
+worker 2 name: W2
+worker 2 ident matches: True
+worker 2 not main: True
+worker 2 is own thread: True
+active after join: 1
+== exception:
+== stderr:

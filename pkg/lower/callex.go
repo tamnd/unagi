@@ -90,11 +90,11 @@ func (f *fnCtx) callExValue(ct ast.Expr, e *frontend.Call) (ast.Expr, error) {
 	tmp := f.tmpVar()
 	switch {
 	case star != nil:
-		f.fallible(tmp, f.e.obj("CallStarEx"), ct, star, kw)
+		f.fallible(tmp, f.e.obj("CallStarExT"), threadArg(), ct, star, kw)
 	case hasKw:
-		f.fallible(tmp, f.e.obj("CallEx"), ct, pos, kw)
+		f.fallible(tmp, f.e.obj("CallExT"), threadArg(), ct, pos, kw)
 	default:
-		f.fallible(tmp, f.e.obj("Call"), ct, pos)
+		f.fallible(tmp, f.e.obj("CallT"), threadArg(), ct, pos)
 	}
 	return ident(tmp), nil
 }
@@ -188,9 +188,9 @@ func (f *fnCtx) methodCallEx(attr *frontend.Attribute, e *frontend.Call) (ast.Ex
 		}
 		tmp := f.tmpVar()
 		if star != nil {
-			f.fallible(tmp, f.e.obj("CallMethodStar"), recv, strLit(attr.Name), star)
+			f.fallible(tmp, f.e.obj("CallMethodStarT"), threadArg(), recv, strLit(attr.Name), star)
 		} else {
-			f.fallible(tmp, f.e.obj("CallMethod"), recv, strLit(attr.Name), pos)
+			f.fallible(tmp, f.e.obj("CallMethodT"), threadArg(), recv, strLit(attr.Name), pos)
 		}
 		return ident(tmp), nil
 	}
@@ -206,9 +206,9 @@ func (f *fnCtx) methodCallEx(attr *frontend.Attribute, e *frontend.Call) (ast.Ex
 	}
 	tmp := f.tmpVar()
 	if star != nil {
-		f.fallible(tmp, f.e.obj("CallMethodStarEx"), ident(rt), strLit(attr.Name), star, kw)
+		f.fallible(tmp, f.e.obj("CallMethodStarExT"), threadArg(), ident(rt), strLit(attr.Name), star, kw)
 	} else {
-		f.fallible(tmp, f.e.obj("CallMethodEx"), ident(rt), strLit(attr.Name), pos, kw)
+		f.fallible(tmp, f.e.obj("CallMethodExT"), threadArg(), ident(rt), strLit(attr.Name), pos, kw)
 	}
 	return ident(tmp), nil
 }

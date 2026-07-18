@@ -70,7 +70,7 @@ func (f *fnCtx) call(e *frontend.Call) (ast.Expr, error) {
 			return nil, err
 		}
 		tmp := f.tmpVar()
-		f.fallible(tmp, f.e.obj("CallMethod"), recv, strLit(attr.Name), f.objSlice(args))
+		f.fallible(tmp, f.e.obj("CallMethodT"), threadArg(), recv, strLit(attr.Name), f.objSlice(args))
 		return ident(tmp), nil
 	}
 	name, ok := e.Fn.(*frontend.Name)
@@ -160,7 +160,7 @@ func (f *fnCtx) dynCall(e *frontend.Call) (ast.Expr, error) {
 	}
 	tmp := f.tmpVar()
 	if len(kws) == 0 {
-		f.fallible(tmp, f.e.obj("Call"), ident(ct), f.objSlice(pos))
+		f.fallible(tmp, f.e.obj("CallT"), threadArg(), ident(ct), f.objSlice(pos))
 		return ident(tmp), nil
 	}
 	names := make([]string, len(kws))
@@ -169,7 +169,7 @@ func (f *fnCtx) dynCall(e *frontend.Call) (ast.Expr, error) {
 		names[i] = kw.name
 		vals[i] = kw.val
 	}
-	f.fallible(tmp, f.e.obj("CallKw"), ident(ct), f.objSlice(pos), strSliceLit(names), f.objSlice(vals))
+	f.fallible(tmp, f.e.obj("CallKwT"), threadArg(), ident(ct), f.objSlice(pos), strSliceLit(names), f.objSlice(vals))
 	return ident(tmp), nil
 }
 
@@ -201,7 +201,7 @@ func (f *fnCtx) methodCallKw(attr *frontend.Attribute, recv ast.Expr, e *fronten
 		vals[i] = kw.val
 	}
 	tmp := f.tmpVar()
-	f.fallible(tmp, f.e.obj("CallMethodKw"), recv, strLit(attr.Name),
+	f.fallible(tmp, f.e.obj("CallMethodKwT"), threadArg(), recv, strLit(attr.Name),
 		f.objSlice(pos), strSliceLit(names), f.objSlice(vals))
 	return ident(tmp), nil
 }

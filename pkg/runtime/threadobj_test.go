@@ -177,6 +177,59 @@ func TestThreadReprInitial(t *testing.T) {
 	}
 }
 
+// TestChildThreadReadsOwnIdentity runs a target that calls threading.get_ident
+// and threading.current_thread the way compiled code does, through the
+// thread-carrying dispatch, and checks it reads the child's own ident and its
+// own Thread object rather than the main thread's. This is the identity the
+// t-less dispatch used to get wrong.
+func TestChildThreadReadsOwnIdentity(t *testing.T) {
+	mo, err := ImportModule("threading")
+	if err != nil {
+		t.Fatalf("import threading: %v", err)
+	}
+	var childIdent atomic.Int64
+	sameSelf := make(chan bool, 1)
+	done := make(chan struct{})
+	var self objects.Object
+
+	target := objects.NewFuncT("work", 0, func(ct *objects.Thread, args []objects.Object) (objects.Object, error) {
+		id, err := objects.CallMethodT(ct, mo, "get_ident", nil)
+		if err != nil {
+			return nil, err
+		}
+		n, _ := objects.AsInt(id)
+		childIdent.Store(n)
+		cur, err := objects.CallMethodT(ct, mo, "current_thread", nil)
+		if err != nil {
+			return nil, err
+		}
+		sameSelf <- cur == self
+		close(done)
+		return objects.None, nil
+	})
+
+	th := newThread(t, []string{"target"}, []objects.Object{target})
+	self = th
+	if _, err := objects.CallMethod(th, "start", nil); err != nil {
+		t.Fatalf("start(): %v", err)
+	}
+	<-done
+	if _, err := objects.CallMethod(th, "join", nil); err != nil {
+		t.Fatalf("join(): %v", err)
+	}
+
+	wantIdent, _ := objects.AsInt(attr(t, th, "ident"))
+	if childIdent.Load() != wantIdent {
+		t.Errorf("get_ident() inside child = %d, want the child ident %d", childIdent.Load(), wantIdent)
+	}
+	if childIdent.Load() == objects.MainThread().Ident() {
+		t.Errorf("get_ident() inside child = %d, the main ident, want a distinct one", childIdent.Load())
+	}
+	if !<-sameSelf {
+		t.Error("current_thread() inside child did not return the child's own Thread")
+	}
+}
+
 // TestMainThreadObject checks main_thread() and current_thread() agree on the
 // MainThread wrapper, alive with the main ident.
 func TestMainThreadObject(t *testing.T) {

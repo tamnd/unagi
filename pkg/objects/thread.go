@@ -19,11 +19,12 @@ import "sync/atomic"
 // and only read afterward, so they need no synchronization; the ident allocator
 // is the one shared piece and is atomic.
 type Thread struct {
-	ident  int64         // threading.get_ident value, monotonic, never reused
-	name   string        // threading.Thread.name, mutable from the owning thread
-	daemon bool          // daemon flag, fixed once the thread starts
-	isMain bool          // only the main thread takes signals and blocks shutdown
-	done   chan struct{} // closed when the thread's target returns
+	ident   int64         // threading.get_ident value, monotonic, never reused
+	name    string        // threading.Thread.name, mutable from the owning thread
+	daemon  bool          // daemon flag, fixed once the thread starts
+	isMain  bool          // only the main thread takes signals and blocks shutdown
+	done    chan struct{} // closed when the thread's target returns
+	wrapper Object        // the threading.Thread that owns this state, for current_thread
 }
 
 // nextThreadIdent hands out monotonically increasing thread idents. It never
@@ -80,6 +81,16 @@ func (t *Thread) SetDaemon(d bool) { t.daemon = d }
 
 // IsMain reports whether this is the process main thread.
 func (t *Thread) IsMain() bool { return t.isMain }
+
+// Wrapper returns the threading.Thread object that owns this state, the value
+// current_thread hands back when this thread is the ambient one. It is set once
+// before the thread is published to a second goroutine and only read afterward,
+// so it needs no synchronization.
+func (t *Thread) Wrapper() Object { return t.wrapper }
+
+// SetWrapper records the owning threading.Thread. start() calls it before the
+// goroutine runs; the main thread is wired at package init.
+func (t *Thread) SetWrapper(w Object) { t.wrapper = w }
 
 // Done returns the channel closed when the thread's target returns, the backing
 // for Thread.join and Thread.is_alive.
