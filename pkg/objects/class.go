@@ -1648,6 +1648,16 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return memoryviewLoadAttr(x, name)
 	case *threadObject:
 		return threadLoadAttr(x, name)
+	case *lockObject:
+		if lockMethodNames[name] {
+			return builtinMethodValue(x, name), nil
+		}
+		return nil, noAttr(x, name)
+	case *rlockObject:
+		if rlockMethodNames[name] {
+			return builtinMethodValue(x, name), nil
+		}
+		return nil, noAttr(x, name)
 	case *stringIOObject:
 		if name == "closed" {
 			return NewBool(x.closed), nil

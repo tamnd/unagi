@@ -64,6 +64,10 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		return mappingProxyMethod(x, name, args)
 	case *threadObject:
 		return threadMethod(x, name, args)
+	case *lockObject:
+		return lockMethod(x, name, args)
+	case *rlockObject:
+		return rlockMethodT(t, x, name, args)
 	case *stringIOObject:
 		return stringIOMethod(x, name, args)
 	case *bytesIOObject:
@@ -159,6 +163,10 @@ func CallMethodKwT(t *Thread, o Object, name string, pos []Object, kwNames []str
 		return classCallMethodKwT(t, x, name, pos, kwNames, kwVals)
 	case *superObject:
 		return superCallMethodKwT(t, x, name, pos, kwNames, kwVals)
+	case *lockObject:
+		return lockMethodKw(x, name, pos, kwNames, kwVals)
+	case *rlockObject:
+		return rlockMethodKwT(t, x, name, pos, kwNames, kwVals)
 	case *Module:
 		v, err := moduleLoadAttr(x, name)
 		if err != nil {

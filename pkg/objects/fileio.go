@@ -369,7 +369,7 @@ func bytesIORepr(b *bytesIOObject) string   { return fmt.Sprintf("<_io.BytesIO o
 // manager protocol through CallMethod, the way the in-memory streams do.
 func supportsNativeCM(o Object) bool {
 	switch o.(type) {
-	case *stringIOObject, *bytesIOObject:
+	case *stringIOObject, *bytesIOObject, *lockObject, *rlockObject:
 		return true
 	}
 	return false

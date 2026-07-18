@@ -27,6 +27,8 @@ func initThreading(m *objects.Module) error {
 		{"main_thread", objects.NewFunc("main_thread", -1, threadingMainThread)},
 		{"active_count", objects.NewFunc("active_count", -1, threadingActiveCount)},
 		{"enumerate", objects.NewFunc("enumerate", -1, threadingEnumerate)},
+		{"Lock", objects.NewFunc("Lock", -1, threadingNewLock)},
+		{"RLock", objects.NewFunc("RLock", -1, threadingNewRLock)},
 	} {
 		if err := objects.StoreAttr(m, e.name, e.fn); err != nil {
 			return err
@@ -133,6 +135,24 @@ func threadingNewThread(pos []objects.Object, kwNames []string, kwVals []objects
 	}
 
 	return objects.NewThreadObject(target, args, tkwNames, tkwVals, name, nameGiven, daemon), nil
+}
+
+// threadingNewLock is threading.Lock(): a fresh unlocked primitive lock. CPython
+// takes no arguments, so any argument is the TypeError it raises.
+func threadingNewLock(args []objects.Object) (objects.Object, error) {
+	if len(args) != 0 {
+		return nil, objects.Raise(objects.TypeError, "Lock() takes no arguments (%d given)", len(args))
+	}
+	return objects.NewLock(), nil
+}
+
+// threadingNewRLock is threading.RLock(): a fresh reentrant lock, likewise
+// argument-free.
+func threadingNewRLock(args []objects.Object) (objects.Object, error) {
+	if len(args) != 0 {
+		return nil, objects.Raise(objects.TypeError, "RLock() takes no arguments (%d given)", len(args))
+	}
+	return objects.NewRLock(), nil
 }
 
 // threadingCurrentThread is threading.current_thread(): the Thread object for
