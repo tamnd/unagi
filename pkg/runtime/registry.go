@@ -39,6 +39,25 @@ func liveThreadCount() int {
 	return n
 }
 
+// liveThreadObjects returns the Python Thread wrapper for every thread in the
+// live table, the list threading.enumerate reports: the main thread's
+// _MainThread plus the threading.Thread of every started thread that has not
+// yet returned. Each wrapper is set before its thread joins the table, so an
+// entry always has one. The order follows Go map iteration and is not stable,
+// matching CPython, whose enumerate order over its own _active dict is likewise
+// unspecified, so a program that needs a stable view sorts the result.
+func liveThreadObjects() []objects.Object {
+	threadsMu.Lock()
+	defer threadsMu.Unlock()
+	out := make([]objects.Object, 0, len(liveThreads))
+	for _, t := range liveThreads {
+		if w := t.Wrapper(); w != nil {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
 // registerThread adds t to the live table. start() calls it in the spawning
 // goroutine before the go statement, so a Thread.start that has returned is
 // already visible to a concurrent enumerate, matching CPython, which registers

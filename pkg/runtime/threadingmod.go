@@ -8,9 +8,9 @@ import (
 // _thread extension, so the runtime provides the identity surface in Go under
 // the same import name. get_ident is the thread-identity primitive; the Thread
 // object, its start/join/is_alive surface, and the registry views current_thread,
-// main_thread, and active_count run threads on goroutines over the spawn wrapper
-// and the live-thread registry in registry.go. enumerate arrives with the slice
-// that has the registry carry the Python Thread wrappers.
+// main_thread, active_count, and enumerate run threads on goroutines over the
+// spawn wrapper and the live-thread registry in registry.go, which carries the
+// Python Thread wrapper of every live thread so enumerate can return them.
 
 func init() {
 	moduleTable["threading"] = &moduleEntry{builtin: true, exec: initThreading}
@@ -26,6 +26,7 @@ func initThreading(m *objects.Module) error {
 		{"current_thread", objects.NewFuncT("current_thread", -1, threadingCurrentThread)},
 		{"main_thread", objects.NewFunc("main_thread", -1, threadingMainThread)},
 		{"active_count", objects.NewFunc("active_count", -1, threadingActiveCount)},
+		{"enumerate", objects.NewFunc("enumerate", -1, threadingEnumerate)},
 	} {
 		if err := objects.StoreAttr(m, e.name, e.fn); err != nil {
 			return err
@@ -161,6 +162,19 @@ func threadingActiveCount(args []objects.Object) (objects.Object, error) {
 		return nil, objects.Raise(objects.TypeError, "active_count() takes no arguments (%d given)", len(args))
 	}
 	return objects.NewInt(int64(liveThreadCount())), nil
+}
+
+// threadingEnumerate is threading.enumerate(): a list of every live Thread
+// object, the main thread plus every started thread that has not yet returned.
+// A thread joins the list when its start() returns and leaves it once its
+// target returns, the same window active_count reports. CPython leaves the
+// order unspecified, so this returns the registry's own order and a program
+// that needs a stable view sorts by name.
+func threadingEnumerate(args []objects.Object) (objects.Object, error) {
+	if len(args) != 0 {
+		return nil, objects.Raise(objects.TypeError, "enumerate() takes no arguments (%d given)", len(args))
+	}
+	return objects.NewList(liveThreadObjects()), nil
 }
 
 // threadingGetIdent is threading.get_ident(): the current thread's ident, a
