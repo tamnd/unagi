@@ -75,3 +75,45 @@ func TestCallKwTThreadsThread(t *testing.T) {
 		t.Fatalf("CallKwT bound the wrong argument: got %v", got)
 	}
 }
+
+// TestThreadRecursionAccounting drives the per-thread depth counter directly:
+// charges balance, the limit trips without holding a slot, and two threads keep
+// independent depths.
+func TestThreadRecursionAccounting(t *testing.T) {
+	th := NewThread("rec", false)
+	for i := 1; i <= 3; i++ {
+		if err := th.EnterRecursive(3); err != nil {
+			t.Fatalf("charge %d: %v", i, err)
+		}
+	}
+	if th.callDepth != 3 {
+		t.Fatalf("depth after three charges = %d, want 3", th.callDepth)
+	}
+	if err := th.EnterRecursive(3); err == nil ||
+		Str(err.(*Exception)) != "maximum recursion depth exceeded" {
+		t.Fatalf("over-limit charge = %v, want RecursionError", err)
+	}
+	if th.callDepth != 3 {
+		t.Fatalf("tripped charge left depth at %d, want 3", th.callDepth)
+	}
+	for i := 0; i < 3; i++ {
+		th.LeaveRecursive()
+	}
+	if th.callDepth != 0 {
+		t.Fatalf("depth after releases = %d, want 0", th.callDepth)
+	}
+	// A stray release never goes negative.
+	th.LeaveRecursive()
+	if th.callDepth != 0 {
+		t.Fatalf("depth after stray release = %d, want 0", th.callDepth)
+	}
+
+	// A second thread keeps its own depth.
+	other := NewThread("rec2", false)
+	if err := th.EnterRecursive(3); err != nil {
+		t.Fatalf("charge on th: %v", err)
+	}
+	if other.callDepth != 0 {
+		t.Fatalf("other thread's depth moved to %d", other.callDepth)
+	}
+}

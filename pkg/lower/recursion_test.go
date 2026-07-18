@@ -20,10 +20,10 @@ func TestRecursionGuardEmitted(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: lower: %v", name, err)
 		}
-		if strings.Count(got, "runtime.EnterRecursive()") == 0 {
+		if strings.Count(got, "runtime.EnterRecursive(t)") == 0 {
 			t.Errorf("%s: emitted source missing recursion guard:\n%s", name, got)
 		}
-		if !strings.Contains(got, "defer runtime.LeaveRecursive()") {
+		if !strings.Contains(got, "defer runtime.LeaveRecursive(t)") {
 			t.Errorf("%s: emitted source missing deferred release:\n%s", name, got)
 		}
 	}
@@ -36,7 +36,7 @@ func TestGeneratorSkipsRecursionGuard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lower: %v", err)
 	}
-	if strings.Contains(got, "runtime.EnterRecursive()") {
+	if strings.Contains(got, "runtime.EnterRecursive(t)") {
 		t.Errorf("generator constructor should not charge recursion:\n%s", got)
 	}
 }
