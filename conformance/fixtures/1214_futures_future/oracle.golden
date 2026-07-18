@@ -1,0 +1,26 @@
+== exit: 0
+== stdout:
+typename: Future
+fresh: False False False
+pending result -> TimeoutError
+finished: False True False
+result: 42 exception: None
+callbacks: [('a', True), ('b', 42)]
+late callback: ('c', True)
+double set: InvalidStateError
+exc done: True
+exc result raises: boom
+exc via exception(): ValueError('boom')
+cancel pending: True True True
+cancelled result -> CancelledError
+set_running: True running: True
+cancel running: False
+cancel finished: False
+set_running cancelled: False
+blocking result: from worker
+CancelledError is Exception: True
+InvalidStateError is Exception: True
+CancelledError qualname: CancelledError
+CancelledError module: concurrent.futures._base
+== exception:
+== stderr:
