@@ -1,0 +1,461 @@
+package objects
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+// queueObject is queue.Queue (spec 2076 doc 10 §2.8): a synchronized FIFO. CPython
+// builds it from a mutex and three Conditions over that mutex, one each for the
+// not-empty, not-full, and all-tasks-done predicates. The Go form keeps the same
+// observable behaviour with a single mutex guarding the item slice and three FIFO
+// queues of waiter channels. get parks on notEmpty while the queue is empty and a
+// put wakes one; put parks on notFull while a bounded queue is at capacity and a
+// get wakes one; join parks on allDone until every put has been matched by a
+// task_done. A woken waiter re-checks its predicate under the lock, so a value
+// another thread took first sends it back to sleep rather than proceeding on a
+// predicate that no longer holds, exactly as CPython's Condition.wait loop does.
+type queueObject struct {
+	mu         sync.Mutex
+	items      []Object
+	maxsize    int // zero or negative means unbounded
+	unfinished int // puts not yet balanced by task_done
+	notEmpty   []chan struct{}
+	notFull    []chan struct{}
+	allDone    []chan struct{}
+}
+
+// NewQueue builds a Queue with the given maxsize. A maxsize of zero or below is
+// CPython's unbounded queue.
+func NewQueue(maxsize int) *queueObject {
+	return &queueObject{maxsize: maxsize}
+}
+
+func (q *queueObject) TypeName() string { return "Queue" }
+
+// full reports whether a bounded queue is at capacity. The caller holds the lock.
+func (q *queueObject) atCapacity() bool {
+	return q.maxsize > 0 && len(q.items) >= q.maxsize
+}
+
+// put appends item, blocking while a bounded queue is full. It reports the
+// queue.Full exception on a non-blocking miss or a timeout, mirroring the
+// not_full Condition CPython waits on.
+func (q *queueObject) put(item Object, block bool, hasTimeout bool, timeout time.Duration) error {
+	var deadline time.Time
+	if hasTimeout {
+		deadline = time.Now().Add(timeout)
+	}
+	q.mu.Lock()
+	for q.atCapacity() {
+		if !block {
+			q.mu.Unlock()
+			return newQueueFull()
+		}
+		var remaining time.Duration
+		if hasTimeout {
+			remaining = time.Until(deadline)
+			if remaining <= 0 {
+				q.mu.Unlock()
+				return newQueueFull()
+			}
+		}
+		w := make(chan struct{})
+		q.notFull = append(q.notFull, w)
+		q.mu.Unlock()
+
+		if !queuePark(w, hasTimeout, remaining) {
+			// The timer fired. If a get popped this waiter first the timeout lost
+			// the race and there is room now, so retry the predicate; otherwise pull
+			// the waiter from the queue and report the timeout as Full.
+			if q.reclaim(&q.notFull, w) {
+				return newQueueFull()
+			}
+		}
+		q.mu.Lock()
+	}
+	q.items = append(q.items, item)
+	q.unfinished++
+	wakeOneWaiter(&q.notEmpty)
+	q.mu.Unlock()
+	return nil
+}
+
+// get removes and returns the front item, blocking while the queue is empty. It
+// reports the queue.Empty exception on a non-blocking miss or a timeout.
+func (q *queueObject) get(block bool, hasTimeout bool, timeout time.Duration) (Object, error) {
+	var deadline time.Time
+	if hasTimeout {
+		deadline = time.Now().Add(timeout)
+	}
+	q.mu.Lock()
+	for len(q.items) == 0 {
+		if !block {
+			q.mu.Unlock()
+			return nil, newQueueEmpty()
+		}
+		var remaining time.Duration
+		if hasTimeout {
+			remaining = time.Until(deadline)
+			if remaining <= 0 {
+				q.mu.Unlock()
+				return nil, newQueueEmpty()
+			}
+		}
+		w := make(chan struct{})
+		q.notEmpty = append(q.notEmpty, w)
+		q.mu.Unlock()
+
+		if !queuePark(w, hasTimeout, remaining) {
+			if q.reclaim(&q.notEmpty, w) {
+				return nil, newQueueEmpty()
+			}
+		}
+		q.mu.Lock()
+	}
+	item := q.items[0]
+	q.items = q.items[1:]
+	wakeOneWaiter(&q.notFull)
+	q.mu.Unlock()
+	return item, nil
+}
+
+// taskDone balances one put. It wakes every joiner once the count reaches zero,
+// and reports the ValueError CPython raises when it is called more times than
+// there were puts.
+func (q *queueObject) taskDone() error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.unfinished <= 0 {
+		return Raise(ValueError, "task_done() called too many times")
+	}
+	q.unfinished--
+	if q.unfinished == 0 {
+		wakeAllWaiters(&q.allDone)
+	}
+	return nil
+}
+
+// join blocks until every put has been balanced by a task_done. It carries no
+// timeout, the way Queue.join does not.
+func (q *queueObject) join() {
+	q.mu.Lock()
+	for q.unfinished > 0 {
+		w := make(chan struct{})
+		q.allDone = append(q.allDone, w)
+		q.mu.Unlock()
+		<-w
+		q.mu.Lock()
+	}
+	q.mu.Unlock()
+}
+
+func (q *queueObject) size() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.items)
+}
+
+func (q *queueObject) isEmpty() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.items) == 0
+}
+
+func (q *queueObject) isFull() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.atCapacity()
+}
+
+// reclaim pulls a timed-out waiter from one of the queue's waiter lists. It
+// returns true when the waiter was still queued, a genuine timeout, and false
+// when a wake had already popped it, in which case this waiter now owns the slot.
+func (q *queueObject) reclaim(waiters *[]chan struct{}, w chan struct{}) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for i, c := range *waiters {
+		if c == w {
+			*waiters = append((*waiters)[:i], (*waiters)[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// queuePark blocks on the waiter channel until a wake closes it or the timeout
+// elapses, reporting whether it was woken.
+func queuePark(w chan struct{}, hasTimeout bool, timeout time.Duration) bool {
+	if !hasTimeout {
+		<-w
+		return true
+	}
+	tm := time.NewTimer(timeout)
+	defer tm.Stop()
+	select {
+	case <-w:
+		return true
+	case <-tm.C:
+		return false
+	}
+}
+
+// wakeOneWaiter closes the front waiter of a list so exactly one parked thread
+// proceeds. The caller holds the lock.
+func wakeOneWaiter(waiters *[]chan struct{}) {
+	if len(*waiters) > 0 {
+		w := (*waiters)[0]
+		*waiters = (*waiters)[1:]
+		close(w)
+	}
+}
+
+// wakeAllWaiters closes every waiter of a list, the broadcast join needs when the
+// unfinished count reaches zero. The caller holds the lock.
+func wakeAllWaiters(waiters *[]chan struct{}) {
+	for _, w := range *waiters {
+		close(w)
+	}
+	*waiters = nil
+}
+
+func queueMethod(q *queueObject, name string, args []Object) (Object, error) {
+	switch name {
+	case "put":
+		item, block, hasTimeout, timeout, err := parseQueuePut(args, nil, nil)
+		if err != nil {
+			return nil, err
+		}
+		return None, q.put(item, block, hasTimeout, timeout)
+	case "put_nowait":
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "put_nowait() takes exactly one argument (%d given)", len(args))
+		}
+		return None, q.put(args[0], false, false, 0)
+	case "get":
+		block, hasTimeout, timeout, err := parseQueueGet(args, nil, nil)
+		if err != nil {
+			return nil, err
+		}
+		return q.get(block, hasTimeout, timeout)
+	case "get_nowait":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "get_nowait() takes no arguments (%d given)", len(args))
+		}
+		return q.get(false, false, 0)
+	case "task_done":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "task_done() takes no arguments (%d given)", len(args))
+		}
+		return None, q.taskDone()
+	case "join":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "join() takes no arguments (%d given)", len(args))
+		}
+		q.join()
+		return None, nil
+	case "qsize":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "qsize() takes no arguments (%d given)", len(args))
+		}
+		return NewInt(int64(q.size())), nil
+	case "empty":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "empty() takes no arguments (%d given)", len(args))
+		}
+		return NewBool(q.isEmpty()), nil
+	case "full":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "full() takes no arguments (%d given)", len(args))
+		}
+		return NewBool(q.isFull()), nil
+	}
+	return nil, noAttr(q, name)
+}
+
+func queueMethodKw(q *queueObject, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	switch name {
+	case "put":
+		item, block, hasTimeout, timeout, err := parseQueuePut(pos, kwNames, kwVals)
+		if err != nil {
+			return nil, err
+		}
+		return None, q.put(item, block, hasTimeout, timeout)
+	case "get":
+		block, hasTimeout, timeout, err := parseQueueGet(pos, kwNames, kwVals)
+		if err != nil {
+			return nil, err
+		}
+		return q.get(block, hasTimeout, timeout)
+	}
+	return nil, Raise(TypeError, "%s.%s() takes no keyword arguments", q.TypeName(), name)
+}
+
+// parseQueuePut reads the put(item, block=True, timeout=None) signature.
+func parseQueuePut(pos []Object, kwNames []string, kwVals []Object) (Object, bool, bool, time.Duration, error) {
+	if len(pos) > 3 {
+		return nil, false, false, 0, Raise(TypeError, "put() takes at most 3 arguments (%d given)", len(pos))
+	}
+	params := []string{"item", "block", "timeout"}
+	set := map[string]Object{}
+	for i, v := range pos {
+		set[params[i]] = v
+	}
+	for i, k := range kwNames {
+		if k != "item" && k != "block" && k != "timeout" {
+			return nil, false, false, 0, Raise(TypeError, "'%s' is an invalid keyword argument for put()", k)
+		}
+		if _, dup := set[k]; dup {
+			return nil, false, false, 0, Raise(TypeError, "argument for put() given by name ('%s') and position", k)
+		}
+		set[k] = kwVals[i]
+	}
+	item, ok := set["item"]
+	if !ok {
+		return nil, false, false, 0, Raise(TypeError, "put() missing 1 required positional argument: 'item'")
+	}
+	block, hasTimeout, timeout, err := parseBlockTimeout(set)
+	if err != nil {
+		return nil, false, false, 0, err
+	}
+	return item, block, hasTimeout, timeout, nil
+}
+
+// parseQueueGet reads the get(block=True, timeout=None) signature.
+func parseQueueGet(pos []Object, kwNames []string, kwVals []Object) (bool, bool, time.Duration, error) {
+	if len(pos) > 2 {
+		return false, false, 0, Raise(TypeError, "get() takes at most 2 arguments (%d given)", len(pos))
+	}
+	params := []string{"block", "timeout"}
+	set := map[string]Object{}
+	for i, v := range pos {
+		set[params[i]] = v
+	}
+	for i, k := range kwNames {
+		if k != "block" && k != "timeout" {
+			return false, false, 0, Raise(TypeError, "'%s' is an invalid keyword argument for get()", k)
+		}
+		if _, dup := set[k]; dup {
+			return false, false, 0, Raise(TypeError, "argument for get() given by name ('%s') and position", k)
+		}
+		set[k] = kwVals[i]
+	}
+	return parseBlockTimeout(set)
+}
+
+// parseBlockTimeout reads the shared (block, timeout) pair get and put take.
+// CPython only validates the timeout when block is true: a non-blocking call
+// ignores the timeout entirely, and a blocking call rejects a negative one with
+// the "'timeout' must be a non-negative number" ValueError. A None timeout blocks
+// forever.
+func parseBlockTimeout(set map[string]Object) (bool, bool, time.Duration, error) {
+	block := true
+	if b, ok := set["block"]; ok {
+		block = Truth(b)
+	}
+	if !block {
+		return false, false, 0, nil
+	}
+	tv, ok := set["timeout"]
+	if !ok || tv == None {
+		return true, false, 0, nil
+	}
+	f, ok := AsFloat(tv)
+	if !ok {
+		return false, false, 0, Raise(TypeError, "'%s' object cannot be interpreted as an integer or float", tv.TypeName())
+	}
+	if f < 0 {
+		return false, false, 0, Raise(ValueError, "'timeout' must be a non-negative number")
+	}
+	return true, true, time.Duration(f * float64(time.Second)), nil
+}
+
+var queueMethodNames = map[string]bool{
+	"put": true, "put_nowait": true, "get": true, "get_nowait": true,
+	"task_done": true, "join": true, "qsize": true, "empty": true, "full": true,
+}
+
+// queueProperties are the read-only value attributes Queue exposes.
+var queueProperties = map[string]bool{"maxsize": true}
+
+// queueProperty reads one of Queue's value attributes. maxsize reports zero for
+// an unbounded queue, the constructor default.
+func queueProperty(q *queueObject, name string) Object {
+	if name == "maxsize" {
+		if q.maxsize < 0 {
+			return NewInt(0)
+		}
+		return NewInt(int64(q.maxsize))
+	}
+	return nil
+}
+
+func queueRepr(q *queueObject) string {
+	q.mu.Lock()
+	n := len(q.items)
+	q.mu.Unlock()
+	return fmt.Sprintf("<queue.Queue at %p maxsize=%d _qsize=%d>", q, q.maxsize, n)
+}
+
+// queue.Empty and queue.Full are the exceptions the non-blocking and timed calls
+// raise. CPython puts Empty in the _queue C extension and Full in queue.py, so
+// their qualified names differ, but both are plain Exception subclasses carrying
+// no message. Each is built once on first use, after excclass.go's init has
+// populated the Exception base a program catches them through.
+var (
+	queueEmptyOnce  sync.Once
+	queueEmptyClass *classObject
+	queueFullOnce   sync.Once
+	queueFullClass  *classObject
+)
+
+// QueueEmptyClass returns the queue.Empty class object, spelled _queue.Empty the
+// way CPython reports it.
+func QueueEmptyClass() Object {
+	queueEmptyOnce.Do(func() {
+		queueEmptyClass = buildQueueExc("Empty", "_queue.Empty", "_queue")
+	})
+	return queueEmptyClass
+}
+
+// QueueFullClass returns the queue.Full class object.
+func QueueFullClass() Object {
+	queueFullOnce.Do(func() {
+		queueFullClass = buildQueueExc("Full", "queue.Full", "queue")
+	})
+	return queueFullClass
+}
+
+// buildQueueExc constructs one of the queue exception classes against the
+// Exception base, recording its module so __module__ and __qualname__ read the
+// way CPython reports them.
+func buildQueueExc(name, qual, module string) *classObject {
+	base, ok := ExcClass("Exception")
+	if !ok {
+		panic("unagi: Exception class unavailable for " + qual)
+	}
+	c, err := NewClass(name, qual, []Object{base}, []string{"__module__"}, []Object{NewStr(module)}, nil, nil)
+	if err != nil {
+		panic("unagi: building " + qual + ": " + err.Error())
+	}
+	return c.(*classObject)
+}
+
+// newQueueEmpty builds a queue.Empty instance ready to raise, carrying no message
+// the way CPython raises it.
+func newQueueEmpty() error { return instantiateQueueExc(QueueEmptyClass(), ValueError) }
+
+// newQueueFull builds a queue.Full instance ready to raise.
+func newQueueFull() error { return instantiateQueueExc(QueueFullClass(), ValueError) }
+
+func instantiateQueueExc(class Object, fallback string) error {
+	inst, err := Instantiate(class.(*classObject), nil, nil, nil)
+	if err != nil {
+		return err
+	}
+	if e, ok := inst.(error); ok {
+		return e
+	}
+	return Raise(fallback, "%s", class.(*classObject).name)
+}

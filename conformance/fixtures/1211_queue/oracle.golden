@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+empty: True
+maxsize: 0
+qsize: 3
+get order: [0, 1, 2]
+empty after drain: True
+get_nowait empty: Empty
+get timeout: Empty
+full: True
+put_nowait full: Full
+put timeout: Full
+bounded drain: [2, 3]
+handoff: payload
+consumed: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+all done: 0
+over task_done: task_done() called too many times
+negative timeout: 'timeout' must be a non-negative number
+nonblocking ignores timeout: Empty
+Empty name: Empty _queue
+Full name: Full queue
+subclass: True True
+queue type: Queue
+== exception:
+== stderr:
