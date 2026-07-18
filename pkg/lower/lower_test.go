@@ -150,8 +150,8 @@ func TestWrongArityLowersToRaise(t *testing.T) {
 }
 
 // A decorated def builds its function object then applies the decorator
-// through objects.Call, and binds the name to the result through the module
-// variable rather than the static function fast path.
+// through objects.CallT under the ambient thread, and binds the name to the
+// result through the module variable rather than the static function fast path.
 func TestDecoratedDefLowering(t *testing.T) {
 	mod := &frontend.Module{Body: []frontend.Stmt{
 		&frontend.FuncDef{Name: "deco", Params: params("f"), Body: []frontend.Stmt{
@@ -166,7 +166,7 @@ func TestDecoratedDefLowering(t *testing.T) {
 	}
 	got := string(src)
 	for _, want := range []string{
-		"objects.Call(",
+		"objects.CallT(t, ",
 		"u_target =",
 	} {
 		if !strings.Contains(got, want) {
@@ -208,9 +208,9 @@ func TestMethodDefaultLowering(t *testing.T) {
 	}
 }
 
-// A keyword argument on a method call routes through CallMethodKw with the
-// name and value carried as parallel slices, so the runtime binder resolves
-// it against the method's signature.
+// A keyword argument on a method call routes through CallMethodKwT with the
+// ambient thread, name, and value carried as parallel slices, so the runtime
+// binder resolves it against the method's signature.
 func TestMethodKeywordCallLowering(t *testing.T) {
 	mod := &frontend.Module{Body: []frontend.Stmt{
 		&frontend.Assign{Targets: []frontend.Expr{&frontend.Name{Id: "obj"}}, Value: &frontend.IntLit{Text: "0"}},
@@ -227,7 +227,7 @@ func TestMethodKeywordCallLowering(t *testing.T) {
 	}
 	got := string(src)
 	for _, want := range []string{
-		`objects.CallMethodKw(`,
+		`objects.CallMethodKwT(t, `,
 		`"m"`,
 		`[]string{"x"}`,
 	} {

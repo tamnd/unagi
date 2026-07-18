@@ -1871,11 +1871,18 @@ func classSubscript(c *classObject, item Object) (Object, error) {
 // self, a staticmethod is called bare, a classmethod binds the type, and a
 // property's value is called; then the resolved callable takes the arguments.
 func instanceCallMethod(x *instanceObject, name string, args []Object) (Object, error) {
+	return instanceCallMethodT(mainThread, x, name, args)
+}
+
+// instanceCallMethodT is instanceCallMethod threading the ambient Thread into
+// the resolved method, so a method called on an instance inside a child thread
+// runs under that thread and its identity lookups are honest.
+func instanceCallMethodT(t *Thread, x *instanceObject, name string, args []Object) (Object, error) {
 	v, err := LoadAttr(x, name)
 	if err != nil {
 		return nil, err
 	}
-	return Call(v, args)
+	return CallT(t, v, args)
 }
 
 // instanceSpecial invokes a special method looked up on the instance's type,
@@ -1912,38 +1919,38 @@ func instanceLookupBound(x *instanceObject, name string) (bound Object, defined 
 	return bound, true, nil
 }
 
-// classCallMethod dispatches Cls.name(args): the name resolves on the class
+// classCallMethodT dispatches Cls.name(args): the name resolves on the class
 // through the descriptor protocol (a plain function stays unbound so self is
 // explicit, a classmethod binds the class, a staticmethod is bare), then the
-// callable takes the arguments.
-func classCallMethod(x *classObject, name string, args []Object) (Object, error) {
+// callable takes the arguments under the ambient Thread.
+func classCallMethodT(t *Thread, x *classObject, name string, args []Object) (Object, error) {
 	v, err := LoadAttr(x, name)
 	if err != nil {
 		return nil, err
 	}
-	return Call(v, args)
+	return CallT(t, v, args)
 }
 
-// instanceCallMethodKw is instanceCallMethod with keyword arguments: the
+// instanceCallMethodKwT is instance.name(...) with keyword arguments: the
 // attribute resolves through the descriptor protocol, then the keywords reach
-// the resolved callable's binder.
-func instanceCallMethodKw(x *instanceObject, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+// the resolved callable's binder under the ambient Thread.
+func instanceCallMethodKwT(t *Thread, x *instanceObject, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
 	v, err := LoadAttr(x, name)
 	if err != nil {
 		return nil, err
 	}
-	return CallKw(v, pos, kwNames, kwVals)
+	return CallKwT(t, v, pos, kwNames, kwVals)
 }
 
-// classCallMethodKw is classCallMethod with keyword arguments, so the class
+// classCallMethodKwT is Cls.name(...) with keyword arguments, so the class
 // attribute resolves through the descriptor protocol and the keywords land on
-// the resolved callable's own binder.
-func classCallMethodKw(x *classObject, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+// the resolved callable's own binder under the ambient Thread.
+func classCallMethodKwT(t *Thread, x *classObject, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
 	v, err := LoadAttr(x, name)
 	if err != nil {
 		return nil, err
 	}
-	return CallKw(v, pos, kwNames, kwVals)
+	return CallKwT(t, v, pos, kwNames, kwVals)
 }
 
 // classRepr and instanceRepr match 3.14: a class prints its qualified name,

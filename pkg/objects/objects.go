@@ -219,6 +219,11 @@ type funcObject struct {
 	name  string
 	arity int // negative means variadic, no arity check
 	fn    func(args []Object) (Object, error)
+	// fnT is the thread-carrying entry the identity builtins use: get_ident and
+	// current_thread need the ambient Thread, which the call spine threads down
+	// through CallT. When set it supersedes fn, and the t-less Call routes the
+	// main thread into it, so a single-threaded program reads the same value.
+	fnT func(t *Thread, args []Object) (Object, error)
 	// kwfn is set for the few builtins that accept keyword arguments, such as the
 	// three-argument type(). When present, CallKw routes the whole call through
 	// it so the keywords reach the builtin instead of being rejected.
@@ -374,6 +379,14 @@ func NewFunc(name string, arity int, fn func(args []Object) (Object, error)) Obj
 	return &funcObject{name: name, arity: arity, fn: fn}
 }
 
+// NewFuncT wraps a Go function that takes the ambient Thread as a hidden first
+// argument, the entry the thread-identity builtins use so get_ident and
+// current_thread read the goroutine actually running rather than the main
+// thread. A negative arity disables the positional argument count check.
+func NewFuncT(name string, arity int, fnT func(t *Thread, args []Object) (Object, error)) Object {
+	return &funcObject{name: name, arity: arity, fnT: fnT}
+}
+
 // NewFuncKw wraps a keyword-aware Go function as a variadic builtin. Every call,
 // with or without keywords, routes through kwfn; the positional-only path fills
 // in empty keyword slices. Only the handful of builtins that take keyword
@@ -496,6 +509,9 @@ func CallT(t *Thread, f Object, args []Object) (Object, error) {
 		}
 		return nil, Raise(TypeError, "%s() takes %d positional %s but %d %s given",
 			fn.name, fn.arity, noun, len(args), verb)
+	}
+	if fn.fnT != nil {
+		return fn.fnT(t, args)
 	}
 	return fn.fn(args)
 }

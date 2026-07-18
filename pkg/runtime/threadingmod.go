@@ -21,9 +21,9 @@ func initThreading(m *objects.Module) error {
 		name string
 		fn   objects.Object
 	}{
-		{"get_ident", objects.NewFunc("get_ident", -1, threadingGetIdent)},
+		{"get_ident", objects.NewFuncT("get_ident", -1, threadingGetIdent)},
 		{"Thread", objects.NewFuncKw("Thread", threadingNewThread)},
-		{"current_thread", objects.NewFunc("current_thread", -1, threadingCurrentThread)},
+		{"current_thread", objects.NewFuncT("current_thread", -1, threadingCurrentThread)},
 		{"main_thread", objects.NewFunc("main_thread", -1, threadingMainThread)},
 		{"active_count", objects.NewFunc("active_count", -1, threadingActiveCount)},
 	} {
@@ -135,14 +135,14 @@ func threadingNewThread(pos []objects.Object, kwNames []string, kwVals []objects
 }
 
 // threadingCurrentThread is threading.current_thread(): the Thread object for
-// the running thread. Dynamic dispatch still routes the main thread, so this
-// returns the main-thread wrapper; the slice that threads the ambient Thread
-// into built-ins makes it honest inside a child.
-func threadingCurrentThread(args []objects.Object) (objects.Object, error) {
+// the running thread. The call spine threads the ambient Thread here, so inside
+// a child it returns that child's Thread and on the main goroutine it returns
+// _MainThread.
+func threadingCurrentThread(t *objects.Thread, args []objects.Object) (objects.Object, error) {
 	if len(args) != 0 {
 		return nil, objects.Raise(objects.TypeError, "current_thread() takes no arguments (%d given)", len(args))
 	}
-	return objects.MainThreadObject(), nil
+	return objects.CurrentThreadObject(t), nil
 }
 
 // threadingMainThread is threading.main_thread(): the Thread object for the
@@ -170,14 +170,12 @@ func threadingActiveCount(args []objects.Object) (objects.Object, error) {
 // their type (spec 2076 doc 10 §2.1).
 //
 // The current thread is the one whose *objects.Thread the call spine carries.
-// That thread is not yet delivered to a built-in: dynamic dispatch still routes
-// the main thread and Thread.start does not exist, so the only live thread is
-// the main thread and its ident is the current ident. When the spawn slice
-// threads t into thread-sensitive built-ins, this reads t.Ident() instead; the
-// value it returns for a single-threaded program is identical either way.
-func threadingGetIdent(args []objects.Object) (objects.Object, error) {
+// The dynamic dispatch path threads it here, so get_ident() inside a child reads
+// that child's ident and on the main goroutine reads the main ident. The value
+// it returns for a single-threaded program is the main ident either way.
+func threadingGetIdent(t *objects.Thread, args []objects.Object) (objects.Object, error) {
 	if len(args) != 0 {
 		return nil, objects.Raise(objects.TypeError, "get_ident() takes no arguments (%d given)", len(args))
 	}
-	return objects.NewInt(objects.MainThread().Ident()), nil
+	return objects.NewInt(t.Ident()), nil
 }

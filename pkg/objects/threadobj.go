@@ -104,8 +104,26 @@ var mainThreadObject = &threadObject{
 }
 
 // MainThreadObject returns the Python threading.Thread for the process main
-// thread, the singleton main_thread and (for now) current_thread hand back.
+// thread, the singleton main_thread and current_thread hand back on the main
+// goroutine.
 func MainThreadObject() Object { return mainThreadObject }
+
+// init wires the main state back to its wrapper so current_thread on the main
+// goroutine returns the same _MainThread object main_thread does.
+func init() { mainThread.wrapper = mainThreadObject }
+
+// CurrentThreadObject returns the threading.Thread object for the thread whose
+// state t is, the value threading.current_thread hands back. Every started
+// thread records its wrapper before it runs, so a child reads its own Thread and
+// the main goroutine reads _MainThread. A state with no wrapper (a bare Thread
+// built outside the threading module, such as a static twin's re-entry) falls
+// back to the main-thread object.
+func CurrentThreadObject(t *Thread) Object {
+	if w := t.Wrapper(); w != nil {
+		return w
+	}
+	return mainThreadObject
+}
 
 func (t *threadObject) TypeName() string { return t.clsName }
 
@@ -199,6 +217,7 @@ func (t *threadObject) start(args []Object) (Object, error) {
 	}
 	t.started = true
 	s := NewThread(t.name, t.daemon)
+	s.SetWrapper(t)
 	t.state = s
 	t.mu.Unlock()
 	if SpawnFunc == nil {

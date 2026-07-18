@@ -48,7 +48,7 @@ func (f *fnCtx) decorate(decos []frontend.Expr, build func() (ast.Expr, error)) 
 	for i := len(ds) - 1; i >= 0; i-- {
 		f.line = ds[i].line
 		t := f.tmpVar()
-		f.fallible(t, f.e.obj("Call"), ident(ds[i].tmp), f.objSlice([]ast.Expr{obj}))
+		f.fallible(t, f.e.obj("CallT"), threadArg(), ident(ds[i].tmp), f.objSlice([]ast.Expr{obj}))
 		obj = ident(t)
 	}
 	f.line = saved

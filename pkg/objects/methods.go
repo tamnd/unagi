@@ -1,7 +1,19 @@
 package objects
 
-// CallMethod dispatches o.name(args...) for the built-in types.
+// CallMethod dispatches o.name(args...) for the built-in types. It is the
+// thread-state-less entry the secondary paths use; the threaded spine calls
+// CallMethodT so an identity builtin reached through a receiver, such as
+// threading.get_ident() on the threading module, sees the running goroutine.
 func CallMethod(o Object, name string, args []Object) (Object, error) {
+	return CallMethodT(mainThread, o, name, args)
+}
+
+// CallMethodT is CallMethod threading the caller's Thread into the leaf call, so
+// o.name(args) invokes a user method, module function, or identity builtin under
+// the goroutine that made the call. The built-in type methods (int, str, list,
+// and the rest) do not observe thread identity in this tier, so they keep the
+// t-less dispatch; t reaches the leaves that run user or thread-sensitive code.
+func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error) {
 	switch x := o.(type) {
 	case *intObject, *boolObject:
 		return intMethod(o, name, args)
@@ -39,11 +51,11 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 	case *Exception:
 		return excMethod(x, name, args)
 	case *instanceObject:
-		return instanceCallMethod(x, name, args)
+		return instanceCallMethodT(t, x, name, args)
 	case *classObject:
-		return classCallMethod(x, name, args)
+		return classCallMethodT(t, x, name, args)
 	case *superObject:
-		return superCallMethod(x, name, args)
+		return superCallMethodT(t, x, name, args)
 	case *generatorObject:
 		return genMethod(x, name, args)
 	case *asyncGenSend:
@@ -79,15 +91,17 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 		if err != nil {
 			return nil, err
 		}
-		return Call(v, args)
+		return CallT(t, v, args)
 	case *Module:
 		// m.f(args) is an attribute read then a plain call: modules add no
-		// binding, so the miss and the call errors are the attribute's own.
+		// binding, so the miss and the call errors are the attribute's own. The
+		// thread threads on so threading.get_ident() and threading.current_thread()
+		// read the running goroutine.
 		v, err := moduleLoadAttr(x, name)
 		if err != nil {
 			return nil, err
 		}
-		return Call(v, args)
+		return CallT(t, v, args)
 	}
 	return nil, noAttr(o, name)
 }
@@ -119,8 +133,16 @@ func builtinMethodValue(recv Object, name string) Object {
 // takes-no-keyword TypeError CPython gives for the builtin methods. With no
 // keywords it is exactly CallMethod.
 func CallMethodKw(o Object, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	return CallMethodKwT(mainThread, o, name, pos, kwNames, kwVals)
+}
+
+// CallMethodKwT is CallMethodKw threading the caller's Thread into the leaf
+// call, so a keyword method call runs under the goroutine that made it, the same
+// split CallMethodT draws between thread-sensitive leaves and the positional
+// built-in methods.
+func CallMethodKwT(t *Thread, o Object, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
 	if len(kwNames) == 0 {
-		return CallMethod(o, name, pos)
+		return CallMethodT(t, o, name, pos)
 	}
 	switch x := o.(type) {
 	case *dictObject:
@@ -132,17 +154,17 @@ func CallMethodKw(o Object, name string, pos []Object, kwNames []string, kwVals 
 			return namedTupleReplace(x, kwNames, kwVals)
 		}
 	case *instanceObject:
-		return instanceCallMethodKw(x, name, pos, kwNames, kwVals)
+		return instanceCallMethodKwT(t, x, name, pos, kwNames, kwVals)
 	case *classObject:
-		return classCallMethodKw(x, name, pos, kwNames, kwVals)
+		return classCallMethodKwT(t, x, name, pos, kwNames, kwVals)
 	case *superObject:
-		return superCallMethodKw(x, name, pos, kwNames, kwVals)
+		return superCallMethodKwT(t, x, name, pos, kwNames, kwVals)
 	case *Module:
 		v, err := moduleLoadAttr(x, name)
 		if err != nil {
 			return nil, err
 		}
-		return CallKw(v, pos, kwNames, kwVals)
+		return CallKwT(t, v, pos, kwNames, kwVals)
 	}
 	return nil, Raise(TypeError, "%s.%s() takes no keyword arguments", o.TypeName(), name)
 }

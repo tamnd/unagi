@@ -211,33 +211,51 @@ func kwSplit(kw Object) ([]string, []Object, error) {
 	return names, vals, nil
 }
 
-// CallEx invokes a callee with merged positional and keyword parts.
+// CallEx invokes a callee with merged positional and keyword parts. It is the
+// t-less entry; the threaded spine calls CallExT so a callee invoked through
+// argument unpacking still runs under the caller's goroutine.
 func CallEx(f Object, pos []Object, kw Object) (Object, error) {
+	return CallExT(mainThread, f, pos, kw)
+}
+
+// CallExT is CallEx threading the caller's Thread into the callee.
+func CallExT(t *Thread, f Object, pos []Object, kw Object) (Object, error) {
 	names, vals, err := kwSplit(kw)
 	if err != nil {
 		return nil, err
 	}
 	if len(names) == 0 {
-		return Call(f, pos)
+		return CallT(t, f, pos)
 	}
-	return CallKw(f, pos, names, vals)
+	return CallKwT(t, f, pos, names, vals)
 }
 
 // CallStarEx invokes a callee whose whole positional pack is one deferred
 // *iterable. The conversion error outranks the keyword str check but not
 // the mapping and duplicate checks, which already fired at merge time.
 func CallStarEx(f Object, star Object, kw Object) (Object, error) {
+	return CallStarExT(mainThread, f, star, kw)
+}
+
+// CallStarExT is CallStarEx threading the caller's Thread into the callee.
+func CallStarExT(t *Thread, f Object, star Object, kw Object) (Object, error) {
 	pos, err := starSlice(f, star)
 	if err != nil {
 		return nil, err
 	}
-	return CallEx(f, pos, kw)
+	return CallExT(t, f, pos, kw)
 }
 
 // CallMethodStar invokes a method whose whole positional pack is one
 // deferred *iterable. The wording spells the bound method the way CPython's
 // _PyObject_FunctionStr does.
 func CallMethodStar(recv Object, name string, star Object) (Object, error) {
+	return CallMethodStarT(mainThread, recv, name, star)
+}
+
+// CallMethodStarT is CallMethodStar threading the caller's Thread into the
+// resolved method.
+func CallMethodStarT(t *Thread, recv Object, name string, star Object) (Object, error) {
 	iter, err := Iter(star)
 	if err != nil {
 		return nil, Raise(TypeError, "%s argument after * must be an iterable, not %s",
@@ -247,7 +265,7 @@ func CallMethodStar(recv Object, name string, star Object) (Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	return CallMethod(recv, name, args)
+	return CallMethodT(t, recv, name, args)
 }
 
 // methodFuncStr spells a bound method for the unpacking error messages the way
@@ -310,20 +328,32 @@ func KwMergeM(recv Object, name string, kw Object, m Object) (Object, error) {
 // dict. An empty keyword dict falls through to the plain method dispatch so the
 // no-keyword path stays identical.
 func CallMethodEx(recv Object, name string, pos []Object, kw Object) (Object, error) {
+	return CallMethodExT(mainThread, recv, name, pos, kw)
+}
+
+// CallMethodExT is CallMethodEx threading the caller's Thread into the resolved
+// method.
+func CallMethodExT(t *Thread, recv Object, name string, pos []Object, kw Object) (Object, error) {
 	names, vals, err := kwSplit(kw)
 	if err != nil {
 		return nil, err
 	}
 	if len(names) == 0 {
-		return CallMethod(recv, name, pos)
+		return CallMethodT(t, recv, name, pos)
 	}
-	return CallMethodKw(recv, name, pos, names, vals)
+	return CallMethodKwT(t, recv, name, pos, names, vals)
 }
 
 // CallMethodStarEx invokes a method whose whole positional pack is a deferred
 // *iterable and that also carries keyword parts. The star conversion error
 // spells the receiver type the same way CallMethodStar does.
 func CallMethodStarEx(recv Object, name string, star Object, kw Object) (Object, error) {
+	return CallMethodStarExT(mainThread, recv, name, star, kw)
+}
+
+// CallMethodStarExT is CallMethodStarEx threading the caller's Thread into the
+// resolved method.
+func CallMethodStarExT(t *Thread, recv Object, name string, star Object, kw Object) (Object, error) {
 	iter, err := Iter(star)
 	if err != nil {
 		return nil, Raise(TypeError, "%s argument after * must be an iterable, not %s",
@@ -333,5 +363,5 @@ func CallMethodStarEx(recv Object, name string, star Object, kw Object) (Object,
 	if err != nil {
 		return nil, err
 	}
-	return CallMethodEx(recv, name, args, kw)
+	return CallMethodExT(t, recv, name, args, kw)
 }

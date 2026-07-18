@@ -110,20 +110,28 @@ func superLoadAttr(s *superObject, name string) (Object, error) {
 // superCallMethod dispatches super().name(args): the resolved function is
 // called with the original instance as self.
 func superCallMethod(s *superObject, name string, args []Object) (Object, error) {
+	return superCallMethodT(mainThread, s, name, args)
+}
+
+// superCallMethodT is superCallMethod threading the ambient Thread into the
+// resolved method, so a cooperative super().method() call inside a child thread
+// runs the next method under that thread. The object-root and builtin-base
+// defaults it can fall through to run no user code, so they stay t-less.
+func superCallMethodT(t *Thread, s *superObject, name string, args []Object) (Object, error) {
 	if v, ok := superLookup(s, name); ok {
 		// __new__ is an implicit staticmethod: it takes cls explicitly and no
 		// instance is bound, so a chained super().__new__(cls) calls the next
 		// __new__ with the arguments as written rather than injecting self.
 		if name == "__new__" {
-			return Call(staticNew(v), args)
+			return CallT(t, staticNew(v), args)
 		}
 		switch fn := v.(type) {
 		case *functionObject:
-			return fn.bind(mainThread, append([]Object{s.obj}, args...), nil, nil)
+			return fn.bind(t, append([]Object{s.obj}, args...), nil, nil)
 		case *classmethodObject:
-			return Call(classmethodBind(fn.fn, s.objCls), args)
+			return CallT(t, classmethodBind(fn.fn, s.objCls), args)
 		}
-		return Call(v, args)
+		return CallT(t, v, args)
 	}
 	if r, ok, err := builtinBaseCall(s.obj, name, args, nil, nil); ok {
 		return r, err
@@ -232,17 +240,23 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 // is called with the original instance as self and the keywords threaded into
 // its binder, the same cooperative walk superCallMethod uses.
 func superCallMethodKw(s *superObject, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	return superCallMethodKwT(mainThread, s, name, pos, kwNames, kwVals)
+}
+
+// superCallMethodKwT is superCallMethodKw threading the ambient Thread into the
+// resolved callable's binder.
+func superCallMethodKwT(t *Thread, s *superObject, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
 	if v, ok := superLookup(s, name); ok {
 		if name == "__new__" {
-			return CallKw(staticNew(v), pos, kwNames, kwVals)
+			return CallKwT(t, staticNew(v), pos, kwNames, kwVals)
 		}
 		switch fn := v.(type) {
 		case *functionObject:
-			return fn.bind(mainThread, append([]Object{s.obj}, pos...), kwNames, kwVals)
+			return fn.bind(t, append([]Object{s.obj}, pos...), kwNames, kwVals)
 		case *classmethodObject:
-			return CallKw(classmethodBind(fn.fn, s.objCls), pos, kwNames, kwVals)
+			return CallKwT(t, classmethodBind(fn.fn, s.objCls), pos, kwNames, kwVals)
 		}
-		return CallKw(v, pos, kwNames, kwVals)
+		return CallKwT(t, v, pos, kwNames, kwVals)
 	}
 	// super().__call__(*args, **kw) delegating to type.__call__ keeps its
 	// keywords, which the positional objectDefaultCall path would drop, so the
