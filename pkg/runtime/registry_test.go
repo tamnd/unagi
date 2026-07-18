@@ -41,6 +41,46 @@ func TestSpawnThreadRegistersWhileRunningAndCleansUp(t *testing.T) {
 	}
 }
 
+// TestLiveThreadObjectsCarriesWrappers checks that liveThreadObjects, the list
+// threading.enumerate returns, holds the Python Thread wrapper of every live
+// thread: the main thread's while it is the only one, and a started thread's
+// while its target runs, then drops it once the target returns.
+func TestLiveThreadObjectsCarriesWrappers(t *testing.T) {
+	contains := func(list []objects.Object, want objects.Object) bool {
+		for _, o := range list {
+			if o == want {
+				return true
+			}
+		}
+		return false
+	}
+
+	main := objects.MainThreadObject()
+	if !contains(liveThreadObjects(), main) {
+		t.Fatal("enumerate list is missing the main thread wrapper")
+	}
+
+	th := objects.NewThread("worker", false)
+	wrapper := objects.NewStr("W") // any object stands in for the threading.Thread
+	th.SetWrapper(wrapper)
+	gate := make(chan struct{})
+	SpawnThread(th, func() { <-gate })
+
+	list := liveThreadObjects()
+	if !contains(list, wrapper) {
+		t.Fatal("enumerate list is missing a running thread's wrapper")
+	}
+	if !contains(list, main) {
+		t.Fatal("enumerate list dropped the main thread while a worker ran")
+	}
+
+	close(gate)
+	<-th.Done()
+	if contains(liveThreadObjects(), wrapper) {
+		t.Fatal("enumerate list still holds a returned thread's wrapper")
+	}
+}
+
 // TestWaitForNonDaemonThreads checks that the shutdown wait blocks until every
 // non-daemon thread has completed its work, so their effects are visible after.
 func TestWaitForNonDaemonThreads(t *testing.T) {

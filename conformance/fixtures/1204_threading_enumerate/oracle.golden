@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+main only: True
+main in enum: True
+current in enum: True
+count matches: True
+worker 0 sees: ['MainThread', 'W0']
+worker 0 self in enum: True
+worker 0 count: 2
+worker 1 sees: ['MainThread', 'W1']
+worker 1 self in enum: True
+worker 1 count: 2
+worker 2 sees: ['MainThread', 'W2']
+worker 2 self in enum: True
+worker 2 count: 2
+after join: True
+final count: 1
+== exception:
+== stderr:
