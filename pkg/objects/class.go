@@ -1673,6 +1673,14 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return builtinMethodValue(x, name), nil
 		}
 		return nil, noAttr(x, name)
+	case *barrierObject:
+		if barrierProperties[name] {
+			return barrierProperty(x, name), nil
+		}
+		if barrierMethodNames[name] {
+			return builtinMethodValue(x, name), nil
+		}
+		return nil, noAttr(x, name)
 	case *stringIOObject:
 		if name == "closed" {
 			return NewBool(x.closed), nil

@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"time"
+
 	"github.com/tamnd/unagi/pkg/objects"
 )
 
@@ -33,6 +35,8 @@ func initThreading(m *objects.Module) error {
 		{"Event", objects.NewFunc("Event", -1, threadingNewEvent)},
 		{"Semaphore", objects.NewFuncKw("Semaphore", threadingNewSemaphore)},
 		{"BoundedSemaphore", objects.NewFuncKw("BoundedSemaphore", threadingNewBoundedSemaphore)},
+		{"Barrier", objects.NewFuncKw("Barrier", threadingNewBarrier)},
+		{"BrokenBarrierError", objects.BrokenBarrierErrorClass()},
 	} {
 		if err := objects.StoreAttr(m, e.name, e.fn); err != nil {
 			return err
@@ -234,6 +238,60 @@ func parseSemaphoreValue(name string, pos []objects.Object, kwNames []string, kw
 		return 0, objects.Raise(objects.ValueError, "semaphore initial value must be >= 0")
 	}
 	return int(value), nil
+}
+
+// threadingNewBarrier is threading.Barrier(parties, action=None, timeout=None):
+// a rendezvous for the given number of parties, with an optional action the
+// tripping party runs and an optional default wait timeout.
+func threadingNewBarrier(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	params := []string{"parties", "action", "timeout"}
+	if len(pos) > len(params) {
+		return nil, objects.Raise(objects.TypeError, "Barrier() takes at most %d arguments (%d given)", len(params), len(pos))
+	}
+	set := map[string]objects.Object{}
+	for i, v := range pos {
+		set[params[i]] = v
+	}
+	known := map[string]bool{"parties": true, "action": true, "timeout": true}
+	for i, k := range kwNames {
+		if !known[k] {
+			return nil, objects.Raise(objects.TypeError, "'%s' is an invalid keyword argument for Barrier()", k)
+		}
+		if _, dup := set[k]; dup {
+			return nil, objects.Raise(objects.TypeError, "argument for Barrier() given by name ('%s') and position", k)
+		}
+		set[k] = kwVals[i]
+	}
+
+	partiesArg, ok := set["parties"]
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "Barrier() missing required argument 'parties' (pos 1)")
+	}
+	parties, ok := objects.AsInt(partiesArg)
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", partiesArg.TypeName())
+	}
+
+	var action objects.Object
+	if a, ok := set["action"]; ok && a != objects.None {
+		action = a
+	}
+
+	hasTimeout := false
+	var timeout time.Duration
+	if tv, ok := set["timeout"]; ok && tv != objects.None {
+		f, ok := objects.AsFloat(tv)
+		if !ok {
+			return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as a float", tv.TypeName())
+		}
+		if f < 0 {
+			f = 0
+		}
+		hasTimeout = true
+		timeout = time.Duration(f * float64(time.Second))
+	}
+
+	return objects.NewBarrier(int(parties), action, hasTimeout, timeout), nil
 }
 
 // threadingCurrentThread is threading.current_thread(): the Thread object for
