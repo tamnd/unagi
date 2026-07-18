@@ -368,6 +368,8 @@ func reprCore(o Object, strict bool) (string, error) {
 		return boundMethodRepr(x), nil
 	case *superObject:
 		return superRepr(x), nil
+	case *threadObject:
+		return threadRepr(x), nil
 	case *stringIOObject:
 		return stringIORepr(x), nil
 	case *bytesIOObject:
