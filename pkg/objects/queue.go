@@ -333,8 +333,16 @@ func (q *queueObject) isFull() bool {
 // returns true when the waiter was still queued, a genuine timeout, and false
 // when a wake had already popped it, in which case this waiter now owns the slot.
 func (q *queueObject) reclaim(waiters *[]chan struct{}, w chan struct{}) bool {
-	q.mu.Lock()
-	defer q.mu.Unlock()
+	return reclaimWaiter(&q.mu, waiters, w)
+}
+
+// reclaimWaiter pulls a timed-out waiter from a waiter list under the given mutex,
+// the shared body Queue and SimpleQueue both use. It returns true when the waiter
+// was still queued, a genuine timeout, and false when a wake had already popped it,
+// in which case this waiter now owns whatever the wake handed it.
+func reclaimWaiter(mu *sync.Mutex, waiters *[]chan struct{}, w chan struct{}) bool {
+	mu.Lock()
+	defer mu.Unlock()
 	for i, c := range *waiters {
 		if c == w {
 			*waiters = append((*waiters)[:i], (*waiters)[i+1:]...)

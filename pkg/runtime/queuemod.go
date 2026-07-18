@@ -24,6 +24,7 @@ func initQueue(m *objects.Module) error {
 		{"Queue", objects.NewFuncKw("Queue", queueNewQueue)},
 		{"LifoQueue", objects.NewFuncKw("LifoQueue", queueNewLifoQueue)},
 		{"PriorityQueue", objects.NewFuncKw("PriorityQueue", queueNewPriorityQueue)},
+		{"SimpleQueue", objects.NewFuncKw("SimpleQueue", queueNewSimpleQueue)},
 		{"Empty", objects.QueueEmptyClass()},
 		{"Full", objects.QueueFullClass()},
 	} {
@@ -59,6 +60,15 @@ func queueNewPriorityQueue(pos []objects.Object, kwNames []string, kwVals []obje
 		return nil, err
 	}
 	return objects.NewPriorityQueue(maxsize), nil
+}
+
+// queueNewSimpleQueue is queue.SimpleQueue(): an unbounded FIFO with no task
+// tracking. Unlike Queue it takes no maxsize, so it rejects any argument.
+func queueNewSimpleQueue(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if len(pos) != 0 || len(kwNames) != 0 {
+		return nil, objects.Raise(objects.TypeError, "SimpleQueue() takes no arguments (%d given)", len(pos)+len(kwNames))
+	}
+	return objects.NewSimpleQueue(), nil
 }
 
 // queueParseMaxsize reads the shared (maxsize=0) constructor signature the three

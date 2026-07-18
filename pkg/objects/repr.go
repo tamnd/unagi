@@ -384,6 +384,8 @@ func reprCore(o Object, strict bool) (string, error) {
 		return barrierRepr(x), nil
 	case *queueObject:
 		return queueRepr(x), nil
+	case *simpleQueueObject:
+		return simpleQueueRepr(x), nil
 	case *stringIOObject:
 		return stringIORepr(x), nil
 	case *bytesIOObject:

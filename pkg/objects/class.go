@@ -1689,6 +1689,11 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return builtinMethodValue(x, name), nil
 		}
 		return nil, noAttr(x, name)
+	case *simpleQueueObject:
+		if simpleQueueMethodNames[name] {
+			return builtinMethodValue(x, name), nil
+		}
+		return nil, noAttr(x, name)
 	case *localObject:
 		// A threading.local read reaches here only when it arrives through the
 		// thread-agnostic LoadAttr, which the t-less spine routes with the main
