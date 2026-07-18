@@ -9,33 +9,25 @@ import "github.com/tamnd/unagi/pkg/objects"
 // uncatchable fatal error, so every Python frame charges one slot here on
 // entry and releases it on exit.
 //
-// Like handledStack this is a package-level global tracking one logical line
-// of execution; per-goroutine isolation waits on the runtime-state refactor,
-// so a generator body driven on its own goroutine is not accounted here yet.
-var (
-	recursionLimit = 1000
-	callDepth      int
-)
+// The depth is per-thread, kept on the *objects.Thread the call spine already
+// threads through every frame, mirroring CPython's per-tstate accounting: two
+// threads each recursing deeply do not add up against one shared counter, and
+// the counter carries no data race because only the owning goroutine touches
+// it. The limit stays process-wide, matching sys.setrecursionlimit, and is set
+// on the main thread before any second goroutine starts, so its reads race with
+// nothing.
+var recursionLimit = 1000
 
-// EnterRecursive charges one Python frame and returns a RecursionError when
-// the new depth passes the limit. A frame that trips the limit never really
-// runs, so it takes its charge back before returning the error, keeping the
-// counter balanced without a paired LeaveRecursive.
-func EnterRecursive() error {
-	callDepth++
-	if callDepth > recursionLimit {
-		callDepth--
-		return objects.Raise(objects.RecursionError, "maximum recursion depth exceeded")
-	}
-	return nil
+// EnterRecursive charges one Python frame against t's depth and returns a
+// RecursionError when the new depth passes the limit.
+func EnterRecursive(t *objects.Thread) error {
+	return t.EnterRecursive(recursionLimit)
 }
 
-// LeaveRecursive releases the slot as a Python frame returns or unwinds. It
+// LeaveRecursive releases the slot as a Python frame on t returns or unwinds. It
 // pairs with a successful EnterRecursive through a deferred call.
-func LeaveRecursive() {
-	if callDepth > 0 {
-		callDepth--
-	}
+func LeaveRecursive(t *objects.Thread) {
+	t.LeaveRecursive()
 }
 
 // SetRecursionLimit and RecursionLimit back a future sys.setrecursionlimit /

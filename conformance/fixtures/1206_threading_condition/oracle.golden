@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+owned before: False
+owned inside: True
+owned after: False
+wait unowned: cannot wait on un-acquired lock
+notify unowned: cannot notify on un-acquired lock
+wait timeout: False
+consumer got: 42
+woken: ['w0', 'w1', 'w2']
+lock-backed owned before: False
+lock-backed owned inside: True
+lock-backed owned after: False
+== exception:
+== stderr:

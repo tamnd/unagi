@@ -29,6 +29,7 @@ func initThreading(m *objects.Module) error {
 		{"enumerate", objects.NewFunc("enumerate", -1, threadingEnumerate)},
 		{"Lock", objects.NewFunc("Lock", -1, threadingNewLock)},
 		{"RLock", objects.NewFunc("RLock", -1, threadingNewRLock)},
+		{"Condition", objects.NewFunc("Condition", -1, threadingNewCondition)},
 	} {
 		if err := objects.StoreAttr(m, e.name, e.fn); err != nil {
 			return err
@@ -153,6 +154,20 @@ func threadingNewRLock(args []objects.Object) (objects.Object, error) {
 		return nil, objects.Raise(objects.TypeError, "RLock() takes no arguments (%d given)", len(args))
 	}
 	return objects.NewRLock(), nil
+}
+
+// threadingNewCondition is threading.Condition(lock=None): a condition variable
+// over lock, or over a fresh RLock when none is given, which is CPython's
+// default.
+func threadingNewCondition(args []objects.Object) (objects.Object, error) {
+	if len(args) > 1 {
+		return nil, objects.Raise(objects.TypeError, "Condition() takes at most 1 argument (%d given)", len(args))
+	}
+	var lock objects.Object
+	if len(args) == 1 {
+		lock = args[0]
+	}
+	return objects.NewCondition(lock)
 }
 
 // threadingCurrentThread is threading.current_thread(): the Thread object for

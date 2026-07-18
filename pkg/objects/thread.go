@@ -25,6 +25,13 @@ type Thread struct {
 	isMain  bool          // only the main thread takes signals and blocks shutdown
 	done    chan struct{} // closed when the thread's target returns
 	wrapper Object        // the threading.Thread that owns this state, for current_thread
+
+	// callDepth counts the Python frames live on this thread's goroutine stack,
+	// the per-thread half of the recursion guard. CPython bounds recursion
+	// per-thread (tstate->py_recursion_remaining) rather than process-wide, so
+	// two threads each recursing 900 deep both stay under a 1000 limit. Only the
+	// owning goroutine touches it, so it needs no synchronization.
+	callDepth int
 }
 
 // nextThreadIdent hands out monotonically increasing thread idents. It never
@@ -66,6 +73,29 @@ func NewThread(name string, daemon bool) *Thread {
 
 // Ident returns the thread's threading.get_ident value.
 func (t *Thread) Ident() int64 { return t.ident }
+
+// EnterRecursive charges one Python frame against this thread's depth and
+// returns a RecursionError once the new depth passes limit. A frame that trips
+// the limit never really runs, so it takes its charge back before returning the
+// error, keeping the counter balanced without a paired LeaveRecursive. Only the
+// owning goroutine calls this, so the counter needs no lock.
+func (t *Thread) EnterRecursive(limit int) error {
+	t.callDepth++
+	if t.callDepth > limit {
+		t.callDepth--
+		return Raise(RecursionError, "maximum recursion depth exceeded")
+	}
+	return nil
+}
+
+// LeaveRecursive releases one frame as it returns or unwinds, pairing with a
+// successful EnterRecursive through a deferred call. It never drives the depth
+// negative, so a stray unwind cannot let a later runaway recurse past the limit.
+func (t *Thread) LeaveRecursive() {
+	if t.callDepth > 0 {
+		t.callDepth--
+	}
+}
 
 // Name returns the thread's name.
 func (t *Thread) Name() string { return t.name }

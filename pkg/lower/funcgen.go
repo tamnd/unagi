@@ -134,11 +134,11 @@ func (f *fnCtx) tmpVar() string {
 // leaves raw and collects caller frames the way any exception does.
 func (f *fnCtx) recursionGuard() {
 	f.add(&ast.IfStmt{
-		Init: assign(token.DEFINE, []ast.Expr{ident("err")}, callExpr(sel("runtime", "EnterRecursive"))),
+		Init: assign(token.DEFINE, []ast.Expr{ident("err")}, callExpr(sel("runtime", "EnterRecursive"), threadArg())),
 		Cond: errNotNil(),
 		Body: block(f.retErr(ident("err"))),
 	})
-	f.add(&ast.DeferStmt{Call: callExpr(sel("runtime", "LeaveRecursive"))})
+	f.add(&ast.DeferStmt{Call: callExpr(sel("runtime", "LeaveRecursive"), threadArg())})
 }
 
 // tb wraps an unwinding error in runtime.TB so it picks up this frame's
