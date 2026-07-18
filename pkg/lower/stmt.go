@@ -447,7 +447,7 @@ func (f *fnCtx) assignTo(target frontend.Expr, v ast.Expr) error {
 		if err != nil {
 			return err
 		}
-		f.fallibleVoid(f.e.obj("StoreAttr"), x, strLit(t.Name), v)
+		f.fallibleVoid(f.e.obj("StoreAttrT"), threadArg(), x, strLit(t.Name), v)
 		return nil
 	default:
 		return f.e.errf(target.Span(), "cannot assign to this expression")
@@ -543,7 +543,7 @@ func (f *fnCtx) delStmt(s *frontend.Del) error {
 			if err != nil {
 				return err
 			}
-			f.fallibleVoid(f.e.obj("DelAttr"), x, strLit(t.Name))
+			f.fallibleVoid(f.e.obj("DelAttrT"), threadArg(), x, strLit(t.Name))
 		default:
 			return f.e.errf(t.Span(), "cannot delete this expression")
 		}
@@ -632,13 +632,13 @@ func (f *fnCtx) augAssign(s *frontend.AugAssign) error {
 			return err
 		}
 		cur := f.tmpVar()
-		f.fallible(cur, f.e.obj("LoadAttr"), x, strLit(t.Name))
+		f.fallible(cur, f.e.obj("LoadAttrT"), threadArg(), x, strLit(t.Name))
 		v, err := f.expr(s.Value)
 		if err != nil {
 			return err
 		}
 		res := inPlace(ident(cur), v)
-		f.fallibleVoid(f.e.obj("StoreAttr"), x, strLit(t.Name), res)
+		f.fallibleVoid(f.e.obj("StoreAttrT"), threadArg(), x, strLit(t.Name), res)
 		return nil
 	default:
 		return f.e.errf(s.Span(), "augmented assignment target must be a name or subscript")

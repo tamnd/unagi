@@ -522,7 +522,9 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 			"getattr": "GetAttr", "hasattr": "HasAttr",
 			"setattr": "SetAttr", "delattr": "DelAttr",
 		}[name]
-		return f.runtimeSliceCall(fn, e)
+		// The attribute builtins carry the calling thread so getattr/setattr on a
+		// threading.local reach the same per-thread store the x.attr syntax does.
+		return f.runtimeSliceCallT(fn, e)
 	case "iter", "map", "filter":
 		// The lazy iteration builtins check their own arity in the runtime
 		// helper so the "must have at least two arguments" and "expected 2
@@ -562,5 +564,19 @@ func (f *fnCtx) runtimeSliceCall(fn string, e *frontend.Call) (ast.Expr, error) 
 	}
 	tmp := f.tmpVar()
 	f.fallible(tmp, sel("runtime", fn), f.objSlice(args))
+	return ident(tmp), nil
+}
+
+// runtimeSliceCallT is runtimeSliceCall for a helper whose first parameter is
+// the calling thread, ahead of the lowered []objects.Object. The attribute
+// builtins take this shape so a threading.local reached through getattr and its
+// kin sees the current thread's private store.
+func (f *fnCtx) runtimeSliceCallT(fn string, e *frontend.Call) (ast.Expr, error) {
+	args, err := f.plainArgExprs(e.Args)
+	if err != nil {
+		return nil, err
+	}
+	tmp := f.tmpVar()
+	f.fallible(tmp, sel("runtime", fn), threadArg(), f.objSlice(args))
 	return ident(tmp), nil
 }

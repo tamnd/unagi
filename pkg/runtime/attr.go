@@ -2,11 +2,13 @@ package runtime
 
 import "github.com/tamnd/unagi/pkg/objects"
 
-// The four attribute builtins route to the same LoadAttr/StoreAttr/DelAttr
-// machinery the emitted x.attr code uses. Each rejects a non-string name with
-// the "attribute name must be string, not 'X'" TypeError CPython raises, and
-// getattr and hasattr treat only AttributeError as the miss, letting any other
-// exception propagate the way 3.14 does.
+// The four attribute builtins route to the same LoadAttrT/StoreAttrT/DelAttrT
+// machinery the emitted x.attr code uses, carrying the calling thread so a
+// threading.local reached through getattr/setattr/delattr sees the same private
+// store the attribute syntax does. Each rejects a non-string name with the
+// "attribute name must be string, not 'X'" TypeError CPython raises, and getattr
+// and hasattr treat only AttributeError as the miss, letting any other exception
+// propagate the way 3.14 does.
 
 // isAttributeError reports whether err is an AttributeError, the only miss
 // getattr and hasattr absorb.
@@ -28,7 +30,7 @@ func attrName(name objects.Object) (string, error) {
 // GetAttr is getattr(obj, name[, default]). With a default it swallows the
 // AttributeError from a missing attribute and returns the default; any other
 // error still propagates.
-func GetAttr(args []objects.Object) (objects.Object, error) {
+func GetAttr(t *objects.Thread, args []objects.Object) (objects.Object, error) {
 	switch len(args) {
 	case 2, 3:
 	default:
@@ -41,7 +43,7 @@ func GetAttr(args []objects.Object) (objects.Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	got, err := objects.LoadAttr(args[0], name)
+	got, err := objects.LoadAttrT(t, args[0], name)
 	if err != nil {
 		if len(args) == 3 && isAttributeError(err) {
 			return args[2], nil
@@ -53,7 +55,7 @@ func GetAttr(args []objects.Object) (objects.Object, error) {
 
 // HasAttr is hasattr(obj, name): True unless the attribute read raises
 // AttributeError, in which case False. A different error propagates.
-func HasAttr(args []objects.Object) (objects.Object, error) {
+func HasAttr(t *objects.Thread, args []objects.Object) (objects.Object, error) {
 	if len(args) != 2 {
 		return nil, objects.Raise(objects.TypeError, "hasattr expected 2 arguments, got %d", len(args))
 	}
@@ -61,7 +63,7 @@ func HasAttr(args []objects.Object) (objects.Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := objects.LoadAttr(args[0], name); err != nil {
+	if _, err := objects.LoadAttrT(t, args[0], name); err != nil {
 		if isAttributeError(err) {
 			return objects.False, nil
 		}
@@ -71,7 +73,7 @@ func HasAttr(args []objects.Object) (objects.Object, error) {
 }
 
 // SetAttr is setattr(obj, name, value).
-func SetAttr(args []objects.Object) (objects.Object, error) {
+func SetAttr(t *objects.Thread, args []objects.Object) (objects.Object, error) {
 	if len(args) != 3 {
 		return nil, objects.Raise(objects.TypeError, "setattr expected 3 arguments, got %d", len(args))
 	}
@@ -79,14 +81,14 @@ func SetAttr(args []objects.Object) (objects.Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := objects.StoreAttr(args[0], name, args[2]); err != nil {
+	if err := objects.StoreAttrT(t, args[0], name, args[2]); err != nil {
 		return nil, err
 	}
 	return objects.None, nil
 }
 
 // DelAttr is delattr(obj, name).
-func DelAttr(args []objects.Object) (objects.Object, error) {
+func DelAttr(t *objects.Thread, args []objects.Object) (objects.Object, error) {
 	if len(args) != 2 {
 		return nil, objects.Raise(objects.TypeError, "delattr expected 2 arguments, got %d", len(args))
 	}
@@ -94,7 +96,7 @@ func DelAttr(args []objects.Object) (objects.Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := objects.DelAttr(args[0], name); err != nil {
+	if err := objects.DelAttrT(t, args[0], name); err != nil {
 		return nil, err
 	}
 	return objects.None, nil

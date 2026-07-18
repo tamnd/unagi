@@ -1681,6 +1681,11 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return builtinMethodValue(x, name), nil
 		}
 		return nil, noAttr(x, name)
+	case *localObject:
+		// A threading.local read reaches here only when it arrives through the
+		// thread-agnostic LoadAttr, which the t-less spine routes with the main
+		// thread; the emitted x.attr code carries the real thread via LoadAttrT.
+		return x.loadAttr(mainThread, name)
 	case *stringIOObject:
 		if name == "closed" {
 			return NewBool(x.closed), nil
@@ -1807,6 +1812,11 @@ func StoreAttr(o Object, name string, val Object) error {
 		}
 	case *threadObject:
 		return threadStoreAttr(x, name, val)
+	case *localObject:
+		// See LoadAttr: a t-less write lands on the main thread's private store;
+		// the emitted code carries the real thread via StoreAttrT.
+		x.storeAttr(mainThread, name, val)
+		return nil
 	case *dictObject:
 		// A defaultdict's default_factory is writable: assigning None or a
 		// callable changes what a later missing key produces. Any other value is
@@ -1848,6 +1858,10 @@ func DelAttr(o Object, name string) error {
 		}
 		x.delAttr(name)
 		return nil
+	case *localObject:
+		// See LoadAttr: a t-less delete targets the main thread's private store;
+		// the emitted code carries the real thread via DelAttrT.
+		return x.delAttr(mainThread, name)
 	}
 	return Raise(AttributeError, "'%s' object has no attribute '%s'", o.TypeName(), name)
 }
