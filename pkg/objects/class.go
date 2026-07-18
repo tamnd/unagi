@@ -1668,6 +1668,11 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return builtinMethodValue(x, name), nil
 		}
 		return nil, noAttr(x, name)
+	case *semaphoreObject:
+		if semaphoreMethodNames[name] {
+			return builtinMethodValue(x, name), nil
+		}
+		return nil, noAttr(x, name)
 	case *stringIOObject:
 		if name == "closed" {
 			return NewBool(x.closed), nil

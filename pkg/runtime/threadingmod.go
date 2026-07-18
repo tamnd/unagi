@@ -31,6 +31,8 @@ func initThreading(m *objects.Module) error {
 		{"RLock", objects.NewFunc("RLock", -1, threadingNewRLock)},
 		{"Condition", objects.NewFunc("Condition", -1, threadingNewCondition)},
 		{"Event", objects.NewFunc("Event", -1, threadingNewEvent)},
+		{"Semaphore", objects.NewFuncKw("Semaphore", threadingNewSemaphore)},
+		{"BoundedSemaphore", objects.NewFuncKw("BoundedSemaphore", threadingNewBoundedSemaphore)},
 	} {
 		if err := objects.StoreAttr(m, e.name, e.fn); err != nil {
 			return err
@@ -178,6 +180,60 @@ func threadingNewEvent(args []objects.Object) (objects.Object, error) {
 		return nil, objects.Raise(objects.TypeError, "Event() takes no arguments (%d given)", len(args))
 	}
 	return objects.NewEvent(), nil
+}
+
+// threadingNewSemaphore is threading.Semaphore(value=1): a counting semaphore
+// starting at value, which must not be negative.
+func threadingNewSemaphore(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	value, err := parseSemaphoreValue("Semaphore", pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	return objects.NewSemaphore(value), nil
+}
+
+// threadingNewBoundedSemaphore is threading.BoundedSemaphore(value=1): a
+// semaphore that also refuses a release past its initial value.
+func threadingNewBoundedSemaphore(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	value, err := parseSemaphoreValue("BoundedSemaphore", pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	return objects.NewBoundedSemaphore(value), nil
+}
+
+// parseSemaphoreValue reads the shared (value=1) constructor signature for the
+// two semaphore kinds, positionally or by keyword, and enforces CPython's
+// non-negative rule.
+func parseSemaphoreValue(name string, pos []objects.Object, kwNames []string, kwVals []objects.Object) (int, error) {
+	if len(pos) > 1 {
+		return 0, objects.Raise(objects.TypeError, "%s() takes at most 1 argument (%d given)", name, len(pos))
+	}
+	var arg objects.Object
+	if len(pos) == 1 {
+		arg = pos[0]
+	}
+	for i, k := range kwNames {
+		if k != "value" {
+			return 0, objects.Raise(objects.TypeError, "'%s' is an invalid keyword argument for %s()", k, name)
+		}
+		if arg != nil {
+			return 0, objects.Raise(objects.TypeError, "argument for %s() given by name ('value') and position", name)
+		}
+		arg = kwVals[i]
+	}
+	value := int64(1)
+	if arg != nil {
+		v, ok := objects.AsInt(arg)
+		if !ok {
+			return 0, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", arg.TypeName())
+		}
+		value = v
+	}
+	if value < 0 {
+		return 0, objects.Raise(objects.ValueError, "semaphore initial value must be >= 0")
+	}
+	return int(value), nil
 }
 
 // threadingCurrentThread is threading.current_thread(): the Thread object for
