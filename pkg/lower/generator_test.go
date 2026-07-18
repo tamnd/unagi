@@ -159,7 +159,7 @@ func TestGeneratorTwinCarriesResumeSwitch(t *testing.T) {
 	// forwards the seed into the constructor.
 	got := twinDecl(t, "def g(n):\n    i = 0\n    while i < n:\n        yield i\n        i += 1\n")
 	for _, want := range []string{
-		"func g_gentwin(u_n objects.Object, seed int) (objects.Object, error)",
+		"func g_gentwin(t *runtime.Thread, u_n objects.Object, seed int) (objects.Object, error)",
 		"objects.NewGeneratorAt(\"g\", seed, func(gy objects.Yielder, seed int) (objects.Object, error) {",
 		"switch seed {",
 		"case 0:",

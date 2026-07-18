@@ -354,7 +354,7 @@ func TestBuildResumesLoopAtFailingIteration(t *testing.T) {
 	for _, want := range []string{
 		"func static_accum_resume(p0 int64, p1 int64, p2 int64, p3 int64) (int64, error)",
 		"func static_accum_resume_twin(",
-		"static_accum_resume_twin(objects.NewInt(p0), objects.NewInt(p1), objects.NewInt(p2), objects.NewInt(p3))",
+		"static_accum_resume_twin(runtime.NewMainThread(), objects.NewInt(p0), objects.NewInt(p1), objects.NewInt(p2), objects.NewInt(p3))",
 		"runtime.Range(u_i, u_n)",
 		"&objects.Deopt{Value: r}",
 	} {
@@ -1115,7 +1115,7 @@ func TestBuildDeoptsGuardedUnitToBoxedTwin(t *testing.T) {
 	}
 	for _, want := range []string{
 		"func static_f_deopt(p0 int64, p1 int64, p2 float64) (int64, error)",
-		"r, err := def0_f(objects.NewInt(p0), objects.NewInt(p1), objects.NewFloat(p2))",
+		"r, err := def0_f(runtime.NewMainThread(), objects.NewInt(p0), objects.NewInt(p1), objects.NewFloat(p2))",
 		"return 0, &objects.Deopt{Value: r}",
 		"if d, ok := err.(*objects.Deopt); ok",
 		"return d.Value, nil",
@@ -1363,7 +1363,7 @@ func TestBuildMaterializesEveryTransferKind(t *testing.T) {
 	if err != nil {
 		t.Fatalf("main.go not emitted: %v", err)
 	}
-	if want := "def0_g(objects.NewInt(p0), objects.NewInt(p1), objects.NewStr(p2), objects.NewBool(p3), objects.NewFloat(p4))"; !bytes.Contains(main, []byte(want)) {
+	if want := "def0_g(runtime.NewMainThread(), objects.NewInt(p0), objects.NewInt(p1), objects.NewStr(p2), objects.NewBool(p3), objects.NewFloat(p4))"; !bytes.Contains(main, []byte(want)) {
 		t.Errorf("materialization missing per-kind reboxers %q:\n%s", want, main)
 	}
 
@@ -1412,9 +1412,9 @@ func TestBuildRoutesBoxedCallThroughEntryShim(t *testing.T) {
 		t.Fatalf("main.go not emitted: %v", err)
 	}
 	for _, want := range []string{
-		"func entry0_area(p0 objects.Object, p1 objects.Object) (objects.Object, error)",
+		"func entry0_area(t *runtime.Thread, p0 objects.Object, p1 objects.Object) (objects.Object, error)",
 		`p0.TypeName() != "float"`,
-		"return def0_area(p0, p1)",
+		"return def0_area(t, p0, p1)",
 		"static_area(x0, x1)",
 		"return objects.NewFloat(r), nil",
 		"entry0_area(",
@@ -1481,9 +1481,9 @@ func TestBuildTypeGuardDeoptsToBoxed(t *testing.T) {
 		t.Fatalf("main.go not emitted: %v", err)
 	}
 	for _, want := range []string{
-		"func entry0_sq(p0 objects.Object) (objects.Object, error)",
+		"func entry0_sq(t *runtime.Thread, p0 objects.Object) (objects.Object, error)",
 		`p0.TypeName() != "float"`,
-		"return def0_sq(p0)",
+		"return def0_sq(t, p0)",
 	} {
 		if !bytes.Contains(main, []byte(want)) {
 			t.Errorf("main.go missing the type guard %q:\n%s", want, main)

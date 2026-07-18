@@ -232,7 +232,7 @@ func (e *emitter) emitMain(body []frontend.Stmt) (*ast.FuncDecl, error) {
 	return &ast.FuncDecl{
 		Name: ident("pymain"),
 		Type: &ast.FuncType{
-			Params:  &ast.FieldList{},
+			Params:  fieldList(threadParam()),
 			Results: fieldList(field(ident("error"))),
 		},
 		Body: f.pop(),
@@ -364,10 +364,11 @@ func (e *emitter) fillFuncDecl(f *fnCtx, d *frontend.FuncDef, declName string) (
 	if hasYield(d.Body) {
 		return e.fillFrameDecl(f, d, declName, "NewGenerator")
 	}
-	params := &ast.FieldList{}
+	// The hidden thread parameter leads, then one field per Python parameter so
+	// each name carries its own type.
+	params := &ast.FieldList{List: []*ast.Field{threadParam()}}
 	for _, p := range d.Params {
 		f.locals[p.Name] = true
-		// One field per parameter so each name carries its own type.
 		params.List = append(params.List, field(e.obj("Object"), mangle(p.Name)))
 	}
 	collectGlobals(d.Body, f.globals)

@@ -52,9 +52,9 @@ func TestShapeShimMaterializesStructFromInstance(t *testing.T) {
 	}
 	got := string(src)
 	for _, want := range []string{
-		"func entry0_get_x(p0 objects.Object) (objects.Object, error)",
+		"func entry0_get_x(t *runtime.Thread, p0 objects.Object) (objects.Object, error)",
 		`if p0.TypeName() != "Point" {`,
-		"return def0_get_x(p0)",
+		"return def0_get_x(t, p0)",
 		`s0_0, err := objects.LoadAttr(p0, "x")`,
 		"f0_0, sok0_0 := objects.AsInt(s0_0)",
 		`s0_1, err := objects.LoadAttr(p0, "y")`,
@@ -79,10 +79,10 @@ func TestShapeShimFallsBackOnEverySlotMiss(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := string(src)
-	if n := strings.Count(got, "return def0_get_x(p0)"); n != 5 {
+	if n := strings.Count(got, "return def0_get_x(t, p0)"); n != 5 {
 		t.Errorf("want five boxed fallbacks (one class guard, two slot reads, two unboxes), got %d:\n%s", n, got)
 	}
-	if strings.Contains(got, "if err != nil {") && !strings.Contains(got, "return def0_get_x(p0)") {
+	if strings.Contains(got, "if err != nil {") && !strings.Contains(got, "return def0_get_x(t, p0)") {
 		t.Errorf("slot-read error should fall back to the boxed form:\n%s", got)
 	}
 }

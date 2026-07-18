@@ -164,7 +164,7 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 				if err != nil {
 					return nil, err
 				}
-				methodObj := f.e.withDoc(callExpr(f.e.obj("NewFunction"),
+				methodObj := f.e.withDoc(callExpr(f.e.obj("NewFunctionT"),
 					strLit(s.Name+"."+st.Name),
 					f.e.paramSpecLit(st.Params),
 					dflts,

@@ -41,7 +41,10 @@ func (e *emitter) paramSpecLit(params []frontend.Param) ast.Expr {
 // already packed into a tuple and **kwargs into a dict.
 func (e *emitter) implType() *ast.FuncType {
 	return &ast.FuncType{
-		Params:  fieldList(field(&ast.ArrayType{Elt: e.obj("Object")}, "args")),
+		Params: fieldList(
+			threadParam(),
+			field(&ast.ArrayType{Elt: e.obj("Object")}, "args"),
+		),
 		Results: fieldList(field(e.obj("Object")), field(ident("error"))),
 	}
 }
@@ -119,5 +122,5 @@ func (f *fnCtx) lambda(e *frontend.Lambda) (ast.Expr, error) {
 	}
 	in.add(&ast.ReturnStmt{Results: []ast.Expr{v, ident("nil")}})
 	impl := &ast.FuncLit{Type: f.e.implType(), Body: in.pop()}
-	return callExpr(f.e.obj("NewFunction"), strLit(qual), f.e.paramSpecLit(e.Params), dfltsExpr, impl), nil
+	return callExpr(f.e.obj("NewFunctionT"), strLit(qual), f.e.paramSpecLit(e.Params), dfltsExpr, impl), nil
 }

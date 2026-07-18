@@ -1065,9 +1065,12 @@ func (e *emitter) implDecl(d *frontend.FuncDef) *ast.FuncDecl {
 // parameters into the slice-taking implementation a function object carries.
 // implName is the adapter's Go name and target is the Go function it calls.
 func (e *emitter) implDeclAs(d *frontend.FuncDef, implName, target string) *ast.FuncDecl {
-	args := make([]ast.Expr, len(d.Params))
+	// The adapter receives the caller's thread and threads it into the def, so a
+	// dynamic dispatch through the function object carries identity too.
+	args := make([]ast.Expr, len(d.Params)+1)
+	args[0] = threadArg()
 	for i := range d.Params {
-		args[i] = &ast.IndexExpr{X: ident("args"), Index: intLit(strconv.Itoa(i))}
+		args[i+1] = &ast.IndexExpr{X: ident("args"), Index: intLit(strconv.Itoa(i))}
 	}
 	return &ast.FuncDecl{
 		Name: ident(implName),

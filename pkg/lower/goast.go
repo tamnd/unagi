@@ -112,6 +112,22 @@ func fieldList(fs ...*ast.Field) *ast.FieldList {
 	return &ast.FieldList{List: fs}
 }
 
+// threadParam is the hidden first parameter every emitted Python function
+// carries: the runtime.Thread the call spine threads through so per-goroutine
+// identity is honest inside any function, the way CPython threads tstate.
+func threadParam() *ast.Field {
+	return field(&ast.StarExpr{X: sel("runtime", "Thread")}, "t")
+}
+
+// threadArg is the ambient thread every emitted body holds, passed on as the
+// first argument of a call into another emitted function.
+func threadArg() ast.Expr { return ident("t") }
+
+// mainThreadArg is runtime.NewMainThread(), the thread the static tier's boxed
+// re-entry points pass on: a static subtree is proven identity-free and carries
+// no thread of its own, so its boxed twin re-runs under the main thread.
+func mainThreadArg() ast.Expr { return callExpr(sel("runtime", "NewMainThread")) }
+
 // mainDecl is the fixed entry point: run pymain and let the runtime turn an
 // uncaught error into a process exit status, a traceback for an ordinary
 // exception and a bare code for SystemExit.
@@ -120,7 +136,7 @@ func mainDecl() *ast.FuncDecl {
 		Name: ident("main"),
 		Type: &ast.FuncType{Params: &ast.FieldList{}},
 		Body: block(&ast.IfStmt{
-			Init: define(ident("err"), callExpr(ident("pymain"))),
+			Init: define(ident("err"), callExpr(ident("pymain"), mainThreadArg())),
 			Cond: errNotNil(),
 			Body: block(
 				exprStmt(callExpr(sel("os", "Exit"),
@@ -140,7 +156,7 @@ func execDecl(vars []string) *ast.FuncDecl {
 		body = append(body, exprStmt(callExpr(sel("m", "Bind"),
 			strLit(n), &ast.UnaryExpr{Op: token.AND, X: ident(mangle(n))})))
 	}
-	body = append(body, &ast.ReturnStmt{Results: []ast.Expr{callExpr(ident("pymain"))}})
+	body = append(body, &ast.ReturnStmt{Results: []ast.Expr{callExpr(ident("pymain"), mainThreadArg())}})
 	return &ast.FuncDecl{
 		Name: ident("Exec"),
 		Type: &ast.FuncType{
@@ -171,7 +187,7 @@ func (e *emitter) mainGlobalsDecl(moduleVars, plainDefs []string) *ast.FuncDecl 
 		body = append(body, exprStmt(callExpr(sel("m", "Bind"), strLit(n), addr(e.fnObjName(n)))))
 	}
 	body = append(body, &ast.IfStmt{
-		Init: define(ident("err"), callExpr(ident("pymain"))),
+		Init: define(ident("err"), callExpr(ident("pymain"), mainThreadArg())),
 		Cond: errNotNil(),
 		Body: block(
 			exprStmt(callExpr(sel("os", "Exit"),

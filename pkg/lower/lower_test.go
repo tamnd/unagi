@@ -37,7 +37,7 @@ func TestHelloLowering(t *testing.T) {
 	for _, want := range []string{
 		"package main",
 		"runtime.Print(objects.NewStr(\"hi\"))",
-		"func pymain() error {",
+		"func pymain(t *runtime.Thread) error {",
 		"os.Exit(runtime.ReportExit(err))",
 	} {
 		if !strings.Contains(got, want) {
@@ -84,7 +84,7 @@ func TestFunctionDocstringLowering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(src), `objects.WithFuncDoc(objects.NewFunction(`) {
+	if !strings.Contains(string(src), `objects.WithFuncDoc(objects.NewFunctionT(`) {
 		t.Errorf("a def with a docstring should wrap NewFunction in WithFuncDoc:\n%s", src)
 	}
 	if !strings.Contains(string(src), `"does a thing"`) {
@@ -122,9 +122,9 @@ func TestFunctionLowering(t *testing.T) {
 	}
 	got := string(src)
 	for _, want := range []string{
-		"func def0_add(u_a objects.Object, u_b objects.Object) (objects.Object, error) {",
+		"func def0_add(t *runtime.Thread, u_a objects.Object, u_b objects.Object) (objects.Object, error) {",
 		"objects.Add(u_a, u_b)",
-		"def0_add(objects.NewInt(1), objects.NewInt(2))",
+		"def0_add(t, objects.NewInt(1), objects.NewInt(2))",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("emitted source missing %q:\n%s", want, got)
@@ -197,7 +197,7 @@ func TestMethodDefaultLowering(t *testing.T) {
 	for _, want := range []string{
 		`t1, err := objects.StartClass(nil, "__main__", "C", "__main__.C"`,
 		"t2 := objects.NewInt(1)",
-		`objects.NewFunction("C.m"`,
+		`objects.NewFunctionT("C.m"`,
 		"[]objects.Object{nil, t2}",
 		`t1.Set("m", t3)`,
 		"t1.Finish(",

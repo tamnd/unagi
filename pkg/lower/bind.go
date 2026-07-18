@@ -121,7 +121,7 @@ func (f *fnCtx) userCall(d *frontend.FuncDef, e *frontend.Call) (ast.Expr, error
 			return nil, err
 		}
 		tmp := f.tmpVar()
-		f.fallible(tmp, ident(f.e.callTarget(d.Name)), args...)
+		f.fallible(tmp, ident(f.e.callTarget(d.Name)), append([]ast.Expr{threadArg()}, args...)...)
 		return ident(tmp), nil
 	}
 
@@ -233,7 +233,7 @@ func (f *fnCtx) userCall(d *frontend.FuncDef, e *frontend.Call) (ast.Expr, error
 	}
 
 	tmp := f.tmpVar()
-	f.fallible(tmp, ident(f.e.defName(d.Name)), finalArgs...)
+	f.fallible(tmp, ident(f.e.defName(d.Name)), append([]ast.Expr{threadArg()}, finalArgs...)...)
 	return ident(tmp), nil
 }
 
