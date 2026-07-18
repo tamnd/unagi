@@ -141,8 +141,10 @@ func reclaim(root string, self int, now time.Time, isAlive func(int) bool) int {
 
 // shouldReclaim decides whether a temp entry is an abandoned scratch directory
 // safe to remove. A per-run base (basePrefix + pid) is reclaimable when its pid
-// is neither the caller's nor a live process; a legacy scratch directory is
-// reclaimable once it is older than staleAfter. Anything else is left alone.
+// is neither the caller's nor a live process, or when it is older than
+// staleAfter regardless of pid liveness, since a base that old cannot belong to
+// a live run and the live pid must be a recycled id. A legacy scratch directory
+// is reclaimable once it is older than staleAfter. Anything else is left alone.
 func shouldReclaim(name string, mtime time.Time, self int, now time.Time, isAlive func(int) bool) bool {
 	if strings.HasPrefix(name, basePrefix) {
 		pid, ok := basePID(name)
@@ -151,7 +153,19 @@ func shouldReclaim(name string, mtime time.Time, self int, now time.Time, isAliv
 			// malformed name still gets cleaned eventually and never at once.
 			return now.Sub(mtime) >= staleAfter
 		}
-		return pid != self && !isAlive(pid)
+		if pid == self {
+			return false
+		}
+		if !isAlive(pid) {
+			return true
+		}
+		// The pid resolves to a live process, but the operating system recycles
+		// process ids, so a base older than any plausible run cannot belong to
+		// the process now holding that id. Age reclaims it. Without this a base
+		// a killed run left behind is stranded forever once its pid is reused by
+		// an unrelated long-lived process, and each stranded base can carry a
+		// multi-gigabyte scoped GOCACHE, so the leak fills the volume over time.
+		return now.Sub(mtime) >= staleAfter
 	}
 	for _, p := range legacyPrefixes {
 		if strings.HasPrefix(name, p) {

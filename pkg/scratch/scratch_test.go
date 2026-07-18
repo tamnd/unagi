@@ -24,7 +24,9 @@ func TestShouldReclaimBase(t *testing.T) {
 		want    bool
 	}{
 		{"dead pid base is reclaimed", "unagi-scratch-1001-abcd", fixedNow, dead, true},
-		{"live pid base is kept", "unagi-scratch-1001-abcd", fixedNow, alive, false},
+		{"live pid base is kept while fresh", "unagi-scratch-1001-abcd", fixedNow, alive, false},
+		{"old live pid base is reclaimed as a recycled pid", "unagi-scratch-1001-abcd", fixedNow.Add(-3 * time.Hour), alive, true},
+		{"old dead pid base is reclaimed", "unagi-scratch-1001-abcd", fixedNow.Add(-3 * time.Hour), dead, true},
 		{"own base is kept even fresh", "unagi-scratch-4242-abcd", fixedNow, dead, false},
 		{"own base is kept when reported alive", "unagi-scratch-4242-abcd", fixedNow, alive, false},
 		{"malformed base falls back to age, fresh kept", "unagi-scratch-notapid", fixedNow, dead, false},
@@ -107,18 +109,19 @@ func TestReclaimSweepsOnlyAbandoned(t *testing.T) {
 	}
 
 	mk("unagi-scratch-1001-dead", fixedNow) // dead pid -> removed
-	mk("unagi-scratch-2002-live", fixedNow) // live pid -> kept
+	mk("unagi-scratch-2002-live", fixedNow) // live pid, fresh -> kept
+	mk("unagi-scratch-3003-stale", old)     // live pid, old (recycled) -> removed
 	mk("unagi-scratch-4242-self", fixedNow) // own pid -> kept
 	mk("unagi-gen-old", old)                // old legacy -> removed
 	mk("unagi-gen-fresh", fixedNow)         // fresh legacy -> kept
 	mk("go-build-unrelated", old)           // unrelated -> kept
 
-	alivePIDs := map[int]bool{2002: true}
+	alivePIDs := map[int]bool{2002: true, 3003: true}
 	isAlive := func(pid int) bool { return alivePIDs[pid] }
 
 	removed := reclaim(root, self, fixedNow, isAlive)
-	if removed != 2 {
-		t.Fatalf("reclaim removed %d, want 2", removed)
+	if removed != 3 {
+		t.Fatalf("reclaim removed %d, want 3", removed)
 	}
 
 	stillThere := func(name string) bool {
@@ -130,7 +133,7 @@ func TestReclaimSweepsOnlyAbandoned(t *testing.T) {
 			t.Errorf("%q was removed but should have been kept", name)
 		}
 	}
-	for _, name := range []string{"unagi-scratch-1001-dead", "unagi-gen-old"} {
+	for _, name := range []string{"unagi-scratch-1001-dead", "unagi-scratch-3003-stale", "unagi-gen-old"} {
 		if stillThere(name) {
 			t.Errorf("%q was kept but should have been removed", name)
 		}
