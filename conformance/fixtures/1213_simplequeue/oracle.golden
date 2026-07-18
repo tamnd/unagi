@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+empty: True
+qsize: 4
+order: [0, 1, 2, 3]
+empty after drain: True
+burst qsize: 100
+burst first: 0 last of 100 after drain: 99
+get_nowait empty: Empty
+get timeout: Empty
+negative timeout: 'timeout' must be a non-negative number
+handoff: payload
+type: SimpleQueue
+== exception:
+== stderr:
