@@ -38,9 +38,11 @@ func (f *fnCtx) withItems(items []frontend.WithItem, body []frontend.Stmt) error
 		return err
 	}
 
-	// WithEnter looks up __exit__ then __enter__ on the type, both before either
-	// runs, calls __enter__, and hands back the bound __exit__ to run later. A
-	// missing method or a raising __enter__ leaves through this frame.
+	// WithEnterT looks up __exit__ then __enter__ on the type, both before either
+	// runs, calls __enter__ under the ambient thread, and hands back the bound
+	// __exit__ to run later. A missing method or a raising __enter__ leaves
+	// through this frame. The thread threads in so a with over threading.RLock
+	// records ownership against the running goroutine, not the main thread.
 	exitFn := f.tmpVar()
 	enteredName := "_"
 	if item.Target != nil {
@@ -48,7 +50,7 @@ func (f *fnCtx) withItems(items []frontend.WithItem, body []frontend.Stmt) error
 	}
 	f.add(assign(token.DEFINE,
 		[]ast.Expr{ident(exitFn), ident(enteredName), ident("err")},
-		callExpr(f.e.obj("WithEnter"), mgr)))
+		callExpr(f.e.obj("WithEnterT"), threadArg(), mgr)))
 	f.check(nil)
 
 	if item.Target != nil {

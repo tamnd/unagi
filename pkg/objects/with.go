@@ -11,24 +11,35 @@ func ExcType(kind string) Object {
 	return TypeSingleton(kind)
 }
 
-// WithEnter runs the entry half of the context-manager protocol: it looks up
+// WithEnter runs the entry half of the context-manager protocol under the main
+// thread, the wrapper a t-less caller takes.
+func WithEnter(mgr Object) (exitFn Object, entered Object, err error) {
+	return WithEnterT(mainThread, mgr)
+}
+
+// WithEnterT runs the entry half of the context-manager protocol: it looks up
 // __exit__ then __enter__ on the manager's type, both before either is called,
 // and returns the bound __exit__ to run on the way out together with the
 // result of __enter__. A type missing either method raises the protocol
 // TypeError probed on 3.14, which names __exit__ first when both are absent.
-func WithEnter(mgr Object) (exitFn Object, entered Object, err error) {
+//
+// The ambient thread threads into both halves, so a with over a native manager
+// like threading.RLock records and checks ownership against the goroutine that
+// runs the with, not the main thread. The returned __exit__ closure captures the
+// same thread, so it stays honest however the runtime invokes it on the way out.
+func WithEnterT(t *Thread, mgr Object) (exitFn Object, entered Object, err error) {
 	inst, ok := mgr.(*instanceObject)
 	if !ok {
 		// A native manager like io.StringIO exposes __enter__ and __exit__
 		// through CallMethod rather than a class dict, so drive the protocol
 		// off those: enter now, and hand back a callable that runs __exit__.
 		if supportsNativeCM(mgr) {
-			entered, err := CallMethod(mgr, "__enter__", nil)
+			entered, err := CallMethodT(t, mgr, "__enter__", nil)
 			if err != nil {
 				return nil, nil, err
 			}
 			exit := NewFunc("__exit__", -1, func(args []Object) (Object, error) {
-				return CallMethod(mgr, "__exit__", args)
+				return CallMethodT(t, mgr, "__exit__", args)
 			})
 			return exit, entered, nil
 		}
@@ -48,11 +59,17 @@ func WithEnter(mgr Object) (exitFn Object, entered Object, err error) {
 			"'%s' object does not support the context manager protocol (missed __enter__ method)",
 			inst.cls.name)
 	}
-	entered, err = enterM.bind(mainThread, []Object{mgr}, nil, nil)
+	entered, err = enterM.bind(t, []Object{mgr}, nil, nil)
 	if err != nil {
 		return nil, nil, err
 	}
-	return &boundMethod{fn: exitM, self: mgr}, entered, nil
+	// The exit runs under the same thread the enter did: a boundMethod called
+	// through CallT threads t into the user __exit__ body.
+	exitBound := &boundMethod{fn: exitM, self: mgr}
+	exit := NewFunc("__exit__", -1, func(args []Object) (Object, error) {
+		return CallT(t, exitBound, args)
+	})
+	return exit, entered, nil
 }
 
 // classMethod resolves a dunder to a plain function on the class, the special

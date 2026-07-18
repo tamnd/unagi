@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+fresh locked: False
+acquire: True
+held locked: True
+non-blocking while held: False
+timeout=0 while held: False
+released locked: False
+double release: release unlocked lock
+nonblocking timeout: can't specify a timeout for a non-blocking call
+bad timeout: timeout value must be a non-negative number
+inside with, locked: True
+after with, locked: False
+child took held lock: False
+rlock owned before: False
+rlock owned after: True
+rlock locked: True
+rlock owned released: False
+rlock unowned release: cannot release un-acquired lock
+rlock in with owned: True
+rlock after with owned: False
+== exception:
+== stderr:

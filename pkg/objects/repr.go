@@ -370,6 +370,10 @@ func reprCore(o Object, strict bool) (string, error) {
 		return superRepr(x), nil
 	case *threadObject:
 		return threadRepr(x), nil
+	case *lockObject:
+		return lockRepr(x), nil
+	case *rlockObject:
+		return rlockRepr(x), nil
 	case *stringIOObject:
 		return stringIORepr(x), nil
 	case *bytesIOObject:
