@@ -380,6 +380,8 @@ func reprCore(o Object, strict bool) (string, error) {
 		return eventRepr(x), nil
 	case *semaphoreObject:
 		return semaphoreRepr(x), nil
+	case *barrierObject:
+		return barrierRepr(x), nil
 	case *stringIOObject:
 		return stringIORepr(x), nil
 	case *bytesIOObject:

@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+indices: [0, 1, 2]
+action runs: 1
+parties: 3
+n_waiting idle: 0
+broken: False
+second cycle indices: [0, 1, 2]
+timeout broke: BrokenBarrierError True
+abort caught: BrokenBarrierError
+after reset broken: False
+== exception:
+== stderr:
