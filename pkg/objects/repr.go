@@ -388,6 +388,8 @@ func reprCore(o Object, strict bool) (string, error) {
 		return simpleQueueRepr(x), nil
 	case *futureObject:
 		return futureRepr(x), nil
+	case *executorObject:
+		return executorRepr(x), nil
 	case *stringIOObject:
 		return stringIORepr(x), nil
 	case *bytesIOObject:

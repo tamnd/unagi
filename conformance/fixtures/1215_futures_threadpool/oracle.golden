@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+typename: ThreadPoolExecutor
+submit result: 1024
+submit done: True
+submit kwargs: hey unagi
+submit exc: ValueError('nope')
+submit after shutdown: cannot schedule new futures after shutdown
+map: [1, 4, 9, 16, 25]
+map zip: [11, 22, 33]
+map short: [(1, 9), (2, 8)]
+map raises: division by zero after [10, 5]
+worker name: solo_0
+same worker: True
+default worker name: ThreadPoolExecutor-0_0
+cancelled queued: True True
+running finished: ran
+zero workers: max_workers must be greater than 0
+negative workers: max_workers must be greater than 0
+== exception:
+== stderr:
