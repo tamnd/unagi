@@ -18,6 +18,7 @@ import (
 // predicate that no longer holds, exactly as CPython's Condition.wait loop does.
 type queueObject struct {
 	mu         sync.Mutex
+	kind       queueKind
 	items      []Object
 	maxsize    int // zero or negative means unbounded
 	unfinished int // puts not yet balanced by task_done
@@ -26,13 +27,48 @@ type queueObject struct {
 	allDone    []chan struct{}
 }
 
+// queueKind selects the container discipline. CPython's LifoQueue and PriorityQueue
+// subclass Queue and override only the _put/_get pair: the FIFO keeps a deque, the
+// LIFO a stack, the priority queue a binary heap. Everything else, the maxsize
+// bound, the not-empty and not-full waits, and the task_done and join accounting,
+// is shared, so the Go form carries the discipline as a discriminator rather than
+// three separate types.
+type queueKind int
+
+const (
+	queueFifo queueKind = iota
+	queueLifo
+	queuePriority
+)
+
 // NewQueue builds a Queue with the given maxsize. A maxsize of zero or below is
 // CPython's unbounded queue.
 func NewQueue(maxsize int) *queueObject {
 	return &queueObject{maxsize: maxsize}
 }
 
-func (q *queueObject) TypeName() string { return "Queue" }
+// NewLifoQueue builds a LifoQueue: a last-in first-out queue whose get returns the
+// most recently put item.
+func NewLifoQueue(maxsize int) *queueObject {
+	return &queueObject{kind: queueLifo, maxsize: maxsize}
+}
+
+// NewPriorityQueue builds a PriorityQueue: get returns the smallest item under
+// Python's <, keeping the item slice as a binary heap the way CPython does.
+func NewPriorityQueue(maxsize int) *queueObject {
+	return &queueObject{kind: queuePriority, maxsize: maxsize}
+}
+
+func (q *queueObject) TypeName() string {
+	switch q.kind {
+	case queueLifo:
+		return "LifoQueue"
+	case queuePriority:
+		return "PriorityQueue"
+	default:
+		return "Queue"
+	}
+}
 
 // full reports whether a bounded queue is at capacity. The caller holds the lock.
 func (q *queueObject) atCapacity() bool {
@@ -75,7 +111,13 @@ func (q *queueObject) put(item Object, block bool, hasTimeout bool, timeout time
 		}
 		q.mu.Lock()
 	}
-	q.items = append(q.items, item)
+	if err := q.enqueue(item); err != nil {
+		// A PriorityQueue rejects an item its heap cannot order. CPython leaves the
+		// count and the not-empty wake untouched in that case, so a later get sees no
+		// spurious task, matching Queue.put where _put runs before the bookkeeping.
+		q.mu.Unlock()
+		return err
+	}
 	q.unfinished++
 	wakeOneWaiter(&q.notEmpty)
 	q.mu.Unlock()
@@ -114,11 +156,129 @@ func (q *queueObject) get(block bool, hasTimeout bool, timeout time.Duration) (O
 		}
 		q.mu.Lock()
 	}
-	item := q.items[0]
-	q.items = q.items[1:]
+	item, err := q.dequeue()
+	if err != nil {
+		q.mu.Unlock()
+		return nil, err
+	}
 	wakeOneWaiter(&q.notFull)
 	q.mu.Unlock()
 	return item, nil
+}
+
+// enqueue adds item under the kind's discipline. The caller holds the lock. Only a
+// PriorityQueue can report an error, the TypeError raised when the heap compares
+// two items that have no ordering.
+func (q *queueObject) enqueue(item Object) error {
+	if q.kind == queuePriority {
+		return q.heapPush(item)
+	}
+	q.items = append(q.items, item)
+	return nil
+}
+
+// dequeue removes and returns the next item under the kind's discipline: the front
+// for a FIFO, the top of the stack for a LifoQueue, the smallest for a
+// PriorityQueue. The caller holds the lock and has checked the queue is non-empty.
+func (q *queueObject) dequeue() (Object, error) {
+	switch q.kind {
+	case queueLifo:
+		n := len(q.items) - 1
+		item := q.items[n]
+		q.items = q.items[:n]
+		return item, nil
+	case queuePriority:
+		return q.heapPop()
+	default:
+		item := q.items[0]
+		q.items = q.items[1:]
+		return item, nil
+	}
+}
+
+// heapPush appends item and sifts it up, keeping the item slice a binary min-heap.
+// It mirrors CPython heapq's heappush exactly so a PriorityQueue pops in the same
+// order CPython does, comparison for comparison.
+func (q *queueObject) heapPush(item Object) error {
+	q.items = append(q.items, item)
+	return q.siftdown(0, len(q.items)-1)
+}
+
+// heapPop removes and returns the smallest item, mirroring CPython heapq's heappop:
+// the last leaf moves to the root and sifts down. The last element is popped first,
+// so a single-element heap returns it without a comparison.
+func (q *queueObject) heapPop() (Object, error) {
+	n := len(q.items) - 1
+	last := q.items[n]
+	q.items = q.items[:n]
+	if len(q.items) == 0 {
+		return last, nil
+	}
+	top := q.items[0]
+	q.items[0] = last
+	if err := q.siftup(0); err != nil {
+		return nil, err
+	}
+	return top, nil
+}
+
+// siftdown walks the item at pos up toward startpos while it is smaller than its
+// parent, restoring the heap invariant after an append. It is CPython heapq's
+// _siftdown, ordering with objLess so the sequence of comparisons matches.
+func (q *queueObject) siftdown(startpos, pos int) error {
+	newitem := q.items[pos]
+	for pos > startpos {
+		parentpos := (pos - 1) >> 1
+		parent := q.items[parentpos]
+		less, err := objLess(newitem, parent)
+		if err != nil {
+			return err
+		}
+		if !less {
+			break
+		}
+		q.items[pos] = parent
+		pos = parentpos
+	}
+	q.items[pos] = newitem
+	return nil
+}
+
+// siftup walks the item at pos down to a leaf along the smaller child, then sifts
+// it back to its resting place, CPython heapq's _siftup. The child pick uses "not
+// left < right" so ties keep the left child, the same bias CPython has.
+func (q *queueObject) siftup(pos int) error {
+	endpos := len(q.items)
+	startpos := pos
+	newitem := q.items[pos]
+	childpos := 2*pos + 1
+	for childpos < endpos {
+		rightpos := childpos + 1
+		if rightpos < endpos {
+			less, err := objLess(q.items[childpos], q.items[rightpos])
+			if err != nil {
+				return err
+			}
+			if !less {
+				childpos = rightpos
+			}
+		}
+		q.items[pos] = q.items[childpos]
+		pos = childpos
+		childpos = 2*pos + 1
+	}
+	q.items[pos] = newitem
+	return q.siftdown(startpos, pos)
+}
+
+// objLess reports whether a < b under Python's comparison, the ordering CPython's
+// heapq uses. It surfaces the TypeError two unorderable items raise.
+func objLess(a, b Object) (bool, error) {
+	r, err := Compare(OpLt, a, b)
+	if err != nil {
+		return false, err
+	}
+	return Truth(r), nil
 }
 
 // taskDone balances one put. It wakes every joiner once the count reaches zero,
@@ -395,7 +555,7 @@ func queueRepr(q *queueObject) string {
 	q.mu.Lock()
 	n := len(q.items)
 	q.mu.Unlock()
-	return fmt.Sprintf("<queue.Queue at %p maxsize=%d _qsize=%d>", q, q.maxsize, n)
+	return fmt.Sprintf("<queue.%s at %p maxsize=%d _qsize=%d>", q.TypeName(), q, q.maxsize, n)
 }
 
 // queue.Empty and queue.Full are the exceptions the non-blocking and timed calls
