@@ -376,6 +376,8 @@ func reprCore(o Object, strict bool) (string, error) {
 		return rlockRepr(x), nil
 	case *condObject:
 		return condRepr(x), nil
+	case *eventObject:
+		return eventRepr(x), nil
 	case *stringIOObject:
 		return stringIORepr(x), nil
 	case *bytesIOObject:

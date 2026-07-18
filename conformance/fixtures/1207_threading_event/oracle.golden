@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+set at start: False
+set after set: True
+wait when set: True
+wait timeout when set: True
+set after clear: False
+wait timeout when clear: False
+worker: released
+woken: ['w0', 'w1', 'w2']
+== exception:
+== stderr:

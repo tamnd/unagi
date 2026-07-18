@@ -30,6 +30,7 @@ func initThreading(m *objects.Module) error {
 		{"Lock", objects.NewFunc("Lock", -1, threadingNewLock)},
 		{"RLock", objects.NewFunc("RLock", -1, threadingNewRLock)},
 		{"Condition", objects.NewFunc("Condition", -1, threadingNewCondition)},
+		{"Event", objects.NewFunc("Event", -1, threadingNewEvent)},
 	} {
 		if err := objects.StoreAttr(m, e.name, e.fn); err != nil {
 			return err
@@ -168,6 +169,15 @@ func threadingNewCondition(args []objects.Object) (objects.Object, error) {
 		lock = args[0]
 	}
 	return objects.NewCondition(lock)
+}
+
+// threadingNewEvent is threading.Event(): a fresh unset event flag, which
+// CPython builds with no arguments.
+func threadingNewEvent(args []objects.Object) (objects.Object, error) {
+	if len(args) != 0 {
+		return nil, objects.Raise(objects.TypeError, "Event() takes no arguments (%d given)", len(args))
+	}
+	return objects.NewEvent(), nil
 }
 
 // threadingCurrentThread is threading.current_thread(): the Thread object for
