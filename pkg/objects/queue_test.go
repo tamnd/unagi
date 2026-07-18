@@ -183,7 +183,9 @@ func TestQueueConcurrentProducersRace(t *testing.T) {
 				if n, ok := AsInt(v); ok {
 					got.Store(n, true)
 				}
-				q.taskDone()
+				if err := q.taskDone(); err != nil {
+					t.Errorf("task_done: %v", err)
+				}
 				consumed.Done()
 			}
 		}()
