@@ -39,7 +39,13 @@ type functionObject struct {
 	qual     string
 	params   []Param
 	defaults []Object // aligned with params, nil entries mean no default
-	impl     func(args []Object) (Object, error)
+	// impl is the legacy thread-state-less entry, still carried by the native
+	// module functions built through NewFunction. implT is the thread-carrying
+	// entry every compiled Python def now builds through NewFunctionT, so a call
+	// threads the current Thread down into the body. Exactly one is set; bind
+	// routes to whichever it finds.
+	impl  func(args []Object) (Object, error)
+	implT func(t *Thread, args []Object) (Object, error)
 	// attrs holds the writable attribute state a function grows when code
 	// assigns to it: the __dict__ of arbitrary attributes plus overrides for the
 	// __name__/__qualname__/__doc__/__module__/__annotations__ slots. It stays nil
@@ -79,26 +85,44 @@ func funcName(qual string) string {
 }
 
 // NewFunction builds a function object. defaults must be nil or aligned
-// one to one with params.
+// one to one with params. It carries the thread-state-less impl the native
+// module functions use; a compiled Python def uses NewFunctionT instead so the
+// current Thread threads into its body.
 func NewFunction(qual string, params []Param, defaults []Object, impl func(args []Object) (Object, error)) Object {
 	return &functionObject{qual: qual, params: params, defaults: defaults, impl: impl}
 }
 
+// NewFunctionT builds a function object whose body takes the current Thread as
+// a hidden first argument. Every compiled Python def is wrapped this way, so a
+// dynamic call through Call threads the caller's Thread into the body and
+// thread-identity lookups inside it see the goroutine actually running.
+func NewFunctionT(qual string, params []Param, defaults []Object, implT func(t *Thread, args []Object) (Object, error)) Object {
+	return &functionObject{qual: qual, params: params, defaults: defaults, implT: implT}
+}
+
 // CallKw invokes a callable with positional and keyword arguments. kwNames
 // and kwVals run in parallel; the parser already rejected duplicate keywords
-// at the call site.
+// at the call site. It is the thread-state-less entry the secondary dispatch
+// paths still use; the threaded spine calls CallKwT.
 func CallKw(f Object, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	return CallKwT(mainThread, f, pos, kwNames, kwVals)
+}
+
+// CallKwT is CallKw threading the caller's Thread into a compiled callable, so
+// a target invoked dynamically runs its body under the goroutine that called
+// it and thread-identity lookups inside it are correct.
+func CallKwT(t *Thread, f Object, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
 	switch fn := f.(type) {
 	case *functionObject:
-		return fn.bind(pos, kwNames, kwVals)
+		return fn.bind(t, pos, kwNames, kwVals)
 	case *namedTupleType:
-		return fn.build.bind(pos, kwNames, kwVals)
+		return fn.build.bind(t, pos, kwNames, kwVals)
 	case *partialObject:
 		return partialCall(fn, pos, kwNames, kwVals)
 	case *lruCacheObject:
 		return lruCall(fn, pos, kwNames, kwVals)
 	case *boundMethod:
-		return fn.fn.bind(append([]Object{fn.self}, pos...), kwNames, kwVals)
+		return fn.fn.bind(t, append([]Object{fn.self}, pos...), kwNames, kwVals)
 	case *classObject:
 		return Instantiate(fn, pos, kwNames, kwVals)
 	case *funcObject:
@@ -108,7 +132,7 @@ func CallKw(f Object, pos []Object, kwNames []string, kwVals []Object) (Object, 
 		if len(kwNames) > 0 {
 			return nil, Raise(TypeError, "%s() takes no keyword arguments", fn.name)
 		}
-		return Call(f, pos)
+		return CallT(t, f, pos)
 	case *instanceObject:
 		bound, defined, err := instanceLookupBound(fn, "__call__")
 		if err != nil || !defined {
@@ -117,7 +141,7 @@ func CallKw(f Object, pos []Object, kwNames []string, kwVals []Object) (Object, 
 			}
 			return nil, Raise(TypeError, "'%s' object is not callable", f.TypeName())
 		}
-		return CallKw(bound, pos, kwNames, kwVals)
+		return CallKwT(t, bound, pos, kwNames, kwVals)
 	}
 	return nil, Raise(TypeError, "'%s' object is not callable", f.TypeName())
 }
@@ -129,11 +153,12 @@ func (fn *functionObject) dflt(i int) Object {
 	return fn.defaults[i]
 }
 
-// bind matches the given arguments against the signature and calls impl.
-// The order of failures mirrors CPython and the compile-time binder in
-// pkg/lower/bind.go: positional-only names arriving as keywords outrank
-// everything, then unexpected and duplicated keywords, then arity.
-func (fn *functionObject) bind(pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+// bind matches the given arguments against the signature and calls the body,
+// threading t into a compiled def. The order of failures mirrors CPython and
+// the compile-time binder in pkg/lower/bind.go: positional-only names arriving
+// as keywords outrank everything, then unexpected and duplicated keywords, then
+// arity.
+func (fn *functionObject) bind(t *Thread, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
 	// named indexes the value-slot parameters (posonly, plain, kwonly, in
 	// declaration order) into params.
 	var named []int
@@ -269,6 +294,9 @@ func (fn *functionObject) bind(pos []Object, kwNames []string, kwVals []Object) 
 			final[i] = slot[ni]
 			ni++
 		}
+	}
+	if fn.implT != nil {
+		return fn.implT(t, final)
 	}
 	return fn.impl(final)
 }

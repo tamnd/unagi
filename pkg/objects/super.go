@@ -119,7 +119,7 @@ func superCallMethod(s *superObject, name string, args []Object) (Object, error)
 		}
 		switch fn := v.(type) {
 		case *functionObject:
-			return fn.bind(append([]Object{s.obj}, args...), nil, nil)
+			return fn.bind(mainThread, append([]Object{s.obj}, args...), nil, nil)
 		case *classmethodObject:
 			return Call(classmethodBind(fn.fn, s.objCls), args)
 		}
@@ -238,7 +238,7 @@ func superCallMethodKw(s *superObject, name string, pos []Object, kwNames []stri
 		}
 		switch fn := v.(type) {
 		case *functionObject:
-			return fn.bind(append([]Object{s.obj}, pos...), kwNames, kwVals)
+			return fn.bind(mainThread, append([]Object{s.obj}, pos...), kwNames, kwVals)
 		case *classmethodObject:
 			return CallKw(classmethodBind(fn.fn, s.objCls), pos, kwNames, kwVals)
 		}

@@ -294,7 +294,7 @@ func excSpecialStr(e *Exception, name string) (string, bool, error) {
 	if !ok {
 		return "", false, nil
 	}
-	res, err := fn.bind([]Object{e}, nil, nil)
+	res, err := fn.bind(mainThread, []Object{e}, nil, nil)
 	if err != nil {
 		return "", true, err
 	}

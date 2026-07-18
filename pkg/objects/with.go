@@ -48,7 +48,7 @@ func WithEnter(mgr Object) (exitFn Object, entered Object, err error) {
 			"'%s' object does not support the context manager protocol (missed __enter__ method)",
 			inst.cls.name)
 	}
-	entered, err = enterM.bind([]Object{mgr}, nil, nil)
+	entered, err = enterM.bind(mainThread, []Object{mgr}, nil, nil)
 	if err != nil {
 		return nil, nil, err
 	}
