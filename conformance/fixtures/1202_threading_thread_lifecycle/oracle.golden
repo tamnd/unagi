@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+False
+run 0
+False
+False
+run 1
+False
+False
+run 2
+False
+True
+True
+Thread-4 (compute)
+False
+MainThread
+True
+== exception:
+== stderr:

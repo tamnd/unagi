@@ -1646,6 +1646,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return nil, noAttr(x, name)
 	case *memoryviewObject:
 		return memoryviewLoadAttr(x, name)
+	case *threadObject:
+		return threadLoadAttr(x, name)
 	case *stringIOObject:
 		if name == "closed" {
 			return NewBool(x.closed), nil
@@ -1770,6 +1772,8 @@ func StoreAttr(o Object, name string, val Object) error {
 		if handled, err := excStoreAttr(x, name, val); handled {
 			return err
 		}
+	case *threadObject:
+		return threadStoreAttr(x, name, val)
 	case *dictObject:
 		// A defaultdict's default_factory is writable: assigning None or a
 		// callable changes what a later missing key produces. Any other value is

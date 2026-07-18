@@ -22,7 +22,22 @@ var (
 // completes, while daemon threads are abandoned when main returns.
 var nonDaemon sync.WaitGroup
 
-func init() { registerThread(objects.MainThread()) }
+func init() {
+	registerThread(objects.MainThread())
+	// The threadObject in pkg/objects starts a thread through this hook, since
+	// that package sits below this one and cannot name SpawnThread directly.
+	objects.SpawnFunc = SpawnThread
+}
+
+// liveThreadCount is the number of threads in the live table, the value
+// threading.active_count reports: the main thread plus every started thread that
+// has not yet returned.
+func liveThreadCount() int {
+	threadsMu.Lock()
+	n := len(liveThreads)
+	threadsMu.Unlock()
+	return n
+}
 
 // registerThread adds t to the live table. start() calls it in the spawning
 // goroutine before the go statement, so a Thread.start that has returned is

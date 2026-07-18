@@ -128,21 +128,27 @@ func threadArg() ast.Expr { return ident("t") }
 // no thread of its own, so its boxed twin re-runs under the main thread.
 func mainThreadArg() ast.Expr { return callExpr(sel("runtime", "NewMainThread")) }
 
-// mainDecl is the fixed entry point: run pymain and let the runtime turn an
-// uncaught error into a process exit status, a traceback for an ordinary
-// exception and a bare code for SystemExit.
+// mainDecl is the fixed entry point: run pymain, wait for the non-daemon
+// threads it started to finish so their output lands before the process exits,
+// then let the runtime turn an uncaught error into a process exit status, a
+// traceback for an ordinary exception and a bare code for SystemExit. The wait
+// mirrors threading._shutdown and is a no-op for a program that starts no
+// thread.
 func mainDecl() *ast.FuncDecl {
 	return &ast.FuncDecl{
 		Name: ident("main"),
 		Type: &ast.FuncType{Params: &ast.FieldList{}},
-		Body: block(&ast.IfStmt{
-			Init: define(ident("err"), callExpr(ident("pymain"), mainThreadArg())),
-			Cond: errNotNil(),
-			Body: block(
-				exprStmt(callExpr(sel("os", "Exit"),
-					callExpr(sel("runtime", "ReportExit"), ident("err")))),
-			),
-		}),
+		Body: block(
+			define(ident("err"), callExpr(ident("pymain"), mainThreadArg())),
+			exprStmt(callExpr(sel("runtime", "WaitForNonDaemonThreads"))),
+			&ast.IfStmt{
+				Cond: errNotNil(),
+				Body: block(
+					exprStmt(callExpr(sel("os", "Exit"),
+						callExpr(sel("runtime", "ReportExit"), ident("err")))),
+				),
+			},
+		),
 	}
 }
 
@@ -186,14 +192,16 @@ func (e *emitter) mainGlobalsDecl(moduleVars, plainDefs []string) *ast.FuncDecl 
 	for _, n := range plainDefs {
 		body = append(body, exprStmt(callExpr(sel("m", "Bind"), strLit(n), addr(e.fnObjName(n)))))
 	}
-	body = append(body, &ast.IfStmt{
-		Init: define(ident("err"), callExpr(ident("pymain"), mainThreadArg())),
-		Cond: errNotNil(),
-		Body: block(
-			exprStmt(callExpr(sel("os", "Exit"),
-				callExpr(sel("runtime", "ReportExit"), ident("err")))),
-		),
-	})
+	body = append(body,
+		define(ident("err"), callExpr(ident("pymain"), mainThreadArg())),
+		exprStmt(callExpr(sel("runtime", "WaitForNonDaemonThreads"))),
+		&ast.IfStmt{
+			Cond: errNotNil(),
+			Body: block(
+				exprStmt(callExpr(sel("os", "Exit"),
+					callExpr(sel("runtime", "ReportExit"), ident("err")))),
+			),
+		})
 	return &ast.FuncDecl{
 		Name: ident("main"),
 		Type: &ast.FuncType{Params: &ast.FieldList{}},

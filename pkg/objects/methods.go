@@ -50,6 +50,8 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 		return asyncGenSendMethod(x, name, args)
 	case *mappingProxyObject:
 		return mappingProxyMethod(x, name, args)
+	case *threadObject:
+		return threadMethod(x, name, args)
 	case *stringIOObject:
 		return stringIOMethod(x, name, args)
 	case *bytesIOObject:
