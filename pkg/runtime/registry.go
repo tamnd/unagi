@@ -115,5 +115,11 @@ func SpawnThread(t *Thread, target func()) {
 // returned. Emitted main calls it after the module body finishes and before the
 // process exits, so non-daemon threads run to completion and their output lands,
 // while daemon threads are left to be killed by process exit. It mirrors
-// threading._shutdown.
-func WaitForNonDaemonThreads() { nonDaemon.Wait() }
+// threading._shutdown. It first drains any ThreadPoolExecutor a program left
+// open, joining its worker goroutines the way concurrent.futures._python_exit
+// does, so a forgotten shutdown neither hangs the process nor leaks workers past
+// the non-daemon wait.
+func WaitForNonDaemonThreads() {
+	objects.ShutdownExecutors()
+	nonDaemon.Wait()
+}
