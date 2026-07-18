@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+acquire 1: True
+acquire 2: True
+acquire 3 nonblocking: False
+acquire timeout: False
+acquire after release: True
+nonblocking timeout: can't specify timeout for non-blocking acquire
+release zero: n must be one or more
+cm inside nonblocking spare: False
+cm after nonblocking: True
+worker: released
+bounded over-release: Semaphore released too many times
+== exception:
+== stderr:
