@@ -383,7 +383,7 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 			return nil, err
 		}
 		tmp := f.tmpVar()
-		f.fallible(tmp, f.e.obj("LoadAttr"), x, strLit(e.Name))
+		f.fallible(tmp, f.e.obj("LoadAttrT"), threadArg(), x, strLit(e.Name))
 		return ident(tmp), nil
 	default:
 		return nil, f.e.errf(e.Span(), "expression not supported in M0")

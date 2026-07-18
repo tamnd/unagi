@@ -395,6 +395,8 @@ func reprCore(o Object, strict bool) (string, error) {
 			kind = "coroutine"
 		}
 		return fmt.Sprintf("<%s object %s at %p>", kind, x.qual, x), nil
+	case *localObject:
+		return fmt.Sprintf("<_thread._local object at %p>", x), nil
 	}
 	return fmt.Sprintf("<%s object>", o.TypeName()), nil
 }

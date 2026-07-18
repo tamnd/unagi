@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+main x: main
+worker 0 False 0
+worker 1 False 1
+worker 2 False 2
+worker 3 False 3
+worker 4 False 4
+main x after: main
+getattr missing: default
+getattr y: 99
+hasattr y: True
+hasattr y after del: False
+attr error: '_thread._local' object has no attribute 'missing'
+del error: '_thread._local' object has no attribute 'missing'
+init error: Initialization arguments are not supported
+type name: _local
+== exception:
+== stderr:

@@ -36,6 +36,7 @@ func initThreading(m *objects.Module) error {
 		{"Semaphore", objects.NewFuncKw("Semaphore", threadingNewSemaphore)},
 		{"BoundedSemaphore", objects.NewFuncKw("BoundedSemaphore", threadingNewBoundedSemaphore)},
 		{"Barrier", objects.NewFuncKw("Barrier", threadingNewBarrier)},
+		{"local", objects.NewFuncKw("local", threadingNewLocal)},
 		{"BrokenBarrierError", objects.BrokenBarrierErrorClass()},
 	} {
 		if err := objects.StoreAttr(m, e.name, e.fn); err != nil {
@@ -292,6 +293,18 @@ func threadingNewBarrier(pos []objects.Object, kwNames []string, kwVals []object
 	}
 
 	return objects.NewBarrier(int(parties), action, hasTimeout, timeout), nil
+}
+
+// threadingNewLocal is threading.local(): per-thread attribute storage. The base
+// local takes no constructor arguments, so any positional or keyword argument is
+// the "Initialization arguments are not supported" TypeError CPython raises;
+// only a subclass with its own __init__ may accept them, which this slice does
+// not model yet.
+func threadingNewLocal(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if len(pos) != 0 || len(kwNames) != 0 {
+		return nil, objects.Raise(objects.TypeError, "Initialization arguments are not supported")
+	}
+	return objects.NewLocal(), nil
 }
 
 // threadingCurrentThread is threading.current_thread(): the Thread object for
