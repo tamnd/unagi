@@ -209,6 +209,106 @@ func TestQueueConcurrentProducersRace(t *testing.T) {
 	}
 }
 
+// TestLifoQueueOrder checks the LifoQueue contract: get returns the most recently
+// put item, a stack rather than a FIFO.
+func TestLifoQueueOrder(t *testing.T) {
+	q := NewLifoQueue(0)
+	if q.TypeName() != "LifoQueue" {
+		t.Fatalf("TypeName = %q, want LifoQueue", q.TypeName())
+	}
+	for i := int64(0); i < 4; i++ {
+		if err := q.put(NewInt(i), true, false, 0); err != nil {
+			t.Fatalf("put %d: %v", i, err)
+		}
+	}
+	for i := int64(3); i >= 0; i-- {
+		got, err := q.get(true, false, 0)
+		if err != nil || Repr(got) != Repr(NewInt(i)) {
+			t.Fatalf("get = %v, %v, want %d", Repr(got), err, i)
+		}
+	}
+	if !q.isEmpty() {
+		t.Fatal("drained LifoQueue should be empty")
+	}
+}
+
+// TestPriorityQueueOrder checks that a PriorityQueue returns items smallest first
+// regardless of insertion order, the min-heap CPython keeps.
+func TestPriorityQueueOrder(t *testing.T) {
+	q := NewPriorityQueue(0)
+	if q.TypeName() != "PriorityQueue" {
+		t.Fatalf("TypeName = %q, want PriorityQueue", q.TypeName())
+	}
+	for _, v := range []int64{5, 1, 4, 1, 3, 2, 9, 0} {
+		if err := q.put(NewInt(v), true, false, 0); err != nil {
+			t.Fatalf("put %d: %v", v, err)
+		}
+	}
+	var out []int64
+	for !q.isEmpty() {
+		got, err := q.get(true, false, 0)
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		n, _ := AsInt(got)
+		out = append(out, n)
+	}
+	want := []int64{0, 1, 1, 2, 3, 4, 5, 9}
+	for i := range want {
+		if out[i] != want[i] {
+			t.Fatalf("priority order = %v, want %v", out, want)
+		}
+	}
+}
+
+// TestPriorityQueueTuples checks tuple priorities: the first element orders and the
+// payload rides along, the common (priority, value) pattern.
+func TestPriorityQueueTuples(t *testing.T) {
+	q := NewPriorityQueue(0)
+	pairs := []struct {
+		prio int64
+		name string
+	}{{3, "c"}, {1, "a"}, {2, "b"}}
+	for _, p := range pairs {
+		item := NewTuple([]Object{NewInt(p.prio), NewStr(p.name)})
+		if err := q.put(item, true, false, 0); err != nil {
+			t.Fatalf("put %v: %v", p, err)
+		}
+	}
+	want := []string{"a", "b", "c"}
+	for _, w := range want {
+		got, err := q.get(true, false, 0)
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		tup := got.(*tupleObject)
+		if s, _ := AsStr(tup.elts[1]); s != w {
+			t.Fatalf("payload = %q, want %q", s, w)
+		}
+	}
+}
+
+// TestPriorityQueueUnorderable checks that putting an item the heap cannot compare
+// raises the TypeError CPython's heappush raises, and leaves the count untouched so
+// no phantom task lingers.
+func TestPriorityQueueUnorderable(t *testing.T) {
+	q := NewPriorityQueue(0)
+	if err := q.put(NewInt(1), true, false, 0); err != nil {
+		t.Fatalf("first put: %v", err)
+	}
+	err := q.put(NewStr("x"), true, false, 0)
+	if err == nil {
+		t.Fatal("comparing int and str should raise TypeError")
+	}
+	if e, ok := err.(*Exception); !ok || e.Kind != TypeError {
+		t.Fatalf("error = %v, want TypeError", err)
+	}
+	// The rejected put must not have added a task to balance.
+	if q.unfinished != 1 {
+		t.Fatalf("unfinished = %d, want 1 after the rejected put", q.unfinished)
+	}
+}
+
 // isQueueExc reports whether err is an instance of the given queue exception
 // class, the test the compiled `except queue.Empty` performs.
 func isQueueExc(err error, class Object) bool {

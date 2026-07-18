@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+lifo empty: True
+lifo qsize: 4
+lifo order: [3, 2, 1, 0]
+lifo empty after drain: True
+lifo full: True
+lifo put_nowait full: Full
+priority order: [0, 1, 1, 2, 3, 4, 5, 9]
+priority tuples: ['urgent', 'normal', 'clean up']
+priority get_nowait empty: Empty
+priority unorderable: TypeError
+priority after reject: 2
+priority drained: [1, 3, 5, 7, 8]
+priority all done: 0
+lifo type: LifoQueue
+priority type: PriorityQueue
+== exception:
+== stderr:
