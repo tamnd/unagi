@@ -131,6 +131,17 @@ var rlockMethodNames = map[string]bool{
 	"__enter__": true, "__exit__": true,
 }
 
+// condIsOwned, condReleaseSave, and condAcquireRestore are the protocol a
+// Condition drives its underlying lock through, mirroring CPython's
+// _is_owned/_release_save/_acquire_restore. A plain Lock tracks no owner, so
+// condIsOwned reports whether the lock is held by anyone, the same approximation
+// CPython's Condition makes for a non-RLock, and releaseSave carries no state.
+func (l *lockObject) condIsOwned(ident int64) bool { return l.locked() }
+
+func (l *lockObject) condReleaseSave(ident int64) (int, error) { return 0, l.release() }
+
+func (l *lockObject) condAcquireRestore(ident int64, saved int) { l.acquire(true, -1) }
+
 func lockRepr(l *lockObject) string {
 	state := "unlocked"
 	if l.locked() {
@@ -228,6 +239,32 @@ func rlockMethodKwT(t *Thread, r *rlockObject, name string, pos []Object, kwName
 		return nil, err
 	}
 	return NewBool(r.acquire(t.Ident(), blocking, timeout)), nil
+}
+
+// condIsOwned, condReleaseSave, and condAcquireRestore let a Condition drive an
+// RLock across a wait. releaseSave drops every level at once and returns the
+// recursion count so acquireRestore can put it back, mirroring CPython's
+// _release_save/_acquire_restore, which is what keeps a `with rlock:` recursion
+// count intact across a cond.wait().
+func (r *rlockObject) condIsOwned(ident int64) bool { return r.owner.Load() == ident }
+
+func (r *rlockObject) condReleaseSave(ident int64) (int, error) {
+	if r.owner.Load() != ident {
+		return 0, Raise(RuntimeError, "cannot release un-acquired lock")
+	}
+	saved := r.count
+	r.count = 0
+	r.owner.Store(0)
+	if err := r.inner.release(); err != nil {
+		return 0, err
+	}
+	return saved, nil
+}
+
+func (r *rlockObject) condAcquireRestore(ident int64, saved int) {
+	r.inner.acquire(true, -1)
+	r.owner.Store(ident)
+	r.count = saved
 }
 
 func rlockRepr(r *rlockObject) string {

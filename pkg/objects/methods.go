@@ -68,6 +68,8 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		return lockMethod(x, name, args)
 	case *rlockObject:
 		return rlockMethodT(t, x, name, args)
+	case *condObject:
+		return condMethodT(t, x, name, args)
 	case *stringIOObject:
 		return stringIOMethod(x, name, args)
 	case *bytesIOObject:
@@ -167,6 +169,8 @@ func CallMethodKwT(t *Thread, o Object, name string, pos []Object, kwNames []str
 		return lockMethodKw(x, name, pos, kwNames, kwVals)
 	case *rlockObject:
 		return rlockMethodKwT(t, x, name, pos, kwNames, kwVals)
+	case *condObject:
+		return condMethodKwT(t, x, name, pos, kwNames, kwVals)
 	case *Module:
 		v, err := moduleLoadAttr(x, name)
 		if err != nil {
