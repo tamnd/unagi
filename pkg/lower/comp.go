@@ -198,22 +198,33 @@ func (f *fnCtx) comp(e *frontend.Comp) (ast.Expr, error) {
 // `(x for x in bad)` raises where it is written while an inner iterable's error
 // surfaces only at the first next.
 func (f *fnCtx) genexp(e *frontend.Comp) (ast.Expr, error) {
-	// An async generator expression, `(x async for x in aiter)`, is its own
-	// async_generator object rather than an inlined loop, so it needs a frame
-	// this lowering does not build yet. Reject it up front rather than lower it
-	// over the sync iterator protocol, which would drive an async iterable wrong.
-	if compIsAsync(e) {
-		return nil, f.e.errf(e.Span(), "asynchronous generator expression is not supported yet")
+	// An async generator expression, `(x async for x in aiter)` or one with an
+	// await in its own scope, is its own async_generator object rather than an
+	// inlined loop, built on the coroutine frame with NewAsyncGenerator. Unlike an
+	// async comprehension it is legal anywhere, even at module scope or in a sync
+	// def, because creating the object never runs the body; only iterating it,
+	// which needs an async context, does. The body's async for and await lower
+	// through the frame's own yielder, so the closure sets inAsync below.
+	async := compIsAsync(e)
+	ctor := "NewGenerator"
+	if async {
+		ctor = "NewAsyncGenerator"
 	}
 	// Eager outer iterator, evaluated in the enclosing scope before the
 	// generator object exists. Its check uses the enclosing function's return
-	// shape, so it must run before the yielder state is swapped in below.
+	// shape, so it must run before the yielder state is swapped in below. An
+	// `async for` outermost clause takes its iterator through AsyncIterT, whose
+	// __aiter__ is not awaited and so runs eagerly here just like sync iter().
 	outerSrc, err := f.expr(e.Clauses[0].Iter)
 	if err != nil {
 		return nil, err
 	}
 	itOuter := f.tmpVar()
-	f.fallible(itOuter, f.e.obj("Iter"), outerSrc)
+	if e.Clauses[0].Async {
+		f.fallible(itOuter, f.e.obj("AsyncIterT"), threadArg(), outerSrc)
+	} else {
+		f.fallible(itOuter, f.e.obj("Iter"), outerSrc)
+	}
 
 	if f.compVars == nil {
 		f.compVars = map[string]string{}
@@ -227,14 +238,18 @@ func (f *fnCtx) genexp(e *frontend.Comp) (ast.Expr, error) {
 	// keeps a class-only name out of the body, where inFunc already defers an
 	// unresolved read to the runtime NameError. The leftmost iterator above was
 	// taken with the class scope still live, so it alone sees a class variable.
-	savedYielder, savedInFunc, savedClosure, savedFname, savedBld := f.genYielder, f.inFunc, f.closure, f.fname, f.classBld
+	savedYielder, savedInFunc, savedClosure, savedFname, savedBld, savedAsync := f.genYielder, f.inFunc, f.closure, f.fname, f.classBld, f.inAsync
 	f.genYielder = "gy"
 	f.inFunc = true
 	f.closure = 0
 	f.fname = "<genexpr>"
 	f.classBld = ""
+	// The closure is the async_generator's own frame when this is an async
+	// genexp, so its await and async-for lower through the inner yielder; a sync
+	// genexp nested in an async def resets inAsync so it stays a plain generator.
+	f.inAsync = async
 	defer func() {
-		f.genYielder, f.inFunc, f.closure, f.fname, f.classBld = savedYielder, savedInFunc, savedClosure, savedFname, savedBld
+		f.genYielder, f.inFunc, f.closure, f.fname, f.classBld, f.inAsync = savedYielder, savedInFunc, savedClosure, savedFname, savedBld, savedAsync
 	}()
 
 	// Clause variables rename to fresh temporaries the same way an inlined
@@ -306,14 +321,26 @@ func (f *fnCtx) genexp(e *frontend.Comp) (ast.Expr, error) {
 				return err
 			}
 			it = f.tmpVar()
-			f.fallible(it, f.e.obj("Iter"), v)
+			if cl.Async {
+				f.fallible(it, f.e.obj("AsyncIterT"), threadArg(), v)
+			} else {
+				f.fallible(it, f.e.obj("Iter"), v)
+			}
 		}
 		bindClause(cl.Target)
 		f.push()
 		v := f.tmpVar()
 		ok := f.tmpVar()
-		next := &ast.SelectorExpr{X: ident(it), Sel: ident("Next")}
-		f.add(assign(token.DEFINE, []ast.Expr{ident(v), ident(ok), ident("err")}, callExpr(next)))
+		// An async clause steps through AsyncNextT, which awaits __anext__ on this
+		// genexp's own yielder, in the same (value, ok, err) shape the sync Next
+		// reports, so the loop below is unchanged.
+		if cl.Async {
+			f.add(assign(token.DEFINE, []ast.Expr{ident(v), ident(ok), ident("err")},
+				callExpr(f.e.obj("AsyncNextT"), threadArg(), ident(f.genYielder), ident(it))))
+		} else {
+			next := &ast.SelectorExpr{X: ident(it), Sel: ident("Next")}
+			f.add(assign(token.DEFINE, []ast.Expr{ident(v), ident(ok), ident("err")}, callExpr(next)))
+		}
 		f.check(nil)
 		f.add(&ast.IfStmt{
 			Cond: notExpr(ident(ok)),
@@ -355,7 +382,7 @@ func (f *fnCtx) genexp(e *frontend.Comp) (ast.Expr, error) {
 	if f.qual != "" {
 		qual = f.qual + ".<locals>.<genexpr>"
 	}
-	return callExpr(f.e.obj("NewGenerator"), strLit(qual), closure), nil
+	return callExpr(f.e.obj(ctor), strLit(qual), closure), nil
 }
 
 // compIsAsync reports whether a comprehension is asynchronous. CPython treats
