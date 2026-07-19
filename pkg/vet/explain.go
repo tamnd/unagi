@@ -14,6 +14,7 @@ var explanations = map[string]string{
 	"UNA-THR-008": unaThr008Explain,
 	"UNA-AIO-001": unaAio001Explain,
 	"UNA-AIO-002": unaAio002Explain,
+	"UNA-AIO-003": unaAio003Explain,
 }
 
 // Explain returns the long-form text for a finding code and whether the code is
@@ -344,4 +345,33 @@ of the block:
 
 This check flags a bare asyncio.create_task whose result is discarded. A
 create_task called on a TaskGroup is left alone, since the group holds it.
+`
+
+const unaAio003Explain = `UNA-AIO-003: loop-affinity violation
+
+An asyncio event loop and the futures it watches are not thread-safe. They are
+built to be touched by exactly one thread, the one running the loop. A worker
+thread that reaches into them directly races the loop's internal bookkeeping:
+
+    def worker(loop, fut):
+        result = compute()
+        loop.call_soon(fut.set_result, result)   # runs on the wrong thread
+
+The one supported bridge from another thread is loop.call_soon_threadsafe. It
+wakes the loop and hands it a callback to run on its own thread, so the loop
+touches its own state and the future itself:
+
+    def worker(loop, fut):
+        result = compute()
+        loop.call_soon_threadsafe(fut.set_result, result)
+
+Note that fut.set_result is passed here as a value for the loop to call, not
+called on the worker thread. That is the whole point: the completion happens on
+the loop thread.
+
+This check gates on a program that starts a thread, resolves the functions
+handed to Thread(target=...), executor.submit, and loop.run_in_executor, and
+flags a loop-affine call (call_soon, call_later, call_at, set_result,
+set_exception) inside one of those bodies. The threadsafe form has a different
+name and passes the completion as a value, so it is not flagged.
 `
