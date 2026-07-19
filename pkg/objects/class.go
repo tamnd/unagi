@@ -1909,6 +1909,19 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return builtinMethodValue(x, name), nil
 		}
 		return nil, noAttr(x, name)
+	case *asyncioServer:
+		if name == "sockets" {
+			return asyncioServerSockets(x), nil
+		}
+		if asyncioServerMethodNames[name] {
+			return builtinMethodValue(x, name), nil
+		}
+		return nil, noAttr(x, name)
+	case *asyncioSocket:
+		if name == "getsockname" {
+			return builtinMethodValue(x, name), nil
+		}
+		return nil, noAttr(x, name)
 	case *localObject:
 		// A threading.local read reaches here only when it arrives through the
 		// thread-agnostic LoadAttr, which the t-less spine routes with the main

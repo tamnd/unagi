@@ -1,5 +1,7 @@
 package objects
 
+import "net"
+
 // asyncio.StreamWriter is the write half of the streams API. It hands bytes to a
 // transport and exposes the flow-control and shutdown surface a caller drives:
 // write/writelines buffer data, drain awaits the transport draining below its
@@ -14,18 +16,32 @@ package objects
 // accepted and drain returns at once, byte-identical to a CPython writer whose
 // transport never pauses.
 
-// asyncioStreamTransport is the in-memory transport a connected pair shares. What
-// is written lands in the peer's StreamReader buffer, and a half-close or close
-// feeds the peer EOF, so the reader on the other end observes the stream ending.
+// asyncioStreamTransport is the transport behind a writer. With a peer reader and
+// no conn it is the in-memory half of a connected pair: what is written lands in
+// the peer's StreamReader buffer, and a close feeds the peer EOF. With a conn it
+// is a socket transport: writes go to the connection and close shuts it down, the
+// form open_connection and start_server put behind the writer. Both run on the
+// loop goroutine.
 type asyncioStreamTransport struct {
 	peer    *asyncioStreamReader
+	conn    net.Conn
 	closing bool
 	eofSent bool
 	extra   map[string]Object
 }
 
 func (tr *asyncioStreamTransport) write(b []byte) {
-	if tr.peer == nil || len(b) == 0 || tr.peer.eof {
+	if len(b) == 0 || tr.closing {
+		return
+	}
+	if tr.conn != nil {
+		// A short or failed write surfaces to the reader as EOF via the read pump;
+		// the writer does not raise here, matching a CPython transport that reports
+		// send errors through the protocol rather than from write().
+		_, _ = tr.conn.Write(b)
+		return
+	}
+	if tr.peer == nil || tr.peer.eof {
 		return
 	}
 	tr.peer.buffer = append(tr.peer.buffer, b...)
@@ -33,13 +49,27 @@ func (tr *asyncioStreamTransport) write(b []byte) {
 }
 
 func (tr *asyncioStreamTransport) writeEOF() {
-	if tr.eofSent {
+	if tr.eofSent || tr.closing {
 		return
 	}
 	tr.eofSent = true
+	if tr.conn != nil {
+		if c, ok := tr.conn.(interface{ CloseWrite() error }); ok {
+			_ = c.CloseWrite()
+		}
+		return
+	}
 	if tr.peer != nil {
 		tr.peer.feedEOF()
 	}
+}
+
+func (tr *asyncioStreamTransport) canWriteEOF() bool {
+	if tr.conn != nil {
+		_, ok := tr.conn.(interface{ CloseWrite() error })
+		return ok
+	}
+	return true
 }
 
 func (tr *asyncioStreamTransport) close() {
@@ -47,6 +77,10 @@ func (tr *asyncioStreamTransport) close() {
 		return
 	}
 	tr.closing = true
+	if tr.conn != nil {
+		_ = tr.conn.Close()
+		return
+	}
 	if tr.peer != nil {
 		tr.peer.feedEOF()
 	}
@@ -106,7 +140,7 @@ func asyncioStreamWriterMethod(w *asyncioStreamWriter, name string, args []Objec
 		if len(args) != 0 {
 			return nil, Raise(TypeError, "can_write_eof() takes 1 positional argument but %d were given", len(args)+1)
 		}
-		return NewBool(true), nil
+		return NewBool(w.tr.canWriteEOF()), nil
 	case "is_closing":
 		if len(args) != 0 {
 			return nil, Raise(TypeError, "is_closing() takes 1 positional argument but %d were given", len(args)+1)

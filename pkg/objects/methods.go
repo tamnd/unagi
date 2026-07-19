@@ -102,6 +102,10 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		return asyncioStreamReaderMethod(x, name, args)
 	case *asyncioStreamWriter:
 		return asyncioStreamWriterMethod(x, name, args)
+	case *asyncioServer:
+		return asyncioServerMethod(x, name, args)
+	case *asyncioSocket:
+		return asyncioSocketMethod(x, name, args)
 	case *asyncioCondition:
 		return asyncioConditionMethod(x, name, args)
 	case *asyncioBarrier:
