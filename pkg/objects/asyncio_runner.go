@@ -19,6 +19,10 @@ type asyncioRunner struct {
 	// to the loop once, at lazy init, matching CPython, which calls loop.set_debug
 	// only when debug is not None.
 	debug Object
+	// loopFactory is the constructor's loop_factory argument, None when not passed.
+	// When given it is called at lazy init to build the loop, in place of
+	// new_event_loop, so a caller can supply its own loop, matching CPython.
+	loopFactory Object
 	// thread is the thread a run bound the loop to, captured so close can drive
 	// shutdown_asyncgens on that same thread. It is set on every run and is non-nil
 	// whenever an async generator could have been registered.
@@ -38,26 +42,42 @@ func (r *asyncioRunner) TypeName() string { return "Runner" }
 // AsyncioNewRunner builds asyncio.Runner(debug=None). The loop is not created
 // until the runner is entered, run, or asked for its loop, so a Runner that is
 // never used allocates none. debug is stashed for that lazy init.
-func AsyncioNewRunner(debug Object) Object {
+func AsyncioNewRunner(debug Object, loopFactory Object) Object {
 	if debug == nil {
 		debug = None
 	}
-	return &asyncioRunner{state: runnerCreated, debug: debug}
+	if loopFactory == nil {
+		loopFactory = None
+	}
+	return &asyncioRunner{state: runnerCreated, debug: debug, loopFactory: loopFactory}
 }
 
 // lazyInit forces the loop into being, the _lazy_init entry every public method
 // funnels through. A closed runner refuses, an already initialized one is a no-op,
-// and a fresh one builds the loop and arms its debug flag.
-func (r *asyncioRunner) lazyInit() error {
+// and a fresh one builds the loop and arms its debug flag. loop_factory, when set,
+// is called to build the loop in place of new_event_loop; a factory that hands back
+// something other than an event loop is refused. The thread is the caller's, so a
+// factory that is a compiled Python callable runs under the right goroutine.
+func (r *asyncioRunner) lazyInit(t *Thread) error {
 	if r.state == runnerClosed {
 		return Raise(RuntimeError, "Runner is closed")
 	}
 	if r.state == runnerInitialized {
 		return nil
 	}
-	loop, ok := AsyncioNewEventLoop().(*eventLoop)
+	var made Object
+	if r.loopFactory != None {
+		built, err := CallT(t, r.loopFactory, nil)
+		if err != nil {
+			return err
+		}
+		made = built
+	} else {
+		made = AsyncioNewEventLoop()
+	}
+	loop, ok := made.(*eventLoop)
 	if !ok {
-		return Raise(RuntimeError, "Runner failed to create an event loop")
+		return Raise(TypeError, "loop_factory returned a non-loop object")
 	}
 	if r.debug != None {
 		loop.debug = Truth(r.debug)
@@ -81,7 +101,7 @@ func runnerMethodT(t *Thread, r *asyncioRunner, name string, args []Object) (Obj
 		if len(args) != 0 {
 			return nil, Raise(TypeError, "get_loop() takes 1 positional argument but %d were given", len(args)+1)
 		}
-		if err := r.lazyInit(); err != nil {
+		if err := r.lazyInit(t); err != nil {
 			return nil, err
 		}
 		return r.loop, nil
@@ -94,7 +114,7 @@ func runnerMethodT(t *Thread, r *asyncioRunner, name string, args []Object) (Obj
 		if len(args) != 0 {
 			return nil, Raise(TypeError, "__enter__() takes 1 positional argument but %d were given", len(args)+1)
 		}
-		if err := r.lazyInit(); err != nil {
+		if err := r.lazyInit(t); err != nil {
 			return nil, err
 		}
 		return r, nil
@@ -113,7 +133,7 @@ func (r *asyncioRunner) run(t *Thread, coro Object) (Object, error) {
 	if runningLoop.Load() != nil {
 		return nil, Raise(RuntimeError, "Runner.run() cannot be called from a running event loop")
 	}
-	if err := r.lazyInit(); err != nil {
+	if err := r.lazyInit(t); err != nil {
 		return nil, err
 	}
 	switch c := coro.(type) {
@@ -176,15 +196,18 @@ func (r *asyncioRunner) close() (Object, error) {
 // running-loop check comes first with asyncio.run's own message, before the Runner
 // is built, and the loop is always closed on the way out, the way the with block
 // runs __exit__ on both the normal and the error path.
-func AsyncioRunViaRunner(t *Thread, main Object, debug Object) (Object, error) {
+func AsyncioRunViaRunner(t *Thread, main Object, debug Object, loopFactory Object) (Object, error) {
 	if runningLoop.Load() != nil {
 		return nil, Raise(RuntimeError, "asyncio.run() cannot be called from a running event loop")
 	}
-	r := &asyncioRunner{state: runnerCreated, debug: debug}
+	r := &asyncioRunner{state: runnerCreated, debug: debug, loopFactory: loopFactory}
 	if r.debug == nil {
 		r.debug = None
 	}
-	if err := r.lazyInit(); err != nil {
+	if r.loopFactory == nil {
+		r.loopFactory = None
+	}
+	if err := r.lazyInit(t); err != nil {
 		return nil, err
 	}
 	defer r.close()

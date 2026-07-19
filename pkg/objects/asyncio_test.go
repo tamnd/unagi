@@ -1846,7 +1846,7 @@ func runnerRun(r Object, coro Object) (Object, error) {
 // TestRunnerRunReturnsResult checks a Runner drives a coroutine to completion and
 // hands its result back, then reuses the one loop across a second run.
 func TestRunnerRunReturnsResult(t *testing.T) {
-	r := AsyncioNewRunner(None)
+	r := AsyncioNewRunner(None, None)
 	if _, err := CallMethodT(mainThread, r, "__enter__", nil); err != nil {
 		t.Fatalf("enter: %v", err)
 	}
@@ -1898,7 +1898,7 @@ func TestRunnerRunReturnsResult(t *testing.T) {
 // TestRunnerRunAfterClose checks run and get_loop on a closed Runner are the
 // RuntimeError CPython raises.
 func TestRunnerRunAfterClose(t *testing.T) {
-	r := AsyncioNewRunner(None)
+	r := AsyncioNewRunner(None, None)
 	if _, err := CallMethodT(mainThread, r, "get_loop", nil); err != nil {
 		t.Fatalf("get_loop: %v", err)
 	}
@@ -1923,7 +1923,7 @@ func TestRunnerRunAfterClose(t *testing.T) {
 // TestRunnerRunNonCoroutine checks run with a non-awaitable is the TypeError
 // CPython raises, matching its exact message.
 func TestRunnerRunNonCoroutine(t *testing.T) {
-	r := AsyncioNewRunner(None)
+	r := AsyncioNewRunner(None, None)
 	_, err := runnerRun(r, NewInt(1234))
 	e, ok := err.(*Exception)
 	if !ok || e.Kind != "TypeError" {
@@ -1940,7 +1940,7 @@ func TestRunnerRunNonCoroutine(t *testing.T) {
 // TestRunnerDebugFlag checks the debug constructor argument reaches the loop and
 // that it defaults off.
 func TestRunnerDebugFlag(t *testing.T) {
-	on := AsyncioNewRunner(True)
+	on := AsyncioNewRunner(True, None)
 	loop, err := CallMethodT(mainThread, on, "get_loop", nil)
 	if err != nil {
 		t.Fatalf("get_loop: %v", err)
@@ -1955,7 +1955,7 @@ func TestRunnerDebugFlag(t *testing.T) {
 	if _, err := CallMethodT(mainThread, on, "close", nil); err != nil {
 		t.Fatalf("close: %v", err)
 	}
-	off := AsyncioNewRunner(None)
+	off := AsyncioNewRunner(None, None)
 	loop, err = CallMethodT(mainThread, off, "get_loop", nil)
 	if err != nil {
 		t.Fatalf("get_loop: %v", err)
@@ -1972,10 +1972,45 @@ func TestRunnerDebugFlag(t *testing.T) {
 	}
 }
 
+// TestRunnerLoopFactory checks a Runner built with loop_factory uses the loop the
+// factory returns, and calls the factory only once across the runner's life.
+func TestRunnerLoopFactory(t *testing.T) {
+	var built Object
+	calls := 0
+	factory := NewFunc("factory", 0, func(args []Object) (Object, error) {
+		calls++
+		built = AsyncioNewEventLoop()
+		return built, nil
+	})
+	r := AsyncioNewRunner(None, factory)
+	loop, err := CallMethodT(mainThread, r, "get_loop", nil)
+	if err != nil {
+		t.Fatalf("get_loop: %v", err)
+	}
+	if loop != built {
+		t.Fatalf("runner did not use the factory's loop")
+	}
+	child := NewCoroutine("child", func(y Yielder) (Object, error) {
+		if _, err := y.YieldFrom(AsyncioSleep(0, None)); err != nil {
+			return nil, err
+		}
+		return NewInt(5), nil
+	})
+	if _, err := runnerRun(r, child); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if _, err := CallMethodT(mainThread, r, "close", nil); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("loop_factory called %d times, want 1", calls)
+	}
+}
+
 // TestRunnerNestedRun checks a Runner.run called from within a running loop is
 // the RuntimeError CPython raises, before any loop or argument check.
 func TestRunnerNestedRun(t *testing.T) {
-	r := AsyncioNewRunner(None)
+	r := AsyncioNewRunner(None, None)
 	var nested error
 	outer := NewCoroutine("outer", func(y Yielder) (Object, error) {
 		_, nested = runnerRun(r, NewInt(1))
@@ -2006,10 +2041,10 @@ func TestAsyncioRunViaRunnerDebug(t *testing.T) {
 			return None, nil
 		})
 	}
-	if _, err := AsyncioRunViaRunner(mainThread, probe(&onDebug), True); err != nil {
+	if _, err := AsyncioRunViaRunner(mainThread, probe(&onDebug), True, None); err != nil {
 		t.Fatalf("run debug=True: %v", err)
 	}
-	if _, err := AsyncioRunViaRunner(mainThread, probe(&offDebug), None); err != nil {
+	if _, err := AsyncioRunViaRunner(mainThread, probe(&offDebug), None, None); err != nil {
 		t.Fatalf("run debug=None: %v", err)
 	}
 	if !onDebug {
@@ -2044,7 +2079,7 @@ func TestRunnerShutdownAsyncGensRunsFinalizer(t *testing.T) {
 		}
 		return None, nil
 	})
-	if _, err := AsyncioRunViaRunner(mainThread, main, None); err != nil {
+	if _, err := AsyncioRunViaRunner(mainThread, main, None, None); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if !closed {
@@ -2076,7 +2111,7 @@ func TestRunnerCancelsPendingTasks(t *testing.T) {
 		}
 		return None, nil
 	})
-	if _, err := AsyncioRunViaRunner(mainThread, main, None); err != nil {
+	if _, err := AsyncioRunViaRunner(mainThread, main, None, None); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if !cancelled {
