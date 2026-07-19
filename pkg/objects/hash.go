@@ -427,16 +427,16 @@ func pyHashFrozenset(elts []Object) (int64, error) {
 // pyHashRange hashes like rangeobject.c: a tuple of the length, then
 // start and step only when they can matter, so empty ranges collide.
 func pyHashRange(x *rangeObject) (int64, error) {
-	n, err := Len(x)
-	if err != nil {
-		return 0, err
+	// CPython hashes a range as the tuple (len, start-or-None, step-or-None).
+	// The length can outgrow int64 (range(1 << 1000)), so box it big; a range
+	// that fits int64 boxes to the same small ints, keeping the hash identical.
+	n := x.lenAsBig()
+	t := []Object{NewIntFromBig(n), None, None}
+	if n.Sign() > 0 {
+		t[1] = NewIntFromBig(x.bStart())
 	}
-	t := []Object{NewInt(int64(n)), None, None}
-	if n > 0 {
-		t[1] = NewInt(x.start)
-	}
-	if n > 1 {
-		t[2] = NewInt(x.step)
+	if n.Cmp(big.NewInt(1)) > 0 {
+		t[2] = NewIntFromBig(x.bStep())
 	}
 	return pyHashTuple(t)
 }

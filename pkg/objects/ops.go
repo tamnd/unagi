@@ -870,6 +870,21 @@ func seqEquals(a, b []Object) bool {
 }
 
 func rangeEquals(a, b *rangeObject) bool {
+	// Two ranges are equal when they yield the same elements: equal lengths,
+	// and (past length 0) equal first element and, past length 1, equal step.
+	if a.big() || b.big() {
+		la, lb := a.lenAsBig(), b.lenAsBig()
+		if la.Cmp(lb) != 0 {
+			return false
+		}
+		if la.Sign() == 0 {
+			return true
+		}
+		if a.bStart().Cmp(b.bStart()) != 0 {
+			return false
+		}
+		return la.Cmp(big.NewInt(1)) == 0 || a.bStep().Cmp(b.bStep()) == 0
+	}
 	la, lb := a.length(), b.length()
 	if la != lb {
 		return false
@@ -1032,6 +1047,9 @@ func Contains(container, item Object) (Object, error) {
 	case *frozensetObject:
 		return setContains(&x.setCore, item)
 	case *rangeObject:
+		if x.big() {
+			return bigRangeContains(x, item), nil
+		}
 		if IsBigInt(item) {
 			// A spilled int can never land in an int64-backed range.
 			return False, nil
@@ -1251,6 +1269,19 @@ func GetItem(o, key Object) (Object, error) {
 			}
 			return nil, Raise(TypeError, "range indices must be integers or slices, not %s", key.TypeName())
 		}
+		if x.big() {
+			idx := big.NewInt(i)
+			n := x.lengthBig()
+			if i < 0 {
+				idx.Add(idx, n)
+			}
+			if idx.Sign() < 0 || idx.Cmp(n) >= 0 {
+				return nil, Raise(IndexError, "range object index out of range")
+			}
+			v := new(big.Int).Mul(idx, x.bStep())
+			v.Add(v, x.bStart())
+			return NewIntFromBig(v), nil
+		}
 		n := x.length()
 		if i < 0 {
 			i += n
@@ -1380,6 +1411,14 @@ func Len(o Object) (int, error) {
 	case *frozensetObject:
 		return len(x.elts), nil
 	case *rangeObject:
+		if x.big() {
+			n := x.lengthBig()
+			if !n.IsInt64() {
+				return 0, Raise(OverflowError,
+					"Python int too large to convert to C ssize_t")
+			}
+			return int(n.Int64()), nil
+		}
 		return int(x.length()), nil
 	case *dictKeysObject:
 		return len(x.d.entries), nil
@@ -1465,6 +1504,56 @@ func (it *rangeIter) Next() (Object, bool, error) {
 	return NewInt(v), true, nil
 }
 
+// bigRangeContains tests membership in a range whose bounds overflow int64,
+// matching CPython's range_contains_long: an integer (or a float equal to one)
+// is a member when it lies between the bounds and is reachable by the step.
+func bigRangeContains(x *rangeObject, item Object) Object {
+	var v *big.Int
+	if bi, ok := AsBigInt(item); ok {
+		v = bi
+	} else if f, ok := AsFloat(item); ok {
+		if math.IsInf(f, 0) || math.IsNaN(f) || f != math.Trunc(f) {
+			return False
+		}
+		v, _ = big.NewFloat(f).Int(nil)
+	} else {
+		return False
+	}
+	start, stop, step := x.bStart(), x.bStop(), x.bStep()
+	if step.Sign() > 0 {
+		if v.Cmp(start) < 0 || v.Cmp(stop) >= 0 {
+			return False
+		}
+	} else if v.Cmp(start) > 0 || v.Cmp(stop) <= 0 {
+		return False
+	}
+	rem := new(big.Int).Rem(new(big.Int).Sub(v, start), step)
+	return NewBool(rem.Sign() == 0)
+}
+
+// bigRangeIter walks a range whose bounds overflow int64. It steps and
+// compares against the stop instead of counting, so it never needs an int64
+// length; the walk of a huge range is unbounded, exactly as in CPython.
+type bigRangeIter struct {
+	cur  *big.Int
+	stop *big.Int
+	step *big.Int
+	up   bool
+}
+
+func (it *bigRangeIter) Next() (Object, bool, error) {
+	if it.up {
+		if it.cur.Cmp(it.stop) >= 0 {
+			return nil, false, nil
+		}
+	} else if it.cur.Cmp(it.stop) <= 0 {
+		return nil, false, nil
+	}
+	v := new(big.Int).Set(it.cur)
+	it.cur.Add(it.cur, it.step)
+	return NewIntFromBig(v), true, nil
+}
+
 // Iter returns an iterator over an iterable object.
 func Iter(o Object) (Iterator, error) {
 	switch x := o.(type) {
@@ -1494,6 +1583,14 @@ func Iter(o Object) (Iterator, error) {
 	case *frozensetObject:
 		return &sliceIter{elts: x.elts}, nil
 	case *rangeObject:
+		if x.big() {
+			return &bigRangeIter{
+				cur:  new(big.Int).Set(x.bStart()),
+				stop: x.bStop(),
+				step: x.bStep(),
+				up:   x.bStep().Sign() > 0,
+			}, nil
+		}
 		return &rangeIter{r: x, n: x.length()}, nil
 	case *dictKeysObject:
 		return &sliceIter{elts: x.d.keySlice()}, nil

@@ -170,26 +170,23 @@ func Range(args ...objects.Object) (objects.Object, error) {
 	if len(args) > 3 {
 		return nil, objects.Raise(objects.TypeError, "range expected at most 3 arguments, got %d", len(args))
 	}
-	vals := make([]int64, len(args))
+	vals := make([]*big.Int, len(args))
 	for i, a := range args {
 		if bv, ok := objects.BuiltinValue(a); ok {
 			a = bv
 		}
-		v, ok := objects.AsInt(a)
+		// range() accepts any integer magnitude; a bound that overflows int64
+		// spills into the range's big fields instead of wrapping, so
+		// range(1 << 1000) constructs. len/index of such a range still report
+		// the honest overflow where an int64 result cannot be produced.
+		v, ok := objects.AsBigInt(a)
 		if !ok {
-			// CPython handles range(2**100); this runtime keeps range on
-			// int64 and reports the honest overflow instead of wrapping.
-			// Documented divergence in the numbers-tower log.
-			if objects.IsBigInt(a) {
-				return nil, objects.Raise(objects.OverflowError,
-					"Python int too large to convert to C ssize_t")
-			}
 			return nil, objects.Raise(objects.TypeError,
 				"'%s' object cannot be interpreted as an integer", a.TypeName())
 		}
 		vals[i] = v
 	}
-	start, stop, step := int64(0), int64(0), int64(1)
+	start, stop, step := big.NewInt(0), big.NewInt(0), big.NewInt(1)
 	switch len(args) {
 	case 1:
 		stop = vals[0]
@@ -198,10 +195,10 @@ func Range(args ...objects.Object) (objects.Object, error) {
 	case 3:
 		start, stop, step = vals[0], vals[1], vals[2]
 	}
-	if step == 0 {
+	if step.Sign() == 0 {
 		return nil, objects.Raise(objects.ValueError, "range() arg 3 must not be zero")
 	}
-	return objects.NewRange(start, stop, step), nil
+	return objects.NewRangeBig(start, stop, step), nil
 }
 
 // SliceOf implements the slice() builtin, boxing one to three arguments into a

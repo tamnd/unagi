@@ -167,6 +167,14 @@ func GetSlice(o, lo, hi, step Object) (Object, error) {
 		}
 		return NewByteArray(out), nil
 	case *rangeObject:
+		if x.big() {
+			// Slicing a range whose bounds overflow int64 has a well-defined
+			// result, but the sub-range arithmetic is not modeled yet; the
+			// floor only constructs and iterates such ranges. Report the
+			// honest overflow rather than compute against a truncated length.
+			return nil, Raise(OverflowError,
+				"Python int too large to convert to C ssize_t")
+		}
 		// A range slice is itself a range, so range(10)[::-1] is
 		// range(9, -1, -1). The arithmetic stays in int64 because a range
 		// spans wider than a materialized sequence: resolve the slice bounds
