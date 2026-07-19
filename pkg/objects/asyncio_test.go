@@ -270,6 +270,169 @@ func TestAsyncioCreateTaskOutsideLoop(t *testing.T) {
 	}
 }
 
+// TestAsyncioFutureResolveAndAwait checks a Future one task resolves is awaited
+// by another for its value, and that result and exception read the resolved
+// state back.
+func TestAsyncioFutureResolveAndAwait(t *testing.T) {
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		futObj, err := AsyncioNewFuture()
+		if err != nil {
+			return nil, err
+		}
+		fut := futObj.(*asyncFuture)
+		setter := NewCoroutine("setter", func(y Yielder) (Object, error) {
+			if _, err := y.YieldFrom(AsyncioSleep(0.005, None)); err != nil {
+				return nil, err
+			}
+			return fut.pySetResult(NewInt(42))
+		})
+		if _, err := AsyncioCreateTask(setter); err != nil {
+			return nil, err
+		}
+		v, err := awaitObj(y, fut)
+		if err != nil {
+			return nil, err
+		}
+		if !fut.doneP() {
+			return nil, Raise(RuntimeError, "future not done after await")
+		}
+		res, err := fut.pyResult()
+		if err != nil {
+			return nil, err
+		}
+		if n, ok := AsInt(res); !ok || n != 42 {
+			return nil, Raise(RuntimeError, "result = %s, want 42", Repr(res))
+		}
+		return v, nil
+	})
+	got, err := AsyncioRun(main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if n, ok := AsInt(got); !ok || n != 42 {
+		t.Fatalf("awaited future = %v, want 42", Repr(got))
+	}
+}
+
+// TestAsyncioFutureStateGuards checks result and set_result raise InvalidStateError
+// off the state CPython guards: a result read before one is set, and a second
+// resolution of a done future.
+func TestAsyncioFutureStateGuards(t *testing.T) {
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		futObj, err := AsyncioNewFuture()
+		if err != nil {
+			return nil, err
+		}
+		fut := futObj.(*asyncFuture)
+		if _, err := fut.pyResult(); coroExcKind(err) != "InvalidStateError" {
+			return nil, Raise(RuntimeError, "result unset = %v, want InvalidStateError", err)
+		}
+		if _, err := fut.pySetResult(NewInt(1)); err != nil {
+			return nil, err
+		}
+		if _, err := fut.pySetResult(NewInt(2)); coroExcKind(err) != "InvalidStateError" {
+			return nil, Raise(RuntimeError, "set twice = %v, want InvalidStateError", err)
+		}
+		return None, nil
+	})
+	if _, err := AsyncioRun(main); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+// TestAsyncioFutureCancel checks cancelling a pending future resolves it so an
+// awaiter re-raises CancelledError, that cancelled and done report true, and that
+// a second cancel returns false.
+func TestAsyncioFutureCancel(t *testing.T) {
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		futObj, err := AsyncioNewFuture()
+		if err != nil {
+			return nil, err
+		}
+		fut := futObj.(*asyncFuture)
+		if fut.pyCancel(None) != True {
+			return nil, Raise(RuntimeError, "cancel pending returned false")
+		}
+		if fut.pyCancel(None) != False {
+			return nil, Raise(RuntimeError, "second cancel returned true")
+		}
+		fut.mu.Lock()
+		cancelled := fut.cancelled
+		fut.mu.Unlock()
+		if !cancelled || !fut.doneP() {
+			return nil, Raise(RuntimeError, "cancelled future not marked done")
+		}
+		if _, err := awaitObj(y, fut); coroExcKind(err) != "CancelledError" {
+			return nil, Raise(RuntimeError, "await cancelled = %v, want CancelledError", err)
+		}
+		return None, nil
+	})
+	if _, err := AsyncioRun(main); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+// TestAsyncioFutureSetException checks a future resolved with an exception
+// re-raises it on await and hands it back from exception().
+func TestAsyncioFutureSetException(t *testing.T) {
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		futObj, err := AsyncioNewFuture()
+		if err != nil {
+			return nil, err
+		}
+		fut := futObj.(*asyncFuture)
+		if _, err := fut.pySetException(Raise(ValueError, "boom")); err != nil {
+			return nil, err
+		}
+		exc, err := fut.pyException()
+		if err != nil {
+			return nil, err
+		}
+		if e, ok := exc.(*Exception); !ok || e.Kind != "ValueError" {
+			return nil, Raise(RuntimeError, "exception() = %s, want ValueError", Repr(exc))
+		}
+		if _, err := awaitObj(y, fut); coroExcKind(err) != "ValueError" {
+			return nil, Raise(RuntimeError, "await raised %v, want ValueError", err)
+		}
+		return None, nil
+	})
+	if _, err := AsyncioRun(main); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+// TestAsyncioFutureRepr checks the non-debug repr of a future across its states.
+func TestAsyncioFutureRepr(t *testing.T) {
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		futObj, err := AsyncioNewFuture()
+		if err != nil {
+			return nil, err
+		}
+		fut := futObj.(*asyncFuture)
+		if r := asyncFutureRepr(fut); r != "<Future pending>" {
+			return nil, Raise(RuntimeError, "pending repr = %s", r)
+		}
+		if _, err := fut.pySetResult(NewList([]Object{NewInt(1), NewInt(2)})); err != nil {
+			return nil, err
+		}
+		if r := asyncFutureRepr(fut); r != "<Future finished result=[1, 2]>" {
+			return nil, Raise(RuntimeError, "finished repr = %s", r)
+		}
+		return None, nil
+	})
+	if _, err := AsyncioRun(main); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+// TestAsyncioFutureOutsideLoop checks constructing a Future off a running loop is
+// the RuntimeError asyncio raises with no loop.
+func TestAsyncioFutureOutsideLoop(t *testing.T) {
+	if _, err := AsyncioNewFuture(); coroExcKind(err) != "RuntimeError" {
+		t.Fatalf("Future() outside loop = %v, want RuntimeError", err)
+	}
+}
+
 // TestAsyncioRunningLoopOutside checks there is no running loop before or after
 // a run, and one during it.
 func TestAsyncioRunningLoopOutside(t *testing.T) {
