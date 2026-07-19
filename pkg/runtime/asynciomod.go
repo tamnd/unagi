@@ -24,6 +24,8 @@ func initAsyncio(m *objects.Module) error {
 		{"create_task", objects.NewFuncKw("create_task", asyncioCreateTask)},
 		{"gather", objects.NewFuncKw("gather", asyncioGather)},
 		{"wait_for", objects.NewFuncKw("wait_for", asyncioWaitFor)},
+		{"timeout", objects.NewFuncKw("timeout", asyncioTimeout)},
+		{"timeout_at", objects.NewFuncKw("timeout_at", asyncioTimeoutAt)},
 		{"Future", objects.NewFuncKw("Future", asyncioFuture)},
 		{"Lock", objects.NewFuncKw("Lock", asyncioLock)},
 		{"Event", objects.NewFuncKw("Event", asyncioEvent)},
@@ -278,6 +280,35 @@ func asyncioWaitFor(pos []objects.Object, kwNames []string, kwVals []objects.Obj
 		timeout = v
 	}
 	return objects.AsyncioWaitFor(aw, timeout), nil
+}
+
+// asyncioTimeout is asyncio.timeout(delay). It builds an async context manager
+// that cancels the running task once delay seconds pass, turning the resulting
+// CancelledError into a TimeoutError. A delay of None disables the timeout.
+func asyncioTimeout(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	vals, err := bindArgs("timeout", []string{"delay"}, pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	delay, ok := vals["delay"]
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "timeout() missing 1 required positional argument: 'delay'")
+	}
+	return objects.AsyncioNewTimeout(delay)
+}
+
+// asyncioTimeoutAt is asyncio.timeout_at(when). Like timeout but when is an
+// absolute deadline on the loop's clock rather than a relative delay.
+func asyncioTimeoutAt(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	vals, err := bindArgs("timeout_at", []string{"when"}, pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	when, ok := vals["when"]
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "timeout_at() missing 1 required positional argument: 'when'")
+	}
+	return objects.AsyncioNewTimeoutAt(when)
 }
 
 // asyncioGetRunningLoop is asyncio.get_running_loop(). It returns the loop bound
