@@ -653,6 +653,66 @@ func AsyncioSleep(delay float64, result Object) Object {
 	return &generatorObject{qual: "sleep", body: fromTop(body), ret: None, isCoro: true}
 }
 
+// AsyncioWaitFor implements asyncio.wait_for(aw, timeout). It awaits aw, and if
+// timeout seconds pass first it cancels aw and raises TimeoutError. A timeout of
+// None waits forever, awaiting aw straight through. On success it returns aw's
+// result; a coroutine or future argument that raises propagates that exception.
+func AsyncioWaitFor(aw Object, timeout Object) Object {
+	body := func(y Yielder) (Object, error) {
+		loop := runningLoop.Load()
+		if loop == nil {
+			return nil, Raise(RuntimeError, "no running event loop")
+		}
+		if timeout == nil || timeout == None {
+			return AwaitThrough(y, aw)
+		}
+		secs, ok := AsFloat(timeout)
+		if !ok {
+			return nil, Raise(TypeError, "'%s' object cannot be interpreted as a float", timeout.TypeName())
+		}
+		// The awaitable must be both drivable and cancellable: a task or future is
+		// used as is, anything else is wrapped in a task the way ensure_future does.
+		target, cancel, err := waitForTarget(aw, loop)
+		if err != nil {
+			return nil, err
+		}
+		// A zero or negative timeout still gives the task one chance to finish
+		// before the deadline is checked, matching CPython's wait_for.
+		timedOut := false
+		timer := loop.callLater(time.Duration(secs*float64(time.Second)), func() {
+			if !target.doneP() {
+				timedOut = true
+				cancel(None)
+			}
+		})
+		res, werr := AwaitThrough(y, target)
+		timer.cancelled = true
+		if timedOut {
+			return nil, newFuturesTimeout()
+		}
+		return res, werr
+	}
+	return &generatorObject{qual: "wait_for", body: fromTop(body), ret: None, isCoro: true}
+}
+
+// waitForTarget turns a wait_for argument into an awaitable future paired with a
+// cancel function. A task or future carries its own; any other awaitable is
+// scheduled as a task, matching ensure_future.
+func waitForTarget(aw Object, loop *eventLoop) (*asyncFuture, func(Object) Object, error) {
+	switch a := aw.(type) {
+	case *asyncTask:
+		return a.doneFut, a.cancel, nil
+	case *asyncFuture:
+		return a, a.pyCancel, nil
+	default:
+		tk, err := scheduleTask(aw, loop, "")
+		if err != nil {
+			return nil, nil, err
+		}
+		return tk.doneFut, tk.cancel, nil
+	}
+}
+
 // AsyncioRunningLoop returns the loop bound to the current run for
 // get_running_loop, or nil when no loop is running so the caller raises the
 // RuntimeError asyncio raises outside a loop.
