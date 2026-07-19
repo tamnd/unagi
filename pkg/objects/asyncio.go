@@ -75,6 +75,10 @@ type eventLoop struct {
 	// wakeups keeps the loop's sleeps from being cut short and re-entered, which
 	// preserved the exact timer interleaving CPython's _run_once produces.
 	inBatch bool
+	// stopping is set by loop.stop() and checked at the top of each run_forever
+	// iteration, so the loop returns after finishing the batch in flight, the way
+	// CPython's stop schedules the loop to halt once it next becomes idle.
+	stopping bool
 }
 
 // wake nudges the loop goroutine off a sleep so it re-checks its queues. It is
@@ -692,6 +696,43 @@ func (l *eventLoop) runUntilComplete(t *Thread, aw Object) (Object, error) {
 	return nil, Raise(TypeError, "An asyncio.Future, a coroutine or an awaitable is required")
 }
 
+// runForever drives the loop until loop.stop() is called, the loop.run_forever()
+// entry. It runs ready callbacks and timers as they come due and returns once a
+// callback has called stop. Running a closed or already running loop is the same
+// RuntimeError run_until_complete raises.
+func (l *eventLoop) runForever(t *Thread) (Object, error) {
+	if l.closed {
+		return nil, Raise(RuntimeError, "Event loop is closed")
+	}
+	if l.running {
+		return nil, Raise(RuntimeError, "This event loop is already running")
+	}
+	if runningLoop.Load() != nil {
+		return nil, Raise(RuntimeError, "Cannot run the event loop while another loop is running")
+	}
+	l.running = true
+	l.thread = t
+	l.stopping = false
+	runningLoop.Store(l)
+	defer func() {
+		l.running = false
+		l.stopping = false
+		runningLoop.Store(nil)
+	}()
+	if err := l.runUntil(func() bool { return l.stopping }); err != nil {
+		return nil, err
+	}
+	return None, nil
+}
+
+// stopLoop is loop.stop(). It marks the loop to halt after the batch in flight;
+// run_forever checks the flag at the top of its next iteration. Called on a loop
+// that is not running it simply arms the flag for the next run.
+func (l *eventLoop) stopLoop() (Object, error) {
+	l.stopping = true
+	return None, nil
+}
+
 // closeLoop closes the loop, the loop.close() entry. A closed loop refuses to
 // run again; closing a running loop is the RuntimeError asyncio raises. Closing
 // an already closed loop is a no-op, matching CPython.
@@ -1234,6 +1275,17 @@ func (l *eventLoop) TypeName() string { return "EventLoop" }
 // surface. create_future hands back a Future bound to the loop, and time reports
 // the loop's monotonic clock so a later reading is never before an earlier one.
 // Callback scheduling, call_soon and call_later, is a later slice.
+// eventLoopMethodNames is the loop's method surface for attribute reads, so
+// loop.stop and other methods can be taken as bound method values, not only
+// called inline. Method calls compile straight to CallMethod; a bare read of a
+// method reaches here through LoadAttr.
+var eventLoopMethodNames = map[string]bool{
+	"create_future": true, "time": true, "is_running": true, "is_closed": true,
+	"get_debug": true, "run_in_executor": true, "call_soon": true, "call_later": true,
+	"call_at": true, "run_until_complete": true, "run_forever": true, "stop": true,
+	"close": true,
+}
+
 // eventLoopMethodT dispatches the loop methods that need the running thread,
 // run_until_complete above all, and delegates the rest to eventLoopMethod.
 func eventLoopMethodT(t *Thread, l *eventLoop, name string, args []Object) (Object, error) {
@@ -1243,6 +1295,16 @@ func eventLoopMethodT(t *Thread, l *eventLoop, name string, args []Object) (Obje
 			return nil, Raise(TypeError, "run_until_complete() takes 2 positional arguments but %d were given", len(args)+1)
 		}
 		return l.runUntilComplete(t, args[0])
+	case "run_forever":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "run_forever() takes 1 positional argument but %d were given", len(args)+1)
+		}
+		return l.runForever(t)
+	case "stop":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "stop() takes 1 positional argument but %d were given", len(args)+1)
+		}
+		return l.stopLoop()
 	case "close":
 		if len(args) != 0 {
 			return nil, Raise(TypeError, "close() takes 1 positional argument but %d were given", len(args)+1)

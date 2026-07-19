@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+running before False
+running after False
+log ['a', 'b', 'stop', 'after-stop']
+log2 []
+log3 ['early', 'mid', 'late']
+closed True
+== exception:
+== stderr:

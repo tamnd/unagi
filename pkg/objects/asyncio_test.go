@@ -1,6 +1,7 @@
 package objects
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -1500,5 +1501,35 @@ func TestAsyncioRunUntilCompleteClosed(t *testing.T) {
 	_, err := CallMethodT(mainThread, loop, "run_until_complete", []Object{sleepThen("late", 0, None)})
 	if coroExcKind(err) != "RuntimeError" {
 		t.Fatalf("run on closed loop = %v, want RuntimeError", err)
+	}
+}
+
+// TestAsyncioRunForever checks run_forever drives ready callbacks until stop is
+// called, then returns with the loop no longer running.
+func TestAsyncioRunForever(t *testing.T) {
+	loop := AsyncioNewEventLoop().(*eventLoop)
+	var log []string
+	tick := func(tag string) Object {
+		return NewFunc("tick", 0, func([]Object) (Object, error) {
+			log = append(log, tag)
+			return None, nil
+		})
+	}
+	stopper := NewFunc("stopper", 0, func([]Object) (Object, error) {
+		log = append(log, "stop")
+		_, err := CallMethodT(mainThread, loop, "stop", nil)
+		return None, err
+	})
+	CallMethodT(mainThread, loop, "call_soon", []Object{tick("a")})
+	CallMethodT(mainThread, loop, "call_soon", []Object{stopper})
+	CallMethodT(mainThread, loop, "call_soon", []Object{tick("b")})
+	if _, err := CallMethodT(mainThread, loop, "run_forever", nil); err != nil {
+		t.Fatalf("run_forever: %v", err)
+	}
+	if got := strings.Join(log, ","); got != "a,stop,b" {
+		t.Fatalf("run_forever log = %q, want a,stop,b", got)
+	}
+	if loop.running {
+		t.Fatalf("loop still running after run_forever")
 	}
 }
