@@ -2,6 +2,7 @@ package objects
 
 import (
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -173,5 +174,57 @@ func TestExecutorShutdownExecutorsDrains(t *testing.T) {
 	got, err := fo.(*futureObject).result(true, false, 0)
 	if err != nil || Repr(got) != "7" {
 		t.Fatalf("result after drain = %v, %v", Repr(got), err)
+	}
+}
+
+// TestExecutorBrokenByInitializer checks that an initializer that raises breaks
+// the pool: its pending future fails with BrokenThreadPool and a later submit
+// raises the same, the state CPython leaves a pool in after _initializer_failed.
+func TestExecutorBrokenByInitializer(t *testing.T) {
+	e := NewExecutor(1, "broken")
+	defer e.doShutdown(mainThread, true, false)
+	e.SetInitializer(funcOf("bad", func([]Object) (Object, error) {
+		return nil, Raise(RuntimeError, "init boom")
+	}), NewTuple(nil))
+	fo, err := e.submit(funcOf("work", func([]Object) (Object, error) { return None, nil }), nil, nil, nil)
+	if err != nil {
+		t.Fatalf("first submit: %v", err)
+	}
+	if _, err := fo.(*futureObject).result(true, false, 0); !isFutureExc(err, BrokenThreadPoolClass()) {
+		t.Fatalf("pending future = %v, want BrokenThreadPool", err)
+	}
+	// The pool is broken now, so a fresh submit raises rather than queueing.
+	if _, err := e.submit(funcOf("late", func([]Object) (Object, error) { return None, nil }), nil, nil, nil); !isFutureExc(err, BrokenThreadPoolClass()) {
+		t.Fatalf("submit after break = %v, want BrokenThreadPool", err)
+	}
+}
+
+// TestExecutorInitializerRunsOnce checks the initializer fires once per worker
+// and its initargs reach the call, not once per submitted task.
+func TestExecutorInitializerRunsOnce(t *testing.T) {
+	e := NewExecutor(1, "once")
+	defer e.doShutdown(mainThread, true, false)
+	var calls atomic.Int64
+	var seen atomic.Int64
+	e.SetInitializer(funcOf("init", func(pos []Object) (Object, error) {
+		calls.Add(1)
+		n, _ := AsInt(pos[0])
+		seen.Store(int64(n))
+		return None, nil
+	}), NewTuple([]Object{NewInt(9)}))
+	for i := 0; i < 3; i++ {
+		fo, err := e.submit(funcOf("w", func([]Object) (Object, error) { return None, nil }), nil, nil, nil)
+		if err != nil {
+			t.Fatalf("submit: %v", err)
+		}
+		if _, err := fo.(*futureObject).result(true, false, 0); err != nil {
+			t.Fatalf("result: %v", err)
+		}
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("initializer calls = %d, want 1", calls.Load())
+	}
+	if seen.Load() != 9 {
+		t.Fatalf("initarg seen = %d, want 9", seen.Load())
 	}
 }

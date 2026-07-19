@@ -19,8 +19,10 @@ import (
 // the way concurrent.futures._python_exit does for a pool a program forgot to
 // shut down.
 //
-// initializer, initargs, and the BrokenThreadPool machinery are a later slice;
-// this one covers submit, map, shutdown, and the context-manager protocol.
+// This covers submit, map, shutdown, the context-manager protocol, and the
+// initializer/initargs and BrokenThreadPool machinery. The stderr traceback
+// CPython prints when an initializer raises is a later slice; the broken pool
+// still raises BrokenThreadPool from submit and from every pending result.
 type executorObject struct {
 	mu         sync.Mutex
 	cond       *sync.Cond // over mu, signalling a new work item or shutdown
@@ -31,6 +33,12 @@ type executorObject struct {
 	idle       int  // workers currently parked on cond, waiting for work
 	shutdown   bool // set by shutdown(): no new work is accepted
 	workers    sync.WaitGroup
+	// initializer runs once at the start of each worker, with initArgs splatted in.
+	// One that raises breaks the pool: broken is set, every queued and later
+	// submitted future fails with BrokenThreadPool.
+	initializer Object
+	initArgs    Object
+	broken      bool
 }
 
 // workItem is one submitted call: the Future to resolve and the callable with
@@ -63,6 +71,16 @@ func NewExecutor(maxWorkers int, namePrefix string) *executorObject {
 	return e
 }
 
+// SetInitializer records the callable each worker runs before it drains any
+// work, with args splatted in as the positional arguments. args is the
+// initargs tuple; it is unpacked lazily at worker start, so a bad initargs
+// surfaces as the initializer call failing, breaking the pool, the way CPython
+// defers it to the worker.
+func (e *executorObject) SetInitializer(fn, args Object) {
+	e.initializer = fn
+	e.initArgs = args
+}
+
 func (e *executorObject) TypeName() string { return "ThreadPoolExecutor" }
 
 // submit enqueues fn(*args, **kw) and returns the pending Future for it. A pool
@@ -73,6 +91,10 @@ func (e *executorObject) submit(fn Object, args []Object, kwNames []string, kwVa
 	f := NewFuture()
 	w := &workItem{future: f, fn: fn, args: args, kwNames: kwNames, kwVals: kwVals}
 	e.mu.Lock()
+	if e.broken {
+		e.mu.Unlock()
+		return nil, raiseBrokenThreadPool()
+	}
 	if e.shutdown {
 		e.mu.Unlock()
 		return nil, Raise(RuntimeError, "cannot schedule new futures after shutdown")
@@ -111,6 +133,12 @@ func (e *executorObject) spawnWorker() {
 // is shut down and the queue has drained, so shutdown(wait=True) joins a pool
 // with no work left, while shutdown drains any remaining items first.
 func (e *executorObject) workerLoop(th *Thread) {
+	if e.initializer != nil {
+		if err := e.runInitializer(th); err != nil {
+			e.breakPool(th)
+			return
+		}
+	}
 	for {
 		e.mu.Lock()
 		for len(e.queue) == 0 && !e.shutdown {
@@ -153,6 +181,123 @@ func (e *executorObject) runItem(th *Thread, w *workItem) {
 		cbs, _ = w.future.setResult(res)
 	}
 	invokeFutureCallbacks(th, w.future, cbs)
+}
+
+// runInitializer runs the pool's initializer once on the worker thread, with
+// the initargs tuple splatted in as positional arguments. An empty or nil
+// initargs runs it with no arguments.
+func (e *executorObject) runInitializer(th *Thread) error {
+	var args []Object
+	if e.initArgs != nil && e.initArgs != None {
+		unpacked, err := unpackSequence(e.initArgs)
+		if err != nil {
+			return err
+		}
+		args = unpacked
+	}
+	_, err := CallT(th, e.initializer, args)
+	return err
+}
+
+// breakPool marks the pool unusable after an initializer failed and fails every
+// queued future with BrokenThreadPool, the state CPython's _initializer_failed
+// leaves the pool in. New submits raise BrokenThreadPool too, checked in submit.
+func (e *executorObject) breakPool(th *Thread) {
+	e.mu.Lock()
+	e.broken = true
+	queued := e.queue
+	e.queue = nil
+	e.cond.Broadcast()
+	e.mu.Unlock()
+	for _, w := range queued {
+		if cbs, err := w.future.setException(brokenThreadPoolExc()); err == nil {
+			invokeFutureCallbacks(th, w.future, cbs)
+		}
+	}
+}
+
+// unpackSequence flattens any iterable into a slice, used to splat an initargs
+// tuple into the initializer call.
+func unpackSequence(o Object) ([]Object, error) {
+	it, err := Iter(o)
+	if err != nil {
+		return nil, err
+	}
+	var out []Object
+	for {
+		v, ok, err := it.Next()
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return out, nil
+		}
+		out = append(out, v)
+	}
+}
+
+// BrokenExecutor and BrokenThreadPool are built once on first use, after the
+// exception hierarchy in excclass.go's init has populated RuntimeError.
+// BrokenExecutor is concurrent.futures._base.BrokenExecutor, a RuntimeError
+// subclass; BrokenThreadPool is concurrent.futures.thread.BrokenThreadPool, its
+// subclass, the class CPython raises once a worker initializer fails.
+var (
+	brokenExecutorOnce    sync.Once
+	brokenExecutorClass   *classObject
+	brokenThreadPoolOnce  sync.Once
+	brokenThreadPoolClass *classObject
+)
+
+// BrokenExecutorClass returns concurrent.futures._base.BrokenExecutor.
+func BrokenExecutorClass() Object {
+	brokenExecutorOnce.Do(func() {
+		base, ok := ExcClass("RuntimeError")
+		if !ok {
+			panic("unagi: RuntimeError class unavailable for BrokenExecutor")
+		}
+		c, err := NewClass("BrokenExecutor", "concurrent.futures._base.BrokenExecutor",
+			[]Object{base}, []string{"__module__"}, []Object{NewStr("concurrent.futures")}, nil, nil)
+		if err != nil {
+			panic("unagi: building BrokenExecutor: " + err.Error())
+		}
+		brokenExecutorClass = c.(*classObject)
+	})
+	return brokenExecutorClass
+}
+
+// BrokenThreadPoolClass returns concurrent.futures.thread.BrokenThreadPool.
+func BrokenThreadPoolClass() Object {
+	brokenThreadPoolOnce.Do(func() {
+		c, err := NewClass("BrokenThreadPool", "concurrent.futures.thread.BrokenThreadPool",
+			[]Object{BrokenExecutorClass()}, []string{"__module__"}, []Object{NewStr("concurrent.futures.thread")}, nil, nil)
+		if err != nil {
+			panic("unagi: building BrokenThreadPool: " + err.Error())
+		}
+		brokenThreadPoolClass = c.(*classObject)
+	})
+	return brokenThreadPoolClass
+}
+
+// brokenThreadPoolMessage is the text CPython's _initializer_failed sets on the
+// BrokenThreadPool it raises from submit and stores on every pending future.
+const brokenThreadPoolMessage = "A thread initializer failed, the thread pool is not usable anymore"
+
+// brokenThreadPoolExc builds a BrokenThreadPool instance carrying the standard
+// message, the object a broken pool stores on its pending futures.
+func brokenThreadPoolExc() Object {
+	inst, err := Instantiate(BrokenThreadPoolClass().(*classObject), []Object{NewStr(brokenThreadPoolMessage)}, nil, nil)
+	if err != nil {
+		return Raise(RuntimeError, "%s", brokenThreadPoolMessage)
+	}
+	return inst
+}
+
+// raiseBrokenThreadPool is the error submit returns once the pool is broken.
+func raiseBrokenThreadPool() error {
+	if e, ok := brokenThreadPoolExc().(error); ok {
+		return e
+	}
+	return Raise(RuntimeError, "%s", brokenThreadPoolMessage)
 }
 
 // excFromError turns the error a call returned into the exception object the

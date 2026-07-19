@@ -1,0 +1,9 @@
+== exit: 0
+== stdout:
+results ['worker-100', 'worker-101', 'worker-102', 'worker-103', 'worker-104']
+init_calls 1
+submit solo-7
+TypeError initializer must be a callable
+flag ['ran']
+== exception:
+== stderr:
