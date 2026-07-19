@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+default is None
+installed True
+handler: boom loop True exc ValueError('bad')
+handler: quiet loop True exc None
+seen ['boom', 'quiet']
+restored None
+typeerror A callable object or None is expected, got 42
+done
+== exception:
+== stderr:
+to stderr
+attempt: 2
+code: 7
+Unhandled exception in event loop
+where: 'no message key'

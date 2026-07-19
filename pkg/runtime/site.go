@@ -47,4 +47,7 @@ func init() {
 	// A _Printer or _Helper writes through the same swappable sink print uses,
 	// so a host that redirects Stdout captures copyright() too.
 	objects.SetSiteWrite(func(s string) { _, _ = io.WriteString(Stdout, s) })
+	// The event loop's default exception handler logs through stderr, so route it to
+	// the same swappable sink the traceback printer uses.
+	objects.SetStderrWrite(func(s string) { _, _ = io.WriteString(Stderr, s) })
 }

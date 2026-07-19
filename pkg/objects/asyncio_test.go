@@ -2144,3 +2144,107 @@ func TestLoopShutdownAsyncGensEmpty(t *testing.T) {
 		t.Fatalf("close: %v", err)
 	}
 }
+
+// TestLoopExceptionHandlerSetGet checks a loop starts with no custom handler,
+// reports the one set, and clears back to the default when passed None.
+func TestLoopExceptionHandlerSetGet(t *testing.T) {
+	loop := AsyncioNewEventLoop()
+	got, err := CallMethodT(mainThread, loop, "get_exception_handler", nil)
+	if err != nil {
+		t.Fatalf("get_exception_handler: %v", err)
+	}
+	if got != None {
+		t.Fatalf("fresh loop handler = %v, want None", Repr(got))
+	}
+	handler := NewFunc("handler", 2, func([]Object) (Object, error) { return None, nil })
+	if _, err := CallMethodT(mainThread, loop, "set_exception_handler", []Object{handler}); err != nil {
+		t.Fatalf("set_exception_handler: %v", err)
+	}
+	got, err = CallMethodT(mainThread, loop, "get_exception_handler", nil)
+	if err != nil {
+		t.Fatalf("get_exception_handler after set: %v", err)
+	}
+	if got != handler {
+		t.Fatalf("handler = %v, want the installed one", Repr(got))
+	}
+	if _, err := CallMethodT(mainThread, loop, "set_exception_handler", []Object{None}); err != nil {
+		t.Fatalf("set_exception_handler(None): %v", err)
+	}
+	got, err = CallMethodT(mainThread, loop, "get_exception_handler", nil)
+	if err != nil {
+		t.Fatalf("get_exception_handler after reset: %v", err)
+	}
+	if got != None {
+		t.Fatalf("reset handler = %v, want None", Repr(got))
+	}
+}
+
+// TestLoopSetExceptionHandlerNonCallable checks a non-callable that is not None
+// is the TypeError CPython raises, naming the argument's repr.
+func TestLoopSetExceptionHandlerNonCallable(t *testing.T) {
+	loop := AsyncioNewEventLoop()
+	_, err := CallMethodT(mainThread, loop, "set_exception_handler", []Object{NewInt(42)})
+	e, ok := err.(*Exception)
+	if !ok || e.Kind != "TypeError" {
+		t.Fatalf("set_exception_handler(42) = %v, want TypeError", err)
+	}
+	if got := e.Text(); got != "A callable object or None is expected, got 42" {
+		t.Fatalf("message = %q", got)
+	}
+}
+
+// TestLoopCallExceptionHandlerCustom checks call_exception_handler hands the loop
+// and the context straight to a set handler.
+func TestLoopCallExceptionHandlerCustom(t *testing.T) {
+	loop := AsyncioNewEventLoop()
+	var sawLoop bool
+	var sawMsg string
+	handler := NewFunc("handler", 2, func(args []Object) (Object, error) {
+		sawLoop = args[0] == loop
+		if d, ok := args[1].(*dictObject); ok {
+			if v, found, _ := d.lookup(NewStr("message")); found {
+				sawMsg = Str(v)
+			}
+		}
+		return None, nil
+	})
+	if _, err := CallMethodT(mainThread, loop, "set_exception_handler", []Object{handler}); err != nil {
+		t.Fatalf("set_exception_handler: %v", err)
+	}
+	ctx, err := NewDict([]Object{NewStr("message")}, []Object{NewStr("boom")})
+	if err != nil {
+		t.Fatalf("build context: %v", err)
+	}
+	if _, err := CallMethodT(mainThread, loop, "call_exception_handler", []Object{ctx}); err != nil {
+		t.Fatalf("call_exception_handler: %v", err)
+	}
+	if !sawLoop {
+		t.Fatalf("handler did not receive the loop as its first argument")
+	}
+	if sawMsg != "boom" {
+		t.Fatalf("handler saw message %q, want boom", sawMsg)
+	}
+}
+
+// TestLoopDefaultExceptionHandlerLogs checks the default handler writes the
+// message and every other key, sorted, through the stderr sink.
+func TestLoopDefaultExceptionHandlerLogs(t *testing.T) {
+	loop := AsyncioNewEventLoop()
+	var buf strings.Builder
+	prev := stderrWrite
+	SetStderrWrite(func(s string) { buf.WriteString(s) })
+	defer SetStderrWrite(prev)
+	ctx, err := NewDict(
+		[]Object{NewStr("message"), NewStr("code"), NewStr("attempt")},
+		[]Object{NewStr("to stderr"), NewInt(7), NewInt(2)},
+	)
+	if err != nil {
+		t.Fatalf("build context: %v", err)
+	}
+	if _, err := CallMethodT(mainThread, loop, "call_exception_handler", []Object{ctx}); err != nil {
+		t.Fatalf("call_exception_handler: %v", err)
+	}
+	if got := buf.String(); got != "to stderr\nattempt: 2\ncode: 7\n" {
+		t.Fatalf("default handler wrote %q", got)
+	}
+}

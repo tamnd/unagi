@@ -119,6 +119,11 @@ type eventLoop struct {
 	// goroutine, so they need no lock.
 	asyncgens     []*generatorObject
 	asyncgensSeen map[*generatorObject]bool
+	// exceptionHandler is the callable set by set_exception_handler, nil when the
+	// loop still uses its default. call_exception_handler routes a context dict to
+	// it, or to the default handler when nil, the way CPython's _exception_handler
+	// field gates call_exception_handler.
+	exceptionHandler Object
 }
 
 // registerAsyncGen records an async generator the first time it is iterated on the
@@ -1428,6 +1433,8 @@ var eventLoopMethodNames = map[string]bool{
 	"get_debug": true, "set_debug": true, "run_in_executor": true, "call_soon": true, "call_later": true,
 	"call_at": true, "call_soon_threadsafe": true, "run_until_complete": true,
 	"run_forever": true, "stop": true, "close": true, "shutdown_asyncgens": true,
+	"get_exception_handler": true, "set_exception_handler": true,
+	"call_exception_handler": true, "default_exception_handler": true,
 }
 
 // eventLoopMethodT dispatches the loop methods that need the running thread,
@@ -1454,6 +1461,11 @@ func eventLoopMethodT(t *Thread, l *eventLoop, name string, args []Object) (Obje
 			return nil, Raise(TypeError, "close() takes 1 positional argument but %d were given", len(args)+1)
 		}
 		return l.closeLoop()
+	case "call_exception_handler":
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "call_exception_handler() takes 2 positional arguments but %d were given", len(args)+1)
+		}
+		return l.callExceptionHandler(t, args[0])
 	}
 	return eventLoopMethod(l, name, args)
 }
@@ -1496,6 +1508,24 @@ func eventLoopMethod(l *eventLoop, name string, args []Object) (Object, error) {
 			return nil, Raise(TypeError, "shutdown_asyncgens() takes 1 positional argument but %d were given", len(args)+1)
 		}
 		return l.shutdownAsyncGensCoro(), nil
+	case "get_exception_handler":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "get_exception_handler() takes 1 positional argument but %d were given", len(args)+1)
+		}
+		if l.exceptionHandler == nil {
+			return None, nil
+		}
+		return l.exceptionHandler, nil
+	case "set_exception_handler":
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "set_exception_handler() takes 2 positional arguments but %d were given", len(args)+1)
+		}
+		return l.setExceptionHandler(args[0])
+	case "default_exception_handler":
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "default_exception_handler() takes 2 positional arguments but %d were given", len(args)+1)
+		}
+		return l.defaultExceptionHandler(args[0])
 	case "run_in_executor":
 		return l.runInExecutor(args)
 	case "call_soon", "call_soon_threadsafe":
