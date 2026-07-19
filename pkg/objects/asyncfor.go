@@ -62,6 +62,8 @@ func hasAsyncMethod(o Object, name string) bool {
 		return x.isAsyncGen && (name == "__aiter__" || name == "__anext__")
 	case *asyncioAsCompleted:
 		return name == "__aiter__" || name == "__anext__"
+	case *asyncioStreamReader:
+		return name == "__aiter__" || name == "__anext__"
 	}
 	return false
 }
