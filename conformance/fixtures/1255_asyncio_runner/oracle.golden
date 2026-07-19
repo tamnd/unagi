@@ -13,6 +13,8 @@ run closed Runner is closed
 get_loop closed Runner is closed
 nested Runner.run() cannot be called from a running event loop
 propagated boom
+run debug on True
+run debug off False
 done
 == exception:
 == stderr:

@@ -72,12 +72,17 @@ func asyncioRun(t *objects.Thread, pos []objects.Object, kwNames []string, kwVal
 	if len(pos) != 1 {
 		return nil, objects.Raise(objects.TypeError, "run() takes 1 positional argument but %d were given", len(pos))
 	}
-	for _, k := range kwNames {
-		if k != "debug" && k != "loop_factory" {
+	debug := objects.Object(objects.None)
+	for i, k := range kwNames {
+		switch k {
+		case "debug":
+			debug = kwVals[i]
+		case "loop_factory":
+		default:
 			return nil, objects.Raise(objects.TypeError, "run() got an unexpected keyword argument '%s'", k)
 		}
 	}
-	return objects.AsyncioRunT(t, pos[0])
+	return objects.AsyncioRunViaRunner(t, pos[0], debug)
 }
 
 // asyncioSleep is asyncio.sleep(delay, result=None). delay is a number of

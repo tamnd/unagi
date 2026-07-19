@@ -140,6 +140,28 @@ func (r *asyncioRunner) close() (Object, error) {
 	return None, nil
 }
 
+// AsyncioRunViaRunner implements asyncio.run(main, *, debug=None), which CPython
+// defines as entering a Runner(debug=debug), calling run(main), and closing it.
+// Routing through the Runner is what makes debug take effect: the loop is armed at
+// lazy init, so a coroutine that reads get_running_loop().get_debug() sees it. The
+// running-loop check comes first with asyncio.run's own message, before the Runner
+// is built, and the loop is always closed on the way out, the way the with block
+// runs __exit__ on both the normal and the error path.
+func AsyncioRunViaRunner(t *Thread, main Object, debug Object) (Object, error) {
+	if runningLoop.Load() != nil {
+		return nil, Raise(RuntimeError, "asyncio.run() cannot be called from a running event loop")
+	}
+	r := &asyncioRunner{state: runnerCreated, debug: debug}
+	if r.debug == nil {
+		r.debug = None
+	}
+	if err := r.lazyInit(); err != nil {
+		return nil, err
+	}
+	defer r.close()
+	return r.run(t, main)
+}
+
 // asyncioRunnerRepr renders the runner. CPython has no custom __repr__ for Runner,
 // so it falls back to the default object repr; the with statement and the probed
 // paths never print one, but repr.go needs a case, so give the plain type form.
