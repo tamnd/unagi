@@ -132,6 +132,53 @@ func TestSocketOpenConnectionRoundTrip(t *testing.T) {
 	}
 }
 
+// TestSocketServerAsyncWith drives the Server through the async context-manager
+// protocol the way `async with server:` lowers: AsyncWithEnterT awaits __aenter__
+// and must hand back the server itself, and the returned __aexit__ closes it, so
+// the server reports not-serving once the block exits.
+func TestSocketServerAsyncWith(t *testing.T) {
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		noop := NewFunc("noop", 2, func(args []Object) (Object, error) {
+			return NewCoroutine("noop", func(y Yielder) (Object, error) { return None, nil }), nil
+		})
+		srvObj, err := awaitCoro(y, AsyncioStartServer(noop, "127.0.0.1", 0))
+		if err != nil {
+			return nil, err
+		}
+		srv := srvObj.(*asyncioServer)
+
+		aexit, entered, err := AsyncWithEnterT(mainThread, y, srv)
+		if err != nil {
+			return nil, err
+		}
+		if entered != Object(srv) {
+			t.Errorf("__aenter__: want the server itself, got %v", entered)
+		}
+		if !srv.serving {
+			t.Errorf("inside async with: want serving")
+		}
+
+		// __aexit__ returns a coroutine; awaiting it closes the server.
+		exitCoro, err := CallT(mainThread, aexit, []Object{None, None, None})
+		if err != nil {
+			return nil, err
+		}
+		if _, err := awaitCoro(y, exitCoro); err != nil {
+			return nil, err
+		}
+		if srv.serving {
+			t.Errorf("after async with: want not serving")
+		}
+		if _, err := awaitCoro(y, srv.waitClosedCoro()); err != nil {
+			return nil, err
+		}
+		return None, nil
+	})
+	if _, err := AsyncioRun(main); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
 // TestSocketConnectionRefused checks open_connection to a closed port surfaces
 // ConnectionRefusedError, the dial-failure path.
 func TestSocketConnectionRefused(t *testing.T) {

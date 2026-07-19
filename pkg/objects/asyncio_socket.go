@@ -117,6 +117,8 @@ var asyncioServerMethodNames = map[string]bool{
 	"is_serving":    true,
 	"get_loop":      true,
 	"start_serving": true,
+	"__aenter__":    true,
+	"__aexit__":     true,
 }
 
 // AsyncioStartServer implements asyncio.start_server(client_connected_cb, host,
@@ -268,8 +270,41 @@ func asyncioServerMethod(s *asyncioServer, name string, args []Object) (Object, 
 		}
 		s.startAccept()
 		return None, nil
+	case "__aenter__":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "__aenter__() takes 1 positional argument but %d were given", len(args)+1)
+		}
+		return s.aenterCoro(), nil
+	case "__aexit__":
+		return s.aexitCoro(), nil
 	}
 	return nil, noAttr(s, name)
+}
+
+// aenter and aexit make Server a native async context manager, the path
+// AsyncWithEnterT takes for objects that are not Python instances: entering hands
+// back the server itself, exiting closes it and awaits wait_closed.
+func (s *asyncioServer) aenter(t *Thread) (Object, error)               { return s.aenterCoro(), nil }
+func (s *asyncioServer) aexit(t *Thread, args []Object) (Object, error) { return s.aexitCoro(), nil }
+
+// aenterCoro is __aenter__: async with server hands back the server itself,
+// matching CPython where the context manager value is the Server.
+func (s *asyncioServer) aenterCoro() Object {
+	body := func(y Yielder) (Object, error) { return s, nil }
+	return &generatorObject{qual: "Server.__aenter__", body: fromTop(body), ret: None, isCoro: true}
+}
+
+// aexitCoro is __aexit__: it closes the server and awaits wait_closed, the
+// close-then-wait CPython's Server.__aexit__ performs. closeServer resolves any
+// waiter and marks the server closed synchronously, so the wait_closed it then
+// performs returns at once with None; the coroutine returns None so the context
+// manager never suppresses an exception.
+func (s *asyncioServer) aexitCoro() Object {
+	body := func(y Yielder) (Object, error) {
+		s.closeServer()
+		return None, nil
+	}
+	return &generatorObject{qual: "Server.__aexit__", body: fromTop(body), ret: None, isCoro: true}
 }
 
 // asyncioServerSockets returns the Server.sockets list: one wrapper per bound

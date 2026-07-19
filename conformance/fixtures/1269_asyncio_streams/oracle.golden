@@ -1,0 +1,9 @@
+== exit: 0
+== stdout:
+serving True
+line ping
+rest b''
+serving False
+ok
+== exception:
+== stderr:
