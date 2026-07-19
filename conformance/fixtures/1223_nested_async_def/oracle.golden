@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+coro call 15
+coro comp [10, 11, 12]
+agen for [20, 21, 22]
+agen comp [20, 21, 22, 23]
+agen manual 20 21
+agen stop
+deep 111
+gather [0, 1, 4, 9, 16]
+nonlocal 6
+factory 1001 1002
+== exception:
+== stderr:

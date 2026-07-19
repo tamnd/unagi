@@ -111,6 +111,37 @@ func TestAsyncGeneratorLowersToFrame(t *testing.T) {
 	}
 }
 
+// TestNestedAsyncDefLowersToCoroutine checks a nested async def with no yield
+// builds a coroutine on the frame, so its await lowers through the yielder even
+// though it sits inside another function.
+func TestNestedAsyncDefLowersToCoroutine(t *testing.T) {
+	src := "async def outer():\n    async def inner():\n        await g()\n        return 1\n    return await inner()\n"
+	got, err := lowerSrc(t, src)
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	for _, want := range []string{"objects.NewCoroutine(\"outer.<locals>.inner\"", "gy.YieldFrom("} {
+		if !strings.Contains(got, want) {
+			t.Errorf("emitted source missing %q:\n%s", want, got)
+		}
+	}
+}
+
+// TestNestedAsyncGeneratorLowersToFrame checks a nested async def that yields
+// builds an async generator on the frame, the same shape a top-level one does.
+func TestNestedAsyncGeneratorLowersToFrame(t *testing.T) {
+	src := "async def outer():\n    async def gen(n):\n        for i in range(n):\n            await g()\n            yield i\n    return gen\n"
+	got, err := lowerSrc(t, src)
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	for _, want := range []string{"objects.NewAsyncGenerator(\"outer.<locals>.gen\"", "gy.Yield("} {
+		if !strings.Contains(got, want) {
+			t.Errorf("emitted source missing %q:\n%s", want, got)
+		}
+	}
+}
+
 // twinDecl lowers the first def in src to its boxed generator twin and prints it,
 // so a test can pin the resume-point switch the seeded twin carries. It builds an
 // emitter and a fnCtx the way lowerModule does, then renders the single decl.

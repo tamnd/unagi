@@ -36,11 +36,26 @@ func (f *fnCtx) nestedDef(s *frontend.FuncDef) error {
 		in.add(set(ident("_"), ident(mangle(p.Name))))
 	}
 
-	// A nested def whose own scope yields is a generator: calling it returns a
-	// generator object, so the Python body lands in a yielder closure while the
-	// impl function keeps only the parameter binds and the constructor.
+	// A nested def needs its own frame when its scope yields or it is async:
+	// calling it returns a generator, coroutine, or async generator object, so
+	// the Python body lands in a yielder closure the frame drives while the impl
+	// function keeps only the parameter binds and the constructor. A coroutine
+	// carries no yield but still runs on the frame, since its await delegates
+	// through the same yielder. An async def sets inAsync so await, async for,
+	// async with, and async comprehensions in its body lower, exactly as they do
+	// in a top-level async def.
 	gen := hasYield(s.Body)
-	if gen {
+	frame := gen || s.Async
+	ctor := "NewGenerator"
+	if s.Async {
+		in.inAsync = true
+		if gen {
+			ctor = "NewAsyncGenerator"
+		} else {
+			ctor = "NewCoroutine"
+		}
+	}
+	if frame {
 		in.genYielder = "gy"
 	}
 
@@ -54,15 +69,16 @@ func (f *fnCtx) nestedDef(s *frontend.FuncDef) error {
 	// then raises UnboundLocalError just like a name deleted and read back.
 	collectLocalDefs(s.Body, in.deleted)
 
-	// A plain nested def charges a recursion slot in its impl function; a
-	// generator's frames run on their own goroutine and are not accounted yet.
-	if !gen {
+	// A plain nested def charges a recursion slot in its impl function; a frame's
+	// coroutine, generator, or async-generator body runs on its own goroutine and
+	// is not accounted yet.
+	if !frame {
 		in.recursionGuard()
 	}
-	// The generator's body statements land in the yielder closure so each call
-	// gets fresh locals; the parameter binds stay in the impl function that runs
-	// at call time.
-	if gen {
+	// The frame's body statements land in the yielder closure so each call gets
+	// fresh locals; the parameter binds stay in the impl function that runs at
+	// call time.
+	if frame {
 		in.push()
 	}
 	for _, name := range sortedNames(assigned) {
@@ -78,7 +94,7 @@ func (f *fnCtx) nestedDef(s *frontend.FuncDef) error {
 		return err
 	}
 	in.add(&ast.ReturnStmt{Results: []ast.Expr{f.e.obj("None"), ident("nil")}})
-	if gen {
+	if frame {
 		closure := &ast.FuncLit{
 			Type: &ast.FuncType{
 				Params:  fieldList(field(f.e.obj("Yielder"), in.genYielder)),
@@ -87,7 +103,7 @@ func (f *fnCtx) nestedDef(s *frontend.FuncDef) error {
 			Body: in.pop(),
 		}
 		in.add(&ast.ReturnStmt{Results: []ast.Expr{
-			callExpr(f.e.obj("NewGenerator"), strLit(qual), closure),
+			callExpr(f.e.obj(ctor), strLit(qual), closure),
 			ident("nil"),
 		}})
 	}
