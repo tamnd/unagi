@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+<class 'io.UnsupportedOperation'>
+io
+UnsupportedOperation
+(<class 'io.UnsupportedOperation'>, <class 'OSError'>, <class 'ValueError'>, <class 'Exception'>, <class 'BaseException'>, <class 'object'>)
+True
+True
+ValueError: seek
+OSError: fileno
+131072
+True
+True
+== exception:
+== stderr:
