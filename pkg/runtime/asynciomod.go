@@ -52,6 +52,8 @@ func initAsyncio(m *objects.Module) error {
 		{"QueueFull", objects.AsyncioQueueFullClass()},
 		{"QueueShutDown", objects.AsyncioQueueShutDownClass()},
 		{"StreamReader", objects.NewFuncKw("StreamReader", asyncioStreamReader)},
+		{"open_connection", objects.NewFuncKw("open_connection", asyncioOpenConnection)},
+		{"start_server", objects.NewFuncKw("start_server", asyncioStartServer)},
 		{"TaskGroup", objects.NewFunc("TaskGroup", 0, asyncioTaskGroup)},
 		{"Runner", objects.NewFuncKw("Runner", asyncioRunner)},
 		{"current_task", objects.NewFuncKw("current_task", asyncioCurrentTask)},
@@ -311,6 +313,75 @@ func asyncioStreamReader(pos []objects.Object, kwNames []string, kwVals []object
 		limit = int(n)
 	}
 	return objects.AsyncioNewStreamReader(limit)
+}
+
+// asyncioOpenConnection is asyncio.open_connection(host=None, port=None, ...): it
+// returns the coroutine that dials the address and yields a (reader, writer)
+// pair. Extra keyword arguments (limit, ssl, ...) are accepted for signature
+// compatibility; the socket transport ignores them in this slice.
+func asyncioOpenConnection(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	vals, err := bindArgs("open_connection", []string{"host", "port"}, pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	host, err := streamHost(vals["host"])
+	if err != nil {
+		return nil, err
+	}
+	port, err := streamPort(vals["port"])
+	if err != nil {
+		return nil, err
+	}
+	return objects.AsyncioOpenConnection(host, port), nil
+}
+
+// asyncioStartServer is asyncio.start_server(client_connected_cb, host=None,
+// port=None, ...): it returns the coroutine that binds a listener and yields the
+// Server already accepting connections.
+func asyncioStartServer(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	vals, err := bindArgs("start_server", []string{"client_connected_cb", "host", "port"}, pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	cb, ok := vals["client_connected_cb"]
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "start_server() missing 1 required positional argument: 'client_connected_cb'")
+	}
+	host, err := streamHost(vals["host"])
+	if err != nil {
+		return nil, err
+	}
+	port, err := streamPort(vals["port"])
+	if err != nil {
+		return nil, err
+	}
+	return objects.AsyncioStartServer(cb, host, port), nil
+}
+
+// streamHost reads the host argument: a string is used as is, None (or absent)
+// means every interface, the empty host net.Listen and net.Dial accept.
+func streamHost(v objects.Object) (string, error) {
+	if v == nil || v == objects.None {
+		return "", nil
+	}
+	s, ok := objects.AsStr(v)
+	if !ok {
+		return "", objects.Raise(objects.TypeError, "str expected, not %s", v.TypeName())
+	}
+	return s, nil
+}
+
+// streamPort reads the port argument: an integer is used as is, None (or absent)
+// leaves it zero, the ephemeral-port bind net.Listen performs.
+func streamPort(v objects.Object) (int, error) {
+	if v == nil || v == objects.None {
+		return 0, nil
+	}
+	n, ok := objects.AsInt(v)
+	if !ok {
+		return 0, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", v.TypeName())
+	}
+	return int(n), nil
 }
 
 // asyncioLifoQueue is asyncio.LifoQueue(maxsize=0), whose get returns the most
