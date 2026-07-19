@@ -518,6 +518,9 @@ func init() {
 		v, ok := builtins[name]
 		return v, ok
 	}
+	// __class__ on a value reports type(x), so LoadAttr answers it for the scalar
+	// and container builtins through the same TypeOf the type() builtin uses.
+	objects.ClassOfResolver = TypeOf
 	register(map[string]objects.Object{
 		"__import__": objects.NewFuncKw("__import__", dunderImport),
 		"print": objects.NewFunc("print", -1, func(args []objects.Object) (objects.Object, error) {

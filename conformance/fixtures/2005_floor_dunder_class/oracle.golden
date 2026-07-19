@@ -1,0 +1,20 @@
+== exit: 0
+== stdout:
+<class 'int'> int True
+<class 'str'> str True
+<class 'list'> list True
+<class 'tuple'> tuple True
+<class 'dict'> dict True
+<class 'set'> set True
+<class 'float'> float True
+<class 'bool'> bool True
+<class 'NoneType'> NoneType True
+<class 'bytes'> bytes True
+<class 'complex'> complex True
+True
+True
+True
+True
+NoneType
+== exception:
+== stderr:
