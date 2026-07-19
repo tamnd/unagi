@@ -455,3 +455,56 @@ func TestClassSubclasses(t *testing.T) {
 		t.Fatalf("__subclasses__() returned the same list twice, want fresh")
 	}
 }
+
+// TestTypeObjectIntrospect proves a constructor-less builtin type answers the
+// type introspection attributes with the plain (T, object) chain, the shape
+// _collections_abc's _check_methods walks over coroutine, generator, and the
+// iterator types. The names are not asserted, since unagi shares one iterator
+// type; only the chain shape and the read-only __dict__ are.
+func TestTypeObjectIntrospect(t *testing.T) {
+	obj := ObjectType()
+	ty := TypeSingleton("list_iterator")
+
+	mro, err := LoadAttr(ty, "__mro__")
+	if err != nil {
+		t.Fatalf("__mro__: %v", err)
+	}
+	tup, ok := mro.(*tupleObject)
+	if !ok || len(tup.elts) != 2 || tup.elts[0] != ty || tup.elts[1] != obj {
+		t.Fatalf("__mro__ = %v, want (self, object)", mro)
+	}
+
+	bases, err := LoadAttr(ty, "__bases__")
+	if err != nil {
+		t.Fatalf("__bases__: %v", err)
+	}
+	if b, ok := bases.(*tupleObject); !ok || len(b.elts) != 1 || b.elts[0] != obj {
+		t.Fatalf("__bases__ = %v, want (object,)", bases)
+	}
+
+	base, err := LoadAttr(ty, "__base__")
+	if err != nil {
+		t.Fatalf("__base__: %v", err)
+	}
+	if base != obj {
+		t.Fatalf("__base__ = %v, want object", base)
+	}
+
+	d, err := LoadAttr(ty, "__dict__")
+	if err != nil {
+		t.Fatalf("__dict__: %v", err)
+	}
+	proxy, ok := d.(*mappingProxyObject)
+	if !ok {
+		t.Fatalf("__dict__ = %T, want a mappingproxy", d)
+	}
+	if got, err := Len(proxy); err != nil || got != 0 {
+		t.Fatalf("len(__dict__) = %v, %v; want 0", got, err)
+	}
+
+	// A read-only miss is not an error, it is a plain absence, so the
+	// _check_methods membership probe returns False rather than raising.
+	if _, err := LoadAttr(ty, "__unknown__"); err == nil {
+		t.Fatalf("reading an unknown type attribute did not raise")
+	}
+}
