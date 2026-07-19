@@ -96,3 +96,49 @@ func TestGenericAliasHashAndEqualByOriginArgs(t *testing.T) {
 		t.Fatalf("set of {list[int], list[int], list[str]} has %d, want 2", n)
 	}
 }
+
+// TestGenericAliasSubclassable proves a class can derive from types.GenericAlias:
+// the base is recognized, an instance wraps the parameterized generic as its
+// payload, and __origin__/__args__ read through it. This is the _CallableGeneric-
+// Alias enabler _collections_abc leans on.
+func TestGenericAliasSubclassable(t *testing.T) {
+	gaType := TypeSingleton("types.GenericAlias")
+	if name, ok := builtinBaseName(gaType); !ok || name != "types.GenericAlias" {
+		t.Fatalf("builtinBaseName(GenericAlias) = %q, %v; want types.GenericAlias, true", name, ok)
+	}
+
+	subObj, err := NewClass("Sub", "Sub", []Object{gaType}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("subclass GenericAlias: %v", err)
+	}
+	sub := subObj.(*classObject)
+	if sub.builtinBase != "types.GenericAlias" {
+		t.Fatalf("subclass builtinBase = %q, want types.GenericAlias", sub.builtinBase)
+	}
+
+	list := aliasBuiltin("list", func([]Object) (Object, error) { return NewList(nil), nil })
+	intFn := aliasBuiltin("int", func([]Object) (Object, error) { return NewInt(0), nil })
+	strFn := aliasBuiltin("str", func([]Object) (Object, error) { return NewStr(""), nil })
+
+	// Sub(list, (int, str)) wraps list[int, str]; __args__ spreads the tuple.
+	inst, err := Instantiate(sub, []Object{list, NewTuple([]Object{intFn, strFn})}, nil, nil)
+	if err != nil {
+		t.Fatalf("instantiate Sub: %v", err)
+	}
+	origin, err := LoadAttr(inst, "__origin__")
+	if err != nil || origin != list {
+		t.Fatalf("__origin__ = %v, %v; want the list origin", origin, err)
+	}
+	args, err := LoadAttr(inst, "__args__")
+	if err != nil {
+		t.Fatalf("__args__: %v", err)
+	}
+	if tup, ok := args.(*tupleObject); !ok || len(tup.elts) != 2 || tup.elts[0] != intFn || tup.elts[1] != strFn {
+		t.Fatalf("__args__ = %v, want (int, str)", args)
+	}
+
+	// The wrong argument count is the same TypeError the explicit constructor gives.
+	if _, err := Instantiate(sub, []Object{list}, nil, nil); err == nil {
+		t.Fatalf("Sub(list) with one argument did not raise")
+	}
+}

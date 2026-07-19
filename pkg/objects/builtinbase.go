@@ -23,6 +23,14 @@ func builtinBaseName(b Object) (string, bool) {
 			return f.name, true
 		}
 	}
+	// types.GenericAlias is a type object rather than a builtin function, the
+	// value `from types import GenericAlias` binds. _collections_abc subclasses
+	// it as _CallableGenericAlias, so it is a value base whose payload is a
+	// genericAliasObject; it carries no builtinBaseFn, so every construction site
+	// special-cases the name.
+	if t, ok := b.(*typeObject); ok && t.name == "types.GenericAlias" {
+		return "types.GenericAlias", true
+	}
 	return "", false
 }
 
@@ -135,7 +143,7 @@ func valueSubclassAttr(x *instanceObject, name string) (Object, bool) {
 	if !ok {
 		return nil, false
 	}
-	switch v.(type) {
+	switch p := v.(type) {
 	case *strObject:
 		if !strSubclassMethods[name] {
 			return nil, false
@@ -144,6 +152,15 @@ func valueSubclassAttr(x *instanceObject, name string) (Object, bool) {
 		if !tupleSubclassMethods[name] {
 			return nil, false
 		}
+	case *genericAliasObject:
+		// A GenericAlias subclass inherits __origin__, __args__ and
+		// __parameters__ as plain attribute reads off its wrapped generic, the
+		// values _CallableGenericAlias reads through self.__args__.
+		val, err := genericAliasLoadAttr(p, name)
+		if err != nil {
+			return nil, false
+		}
+		return val, true
 	default:
 		return nil, false
 	}
