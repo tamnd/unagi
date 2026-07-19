@@ -196,6 +196,10 @@ func (p *pickler) save(o Object) error {
 		return p.saveFrozenset(v, o)
 	case *instanceObject:
 		return p.saveInstance(v)
+	case *classObject:
+		return p.saveClassGlobal(v)
+	case *functionObject:
+		return p.saveFunctionGlobal(v)
 	}
 	// CPython raises TypeError (not PicklingError) for a type with no pickle
 	// support once reduction has been tried, e.g. "cannot pickle 'module' object".

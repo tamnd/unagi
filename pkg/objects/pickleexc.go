@@ -68,6 +68,12 @@ func newUnpicklingError(format string, a ...any) error {
 	return instantiatePickleExc(UnpicklingErrorClass(), fmt.Sprintf(format, a...))
 }
 
+// newPicklingError builds a PicklingError carrying a formatted message, ready to
+// return as an error from a dump when an object cannot be pickled.
+func newPicklingError(format string, a ...any) error {
+	return instantiatePickleExc(PicklingErrorClass(), fmt.Sprintf(format, a...))
+}
+
 // instantiatePickleExc builds an instance of a pickle exception class with a
 // single message argument, so the class links through the instance for catching
 // by name and the traceback renders "Name: msg".
