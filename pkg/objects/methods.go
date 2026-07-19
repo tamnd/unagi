@@ -86,6 +86,8 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		return asyncFutureMethod(x, name, args)
 	case *eventLoop:
 		return eventLoopMethod(x, name, args)
+	case *asyncHandle:
+		return asyncHandleMethod(x, name, args)
 	case *asyncTask:
 		return taskMethod(x, name, args)
 	case *asyncioLock:
@@ -227,6 +229,8 @@ func CallMethodKwT(t *Thread, o Object, name string, pos []Object, kwNames []str
 		return taskMethodKw(x, name, pos, kwNames, kwVals)
 	case *executorObject:
 		return executorMethodKwT(t, x, name, pos, kwNames, kwVals)
+	case *eventLoop:
+		return eventLoopMethodKw(x, name, pos, kwNames, kwVals)
 	case *contextObject:
 		return contextMethodKw(t, x, name, pos, kwNames, kwVals)
 	case *Module:

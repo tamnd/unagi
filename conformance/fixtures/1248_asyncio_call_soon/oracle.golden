@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+after soon ['soon-1', 'soon-2']
+handle type Handle
+cancelled() before False
+cancelled() after True
+after cancel ['soon-1', 'soon-2']
+timer type TimerHandle
+when is float True
+after later ['early', 'middle', 'late']
+after at ['at']
+cv after callback main
+explicit ctx ['explicit']
+done
+== exception:
+== stderr:
