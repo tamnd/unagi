@@ -61,7 +61,11 @@ func ds(s Stmt) string {
 	case *While:
 		return "(while " + de(s.Cond) + " " + dbody(s.Body) + " " + dbody(s.Else) + ")"
 	case *For:
-		return "(for " + de(s.Target) + " " + de(s.Iter) + " " + dbody(s.Body) + " " + dbody(s.Else) + ")"
+		kw := "for"
+		if s.Async {
+			kw = "async-for"
+		}
+		return "(" + kw + " " + de(s.Target) + " " + de(s.Iter) + " " + dbody(s.Body) + " " + dbody(s.Else) + ")"
 	case *With:
 		items := make([]string, len(s.Items))
 		for i, it := range s.Items {
@@ -573,6 +577,12 @@ func TestParse(t *testing.T) {
 			"(async-def f () [(async-with ((as a b)) [(pass)])])"},
 		{"async with multi", "async def f():\n    async with a, b as c: pass",
 			"(async-def f () [(async-with (a (as b c)) [(pass)])])"},
+		{"async for", "async def f():\n    async for x in y: pass",
+			"(async-def f () [(async-for x y [(pass)] [])])"},
+		{"async for else", "async def f():\n    async for x in y:\n        pass\n    else:\n        pass",
+			"(async-def f () [(async-for x y [(pass)] [(pass)])])"},
+		{"async for tuple target", "async def f():\n    async for a, b in y: pass",
+			"(async-def f () [(async-for (tuple a b) y [(pass)] [])])"},
 		{"def posonly", "def f(a, b, /, c): pass", "(def f (a b / c) [(pass)])"},
 		{"def posonly only", "def f(a, /): pass", "(def f (a /) [(pass)])"},
 		{"def posonly trailing comma", "def f(a, /,): pass", "(def f (a /) [(pass)])"},
@@ -974,7 +984,6 @@ func TestParseErrors(t *testing.T) {
 		{"lambda double star param", "f = lambda *a, *b: 1", "* argument may appear only once"},
 		{"lambda param after kwargs", "f = lambda **k, x: 1", "arguments cannot follow var-keyword argument"},
 		{"lambda operand position", "x = 1 + lambda: 2", "invalid syntax"},
-		{"async for statement", "async for x in y: pass", "async for is not supported yet"},
 		{"generator arg unparenthesized", "f(a, x for x in y)", "Generator expression must be parenthesized"},
 		{"generator arg trailing", "f(x for x in y, z)", "Generator expression must be parenthesized"},
 		{"dict then set element", "{1: 2, 3}", "':' expected after dictionary key"},

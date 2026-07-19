@@ -834,12 +834,11 @@ func (p *parser) parseDef() Stmt {
 	return &FuncDef{Pos_: t.pos, Name: nt.text, Params: params, Returns: returns, Body: p.parseSuite()}
 }
 
-// parseAsync parses a statement that opens with `async`. `async def` parses as
-// an ordinary def with the Async flag set, and `async with` parses as an
-// ordinary with with its Async flag set: the two share every parse rule and
-// differ only in the awaited enter and exit the lowering emits. An `async for`
-// at statement head is a later milestone, so it reports its own not-supported
-// message rather than a generic syntax error.
+// parseAsync parses a statement that opens with `async`. Each of `async def`,
+// `async with`, and `async for` parses through its ordinary parser with the
+// Async flag set: the forms share every parse rule with their sync counterparts
+// and differ only in what the lowering emits, the awaited call for a def, the
+// awaited enter and exit for a with, and the awaited step for a for.
 func (p *parser) parseAsync() Stmt {
 	at := p.advance() // async
 	switch {
@@ -852,7 +851,9 @@ func (p *parser) parseAsync() Stmt {
 		w.Async = true
 		return w
 	case p.isKw("for"):
-		p.errf(at.pos, "async for is not supported yet")
+		fr := p.parseFor().(*For)
+		fr.Async = true
+		return fr
 	}
 	p.errf(at.pos, "invalid syntax")
 	return nil

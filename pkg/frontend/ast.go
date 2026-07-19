@@ -102,13 +102,16 @@ type While struct {
 }
 
 // For is `for target in iter:` with its optional else block. Target is Name
-// or TupleLit of Names.
+// or TupleLit of Names. Async is set for an `async for`, which awaits each step
+// of __anext__ and treats StopAsyncIteration as exhaustion; every other pass
+// walks the two forms identically, so only the lowering branches on it.
 type For struct {
 	Pos_   Pos
 	Target Expr
 	Iter   Expr
 	Body   []Stmt
 	Else   []Stmt
+	Async  bool
 }
 
 // WithItem is one `context as target` clause of a with statement. Target is

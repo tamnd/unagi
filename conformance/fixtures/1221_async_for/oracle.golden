@@ -1,0 +1,27 @@
+== exit: 0
+== stdout:
+class 0
+class 1
+class 2
+class else
+empty else
+sleepy total 60
+plain a
+plain b
+plain c
+break 0
+break 1
+break 2
+continue 1
+continue 3
+nested 0 0
+nested 0 1
+nested 1 0
+nested 1 1
+manual 0
+manual 10
+returned 2
+typeerror 'async for' requires an object with __aiter__ method, got NoAiter
+typeerror 'async for' received an object from __aiter__ that does not implement __anext__: NoAnext
+== exception:
+== stderr:
