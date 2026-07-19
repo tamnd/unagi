@@ -1,0 +1,35 @@
+== exit: 0
+== stdout:
+['BufferedReader', '_BufferedIOBase', '_IOBase', 'object']
+True True
+b'012' 3
+b'3456' 3
+b'34'
+b'567'
+b'89abcdefghij'
+True False True
+b'0123456' 7
+b'7'
+5 b'01234'
+5 b'56789'
+b'0123'
+5
+b'56'
+b'56'
+7
+b'789'
+b'aa\n'
+["b'bb\\n'", "b'cc'"]
+b'abc' b'' b'' b''
+write: write
+bufsize: buffer size must be strictly positive
+True False
+True
+True
+detached: raw stream has been detached
+None
+b'body'
+True
+BufferedReader
+== exception:
+== stderr:
