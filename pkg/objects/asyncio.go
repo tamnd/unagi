@@ -61,6 +61,14 @@ type eventLoop struct {
 	wakeup      chan struct{}
 	pending     int
 	defaultExec *executorObject
+	// inBatch is true while the loop goroutine is running a batch of ready
+	// callbacks. A callSoon made during a batch is an on-loop call: the loop is
+	// already awake and will see the queue when the batch ends, so it skips the
+	// wakeup. Only an off-loop callSoon, made while the loop is blocked on a
+	// timer or the wakeup channel, needs to nudge it. Suppressing the on-loop
+	// wakeups keeps the loop's sleeps from being cut short and re-entered, which
+	// preserved the exact timer interleaving CPython's _run_once produces.
+	inBatch bool
 }
 
 // wake nudges the loop goroutine off a sleep so it re-checks its queues. It is
@@ -90,13 +98,18 @@ func (l *eventLoop) donePending() {
 }
 
 // callSoon schedules cb to run on the next loop iteration, preserving FIFO order.
-// It wakes the loop so a callback queued from an off-loop goroutine is seen at
-// once; an on-loop call coalesces into a stale signal the loop drains harmlessly.
+// A call made while the loop is running a batch is on-loop: the loop will see
+// the queue when the batch ends, so it needs no wakeup. A call made while the
+// loop is blocked, from an off-loop goroutine such as an executor bridge, wakes
+// it so the callback is seen at once.
 func (l *eventLoop) callSoon(cb func()) {
 	l.mu.Lock()
 	l.ready = append(l.ready, cb)
+	wake := !l.inBatch
 	l.mu.Unlock()
-	l.wake()
+	if wake {
+		l.wake()
+	}
 }
 
 // callLater schedules cb to run after delay elapses on the loop's clock.
@@ -120,6 +133,7 @@ func (l *eventLoop) runUntil(done func() bool) error {
 			return nil
 		}
 		l.mu.Lock()
+		l.inBatch = false
 		if len(l.ready) == 0 {
 			if len(l.timers) == 0 {
 				// Nothing is ready and no timer will make anything ready. If an
@@ -168,6 +182,7 @@ func (l *eventLoop) runUntil(done func() bool) error {
 		}
 		batch := l.ready
 		l.ready = nil
+		l.inBatch = true
 		l.mu.Unlock()
 		for _, cb := range batch {
 			cb()

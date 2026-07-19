@@ -104,6 +104,10 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		return asyncCompletedMethod(x, name, args)
 	case *executorObject:
 		return executorMethodT(t, x, name, args)
+	case *contextVar:
+		return contextVarMethod(t, x, name, args)
+	case *contextObject:
+		return contextMethod(t, x, name, args)
 	case *stringIOObject:
 		return stringIOMethod(x, name, args)
 	case *bytesIOObject:
@@ -223,6 +227,8 @@ func CallMethodKwT(t *Thread, o Object, name string, pos []Object, kwNames []str
 		return taskMethodKw(x, name, pos, kwNames, kwVals)
 	case *executorObject:
 		return executorMethodKwT(t, x, name, pos, kwNames, kwVals)
+	case *contextObject:
+		return contextMethodKw(t, x, name, pos, kwNames, kwVals)
 	case *Module:
 		v, err := moduleLoadAttr(x, name)
 		if err != nil {

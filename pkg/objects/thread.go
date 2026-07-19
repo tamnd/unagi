@@ -32,6 +32,22 @@ type Thread struct {
 	// two threads each recursing 900 deep both stay under a 1000 limit. Only the
 	// owning goroutine touches it, so it needs no synchronization.
 	callDepth int
+
+	// ctx is the thread's current contextvars context, the mapping
+	// ContextVar.get reads and ContextVar.set writes. It is created empty on
+	// first use and Context.run swaps it for the duration of the call. Only the
+	// owning goroutine touches it, so it needs no synchronization.
+	ctx *contextObject
+}
+
+// context returns the thread's current contextvars context, creating an empty
+// top-level one on first use the way CPython gives each thread a default
+// context.
+func (t *Thread) context() *contextObject {
+	if t.ctx == nil {
+		t.ctx = newContext()
+	}
+	return t.ctx
 }
 
 // nextThreadIdent hands out monotonically increasing thread idents. It never
