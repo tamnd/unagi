@@ -463,9 +463,13 @@ func strCore(o Object, strict bool) (string, error) {
 		}
 		if !defined {
 			// A str subclass answers str() with its payload string unquoted, str's
-			// own __str__, rather than delegating to __repr__.
+			// own __str__, rather than delegating to __repr__. int and tuple define
+			// no __str__, so an int or tuple subclass instead delegates to __repr__
+			// the way object.__str__ does, and a user __repr__ override wins.
 			if v, ok := builtinUnwrap(x); ok {
-				return strCore(v, strict)
+				if _, isStr := v.(*strObject); isStr {
+					return strCore(v, strict)
+				}
 			}
 			// object.__str__ delegates to __repr__, which reprCore dispatches.
 			return reprCore(x, strict)

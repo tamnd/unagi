@@ -8,17 +8,18 @@ package objects
 // class did not override the operation, so a user __setitem__ or keys() still
 // wins the way it does in CPython.
 //
-// This is the dict layer of the builtin-subclassing frontier; the int and str
-// value subclasses that enum's IntEnum and StrEnum need are their own slices.
+// This is the dict layer of the builtin-subclassing frontier; the int, str and
+// tuple value subclasses (enum's IntEnum and StrEnum, codecs' CodecInfo) are
+// their own slices.
 
 // builtinBaseName reports the builtin type a base expression names when that
 // type can be subclassed, so newClassCore can record the layout instead of
-// rejecting the base. Only dict is supported so far; every other builtin still
-// reaches the bases-must-be-types path.
+// rejecting the base. dict, int, str and tuple are supported; every other
+// builtin still reaches the bases-must-be-types path.
 func builtinBaseName(b Object) (string, bool) {
 	if f, ok := b.(*funcObject); ok {
 		switch f.name {
-		case "dict", "int", "str":
+		case "dict", "int", "str", "tuple":
 			return f.name, true
 		}
 	}
@@ -86,23 +87,40 @@ var strSubclassMethods = map[string]bool{
 	"translate": true, "upper": true, "zfill": true,
 }
 
+// tupleSubclassMethods names the tuple methods a tuple subclass inherits, the
+// set LoadAttr hands back as callables bound to the payload when the class
+// defines no override. tuple's method surface is just count and index, so a
+// CodecInfo answers those from its underlying tuple.
+var tupleSubclassMethods = map[string]bool{
+	"count": true, "index": true,
+}
+
 // valueSubclassAttr resolves an inherited builtin method on a value subclass
 // instance, returning a callable bound to the payload. ok is false when the
 // instance is not value-backed or the name is not one of the builtin's methods,
 // so LoadAttr keeps its ordinary AttributeError. A user override lives in the
 // class dict and is found before this fallback runs, so it never shadows one.
-// Only str carries a method surface here; the int payload exposes no methods in
-// this tier, matching how the int subclass slice left them.
+// str and tuple carry a method surface here; the int payload exposes no methods
+// in this tier, matching how the int subclass slice left them.
 func valueSubclassAttr(x *instanceObject, name string) (Object, bool) {
 	v, ok := builtinUnwrap(x)
 	if !ok {
 		return nil, false
 	}
-	if _, isStr := v.(*strObject); isStr && strSubclassMethods[name] {
-		fn := func(args []Object) (Object, error) { return CallMethod(v, name, args) }
-		return NewFunc(name, -1, fn), true
+	switch v.(type) {
+	case *strObject:
+		if !strSubclassMethods[name] {
+			return nil, false
+		}
+	case *tupleObject:
+		if !tupleSubclassMethods[name] {
+			return nil, false
+		}
+	default:
+		return nil, false
 	}
-	return nil, false
+	fn := func(args []Object) (Object, error) { return CallMethod(v, name, args) }
+	return NewFunc(name, -1, fn), true
 }
 
 // InstanceOverride runs a special method a user class defines on an instance,
