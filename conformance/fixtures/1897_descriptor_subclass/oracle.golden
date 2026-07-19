@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+base derived base derived
+5 9
+my_classmethod True
+my_staticmethod True
+my_property True
+10
+30 15
+0 0
+42
+no setter: AttributeError
+== exception:
+== stderr:

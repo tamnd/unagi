@@ -165,6 +165,13 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 			e.Args = append([]Object{}, args...)
 			return None, true, nil
 		}
+		if inst, ok := self.(*instanceObject); ok && inst.cls.builtinBase != "" {
+			// A value or descriptor subclass built its payload at construction, so
+			// the inherited builtin __init__ the super chain reaches here accepts
+			// the same arguments and ignores them, the way int.__init__ or
+			// classmethod.__init__ does after __new__ set the payload.
+			return None, true, nil
+		}
 		if len(args) != 0 {
 			return nil, true, Raise(TypeError, "object.__init__() takes exactly one argument (the instance to initialize)")
 		}
@@ -184,14 +191,15 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 				switch cls.builtinBase {
 				case "dict":
 					inst.dictData = &dictObject{index: map[string]int{}}
-				case "int", "str", "tuple":
+				case "int", "str", "tuple", "classmethod", "staticmethod", "property":
 					// int.__new__(cls, value) or str.__new__(cls, value) reached
 					// through a user __new__ chain builds the immutable payload from
 					// the value argument the way the builtin __new__ sets it, so a
 					// subclass that transforms its value in __new__ still ends up with
 					// the right underlying builtin. tuple.__new__(cls, iterable)
 					// builds the payload from the iterable the same way, the shape
-					// codecs.CodecInfo(tuple) takes in its __new__.
+					// codecs.CodecInfo(tuple) takes in its __new__, and classmethod
+					// and staticmethod wrap the callable argument as their payload.
 					v, err := Call(cls.builtinBaseFn, args[1:])
 					if err != nil {
 						return nil, true, err

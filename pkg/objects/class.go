@@ -1447,11 +1447,13 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 	switch c.builtinBase {
 	case "dict":
 		inst.dictData = &dictObject{index: map[string]int{}}
-	case "int", "str", "tuple":
+	case "int", "str", "tuple", "classmethod", "staticmethod", "property":
 		// A value subclass builds its immutable payload through the builtin base's
 		// own conversion, the way int.__new__ or str.__new__ sets the value from
-		// the constructor arguments before __init__ runs. The keyword arguments
-		// belong to a user __init__, so only the positional ones reach the value.
+		// the constructor arguments before __init__ runs. classmethod, staticmethod
+		// and property build their wrapped-descriptor payload the same way, from the
+		// constructor arguments. The keyword arguments belong to a user __init__, so
+		// only the positional ones reach the value.
 		v, err := Call(c.builtinBaseFn, pos)
 		if err != nil {
 			return nil, err

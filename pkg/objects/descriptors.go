@@ -86,6 +86,9 @@ func noneToNil(o Object) Object {
 // qualifies when its type defines __set__ or __delete__, the rule CPython uses
 // to rank a data descriptor above the instance dict.
 func isDataDescriptor(v Object) bool {
+	if p, ok := descriptorPayload(v); ok {
+		v = p
+	}
 	switch d := v.(type) {
 	case *propertyObject, *memberDescriptor:
 		return true
@@ -105,6 +108,13 @@ func isDataDescriptor(v Object) bool {
 // staticmethod comes back bare, a classmethod binds x's type, and a property
 // calls its getter. name is only used to spell the no-getter error.
 func instanceGet(x *instanceObject, name string, v Object) (Object, error) {
+	// A classmethod, staticmethod or property subclass instance carries the
+	// wrapped descriptor as its payload; with no user descriptor hook of its own
+	// it runs the protocol through that payload, so abc's abstractclassmethod and
+	// abstractproperty behave as the builtins they subclass.
+	if p, ok := descriptorPayload(v); ok {
+		v = p
+	}
 	switch d := v.(type) {
 	case *functionObject:
 		return &boundMethod{fn: d, self: x}, nil
@@ -140,6 +150,54 @@ func instanceGet(x *instanceObject, name string, v Object) (Object, error) {
 	return v, nil
 }
 
+// descriptorSubclassAttr resolves an attribute read on a property subclass
+// instance by delegating to the wrapped property. getter, setter and deleter
+// each return a fresh instance of the same subclass carrying the replaced slot,
+// so the @prop.setter chain preserves the subclass the way CPython does, and
+// fget, fset and fdel read the stored callables back. ok is false for any other
+// instance or name, so the ordinary AttributeError still stands. The classmethod
+// and staticmethod subclasses expose no such attributes in this tier.
+func descriptorSubclassAttr(x *instanceObject, name string) (Object, bool) {
+	payload, ok := descriptorPayload(x)
+	if !ok {
+		return nil, false
+	}
+	p, ok := payload.(*propertyObject)
+	if !ok {
+		return nil, false
+	}
+	rewrap := func(np *propertyObject) Object {
+		return &instanceObject{cls: x.cls, attrs: newAttrs(), builtinData: np}
+	}
+	slotOrNone := func(o Object) Object {
+		if o == nil {
+			return None
+		}
+		return o
+	}
+	switch name {
+	case "getter":
+		return NewFunc("getter", 1, func(a []Object) (Object, error) {
+			return rewrap(&propertyObject{fget: a[0], fset: p.fset, fdel: p.fdel}), nil
+		}), true
+	case "setter":
+		return NewFunc("setter", 1, func(a []Object) (Object, error) {
+			return rewrap(&propertyObject{fget: p.fget, fset: a[0], fdel: p.fdel}), nil
+		}), true
+	case "deleter":
+		return NewFunc("deleter", 1, func(a []Object) (Object, error) {
+			return rewrap(&propertyObject{fget: p.fget, fset: p.fset, fdel: a[0]}), nil
+		}), true
+	case "fget":
+		return slotOrNone(p.fget), true
+	case "fset":
+		return slotOrNone(p.fset), true
+	case "fdel":
+		return slotOrNone(p.fdel), true
+	}
+	return nil, false
+}
+
 // bindBuiltinSelf wraps a self-bound builtin so a call prepends the instance,
 // the way reading a wrapper_descriptor off an instance yields a bound method.
 func bindBuiltinSelf(d *funcObject, self Object) Object {
@@ -153,11 +211,21 @@ func bindBuiltinSelf(d *funcObject, self Object) Object {
 // classmethod binds c, a property returns the descriptor itself, and a plain
 // function stays unbound so an explicit-self call works.
 func classGet(c *classObject, v Object) (Object, error) {
+	// A descriptor subclass instance binds through its wrapped payload for
+	// class-level access too, so type-level reads of abc's abstractclassmethod or
+	// abstractproperty run the builtin protocol.
+	if p, ok := descriptorPayload(v); ok {
+		v = p
+	}
 	switch d := v.(type) {
 	case *staticmethodObject:
 		return d.fn, nil
 	case *classmethodObject:
 		return classmethodBind(d.fn, c), nil
+	case *propertyObject:
+		// Reading a property off the class hands back the descriptor itself, the
+		// way CPython returns the property for type-level access.
+		return d, nil
 	case *instanceObject:
 		// Reading a descriptor off the class runs __get__(descr, None, owner);
 		// the None instance is what lets a descriptor hand back itself for
@@ -176,6 +244,9 @@ func classGet(c *classObject, v Object) (Object, error) {
 // back bare, a user __get__ descriptor runs with c and the metaclass, and any
 // other value is a plain metaclass attribute read through the class.
 func metaGet(c, meta *classObject, name string, v Object) (Object, error) {
+	if p, ok := descriptorPayload(v); ok {
+		v = p
+	}
 	switch d := v.(type) {
 	case *functionObject:
 		return &boundMethod{fn: d, self: c}, nil
@@ -206,6 +277,9 @@ func metaSet(c, meta *classObject, name string, val Object) (bool, error) {
 	if !ok {
 		return false, nil
 	}
+	if p, ok := descriptorPayload(v); ok {
+		v = p
+	}
 	switch d := v.(type) {
 	case *propertyObject:
 		if d.fset == nil {
@@ -230,6 +304,9 @@ func metaDel(c, meta *classObject, name string) (bool, error) {
 	v, ok := meta.lookup(name)
 	if !ok {
 		return false, nil
+	}
+	if p, ok := descriptorPayload(v); ok {
+		v = p
 	}
 	switch d := v.(type) {
 	case *propertyObject:
