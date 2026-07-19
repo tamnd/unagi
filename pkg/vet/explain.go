@@ -6,6 +6,7 @@ package vet
 var explanations = map[string]string{
 	"UNA-THR-001": unaThr001Explain,
 	"UNA-THR-002": unaThr002Explain,
+	"UNA-THR-003": unaThr003Explain,
 }
 
 // Explain returns the long-form text for a finding code and whether the code is
@@ -83,4 +84,33 @@ Where the primitive offers it, an atomic operation closes the window without a
 lock: dict.setdefault performs the test and the insert in one call.
 
     cache.setdefault(key, build(key))
+`
+
+const unaThr003Explain = `UNA-THR-003: shared-container iteration
+
+Iterating a container walks it element by element, holding an internal cursor.
+If another thread adds or removes items during the walk, the cursor no longer
+matches the container. Under the GIL CPython noticed the size change and raised
+RuntimeError; without it the loop can skip elements, see one twice, or read
+freed memory.
+
+    items = []
+
+    def consume():
+        for x in items:          # a producer thread is appending to items
+            handle(x)
+
+Iterating a dict view, ` + "`for k in d.keys()`" + `, has the same problem, since the
+view is live. Iterate a snapshot taken before the loop so a later mutation
+cannot disturb the cursor:
+
+    for x in list(items):
+        handle(x)
+
+Or hold the lock that the writer also takes, across the whole loop, so no
+mutation can land while the walk is in progress:
+
+    with lock:
+        for x in items:
+            handle(x)
 `
