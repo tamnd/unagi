@@ -3,6 +3,7 @@ package runtime
 import (
 	"math"
 	"runtime"
+	"sync"
 
 	"github.com/tamnd/unagi/pkg/objects"
 )
@@ -47,6 +48,43 @@ func init() {
 	moduleTable["sys"] = &moduleEntry{builtin: true, exec: initSys}
 }
 
+// The thread switch interval, in seconds, that sys.getswitchinterval reads back
+// and sys.setswitchinterval stores. CPython uses it to pace how often the
+// interpreter yields the GIL; compiled programs run on Go's own scheduler, so
+// the value is a functional no-op kept only so a program that reads or tunes it
+// sees the value it set. The mutex keeps the getter and setter race-clean when
+// threads touch it at once. The default matches CPython's 5ms.
+var (
+	switchIntervalMu sync.Mutex
+	switchInterval   = 0.005
+)
+
+// sysGetSwitchInterval implements sys.getswitchinterval(): the current interval
+// as a float, 0.005 until a program sets its own.
+func sysGetSwitchInterval(args []objects.Object) (objects.Object, error) {
+	switchIntervalMu.Lock()
+	v := switchInterval
+	switchIntervalMu.Unlock()
+	return objects.NewFloat(v), nil
+}
+
+// sysSetSwitchInterval implements sys.setswitchinterval(n): store a strictly
+// positive interval. A non-number is the TypeError CPython raises coercing the
+// argument to a float, and a value that is zero or negative is the ValueError.
+func sysSetSwitchInterval(args []objects.Object) (objects.Object, error) {
+	n, ok := objects.AsFloat(args[0])
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "must be real number, not %s", args[0].TypeName())
+	}
+	if !(n > 0) {
+		return nil, objects.Raise(objects.ValueError, "switch interval must be strictly positive")
+	}
+	switchIntervalMu.Lock()
+	switchInterval = n
+	switchIntervalMu.Unlock()
+	return objects.None, nil
+}
+
 func initSys(m *objects.Module) error {
 	set := func(name string, v objects.Object) error {
 		return objects.StoreAttr(m, name, v)
@@ -80,6 +118,12 @@ func initSys(m *objects.Module) error {
 		if err := set(a.name, a.val); err != nil {
 			return err
 		}
+	}
+	if err := set("getswitchinterval", objects.NewFunc("getswitchinterval", 0, sysGetSwitchInterval)); err != nil {
+		return err
+	}
+	if err := set("setswitchinterval", objects.NewFunc("setswitchinterval", 1, sysSetSwitchInterval)); err != nil {
+		return err
 	}
 	return nil
 }

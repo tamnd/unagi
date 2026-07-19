@@ -40,3 +40,56 @@ func TestSysIdentityAttrs(t *testing.T) {
 		t.Errorf("sys.version_info = %s, want (3, 14, 6, 'final', 0)", got)
 	}
 }
+
+func TestSysSwitchInterval(t *testing.T) {
+	// The interval is process-global, so save and restore it around the test.
+	switchIntervalMu.Lock()
+	saved := switchInterval
+	switchIntervalMu.Unlock()
+	defer func() {
+		switchIntervalMu.Lock()
+		switchInterval = saved
+		switchIntervalMu.Unlock()
+	}()
+
+	get := func() float64 {
+		v, err := sysGetSwitchInterval(nil)
+		if err != nil {
+			t.Fatalf("getswitchinterval: %v", err)
+		}
+		f, _ := objects.AsFloat(v)
+		return f
+	}
+	if got := get(); got != 0.005 {
+		t.Errorf("default getswitchinterval = %v, want 0.005", got)
+	}
+	if _, err := sysSetSwitchInterval([]objects.Object{objects.NewFloat(0.01)}); err != nil {
+		t.Fatalf("setswitchinterval(0.01): %v", err)
+	}
+	if got := get(); got != 0.01 {
+		t.Errorf("after set, getswitchinterval = %v, want 0.01", got)
+	}
+	// An int coerces to a float.
+	if _, err := sysSetSwitchInterval([]objects.Object{objects.NewInt(2)}); err != nil {
+		t.Fatalf("setswitchinterval(2): %v", err)
+	}
+	if got := get(); got != 2 {
+		t.Errorf("after set int, getswitchinterval = %v, want 2", got)
+	}
+	// Zero and negatives are the strictly-positive ValueError, and leave the
+	// stored value untouched.
+	for _, n := range []float64{0, -1.5} {
+		_, err := sysSetSwitchInterval([]objects.Object{objects.NewFloat(n)})
+		if err == nil || err.Error() != "ValueError: switch interval must be strictly positive" {
+			t.Errorf("setswitchinterval(%v) error = %v, want strictly-positive ValueError", n, err)
+		}
+	}
+	if got := get(); got != 2 {
+		t.Errorf("after rejected sets, getswitchinterval = %v, want 2", got)
+	}
+	// A non-number is the real-number TypeError.
+	_, err := sysSetSwitchInterval([]objects.Object{objects.NewStr("x")})
+	if err == nil || err.Error() != "TypeError: must be real number, not str" {
+		t.Errorf("setswitchinterval(\"x\") error = %v, want real-number TypeError", err)
+	}
+}
