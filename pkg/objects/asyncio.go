@@ -112,6 +112,67 @@ type eventLoop struct {
 	// Runner(debug=...) constructor arm. It gates no extra checking in this slice;
 	// it is carried so the introspection surface reads back what was set.
 	debug bool
+	// asyncgens is the loop's live async generators in first-iteration order, what
+	// CPython's firstiter hook records in a WeakSet. shutdown_asyncgens acloses each
+	// on teardown so a generator left suspended at a yield still runs its finally.
+	// asyncgensSeen dedups the registration. Both are touched only on the loop
+	// goroutine, so they need no lock.
+	asyncgens     []*generatorObject
+	asyncgensSeen map[*generatorObject]bool
+}
+
+// registerAsyncGen records an async generator the first time it is iterated on the
+// loop, so shutdown_asyncgens can aclose it at teardown. It is idempotent and runs
+// on the loop goroutine.
+func (l *eventLoop) registerAsyncGen(ag *generatorObject) {
+	if l.asyncgensSeen == nil {
+		l.asyncgensSeen = map[*generatorObject]bool{}
+	}
+	if l.asyncgensSeen[ag] {
+		return
+	}
+	l.asyncgensSeen[ag] = true
+	l.asyncgens = append(l.asyncgens, ag)
+}
+
+// registerAsyncGenWithLoop records ag with the running loop when there is one. An
+// async generator iterated outside a loop, in the bare run-to-completion model, is
+// not tracked, matching CPython, whose firstiter hook only fires under a loop.
+func registerAsyncGenWithLoop(ag *generatorObject) {
+	if loop := runningLoop.Load(); loop != nil {
+		loop.registerAsyncGen(ag)
+	}
+}
+
+// shutdownAsyncGensCoro builds the coroutine loop.shutdown_asyncgens() returns: it
+// acloses every tracked async generator in first-iteration order, awaiting each so
+// a finalizer that itself awaits still runs to completion. An aclose that raises is
+// swallowed rather than stranding the rest, the way CPython logs it through the
+// loop's exception handler and keeps going. The tracked set is taken and cleared up
+// front so a generator created during shutdown is not itself awaited here.
+func (l *eventLoop) shutdownAsyncGensCoro() Object {
+	agens := l.asyncgens
+	l.asyncgens = nil
+	l.asyncgensSeen = nil
+	return NewCoroutine("shutdown_asyncgens", func(y Yielder) (Object, error) {
+		for _, ag := range agens {
+			if ag.done {
+				continue
+			}
+			closeAw, err := asyncGenMethod(ag, "aclose", nil)
+			if err != nil {
+				return nil, err
+			}
+			aw, err := Await(closeAw)
+			if err != nil {
+				return nil, err
+			}
+			if _, err := y.YieldFrom(aw); err != nil {
+				continue
+			}
+		}
+		return None, nil
+	})
 }
 
 // wake nudges the loop goroutine off a sleep so it re-checks its queues. It is
@@ -1318,7 +1379,7 @@ var eventLoopMethodNames = map[string]bool{
 	"create_future": true, "time": true, "is_running": true, "is_closed": true,
 	"get_debug": true, "set_debug": true, "run_in_executor": true, "call_soon": true, "call_later": true,
 	"call_at": true, "call_soon_threadsafe": true, "run_until_complete": true,
-	"run_forever": true, "stop": true, "close": true,
+	"run_forever": true, "stop": true, "close": true, "shutdown_asyncgens": true,
 }
 
 // eventLoopMethodT dispatches the loop methods that need the running thread,
@@ -1382,6 +1443,11 @@ func eventLoopMethod(l *eventLoop, name string, args []Object) (Object, error) {
 		}
 		l.debug = Truth(args[0])
 		return None, nil
+	case "shutdown_asyncgens":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "shutdown_asyncgens() takes 1 positional argument but %d were given", len(args)+1)
+		}
+		return l.shutdownAsyncGensCoro(), nil
 	case "run_in_executor":
 		return l.runInExecutor(args)
 	case "call_soon", "call_soon_threadsafe":
