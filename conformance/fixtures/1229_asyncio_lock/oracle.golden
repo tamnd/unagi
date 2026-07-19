@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+locked0 False
+locked1 True
+held while contended True
+free right after release False
+order [1, 2]
+locked end False
+release err Lock is not acquired.
+in ctx True
+after ctx False
+== exception:
+== stderr:
