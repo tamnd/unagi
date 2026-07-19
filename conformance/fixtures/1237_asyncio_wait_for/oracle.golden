@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+within quick
+slow cancelled
+timed out
+no timeout quick
+inner error kaboom
+TimeoutError is builtin True
+== exception:
+== stderr:

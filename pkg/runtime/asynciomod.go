@@ -23,6 +23,7 @@ func initAsyncio(m *objects.Module) error {
 		{"sleep", objects.NewFuncKw("sleep", asyncioSleep)},
 		{"create_task", objects.NewFuncKw("create_task", asyncioCreateTask)},
 		{"gather", objects.NewFuncKw("gather", asyncioGather)},
+		{"wait_for", objects.NewFuncKw("wait_for", asyncioWaitFor)},
 		{"Future", objects.NewFuncKw("Future", asyncioFuture)},
 		{"Lock", objects.NewFuncKw("Lock", asyncioLock)},
 		{"Event", objects.NewFuncKw("Event", asyncioEvent)},
@@ -259,6 +260,24 @@ func asyncioGather(pos []objects.Object, kwNames []string, kwVals []objects.Obje
 		returnExceptions = objects.Truth(kwVals[i])
 	}
 	return objects.AsyncioGather(pos, returnExceptions)
+}
+
+// asyncioWaitFor is asyncio.wait_for(aw, timeout). It awaits aw, raising
+// TimeoutError if timeout seconds pass first. A timeout of None waits forever.
+func asyncioWaitFor(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	vals, err := bindArgs("wait_for", []string{"fut", "timeout"}, pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	aw, ok := vals["fut"]
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "wait_for() missing 1 required positional argument: 'fut'")
+	}
+	timeout := objects.Object(objects.None)
+	if v, ok := vals["timeout"]; ok {
+		timeout = v
+	}
+	return objects.AsyncioWaitFor(aw, timeout), nil
 }
 
 // asyncioGetRunningLoop is asyncio.get_running_loop(). It returns the loop bound

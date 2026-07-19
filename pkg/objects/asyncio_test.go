@@ -909,3 +909,59 @@ func TestAsyncioTaskCancelDone(t *testing.T) {
 		t.Fatalf("cancel on done task = %v, want False", Repr(second))
 	}
 }
+
+// TestAsyncioWaitForWithin checks wait_for returns the result when the awaitable
+// finishes before the timeout.
+func TestAsyncioWaitForWithin(t *testing.T) {
+	child := func() Object {
+		return NewCoroutine("child", func(y Yielder) (Object, error) {
+			return y.YieldFrom(AsyncioSleep(0, NewInt(5)))
+		})
+	}
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		return awaitObj(y, AsyncioWaitFor(child(), NewFloat(1.0)))
+	})
+	got, err := AsyncioRun(main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if n, ok := AsInt(got); !ok || n != 5 {
+		t.Fatalf("wait_for = %v, want 5", Repr(got))
+	}
+}
+
+// TestAsyncioWaitForTimeout checks wait_for cancels a slow awaitable and raises
+// TimeoutError once the timeout elapses.
+func TestAsyncioWaitForTimeout(t *testing.T) {
+	child := func() Object {
+		return NewCoroutine("child", func(y Yielder) (Object, error) {
+			return y.YieldFrom(AsyncioSleep(10, None))
+		})
+	}
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		return awaitObj(y, AsyncioWaitFor(child(), NewFloat(0.005)))
+	})
+	if _, err := AsyncioRun(main); coroExcKind(err) != "TimeoutError" {
+		t.Fatalf("wait_for timeout = %v, want TimeoutError", err)
+	}
+}
+
+// TestAsyncioWaitForNoTimeout checks a None timeout awaits the coroutine straight
+// through and returns its result.
+func TestAsyncioWaitForNoTimeout(t *testing.T) {
+	child := func() Object {
+		return NewCoroutine("child", func(y Yielder) (Object, error) {
+			return y.YieldFrom(AsyncioSleep(0, NewStr("ok")))
+		})
+	}
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		return awaitObj(y, AsyncioWaitFor(child(), None))
+	})
+	got, err := AsyncioRun(main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if s, _ := AsStr(got); s != "ok" {
+		t.Fatalf("wait_for None = %v, want ok", Repr(got))
+	}
+}
