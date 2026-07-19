@@ -41,6 +41,8 @@ func initAsyncio(m *objects.Module) error {
 		{"Lock", objects.NewFuncKw("Lock", asyncioLock)},
 		{"Event", objects.NewFuncKw("Event", asyncioEvent)},
 		{"Condition", objects.NewFuncKw("Condition", asyncioCondition)},
+		{"Barrier", objects.NewFuncKw("Barrier", asyncioBarrier)},
+		{"BrokenBarrierError", objects.AsyncioBrokenBarrierErrorClass()},
 		{"Semaphore", objects.NewFuncKw("Semaphore", asyncioSemaphore)},
 		{"BoundedSemaphore", objects.NewFuncKw("BoundedSemaphore", asyncioBoundedSemaphore)},
 		{"Queue", objects.NewFuncKw("Queue", asyncioQueue)},
@@ -257,6 +259,25 @@ func newAsyncioSemaphore(who string, bounded bool, pos []objects.Object, kwNames
 		value = int(n)
 	}
 	return objects.AsyncioNewSemaphore(value, bounded)
+}
+
+// asyncioBarrier is asyncio.Barrier(parties). parties is required and sets how
+// many tasks must wait before the barrier trips; below one is the ValueError the
+// constructor raises, and a non-integer is the TypeError CPython reports.
+func asyncioBarrier(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	vals, err := bindArgs("Barrier", []string{"parties"}, pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	v, ok := vals["parties"]
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "Barrier.__init__() missing 1 required positional argument: 'parties'")
+	}
+	n, ok := objects.AsInt(v)
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", v.TypeName())
+	}
+	return objects.AsyncioNewBarrier(int(n))
 }
 
 // asyncioQueue is asyncio.Queue(maxsize=0). maxsize bounds the queue; zero or

@@ -1738,6 +1738,19 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return builtinMethodValue(x, name), nil
 		}
 		return nil, noAttr(x, name)
+	case *asyncioBarrier:
+		switch name {
+		case "parties":
+			return NewInt(int64(x.parties)), nil
+		case "n_waiting":
+			return NewInt(int64(x.nWaiting())), nil
+		case "broken":
+			return NewBool(x.broken()), nil
+		}
+		if asyncioBarrierMethodNames[name] {
+			return builtinMethodValue(x, name), nil
+		}
+		return nil, noAttr(x, name)
 	case *executorObject:
 		if executorMethodNames[name] {
 			return builtinMethodValue(x, name), nil
