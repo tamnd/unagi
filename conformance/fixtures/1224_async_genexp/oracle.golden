@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+type async_generator
+basic [1, 2, 3]
+comp [1, 2, 3, 4]
+await elt [0, 2, 4, 6]
+sync outer [20, 40, 60]
+cond [2, 4, 6]
+multi [(1, 0), (1, 1), (2, 0), (2, 1)]
+from sync [1, 4, 9]
+manual 1 2
+manual stop
+gather [[101, 102, 103], [201, 202, 203]]
+module [2, 3]
+== exception:
+== stderr:

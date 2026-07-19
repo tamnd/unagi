@@ -62,12 +62,43 @@ func TestAwaitOnlyComprehensionInsideAsyncLowers(t *testing.T) {
 	}
 }
 
-// TestAsyncGeneratorExpressionDeferred checks an async generator expression is
-// refused with a clear not-supported-yet message rather than lowered over the
-// sync iterator protocol, which would drive an async iterable wrong.
-func TestAsyncGeneratorExpressionDeferred(t *testing.T) {
-	_, err := lowerSrc(t, "async def f(y):\n    return (i async for i in y)\n")
-	if err == nil || !strings.Contains(err.Error(), "asynchronous generator expression is not supported yet") {
-		t.Fatalf("want async-genexp deferral, got %v", err)
+// TestAsyncGeneratorExpressionLowers checks an async generator expression builds
+// its own async_generator frame: the constructor is NewAsyncGenerator, the outer
+// iterator is taken eagerly through AsyncIterT, and each step awaits __anext__
+// through the frame's own yielder via AsyncNextT.
+func TestAsyncGeneratorExpressionLowers(t *testing.T) {
+	got, err := lowerSrc(t, "async def f(y):\n    return (i async for i in y)\n")
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	for _, want := range []string{
+		"objects.NewAsyncGenerator(",
+		"objects.AsyncIterT(t,",
+		"objects.AsyncNextT(t, gy,",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("emitted source missing %q:\n%s", want, got)
+		}
+	}
+}
+
+// TestAsyncGeneratorExpressionLegalOutsideAsync checks an async generator
+// expression is accepted at module scope and in a sync def, since creating the
+// async_generator object never runs its body; only iterating it needs an async
+// context. This is unlike an async comprehension, which the symtable rejects
+// outside an async function.
+func TestAsyncGeneratorExpressionLegalOutsideAsync(t *testing.T) {
+	for _, src := range []string{
+		"y = []\ng = (i async for i in y)\n",
+		"def f(y):\n    return (i async for i in y)\n",
+		"def f(y):\n    return (await g(i) for i in y)\n",
+	} {
+		got, err := lowerSrc(t, src)
+		if err != nil {
+			t.Fatalf("lower %q: %v", src, err)
+		}
+		if !strings.Contains(got, "objects.NewAsyncGenerator(") {
+			t.Errorf("src %q did not build an async generator:\n%s", src, got)
+		}
 	}
 }
