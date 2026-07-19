@@ -210,7 +210,7 @@ func AsyncioRunViaRunner(t *Thread, main Object, debug Object, loopFactory Objec
 	if err := r.lazyInit(t); err != nil {
 		return nil, err
 	}
-	defer r.close()
+	defer func() { _, _ = r.close() }()
 	return r.run(t, main)
 }
 

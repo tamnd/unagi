@@ -243,7 +243,7 @@ func (b *asyncioBarrier) aexitCoro() Object {
 // aenter and aexit make Barrier a native async context manager: entering awaits
 // wait() and exiting does nothing, the path AsyncWithEnterT takes for objects
 // that are not Python instances.
-func (b *asyncioBarrier) aenter(t *Thread) (Object, error)            { return b.waitCoro(), nil }
+func (b *asyncioBarrier) aenter(t *Thread) (Object, error)               { return b.waitCoro(), nil }
 func (b *asyncioBarrier) aexit(t *Thread, args []Object) (Object, error) { return b.aexitCoro(), nil }
 
 // asyncioBrokenBarrierOnce guards the one-time build of asyncio.BrokenBarrierError.
