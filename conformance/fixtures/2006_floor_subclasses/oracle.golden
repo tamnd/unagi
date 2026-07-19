@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+A: ['B', 'C']
+B: ['D']
+C: []
+D: []
+fresh list: False
+identity: True True
+B after E: ['D', 'E']
+C after E: ['E']
+A grew: True
+== exception:
+== stderr:

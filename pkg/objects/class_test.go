@@ -384,3 +384,74 @@ func TestLoadAttrClassRoutesBuiltins(t *testing.T) {
 		t.Fatalf("resolver was consulted for instance or class __class__")
 	}
 }
+
+// TestClassSubclasses proves __subclasses__() reports the direct subclasses a
+// class accumulates as children are built, in creation order and live across a
+// later class, the walk _py_abc.__subclasscheck__ makes.
+func TestClassSubclasses(t *testing.T) {
+	names := func(o Object) []string {
+		lst, ok := o.(*listObject)
+		if !ok {
+			t.Fatalf("__subclasses__() = %v, want a list", o)
+		}
+		out := make([]string, len(lst.elts))
+		for i, e := range lst.elts {
+			out[i] = e.(*classObject).name
+		}
+		return out
+	}
+	subclasses := func(c Object) Object {
+		m, err := LoadAttr(c, "__subclasses__")
+		if err != nil {
+			t.Fatalf("load __subclasses__: %v", err)
+		}
+		r, err := Call(m, nil)
+		if err != nil {
+			t.Fatalf("call __subclasses__: %v", err)
+		}
+		return r
+	}
+
+	a, err := NewClass("A", "A", nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewClass A: %v", err)
+	}
+	if got := names(subclasses(a)); len(got) != 0 {
+		t.Fatalf("A.__subclasses__() = %v, want empty", got)
+	}
+
+	b, err := NewClass("B", "B", []Object{a}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewClass B: %v", err)
+	}
+	c, err := NewClass("C", "C", []Object{a}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewClass C: %v", err)
+	}
+	if got := names(subclasses(a)); len(got) != 2 || got[0] != "B" || got[1] != "C" {
+		t.Fatalf("A.__subclasses__() = %v, want [B C]", got)
+	}
+
+	// A multiple-inheritance child registers on every base.
+	if _, err := NewClass("E", "E", []Object{b, c}, nil, nil, nil, nil); err != nil {
+		t.Fatalf("NewClass E: %v", err)
+	}
+	if got := names(subclasses(b)); len(got) != 1 || got[0] != "E" {
+		t.Fatalf("B.__subclasses__() = %v, want [E]", got)
+	}
+	if got := names(subclasses(c)); len(got) != 1 || got[0] != "E" {
+		t.Fatalf("C.__subclasses__() = %v, want [E]", got)
+	}
+
+	// The list is live: a later class shows up, and each read is a fresh list.
+	first := subclasses(a)
+	if _, err := NewClass("F", "F", []Object{a}, nil, nil, nil, nil); err != nil {
+		t.Fatalf("NewClass F: %v", err)
+	}
+	if got := names(subclasses(a)); len(got) != 3 || got[2] != "F" {
+		t.Fatalf("A.__subclasses__() after F = %v, want [B C F]", got)
+	}
+	if first == subclasses(a) {
+		t.Fatalf("__subclasses__() returned the same list twice, want fresh")
+	}
+}
