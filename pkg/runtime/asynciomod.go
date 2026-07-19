@@ -25,6 +25,7 @@ func initAsyncio(m *objects.Module) error {
 		{"gather", objects.NewFuncKw("gather", asyncioGather)},
 		{"Future", objects.NewFuncKw("Future", asyncioFuture)},
 		{"Lock", objects.NewFuncKw("Lock", asyncioLock)},
+		{"Event", objects.NewFuncKw("Event", asyncioEvent)},
 		{"get_running_loop", objects.NewFunc("get_running_loop", 0, asyncioGetRunningLoop)},
 		{"get_event_loop", objects.NewFunc("get_event_loop", 0, asyncioGetEventLoop)},
 		{"CancelledError", objects.AsyncioCancelledErrorClass()},
@@ -128,6 +129,19 @@ func asyncioLock(pos []objects.Object, kwNames []string, kwVals []objects.Object
 		return nil, objects.Raise(objects.TypeError, "Lock() got an unexpected keyword argument '%s'", k)
 	}
 	return objects.AsyncioNewLock(), nil
+}
+
+// asyncioEvent is asyncio.Event(). CPython 3.14 dropped the loop keyword, so the
+// constructor takes no arguments; any positional or keyword argument is the
+// error CPython raises.
+func asyncioEvent(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if len(pos) != 0 {
+		return nil, objects.Raise(objects.TypeError, "Event() takes no positional arguments")
+	}
+	for _, k := range kwNames {
+		return nil, objects.Raise(objects.TypeError, "Event() got an unexpected keyword argument '%s'", k)
+	}
+	return objects.AsyncioNewEvent(), nil
 }
 
 // asyncioGather is asyncio.gather(*aws, return_exceptions=False). The awaitables
