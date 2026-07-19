@@ -71,7 +71,11 @@ func ds(s Stmt) string {
 				items[i] = "(as " + de(it.Context) + " " + de(it.Target) + ")"
 			}
 		}
-		return "(with (" + strings.Join(items, " ") + ") " + dbody(s.Body) + ")"
+		kw := "with"
+		if s.Async {
+			kw = "async-with"
+		}
+		return "(" + kw + " (" + strings.Join(items, " ") + ") " + dbody(s.Body) + ")"
 	case *FuncDef:
 		kw := "def"
 		if s.Async {
@@ -563,6 +567,12 @@ func TestParse(t *testing.T) {
 		{"await attribute", "async def f():\n    x = await a.b()", "(async-def f () [(= x (await (call (. a b))))])"},
 		{"await binds tighter than power", "async def f():\n    return await a ** b",
 			"(async-def f () [(return (** (await a) b))])"},
+		{"async with", "async def f():\n    async with a: pass",
+			"(async-def f () [(async-with (a) [(pass)])])"},
+		{"async with as", "async def f():\n    async with a as b: pass",
+			"(async-def f () [(async-with ((as a b)) [(pass)])])"},
+		{"async with multi", "async def f():\n    async with a, b as c: pass",
+			"(async-def f () [(async-with (a (as b c)) [(pass)])])"},
 		{"def posonly", "def f(a, b, /, c): pass", "(def f (a b / c) [(pass)])"},
 		{"def posonly only", "def f(a, /): pass", "(def f (a /) [(pass)])"},
 		{"def posonly trailing comma", "def f(a, /,): pass", "(def f (a /) [(pass)])"},
@@ -965,7 +975,6 @@ func TestParseErrors(t *testing.T) {
 		{"lambda param after kwargs", "f = lambda **k, x: 1", "arguments cannot follow var-keyword argument"},
 		{"lambda operand position", "x = 1 + lambda: 2", "invalid syntax"},
 		{"async for statement", "async for x in y: pass", "async for is not supported yet"},
-		{"async with statement", "async with a: pass", "async with is not supported yet"},
 		{"generator arg unparenthesized", "f(a, x for x in y)", "Generator expression must be parenthesized"},
 		{"generator arg trailing", "f(x for x in y, z)", "Generator expression must be parenthesized"},
 		{"dict then set element", "{1: 2, 3}", "':' expected after dictionary key"},

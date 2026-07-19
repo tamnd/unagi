@@ -1,0 +1,27 @@
+== exit: 0
+== stdout:
+enter a
+body a
+exit a None
+enter b
+body b
+exit b ValueError
+caught boom
+in suppress
+after suppress
+enter outer
+enter inner
+nested body inner
+exit inner None
+exit outer None
+enter 0
+kept 0
+exit 0 None
+enter 1
+exit 1 None
+enter 2
+exit 2 None
+"'SyncOnly' object does not support the asynchronous context manager protocol (missed __aexit__ method) but it supports the context manager protocol. Did you mean to use 'with'?"
+"'NoEnter' object does not support the asynchronous context manager protocol (missed __aenter__ method)"
+== exception:
+== stderr:

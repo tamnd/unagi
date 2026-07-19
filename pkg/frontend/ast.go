@@ -121,11 +121,15 @@ type WithItem struct {
 
 // With is `with item, ...: body`. Multiple items behave exactly like nested
 // single-item with statements: earlier managers enter first and exit last,
-// and a later manager failing to enter still exits the earlier ones.
+// and a later manager failing to enter still exits the earlier ones. Async is
+// set for an `async with`, which drives __aenter__ and __aexit__ through the
+// enclosing coroutine's frame and is otherwise the same statement; every other
+// pass treats the two forms identically, so only the lowering branches on it.
 type With struct {
 	Pos_  Pos
 	Items []WithItem
 	Body  []Stmt
+	Async bool
 }
 
 // Match is `match subject:` with one or more case clauses (PEP 634). Subject
