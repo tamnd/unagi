@@ -46,6 +46,7 @@ func Analyze(mod *frontend.Module) []Finding {
 	out = append(out, checkAsyncBlocking(mod)...)
 	out = append(out, checkAsyncOrphanTask(mod)...)
 	out = append(out, checkAsyncLoopAffinity(mod)...)
+	out = append(out, checkMPStartMethod(mod)...)
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 		if a.Pos.Line != b.Pos.Line {
