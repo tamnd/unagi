@@ -26,6 +26,8 @@ func initAsyncio(m *objects.Module) error {
 		{"Future", objects.NewFuncKw("Future", asyncioFuture)},
 		{"Lock", objects.NewFuncKw("Lock", asyncioLock)},
 		{"Event", objects.NewFuncKw("Event", asyncioEvent)},
+		{"Semaphore", objects.NewFuncKw("Semaphore", asyncioSemaphore)},
+		{"BoundedSemaphore", objects.NewFuncKw("BoundedSemaphore", asyncioBoundedSemaphore)},
 		{"get_running_loop", objects.NewFunc("get_running_loop", 0, asyncioGetRunningLoop)},
 		{"get_event_loop", objects.NewFunc("get_event_loop", 0, asyncioGetEventLoop)},
 		{"CancelledError", objects.AsyncioCancelledErrorClass()},
@@ -142,6 +144,36 @@ func asyncioEvent(pos []objects.Object, kwNames []string, kwVals []objects.Objec
 		return nil, objects.Raise(objects.TypeError, "Event() got an unexpected keyword argument '%s'", k)
 	}
 	return objects.AsyncioNewEvent(), nil
+}
+
+// asyncioSemaphore is asyncio.Semaphore(value=1). value is the permit count and
+// defaults to one; a negative value is the ValueError the constructor raises.
+func asyncioSemaphore(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	return newAsyncioSemaphore("Semaphore", false, pos, kwNames, kwVals)
+}
+
+// asyncioBoundedSemaphore is asyncio.BoundedSemaphore(value=1), a semaphore that
+// refuses to release more permits than it started with.
+func asyncioBoundedSemaphore(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	return newAsyncioSemaphore("BoundedSemaphore", true, pos, kwNames, kwVals)
+}
+
+// newAsyncioSemaphore binds the shared value argument of both semaphore
+// constructors and builds the counter.
+func newAsyncioSemaphore(who string, bounded bool, pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	value := 1
+	vals, err := bindArgs(who, []string{"value"}, pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	if v, ok := vals["value"]; ok {
+		n, ok := objects.AsInt(v)
+		if !ok {
+			return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", v.TypeName())
+		}
+		value = int(n)
+	}
+	return objects.AsyncioNewSemaphore(value, bounded)
 }
 
 // asyncioGather is asyncio.gather(*aws, return_exceptions=False). The awaitables
