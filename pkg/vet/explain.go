@@ -12,6 +12,7 @@ var explanations = map[string]string{
 	"UNA-THR-006": unaThr006Explain,
 	"UNA-THR-007": unaThr007Explain,
 	"UNA-THR-008": unaThr008Explain,
+	"UNA-AIO-001": unaAio001Explain,
 }
 
 // Explain returns the long-form text for a finding code and whether the code is
@@ -273,4 +274,34 @@ per-tier shadow:
 Or, if the value really is a shared scalar counter, drop the annotation so unagi
 never builds a typed shadow and the global stays boxed. A thread-mutated global
 is usually the wrong place for a type annotation.
+`
+
+const unaAio001Explain = `UNA-AIO-001: blocking call in a coroutine
+
+An event loop runs every task on a single thread and switches between them only
+at an await. A coroutine that makes a blocking call never reaches an await while
+that call is in flight, so no other task runs until it returns:
+
+    async def handle(request):
+        time.sleep(1)                 # the whole loop is frozen for a second
+        data = requests.get(url)      # and again for the length of this request
+
+One slow read can stall an entire server, because every other connection is
+waiting behind it on the same thread. This was true under CPython too; without
+the GIL nothing changes here, since the loop was always one thread.
+
+Prefer an async equivalent that yields at the blocking point. Sleep with the
+loop, not against it:
+
+    await asyncio.sleep(1)
+
+and reach for an async HTTP client, an async database driver, and so on, instead
+of their blocking cousins. When no async version exists, push the blocking work
+onto a worker thread so the loop stays free:
+
+    data = await loop.run_in_executor(None, requests.get, url)
+
+This check flags a recognized blocking primitive called straight inside an async
+function. Passing the function as a value to run_in_executor is not a call, so
+that offload form is not flagged.
 `
