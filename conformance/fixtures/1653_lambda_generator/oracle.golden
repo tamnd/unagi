@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+generator
+None
+stop 99
+7
+stop2 'sent'
+[1, 2, 3]
+5 function
+True
+== exception:
+== stderr:

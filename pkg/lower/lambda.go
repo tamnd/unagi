@@ -104,18 +104,56 @@ func (f *fnCtx) lambda(e *frontend.Lambda) (ast.Expr, error) {
 		in.add(define(ident(mangle(p.Name)), &ast.IndexExpr{X: ident("args"), Index: intLit(strconv.Itoa(i))}))
 		in.add(set(ident("_"), ident(mangle(p.Name))))
 	}
-	in.recursionGuard()
+
+	// A lambda whose own scope yields is a generator function: calling it
+	// returns a generator object whose body is the lambda's expression, run
+	// lazily through a yielder handle. The expression's value falls off the end
+	// as the StopIteration value, the same shape a bare return lowers to, and
+	// the parameter binds stay in the impl function that runs at call time.
+	bodyStmt := []frontend.Stmt{&frontend.ExprStmt{X: e.Body}}
+	gen := hasYield(bodyStmt)
 	// A walrus in the body binds lambda-local; one in a default already
-	// bound the enclosing scope when the default was evaluated above.
+	// bound the enclosing scope when the default was evaluated above. A
+	// generator lambda declares them inside the yielder closure, where its
+	// body runs, so the decl waits until after the push.
 	walrus := map[string]bool{}
-	collectAssigned([]frontend.Stmt{&frontend.ExprStmt{X: e.Body}}, walrus)
-	for _, name := range sortedNames(walrus) {
-		if in.locals[name] {
-			continue
+	collectAssigned(bodyStmt, walrus)
+	declWalrus := func() {
+		for _, name := range sortedNames(walrus) {
+			if in.locals[name] {
+				continue
+			}
+			in.locals[name] = true
+			in.declLocal(name)
 		}
-		in.locals[name] = true
-		in.declLocal(name)
 	}
+
+	if gen {
+		in.genYielder = "gy"
+		in.push()
+		declWalrus()
+		v, err := in.expr(e.Body)
+		if err != nil {
+			return nil, err
+		}
+		in.add(&ast.ReturnStmt{Results: []ast.Expr{v, ident("nil")}})
+		closure := &ast.FuncLit{
+			Type: &ast.FuncType{
+				Params:  fieldList(field(f.e.obj("Yielder"), in.genYielder)),
+				Results: fieldList(field(f.e.obj("Object")), field(ident("error"))),
+			},
+			Body: in.pop(),
+		}
+		in.add(&ast.ReturnStmt{Results: []ast.Expr{
+			callExpr(f.e.obj("NewGenerator"), strLit(qual), closure),
+			ident("nil"),
+		}})
+		impl := &ast.FuncLit{Type: f.e.implType(), Body: in.pop()}
+		return callExpr(f.e.obj("NewFunctionT"), strLit(qual), f.e.paramSpecLit(e.Params), dfltsExpr, impl), nil
+	}
+
+	in.recursionGuard()
+	declWalrus()
 	v, err := in.expr(e.Body)
 	if err != nil {
 		return nil, err
