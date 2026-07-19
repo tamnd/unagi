@@ -38,10 +38,11 @@ func buildIOTextIOWrapper() (objects.Object, error) {
 		objects.NewStr("_encoder"), objects.NewStr("_decoder"), objects.NewStr("_decoded"),
 		objects.NewStr("_pending"), objects.NewStr("_line_buffering"), objects.NewStr("_write_through"),
 		objects.NewStr("_writetranslate"), objects.NewStr("_writenl"), objects.NewStr("_readuniversal"),
+		objects.NewStr("_readtranslate"), objects.NewStr("_readnl"),
 	})
 	names := []string{
 		"__slots__", "__init__",
-		"read", "write", "flush", "close", "detach",
+		"read", "readline", "readlines", "write", "flush", "close", "detach",
 		"readable", "writable", "seekable", "fileno", "isatty",
 		"buffer", "closed", "name",
 		"encoding", "errors", "newlines", "line_buffering", "write_through",
@@ -50,6 +51,8 @@ func buildIOTextIOWrapper() (objects.Object, error) {
 		slots,
 		objects.NewMethodKw("__init__", ioTIWInit),
 		ioMethod("read", -1, ioTIWRead),
+		ioMethod("readline", -1, ioTIWReadline),
+		ioMethod("readlines", -1, ioTIWReadlines),
 		ioMethod("write", 2, ioTIWWrite),
 		ioMethod("flush", 1, ioTIWFlush),
 		ioMethod("close", 1, ioTIWClose),
@@ -174,6 +177,12 @@ func ioTIWInit(pos []objects.Object, kwNames []string, kwVals []objects.Object) 
 	if !newlineIsNone && newline != "" && newline != "\n" {
 		writenl = objects.NewStr(newline)
 	}
+	// readnl is the exact line terminator to split on when not in universal mode;
+	// it is unused (None) for the None and "" modes, which scan universally.
+	readnl := objects.Object(objects.None)
+	if !readUniversal {
+		readnl = objects.NewStr(newline)
+	}
 	encoder, err := tiwGetCodec("encoder", encoding, errors)
 	if err != nil {
 		return nil, err
@@ -205,6 +214,8 @@ func ioTIWInit(pos []objects.Object, kwNames []string, kwVals []objects.Object) 
 		{"_writetranslate", objects.NewBool(writeTranslate)},
 		{"_writenl", writenl},
 		{"_readuniversal", objects.NewBool(readUniversal)},
+		{"_readtranslate", objects.NewBool(readTranslate)},
+		{"_readnl", readnl},
 	}
 	for _, s := range stores {
 		if err := objects.StoreAttr(self, s.name, s.val); err != nil {
@@ -278,19 +289,12 @@ func ioTIWRead(args []objects.Object) (objects.Object, error) {
 		return nil, err
 	}
 	for int64(len([]rune(decoded))) < size {
-		chunk, err := objects.CallMethod(buffer, "read1", []objects.Object{objects.NewInt(tiwChunkSize)})
+		more, s, err := tiwFillChunk(buffer, decoder)
 		if err != nil {
 			return nil, err
 		}
-		cb, _ := objects.AsBytesLike(chunk)
-		eof := len(cb) == 0
-		dec, err := objects.CallMethod(decoder, "decode", []objects.Object{chunk, objects.NewBool(eof)})
-		if err != nil {
-			return nil, err
-		}
-		s, _ := objects.AsStr(dec)
 		decoded += s
-		if eof {
+		if !more {
 			break
 		}
 	}
@@ -304,6 +308,170 @@ func ioTIWRead(args []objects.Object) (objects.Object, error) {
 		return nil, err
 	}
 	return objects.NewStr(out), nil
+}
+
+// tiwFillChunk pulls one chunk from the wrapped buffer with read1, decodes it,
+// and returns the decoded text along with whether more data may remain (false at
+// end of stream, where it decodes with final=True to flush the decoder). It is
+// the shared refill step for the sized read and for readline.
+func tiwFillChunk(buffer, decoder objects.Object) (bool, string, error) {
+	chunk, err := objects.CallMethod(buffer, "read1", []objects.Object{objects.NewInt(tiwChunkSize)})
+	if err != nil {
+		return false, "", err
+	}
+	cb, _ := objects.AsBytesLike(chunk)
+	eof := len(cb) == 0
+	dec, err := objects.CallMethod(decoder, "decode", []objects.Object{chunk, objects.NewBool(eof)})
+	if err != nil {
+		return false, "", err
+	}
+	s, _ := objects.AsStr(dec)
+	return !eof, s, nil
+}
+
+// ioTIWReadline reads and decodes one line, up to and including its terminator.
+// The line ending it splits on follows the newline mode: universal-newline mode
+// (newline None or "") recognises "\r\n", "\r" and "\n"; a specific newline
+// splits on exactly that string. An optional size caps the returned characters.
+func ioTIWReadline(args []objects.Object) (objects.Object, error) {
+	self := args[0]
+	buffer, err := tiwBuffer(self)
+	if err != nil {
+		return nil, err
+	}
+	if err := tiwCheckClosed(buffer); err != nil {
+		return nil, err
+	}
+	decoder, err := objects.LoadAttr(self, "_decoder")
+	if err != nil {
+		return nil, err
+	}
+	size := int64(-1)
+	if len(args) >= 2 && args[1] != objects.None {
+		n, ok := objects.AsInt(args[1])
+		if !ok {
+			return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", args[1].TypeName())
+		}
+		size = n
+	}
+	decoded, err := tiwDecoded(self)
+	if err != nil {
+		return nil, err
+	}
+	universal := tiwBool(self, "_readuniversal")
+	nl := ""
+	if !universal {
+		nlv, err := objects.LoadAttr(self, "_readnl")
+		if err != nil {
+			return nil, err
+		}
+		nl, _ = objects.AsStr(nlv)
+	}
+	rs := []rune(decoded)
+	start := 0
+	endpos := -1
+	for {
+		if universal {
+			endpos = tiwUniversalScan(rs, start)
+		} else {
+			endpos = tiwFindNewline(rs, start, nl)
+		}
+		if endpos >= 0 {
+			break
+		}
+		// no full line yet: stop if a size cap is already reached, else refill.
+		if size >= 0 && int64(len(rs)) >= size {
+			endpos = len(rs)
+			break
+		}
+		start = len(rs)
+		more, s, err := tiwFillChunk(buffer, decoder)
+		if err != nil {
+			return nil, err
+		}
+		rs = append(rs, []rune(s)...)
+		if !more {
+			endpos = len(rs)
+			break
+		}
+	}
+	if size >= 0 && int64(endpos) > size {
+		endpos = int(size)
+	}
+	out := string(rs[:endpos])
+	if err := objects.StoreAttr(self, "_decoded", objects.NewStr(string(rs[endpos:]))); err != nil {
+		return nil, err
+	}
+	return objects.NewStr(out), nil
+}
+
+// tiwUniversalScan returns the index one past the end of the first line ending
+// at or after start in universal-newline mode, or -1 if none is complete.
+// "\r\n" counts as one ending; a lone "\r" at the very end returns -1 so the
+// caller refills, since a following "\n" would join it (the newline decoder
+// holds a trailing "\r" back until it knows, so pre-eof rs never ends in "\r").
+func tiwUniversalScan(rs []rune, start int) int {
+	for i := start; i < len(rs); i++ {
+		switch rs[i] {
+		case '\n':
+			return i + 1
+		case '\r':
+			if i+1 < len(rs) {
+				if rs[i+1] == '\n' {
+					return i + 2
+				}
+				return i + 1
+			}
+			return -1
+		}
+	}
+	return -1
+}
+
+// tiwFindNewline returns the index one past the first occurrence of nl at or
+// after start, or -1 if nl does not appear.
+func tiwFindNewline(rs []rune, start int, nl string) int {
+	i := strings.Index(string(rs[start:]), nl)
+	if i < 0 {
+		return -1
+	}
+	// strings.Index is a byte offset into the substring; recompute in runes.
+	prefix := []rune(string(rs[start:])[:i])
+	return start + len(prefix) + len([]rune(nl))
+}
+
+// ioTIWReadlines reads and decodes all remaining lines. An optional hint stops
+// once the total characters read pass it; TextIOWrapper inherits _IOBase's
+// strict test, so it stops only after the running total is greater than the
+// hint (BytesIO's own readlines stops at greater-or-equal).
+func ioTIWReadlines(args []objects.Object) (objects.Object, error) {
+	self := args[0]
+	hint := int64(-1)
+	if len(args) >= 2 && args[1] != objects.None {
+		n, ok := objects.AsInt(args[1])
+		if !ok {
+			return nil, objects.Raise(objects.TypeError, "argument should be integer or None, not '%s'", args[1].TypeName())
+		}
+		hint = n
+	}
+	var lines []objects.Object
+	total := int64(0)
+	for {
+		line, err := objects.CallMethod(self, "readline", nil)
+		if err != nil {
+			return nil, err
+		}
+		s, _ := objects.AsStr(line)
+		if s == "" {
+			break
+		}
+		lines = append(lines, line)
+		total += int64(len([]rune(s)))
+		if hint >= 0 && total > hint {
+			break
+		}
+	}
+	return objects.NewList(lines), nil
 }
 
 // ioTIWWrite encodes a str and holds the bytes in the text-layer pending buffer,

@@ -1,0 +1,30 @@
+== exit: 0
+== stdout:
+readline nl None -> ['a\n', 'b\n', 'c\n', 'd']
+readline nl '' -> ['a\r\n', 'b\r', 'c\n', 'd']
+readline nl '\n' -> ['a\r\n', 'b\rc\n', 'd']
+readline nl '\r' -> ['a\r', '\nb\r', 'c\nd']
+readline nl '\r\n' -> ['a\r\n', 'b\rc\nd']
+readline(5) 'hello'
+readline() ' world\n'
+readline(100) 'second\n'
+read(2) 'ab'
+then readline 'c\n'
+then readline 'def\n'
+then readline ''
+no eol 'onlyline' ''
+empty '' []
+iter ['x\n', 'y\n', 'z']
+readlines ['aa\n', 'bb\n', 'cc\n']
+readlines hint 1 ['aa\n']
+readlines hint 2 ['aa\n']
+readlines hint 3 ['aa\n', 'bb\n']
+readlines hint 4 ['aa\n', 'bb\n']
+readlines hint 5 ['aa\n', 'bb\n']
+readlines hint 6 ['aa\n', 'bb\n', 'cc\n']
+readlines hint 7 ['aa\n', 'bb\n', 'cc\n']
+readline closed: I/O operation on closed file.
+readline badsize: 'str' object cannot be interpreted as an integer
+readlines badsize: argument should be integer or None, not 'str'
+== exception:
+== stderr:
