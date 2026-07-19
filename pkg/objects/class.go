@@ -832,6 +832,15 @@ func objectDefaultRepr(o Object) string {
 // object tail resolves, which is enough for the common (T, object) chain.
 var BuiltinTypeResolver func(name string) (Object, bool)
 
+// ClassOfResolver returns the type object a value reports through __class__, the
+// same object type(x) yields. The runtime installs it in its init from TypeOf,
+// where the builtin constructors live; LoadAttr uses it to answer __class__ for
+// the scalar and container builtins, which have no dedicated case of their own,
+// so _py_abc's __instancecheck__ read `instance.__class__` succeeds on 42 or a
+// bare list. A nil resolver leaves those reads an AttributeError, the prior
+// behavior.
+var ClassOfResolver func(o Object) Object
+
 // typeBuiltinOrClass returns the runtime `type` constructor when it is
 // registered, so a default class or builtin type reports the very object the
 // `type` name binds and `D.__class__ is type` holds. Before the runtime installs
@@ -1546,6 +1555,20 @@ func callInit(c *classObject, obj Object, pos []Object, kwNames []string, kwVals
 // back as is; on a class the name comes straight from the class dict. The
 // two AttributeError wordings, instance and type object, are probed on 3.14.
 func LoadAttr(o Object, name string) (Object, error) {
+	// __class__ answers type(x) for every value that gives the name no meaning of
+	// its own. An instance reads its stored class, a class its metaclass, and a
+	// builtin function its metatype, all in their own cases below; the scalar and
+	// container builtins have no such case, so they route through the resolver
+	// here. This is what lets _py_abc's __instancecheck__ read `instance.__class__`
+	// on a plain int or list.
+	if name == "__class__" && ClassOfResolver != nil {
+		switch o.(type) {
+		case *instanceObject, *classObject, *funcObject:
+			// dedicated __class__ semantics in their own case
+		default:
+			return ClassOfResolver(o), nil
+		}
+	}
 	switch x := o.(type) {
 	case *instanceObject:
 		return instanceLoadAttr(x, name)

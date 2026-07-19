@@ -326,3 +326,61 @@ func TestNewType3(t *testing.T) {
 		checkErr(t, tt.name, err, tt.want)
 	}
 }
+
+// TestLoadAttrClassRoutesBuiltins proves LoadAttr answers __class__ for the
+// scalar and container builtins through ClassOfResolver, the type(x) hook the
+// runtime installs, while an instance and a class keep their own dedicated
+// __class__ semantics and never reach the resolver. This is the read
+// _py_abc.__instancecheck__ makes on `instance.__class__`.
+func TestLoadAttrClassRoutesBuiltins(t *testing.T) {
+	sentinel := NewStr("resolved")
+	var seen []Object
+	saved := ClassOfResolver
+	ClassOfResolver = func(o Object) Object {
+		seen = append(seen, o)
+		return sentinel
+	}
+	defer func() { ClassOfResolver = saved }()
+
+	// A builtin value has no dedicated __class__ case, so it routes through the
+	// resolver and reads back exactly what the hook returns.
+	for _, v := range []Object{NewInt(42), NewStr("s"), NewList(nil), NewTuple(nil), NewFloat(1.5)} {
+		got, err := LoadAttr(v, "__class__")
+		if err != nil {
+			t.Fatalf("LoadAttr(%s, __class__): %v", v.TypeName(), err)
+		}
+		if got != sentinel {
+			t.Fatalf("LoadAttr(%s, __class__) = %v, want the resolved type", v.TypeName(), got)
+		}
+	}
+	if len(seen) != 5 {
+		t.Fatalf("resolver saw %d values, want 5", len(seen))
+	}
+
+	// An instance answers its stored class, not the resolver, so a class-level
+	// getset descriptor stays authoritative and the hook is never consulted.
+	before := len(seen)
+	clsObj, err := NewClass("C", "C", nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewClass: %v", err)
+	}
+	inst, err := Instantiate(clsObj.(*classObject), nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Instantiate: %v", err)
+	}
+	got, err := LoadAttr(inst, "__class__")
+	if err != nil {
+		t.Fatalf("LoadAttr(instance, __class__): %v", err)
+	}
+	if got != clsObj {
+		t.Fatalf("instance __class__ = %v, want its class", got)
+	}
+
+	// A class answers its metaclass, again without the resolver.
+	if _, err := LoadAttr(clsObj, "__class__"); err != nil {
+		t.Fatalf("LoadAttr(class, __class__): %v", err)
+	}
+	if len(seen) != before {
+		t.Fatalf("resolver was consulted for instance or class __class__")
+	}
+}
