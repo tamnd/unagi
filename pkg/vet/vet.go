@@ -39,6 +39,7 @@ func Analyze(mod *frontend.Module) []Finding {
 	out = append(out, checkThreadCheckAct(mod)...)
 	out = append(out, checkThreadSharedIter(mod)...)
 	out = append(out, checkThreadGILIdiom(mod)...)
+	out = append(out, checkThreadLockDiscipline(mod)...)
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 		if a.Pos.Line != b.Pos.Line {
