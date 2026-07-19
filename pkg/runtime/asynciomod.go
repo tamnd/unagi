@@ -63,6 +63,8 @@ func initAsyncio(m *objects.Module) error {
 		{"CancelledError", objects.AsyncioCancelledErrorClass()},
 		{"InvalidStateError", objects.AsyncioInvalidStateErrorClass()},
 		{"TimeoutError", objects.ExcClass2("TimeoutError")},
+		{"IncompleteReadError", objects.AsyncioIncompleteReadErrorClass()},
+		{"LimitOverrunError", objects.AsyncioLimitOverrunErrorClass()},
 	} {
 		if err := objects.StoreAttr(m, e.name, e.obj); err != nil {
 			return err
