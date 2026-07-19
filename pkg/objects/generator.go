@@ -113,6 +113,12 @@ func Await(o Object) (Object, error) {
 	if g, ok := o.(*generatorObject); ok && g.isCoro {
 		return g, nil
 	}
+	// A native awaitable (an asyncio Task or Future) supplies its own iterator
+	// directly, the same shortcut a coroutine gets, so awaiting one does not go
+	// through a Python-level __await__ lookup.
+	if a, ok := o.(awaitable); ok {
+		return a.awaitIter()
+	}
 	aw, err := LoadAttr(o, "__await__")
 	if err != nil {
 		if isAttrError(err) {

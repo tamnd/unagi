@@ -151,6 +151,28 @@ func (f *asyncFuture) setResult(v Object) {
 	f.schedule(cbs)
 }
 
+// setException resolves the future with an exception and schedules its
+// callbacks, so an awaiter of the future re-raises it. Like setResult, a second
+// resolution is ignored.
+func (f *asyncFuture) setException(err error) {
+	f.mu.Lock()
+	if f.done {
+		f.mu.Unlock()
+		return
+	}
+	f.done = true
+	f.exc = err
+	cbs := f.callbacks
+	f.callbacks = nil
+	f.mu.Unlock()
+	f.schedule(cbs)
+}
+
+// awaitIter makes the future awaitable: await fut yields the future once while
+// pending and evaluates to its result once resolved. gather returns a future,
+// so awaiting the gather is this iterator.
+func (f *asyncFuture) awaitIter() (Object, error) { return &futureAwait{f: f}, nil }
+
 // addDoneCallback registers cb to run when the future is done. A future already
 // done schedules cb at once, the way asyncio calls a late callback on the next
 // loop iteration rather than inline.
@@ -215,16 +237,53 @@ func (a *futureAwait) StopValue() Object {
 	return a.f.result
 }
 
+// awaitable is a native object that supplies its own await iterator, the Go-side
+// shortcut Await takes instead of a Python __await__ lookup. Coroutines, Tasks,
+// and Futures are the awaitables this package builds.
+type awaitable interface {
+	awaitIter() (Object, error)
+}
+
 // asyncTask drives a coroutine on the loop. Each step resumes the coroutine
 // until it yields an awaitable or finishes; a yielded future re-schedules the
 // step when it resolves, and a bare yield (sleep(0)) re-schedules at once. The
 // task lives only on the loop goroutine, so its finished flag needs no lock.
+//
+// doneFut resolves when the task completes, so awaiting the task suspends the
+// awaiter until then and hands back the task's result or exception. create_task
+// returns a task; run drives one without ever awaiting doneFut.
 type asyncTask struct {
-	coro   *generatorObject
-	loop   *eventLoop
-	done   bool
-	result Object
-	exc    error
+	coro    *generatorObject
+	loop    *eventLoop
+	done    bool
+	result  Object
+	exc     error
+	doneFut *asyncFuture
+}
+
+func (tk *asyncTask) TypeName() string { return "Task" }
+
+// awaitIter makes the task awaitable: it yields the task's completion future, so
+// the awaiting task resumes when this one finishes with its result or exception.
+func (tk *asyncTask) awaitIter() (Object, error) { return &futureAwait{f: tk.doneFut}, nil }
+
+// newTask builds a task for coro bound to loop, with a completion future the
+// loop resolves when the coroutine finishes.
+func newTask(coro *generatorObject, loop *eventLoop) *asyncTask {
+	return &asyncTask{coro: coro, loop: loop, doneFut: &asyncFuture{loop: loop}}
+}
+
+// finish records the task's outcome and resolves its completion future, waking
+// anything awaiting the task.
+func (tk *asyncTask) finish(result Object, err error) {
+	tk.done = true
+	if err != nil {
+		tk.exc = err
+		tk.doneFut.setException(err)
+		return
+	}
+	tk.result = result
+	tk.doneFut.setResult(result)
 }
 
 func (tk *asyncTask) step(sig genSignal) {
@@ -233,13 +292,11 @@ func (tk *asyncTask) step(sig genSignal) {
 	}
 	val, ret, fin, err := tk.coro.step(sig)
 	if err != nil {
-		tk.done = true
-		tk.exc = err
+		tk.finish(nil, err)
 		return
 	}
 	if fin {
-		tk.done = true
-		tk.result = ret
+		tk.finish(ret, nil)
 		return
 	}
 	switch v := val.(type) {
@@ -277,7 +334,7 @@ func AsyncioRun(main Object) (Object, error) {
 		loop.closed = true
 		runningLoop.Store(nil)
 	}()
-	tk := &asyncTask{coro: coro, loop: loop}
+	tk := newTask(coro, loop)
 	loop.callSoon(func() { tk.step(genSignal{val: None}) })
 	if err := loop.runUntil(func() bool { return tk.done }); err != nil {
 		return nil, err
@@ -286,6 +343,101 @@ func AsyncioRun(main Object) (Object, error) {
 		return nil, tk.exc
 	}
 	return tk.result, nil
+}
+
+// AsyncioCreateTask implements asyncio.create_task(coro): it schedules coro to
+// run concurrently on the running loop and returns the Task at once, before the
+// coroutine has run. Called outside a running loop it is the RuntimeError
+// asyncio raises, and a non-coroutine argument is a TypeError.
+func AsyncioCreateTask(coro Object) (Object, error) {
+	loop := runningLoop.Load()
+	if loop == nil {
+		return nil, Raise(RuntimeError, "no running event loop")
+	}
+	tk, err := scheduleTask(coro, loop)
+	if err != nil {
+		return nil, err
+	}
+	return tk, nil
+}
+
+// scheduleTask builds a task for coro on loop and queues its first step, the
+// shared path of create_task and gather's coroutine arguments.
+func scheduleTask(coro Object, loop *eventLoop) (*asyncTask, error) {
+	g, ok := coro.(*generatorObject)
+	if !ok || !g.isCoro {
+		return nil, Raise(TypeError, "a coroutine was expected, got %s", coro.TypeName())
+	}
+	tk := newTask(g, loop)
+	loop.callSoon(func() { tk.step(genSignal{val: None}) })
+	return tk, nil
+}
+
+// ensureTask wraps a gather argument in a running task. A coroutine is
+// scheduled; a task passed straight through. Futures are a later slice.
+func ensureTask(arg Object, loop *eventLoop) (*asyncTask, error) {
+	if tk, ok := arg.(*asyncTask); ok {
+		return tk, nil
+	}
+	return scheduleTask(arg, loop)
+}
+
+// AsyncioGather implements asyncio.gather(*aws, return_exceptions=False). It runs
+// every awaitable concurrently and returns a future that resolves to the list of
+// their results in argument order once all finish. With return_exceptions off,
+// the first child to raise resolves the gather with that exception; with it on,
+// each child's exception takes its slot in the result list. The returned future
+// is itself awaitable, so the caller writes await gather(...).
+func AsyncioGather(args []Object, returnExceptions bool) (Object, error) {
+	loop := runningLoop.Load()
+	if loop == nil {
+		return nil, Raise(RuntimeError, "no running event loop")
+	}
+	gfut := &asyncFuture{loop: loop}
+	results := make([]Object, len(args))
+	if len(args) == 0 {
+		gfut.setResult(NewList(nil))
+		return gfut, nil
+	}
+	// The children's done-callbacks all run on the loop goroutine, so remaining
+	// and results are touched by one goroutine at a time and need no lock.
+	remaining := len(args)
+	for i, arg := range args {
+		child, err := ensureTask(arg, loop)
+		if err != nil {
+			return nil, err
+		}
+		idx := i
+		child.doneFut.addDoneCallback(func() {
+			if gfut.doneP() {
+				return
+			}
+			if child.exc != nil {
+				if !returnExceptions {
+					gfut.setException(child.exc)
+					return
+				}
+				results[idx] = errorObject(child.exc)
+			} else {
+				results[idx] = child.result
+			}
+			remaining--
+			if remaining == 0 {
+				gfut.setResult(NewList(results))
+			}
+		})
+	}
+	return gfut, nil
+}
+
+// errorObject recovers the Python exception an error carries, so gather can put
+// it in the result list under return_exceptions. A raised exception is always an
+// Object here; anything else is wrapped so the slot still holds a value.
+func errorObject(err error) Object {
+	if o, ok := err.(Object); ok {
+		return o
+	}
+	return Raise(RuntimeError, "%s", err.Error())
 }
 
 // AsyncioSleep implements asyncio.sleep(delay, result=None). A non-positive

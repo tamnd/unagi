@@ -111,6 +111,165 @@ func TestAsyncioRunNested(t *testing.T) {
 	}
 }
 
+// sleepThen returns a coroutine that sleeps for delay and then returns val.
+func sleepThen(name string, delay float64, val Object) Object {
+	return NewCoroutine(name, func(y Yielder) (Object, error) {
+		if _, err := y.YieldFrom(AsyncioSleep(delay, None)); err != nil {
+			return nil, err
+		}
+		return val, nil
+	})
+}
+
+// awaitObj awaits an awaitable from inside a coroutine body and hands back its
+// result, the Go-side spelling of an await expression.
+func awaitObj(y Yielder, o Object) (Object, error) {
+	aw, err := Await(o)
+	if err != nil {
+		return nil, err
+	}
+	return y.YieldFrom(aw)
+}
+
+// TestAsyncioCreateTaskAwait checks create_task schedules a coroutine and that
+// awaiting the returned task yields its result.
+func TestAsyncioCreateTaskAwait(t *testing.T) {
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		task, err := AsyncioCreateTask(sleepThen("child", 0.005, NewInt(11)))
+		if err != nil {
+			return nil, err
+		}
+		return awaitObj(y, task)
+	})
+	got, err := AsyncioRun(main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if n, ok := AsInt(got); !ok || n != 11 {
+		t.Fatalf("awaited task = %v, want 11", Repr(got))
+	}
+}
+
+// TestAsyncioCreateTaskConcurrent checks two tasks run concurrently and finish
+// in timer order, not creation order: the shorter sleep records first.
+func TestAsyncioCreateTaskConcurrent(t *testing.T) {
+	var order []string
+	record := func(name string, delay float64) Object {
+		return NewCoroutine(name, func(y Yielder) (Object, error) {
+			if _, err := y.YieldFrom(AsyncioSleep(delay, None)); err != nil {
+				return nil, err
+			}
+			order = append(order, name)
+			return None, nil
+		})
+	}
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		slow, err := AsyncioCreateTask(record("slow", 0.02))
+		if err != nil {
+			return nil, err
+		}
+		fast, err := AsyncioCreateTask(record("fast", 0.005))
+		if err != nil {
+			return nil, err
+		}
+		if _, err := awaitObj(y, slow); err != nil {
+			return nil, err
+		}
+		return awaitObj(y, fast)
+	})
+	if _, err := AsyncioRun(main); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(order) != 2 || order[0] != "fast" || order[1] != "slow" {
+		t.Fatalf("finish order = %v, want [fast slow]", order)
+	}
+}
+
+// TestAsyncioGatherOrder checks gather collects results in argument order even
+// when the awaitables finish out of order.
+func TestAsyncioGatherOrder(t *testing.T) {
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		g, err := AsyncioGather([]Object{
+			sleepThen("a", 0.02, NewInt(1)),
+			sleepThen("b", 0, NewInt(2)),
+			sleepThen("c", 0.01, NewInt(3)),
+		}, false)
+		if err != nil {
+			return nil, err
+		}
+		return awaitObj(y, g)
+	})
+	got, err := AsyncioRun(main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if Repr(got) != "[1, 2, 3]" {
+		t.Fatalf("gather = %v, want [1, 2, 3]", Repr(got))
+	}
+}
+
+// TestAsyncioGatherFirstException checks that with return_exceptions off the
+// first awaitable to raise resolves the gather with that exception.
+func TestAsyncioGatherFirstException(t *testing.T) {
+	boom := NewCoroutine("boom", func(y Yielder) (Object, error) {
+		if _, err := y.YieldFrom(AsyncioSleep(0, None)); err != nil {
+			return nil, err
+		}
+		return nil, Raise(ValueError, "boom")
+	})
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		g, err := AsyncioGather([]Object{sleepThen("a", 0.02, NewInt(1)), boom}, false)
+		if err != nil {
+			return nil, err
+		}
+		return awaitObj(y, g)
+	})
+	if _, err := AsyncioRun(main); coroExcKind(err) != "ValueError" {
+		t.Fatalf("gather = %v, want ValueError", err)
+	}
+}
+
+// TestAsyncioGatherReturnExceptions checks that with return_exceptions on an
+// awaitable's exception takes its slot in the result list.
+func TestAsyncioGatherReturnExceptions(t *testing.T) {
+	boom := NewCoroutine("boom", func(y Yielder) (Object, error) {
+		return nil, Raise(ValueError, "boom")
+	})
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		g, err := AsyncioGather([]Object{sleepThen("a", 0, NewInt(1)), boom}, true)
+		if err != nil {
+			return nil, err
+		}
+		return awaitObj(y, g)
+	})
+	got, err := AsyncioRun(main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	items, ok := got.(*listObject)
+	if !ok || len(items.elts) != 2 {
+		t.Fatalf("gather = %v, want a 2-element list", Repr(got))
+	}
+	if n, ok := AsInt(items.elts[0]); !ok || n != 1 {
+		t.Fatalf("first slot = %v, want 1", Repr(items.elts[0]))
+	}
+	if e, ok := items.elts[1].(*Exception); !ok || e.Kind != "ValueError" {
+		t.Fatalf("second slot = %v, want a ValueError", Repr(items.elts[1]))
+	}
+}
+
+// TestAsyncioCreateTaskOutsideLoop checks create_task off a running loop is the
+// RuntimeError asyncio raises.
+func TestAsyncioCreateTaskOutsideLoop(t *testing.T) {
+	c := NewCoroutine("c", func(y Yielder) (Object, error) { return None, nil })
+	if _, err := AsyncioCreateTask(c); coroExcKind(err) != "RuntimeError" {
+		t.Fatalf("create_task outside loop = %v, want RuntimeError", err)
+	}
+	if _, err := c.(*generatorObject).closeGen(); err != nil {
+		t.Fatalf("close c: %v", err)
+	}
+}
+
 // TestAsyncioRunningLoopOutside checks there is no running loop before or after
 // a run, and one during it.
 func TestAsyncioRunningLoopOutside(t *testing.T) {

@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+task result 7
+finish order ['fast', 'slow']
+gather results [1, 2, 3]
+gather empty []
+gather raised boom
+first 1
+second is ValueError True boom
+third 3
+no loop: no running event loop
+== exception:
+== stderr:
