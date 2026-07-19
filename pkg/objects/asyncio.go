@@ -360,8 +360,19 @@ type asyncFuture struct {
 	cancelled bool
 	result    Object
 	exc       error
-	callbacks []func()
+	callbacks []futureCallback
 	loop      *eventLoop
+}
+
+// futureCallback is one registered done-callback. run is the Go closure the loop
+// fires when the future resolves; py is the Python callable the user passed to
+// add_done_callback, kept so remove_done_callback can find it by equality. An
+// internal callback added by the await machinery carries a nil py and so is
+// never removable from Python, matching CPython where those live on a separate
+// internal list.
+type futureCallback struct {
+	run func()
+	py  Object
 }
 
 func (f *asyncFuture) TypeName() string { return "Future" }
@@ -414,24 +425,50 @@ func (f *asyncFuture) awaitIter() (Object, error) { return &futureAwait{f: f}, n
 // done schedules cb at once, the way asyncio calls a late callback on the next
 // loop iteration rather than inline.
 func (f *asyncFuture) addDoneCallback(cb func()) {
+	f.addDoneCallbackWith(cb, nil)
+}
+
+// addDoneCallbackWith registers cb the way addDoneCallback does, tagging it with
+// the Python callable py so remove_done_callback can find it later. An internal
+// callback passes a nil py.
+func (f *asyncFuture) addDoneCallbackWith(cb func(), py Object) {
 	f.mu.Lock()
 	if f.done {
 		f.mu.Unlock()
-		f.schedule([]func(){cb})
+		f.schedule([]futureCallback{{run: cb, py: py}})
 		return
 	}
-	f.callbacks = append(f.callbacks, cb)
+	f.callbacks = append(f.callbacks, futureCallback{run: cb, py: py})
 	f.mu.Unlock()
+}
+
+// removeDoneCallback drops every registered callback whose Python callable
+// equals cb and returns how many it removed, the count Future.remove_done_callback
+// reports. Internal callbacks carry no Python callable and are left in place.
+func (f *asyncFuture) removeDoneCallback(cb Object) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	kept := f.callbacks[:0:0]
+	removed := 0
+	for _, c := range f.callbacks {
+		if c.py != nil && equals(c.py, cb) {
+			removed++
+			continue
+		}
+		kept = append(kept, c)
+	}
+	f.callbacks = kept
+	return removed
 }
 
 // schedule enqueues the callbacks on the loop, or runs them inline if the future
 // carries no loop, so a resolved-before-run future still fires them.
-func (f *asyncFuture) schedule(cbs []func()) {
+func (f *asyncFuture) schedule(cbs []futureCallback) {
 	for _, cb := range cbs {
 		if f.loop != nil {
-			f.loop.callSoon(cb)
+			f.loop.callSoon(cb.run)
 		} else {
-			cb()
+			cb.run()
 		}
 	}
 }
@@ -595,6 +632,11 @@ func taskMethod(tk *asyncTask, name string, args []Object) (Object, error) {
 		}
 		tk.doneFut.pyAddDoneCallback(args[0])
 		return None, nil
+	case "remove_done_callback":
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "remove_done_callback() takes exactly 1 positional argument (%d given)", len(args))
+		}
+		return tk.doneFut.pyRemoveDoneCallback(args[0]), nil
 	case "cancel":
 		msg := Object(None)
 		if len(args) == 1 {

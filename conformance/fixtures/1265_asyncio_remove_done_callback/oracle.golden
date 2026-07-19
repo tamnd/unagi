@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+removed 2
+removed again 0
+fired ['cb2']
+task removed 1
+task removed again 0
+fut arity remove_done_callback() takes exactly 1 positional argument (0 given)
+task arity remove_done_callback() takes exactly 1 positional argument (0 given)
+ok
+== exception:
+== stderr:

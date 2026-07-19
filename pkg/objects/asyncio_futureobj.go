@@ -127,11 +127,17 @@ func (f *asyncFuture) pyCancel(msg Object) Object {
 // callback that raises is reported and swallowed the way asyncio's loop handles a
 // failing callback, so it never derails the future's other callbacks.
 func (f *asyncFuture) pyAddDoneCallback(cb Object) {
-	f.addDoneCallback(func() {
+	f.addDoneCallbackWith(func() {
 		if _, err := Call(cb, []Object{f}); err != nil {
 			reportCallbackError(err)
 		}
-	})
+	}, cb)
+}
+
+// pyRemoveDoneCallback backs Future.remove_done_callback: it drops every
+// registered instance of cb and returns the number removed as a Python int.
+func (f *asyncFuture) pyRemoveDoneCallback(cb Object) Object {
+	return NewInt(int64(f.removeDoneCallback(cb)))
 }
 
 // futureMethod dispatches the positional Future methods.
@@ -186,6 +192,11 @@ func asyncFutureMethod(f *asyncFuture, name string, args []Object) (Object, erro
 		}
 		f.pyAddDoneCallback(args[0])
 		return None, nil
+	case "remove_done_callback":
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "remove_done_callback() takes exactly 1 positional argument (%d given)", len(args))
+		}
+		return f.pyRemoveDoneCallback(args[0]), nil
 	case "get_loop":
 		if f.loop == nil {
 			return None, nil
@@ -234,7 +245,7 @@ func asyncFutureMethodKw(f *asyncFuture, name string, pos []Object, kwNames []st
 var asyncFutureMethodNames = map[string]bool{
 	"result": true, "exception": true, "done": true, "cancelled": true,
 	"set_result": true, "set_exception": true, "cancel": true,
-	"add_done_callback": true, "get_loop": true,
+	"add_done_callback": true, "remove_done_callback": true, "get_loop": true,
 }
 
 // asyncFutureRepr renders a Future the way asyncio does in its non-debug repr:
