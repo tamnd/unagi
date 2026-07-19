@@ -971,7 +971,44 @@ func builtinTypeIntrospect(x *funcObject, name string) (Object, bool) {
 func builtinTypeDictProxy(x *funcObject) Object {
 	d := &dictObject{index: map[string]int{}}
 	_ = d.set(NewStr("__new__"), x)
+	// __hash__ is present on every builtin type that defines its own, which the
+	// structural Hashable check `"__hash__" in T.__dict__` then reads: a hashable
+	// type carries the callable, an unhashable one (list, dict, set, bytearray)
+	// carries None so the check breaks out to NotImplemented. bool is the one
+	// hashable type that defines no __hash__ of its own, inheriting int's down the
+	// MRO, so it is left absent for the walk to find on int.
+	if x.name != "bool" {
+		if builtinUnhashableType[x.name] {
+			_ = d.set(NewStr("__hash__"), None)
+		} else {
+			_ = d.set(NewStr("__hash__"), builtinHashDunder)
+		}
+	}
 	return &mappingProxyObject{d: d}
+}
+
+// builtinUnhashableType names the builtin container types whose instances are
+// unhashable, so their type carries __hash__ = None rather than a callable, the
+// way list.__dict__["__hash__"] is None in CPython.
+var builtinUnhashableType = map[string]bool{
+	"list": true, "dict": true, "set": true, "bytearray": true,
+}
+
+// builtinHashDunder is the __hash__ a builtin type exposes in its __dict__: a
+// callable so the structural Hashable check sees a truthy entry, backed by the
+// value's own hash so type(x).__dict__["__hash__"](x) equals hash(x). It is
+// assigned in init so the closure over PyHash does not form a package
+// initialization cycle.
+var builtinHashDunder Object
+
+func init() {
+	builtinHashDunder = NewFunc("__hash__", 1, func(args []Object) (Object, error) {
+		h, err := PyHash(args[0])
+		if err != nil {
+			return nil, err
+		}
+		return NewInt(int64(h)), nil
+	})
 }
 
 // classDictProxy is __dict__, the read-only mappingproxy over the class
