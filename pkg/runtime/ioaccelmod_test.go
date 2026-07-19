@@ -162,6 +162,79 @@ func TestIOBaseCloseIdempotent(t *testing.T) {
 	}
 }
 
+// newIOInstance instantiates a bare _io class by name.
+func newIOInstance(t *testing.T, name string) objects.Object {
+	t.Helper()
+	inst, err := objects.Call(ioAttr(t, name), nil)
+	if err != nil {
+		t.Fatalf("%s(): %v", name, err)
+	}
+	return inst
+}
+
+// wantRaises asserts calling method on self raises an exception of the given
+// kind carrying the expected text.
+func wantRaises(t *testing.T, self objects.Object, method, kind, text string, args ...objects.Object) {
+	t.Helper()
+	_, err := objects.CallMethod(self, method, args)
+	exc, ok := err.(*objects.Exception)
+	if !ok {
+		t.Fatalf("%s() error = %v, want %s", method, err, kind)
+	}
+	if exc.Kind != kind {
+		t.Fatalf("%s() kind = %s, want %s", method, exc.Kind, kind)
+	}
+	if exc.Text() != text {
+		t.Fatalf("%s() text = %q, want %q", method, exc.Text(), text)
+	}
+}
+
+func TestIORawIOBaseDefaults(t *testing.T) {
+	b := newIOInstance(t, "_RawIOBase")
+	// The sibling bases inherit _IOBase, so the predicates report false.
+	for _, m := range []string{"readable", "writable", "seekable"} {
+		if objects.Truth(ioCall(t, b, m)) {
+			t.Fatalf("%s() should be false on the bare raw base", m)
+		}
+	}
+	// readinto and write raise NotImplementedError with no message, and read and
+	// readall funnel through readinto, so they raise it too.
+	wantRaises(t, b, "readinto", "NotImplementedError", "", objects.NewByteArray(make([]byte, 4)))
+	wantRaises(t, b, "write", "NotImplementedError", "", objects.NewBytes([]byte("x")))
+	wantRaises(t, b, "read", "NotImplementedError", "", objects.NewInt(5))
+	wantRaises(t, b, "readall", "NotImplementedError", "")
+}
+
+func TestIOBufferedIOBaseDefaults(t *testing.T) {
+	b := newIOInstance(t, "_BufferedIOBase")
+	// read/read1/write/detach raise UnsupportedOperation with their own op name.
+	wantRaises(t, b, "read", "UnsupportedOperation", "read")
+	wantRaises(t, b, "read1", "UnsupportedOperation", "read1")
+	wantRaises(t, b, "write", "UnsupportedOperation", "write", objects.NewBytes([]byte("x")))
+	wantRaises(t, b, "detach", "UnsupportedOperation", "detach")
+	// readinto delegates to read, so it surfaces "read"; readinto1 to read1.
+	wantRaises(t, b, "readinto", "UnsupportedOperation", "read", objects.NewByteArray(make([]byte, 4)))
+	wantRaises(t, b, "readinto1", "UnsupportedOperation", "read1", objects.NewByteArray(make([]byte, 4)))
+}
+
+func TestIOTextIOBaseDefaults(t *testing.T) {
+	b := newIOInstance(t, "_TextIOBase")
+	wantRaises(t, b, "read", "UnsupportedOperation", "read")
+	wantRaises(t, b, "readline", "UnsupportedOperation", "readline")
+	wantRaises(t, b, "write", "UnsupportedOperation", "write", objects.NewStr("x"))
+	wantRaises(t, b, "detach", "UnsupportedOperation", "detach")
+	// encoding/errors/newlines read as None on the bare base.
+	for _, name := range []string{"encoding", "errors", "newlines"} {
+		v, err := objects.LoadAttr(b, name)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if v != objects.None {
+			t.Fatalf("%s = %s, want None", name, objects.Repr(v))
+		}
+	}
+}
+
 func TestIOBlockingIOErrorReexport(t *testing.T) {
 	// _io only re-exports BlockingIOError, so the name is the very builtin the
 	// exception namespace binds, not a fresh class.

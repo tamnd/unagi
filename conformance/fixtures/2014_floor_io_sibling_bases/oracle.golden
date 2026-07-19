@@ -1,0 +1,32 @@
+== exit: 0
+== stdout:
+_RawIOBase ['_IOBase']
+  bare: False False False False
+_BufferedIOBase ['_IOBase']
+  bare: False False False False
+_TextIOBase ['_IOBase']
+  bare: False False False False
+raw readinto -> NotImplementedError
+raw write -> NotImplementedError
+raw read -> NotImplementedError
+raw readall -> NotImplementedError
+buf read -> read
+buf read1 -> read1
+buf write -> write
+buf detach -> detach
+buf readinto -> read
+buf readinto1 -> read1
+txt read -> read
+txt readline -> readline
+txt write -> write
+txt detach -> detach
+txt attrs: None None None
+raw read(5): b'hello'
+raw readall: b' world'
+buf readinto: 4 b'abcd'
+['RawIOBase', '_RawIOBase', '_IOBase', 'object']
+['BufferedIOBase', '_BufferedIOBase', '_IOBase', 'object']
+['TextIOBase', '_TextIOBase', '_IOBase', 'object']
+True True
+== exception:
+== stderr:

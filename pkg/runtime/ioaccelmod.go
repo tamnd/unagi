@@ -48,6 +48,17 @@ func init() {
 	}
 	ioIOBase = iobase
 
+	// The three sibling bases derive from _IOBase, so it must exist first.
+	if ioRawIOBase, err = buildIORawBase(); err != nil {
+		panic("unagi: building _io._RawIOBase: " + err.Error())
+	}
+	if ioBufferedIOBase, err = buildIOBufferedBase(); err != nil {
+		panic("unagi: building _io._BufferedIOBase: " + err.Error())
+	}
+	if ioTextIOBase, err = buildIOTextBase(); err != nil {
+		panic("unagi: building _io._TextIOBase: " + err.Error())
+	}
+
 	moduleTable["_io"] = &moduleEntry{builtin: true, exec: initIOAccel}
 }
 
@@ -59,6 +70,15 @@ func initIOAccel(m *objects.Module) error {
 		return err
 	}
 	if err := set("_IOBase", ioIOBase); err != nil {
+		return err
+	}
+	if err := set("_RawIOBase", ioRawIOBase); err != nil {
+		return err
+	}
+	if err := set("_BufferedIOBase", ioBufferedIOBase); err != nil {
+		return err
+	}
+	if err := set("_TextIOBase", ioTextIOBase); err != nil {
 		return err
 	}
 	// DEFAULT_BUFFER_SIZE is the buffer size the buffered streams and open()
@@ -215,6 +235,182 @@ func buildIOBase() (objects.Object, error) {
 		ioMethod("writelines", 2, ioWritelines),
 	}
 	return objects.NewClass("_IOBase", "_io._IOBase", nil, names, vals, nil, nil)
+}
+
+// ioRawIOBase, ioBufferedIOBase and ioTextIOBase are the three sibling abstract
+// bases. Each derives from _IOBase and adds the read/write methods a raw,
+// buffered or text stream implements, raising by default on the bare base.
+// io.py builds RawIOBase/BufferedIOBase/TextIOBase on them, and the concrete
+// streams derive from these, so like _IOBase they are real Go classObjects that
+// join the MRO through the ordinary path.
+var (
+	ioRawIOBase      objects.Object
+	ioBufferedIOBase objects.Object
+	ioTextIOBase     objects.Object
+)
+
+// buildIORawBase constructs `_io._RawIOBase`. A raw stream reads and writes
+// bytes to a low-level device. read/readall funnel through readinto, and
+// readinto and write raise NotImplementedError on the bare base, exactly as the
+// C accelerator does (not UnsupportedOperation, unlike the buffered and text
+// bases).
+func buildIORawBase() (objects.Object, error) {
+	names := []string{"read", "readall", "readinto", "write"}
+	vals := []objects.Object{
+		ioMethod("read", -1, ioRawRead),
+		ioMethod("readall", 1, ioRawReadall),
+		ioNotImplementedMethod("readinto"),
+		ioNotImplementedMethod("write"),
+	}
+	return objects.NewClass("_RawIOBase", "_io._RawIOBase",
+		[]objects.Object{ioIOBase}, names, vals, nil, nil)
+}
+
+// buildIOBufferedBase constructs `_io._BufferedIOBase`. read/read1/write/detach
+// raise UnsupportedOperation on the bare base; readinto and readinto1 delegate
+// to read and read1, so they surface the same UnsupportedOperation "read" and
+// "read1" and do the buffer copy for a subclass that supplies those reads.
+func buildIOBufferedBase() (objects.Object, error) {
+	names := []string{"read", "read1", "readinto", "readinto1", "write", "detach"}
+	vals := []objects.Object{
+		ioUnsupportedMethod("read", "read"),
+		ioUnsupportedMethod("read1", "read1"),
+		ioMethod("readinto", 2, func(args []objects.Object) (objects.Object, error) {
+			return ioReadintoVia(args[0], args[1], "read")
+		}),
+		ioMethod("readinto1", 2, func(args []objects.Object) (objects.Object, error) {
+			return ioReadintoVia(args[0], args[1], "read1")
+		}),
+		ioUnsupportedMethod("write", "write"),
+		ioUnsupportedMethod("detach", "detach"),
+	}
+	return objects.NewClass("_BufferedIOBase", "_io._BufferedIOBase",
+		[]objects.Object{ioIOBase}, names, vals, nil, nil)
+}
+
+// buildIOTextBase constructs `_io._TextIOBase`. read/readline/write/detach raise
+// UnsupportedOperation on the bare base, and the encoding/errors/newlines
+// descriptors read as None until a concrete text stream overrides them.
+func buildIOTextBase() (objects.Object, error) {
+	names := []string{"read", "readline", "write", "detach", "encoding", "errors", "newlines"}
+	vals := []objects.Object{
+		ioUnsupportedMethod("read", "read"),
+		ioUnsupportedMethod("readline", "readline"),
+		ioUnsupportedMethod("write", "write"),
+		ioUnsupportedMethod("detach", "detach"),
+		ioNoneProperty("encoding"),
+		ioNoneProperty("errors"),
+		ioNoneProperty("newlines"),
+	}
+	return objects.NewClass("_TextIOBase", "_io._TextIOBase",
+		[]objects.Object{ioIOBase}, names, vals, nil, nil)
+}
+
+// ioRawRead reads and returns up to size bytes, or the whole stream when size is
+// negative or None. A non-negative size allocates a buffer and calls readinto;
+// on the bare base that readinto raises NotImplementedError.
+func ioRawRead(args []objects.Object) (objects.Object, error) {
+	self := args[0]
+	size := int64(-1)
+	if len(args) >= 2 && args[1] != objects.None {
+		n, ok := objects.AsInt(args[1])
+		if !ok {
+			return nil, objects.Raise(objects.TypeError, "read() argument must be an integer")
+		}
+		size = n
+	}
+	if size < 0 {
+		return objects.CallMethod(self, "readall", nil)
+	}
+	buf := objects.NewByteArray(make([]byte, size))
+	n, err := objects.CallMethod(self, "readinto", []objects.Object{buf})
+	if err != nil {
+		return nil, err
+	}
+	if n == objects.None {
+		return objects.None, nil
+	}
+	got, ok := objects.AsInt(n)
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "readinto() should return int")
+	}
+	b, _ := objects.AsBytesLike(buf)
+	if got > int64(len(b)) {
+		got = int64(len(b))
+	}
+	return objects.NewBytes(append([]byte(nil), b[:got]...)), nil
+}
+
+// ioRawReadall reads to end of stream in DEFAULT_BUFFER_SIZE chunks through
+// self.read. It returns the concatenated bytes, or the last empty read (b” or
+// None) when nothing was read, matching the C accelerator.
+func ioRawReadall(args []objects.Object) (objects.Object, error) {
+	self := args[0]
+	var res []byte
+	// last holds the final read, the empty b'' or None returned when nothing was
+	// read; the loop always assigns it before the break that reaches the return.
+	var last objects.Object
+	for {
+		data, err := objects.CallMethod(self, "read", []objects.Object{objects.NewInt(131072)})
+		if err != nil {
+			return nil, err
+		}
+		last = data
+		if !objects.Truth(data) {
+			break
+		}
+		b, ok := objects.AsBytesLike(data)
+		if !ok {
+			return nil, objects.Raise(objects.TypeError, "read() should return bytes, not %s", data.TypeName())
+		}
+		res = append(res, b...)
+	}
+	if len(res) > 0 {
+		return objects.NewBytes(res), nil
+	}
+	return last, nil
+}
+
+// ioReadintoVia is the shared body of _BufferedIOBase.readinto/readinto1: it
+// reads len(buf) bytes through self.read or self.read1 and copies them into buf,
+// returning the number of bytes read. On the bare base the read call raises
+// UnsupportedOperation, so readinto surfaces "read" and readinto1 "read1".
+func ioReadintoVia(self, buf objects.Object, method string) (objects.Object, error) {
+	n, err := objects.Len(buf)
+	if err != nil {
+		return nil, err
+	}
+	data, err := objects.CallMethod(self, method, []objects.Object{objects.NewInt(int64(n))})
+	if err != nil {
+		return nil, err
+	}
+	b, ok := objects.AsBytesLike(data)
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "%s() should return bytes, not %s", method, data.TypeName())
+	}
+	for i, c := range b {
+		if err := objects.SetItem(buf, objects.NewInt(int64(i)), objects.NewInt(int64(c))); err != nil {
+			return nil, err
+		}
+	}
+	return objects.NewInt(int64(len(b))), nil
+}
+
+// ioNotImplementedMethod builds a method that always raises NotImplementedError
+// with no message, the way the C _RawIOBase leaves readinto and write.
+func ioNotImplementedMethod(name string) objects.Object {
+	return objects.NewMethod(name, -1, func([]objects.Object) (objects.Object, error) {
+		return nil, objects.NewException("NotImplementedError", nil)
+	})
+}
+
+// ioNoneProperty builds a read-only property that reads as None, the default the
+// _TextIOBase encoding/errors/newlines descriptors carry until a concrete text
+// stream overrides them.
+func ioNoneProperty(name string) objects.Object {
+	return objects.NewProperty(objects.NewFunc(name, 1, func([]objects.Object) (objects.Object, error) {
+		return objects.None, nil
+	}), nil, nil)
 }
 
 // ioMethod builds a self-binding _IOBase method. args[0] is the instance.
