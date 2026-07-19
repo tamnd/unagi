@@ -40,6 +40,41 @@ func TestPrint(t *testing.T) {
 	}
 }
 
+func TestPrintKwFile(t *testing.T) {
+	var buf bytes.Buffer
+	old := Stdout
+	Stdout = &buf
+	defer func() { Stdout = old }()
+
+	// A None file falls through to Stdout, honouring sep and end.
+	if err := PrintKwFile([]objects.Object{objects.NewInt(1), objects.NewInt(2)},
+		objects.NewStr("-"), objects.NewStr("!"), objects.None, objects.None); err != nil {
+		t.Fatalf("PrintKwFile(None): %v", err)
+	}
+	if got, want := buf.String(), "1-2!"; got != want {
+		t.Errorf("None file output = %q, want %q", got, want)
+	}
+
+	// A real file object receives the composed text through write(); Stdout
+	// stays untouched.
+	buf.Reset()
+	sink := objects.NewStringIO("")
+	if err := PrintKwFile([]objects.Object{objects.NewStr("hello"), objects.NewStr("world")},
+		objects.None, objects.None, sink, objects.True); err != nil {
+		t.Fatalf("PrintKwFile(file): %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("Stdout got %q, want empty", buf.String())
+	}
+	got, err := objects.CallMethod(sink, "getvalue", nil)
+	if err != nil {
+		t.Fatalf("getvalue: %v", err)
+	}
+	if s, _ := objects.AsStr(got); s != "hello world\n" {
+		t.Errorf("file contents = %q, want %q", s, "hello world\n")
+	}
+}
+
 func TestLenAndConversions(t *testing.T) {
 	v, err := Len(objects.NewStr("héllo"))
 	if err != nil || objects.Repr(v) != "5" {

@@ -68,6 +68,73 @@ func PrintKw(args []objects.Object, sep, end objects.Object) error {
 	return werr
 }
 
+// PrintKwFile implements print(*args, sep=..., end=..., file=..., flush=...).
+// A file of None (or nil) prints to Stdout exactly as PrintKw does; any other
+// object is written through its write() method, then flushed via flush() when
+// the flush keyword is truthy. CPython issues one write() per piece, the
+// separator between arguments and the terminator last, so a file that records
+// its writes sees each piece; the Stdout path composes and writes once, which
+// is byte-identical there.
+func PrintKwFile(args []objects.Object, sep, end, file, flush objects.Object) error {
+	sepS, err := printOpt("sep", sep, " ")
+	if err != nil {
+		return err
+	}
+	endS, err := printOpt("end", end, "\n")
+	if err != nil {
+		return err
+	}
+	if file == nil || file == objects.None {
+		var b strings.Builder
+		for i, a := range args {
+			if i > 0 {
+				b.WriteString(sepS)
+			}
+			s, serr := objects.StrE(a)
+			if serr != nil {
+				return serr
+			}
+			b.WriteString(s)
+		}
+		b.WriteString(endS)
+		_, werr := io.WriteString(Stdout, b.String())
+		return werr
+	}
+	write := func(s string) error {
+		_, err := objects.CallMethod(file, "write", []objects.Object{objects.NewStr(s)})
+		return err
+	}
+	for i, a := range args {
+		if i > 0 {
+			if err := write(sepS); err != nil {
+				return err
+			}
+		}
+		s, serr := objects.StrE(a)
+		if serr != nil {
+			return serr
+		}
+		if err := write(s); err != nil {
+			return err
+		}
+	}
+	if err := write(endS); err != nil {
+		return err
+	}
+	if flush != nil && flush != objects.None {
+		flushOn, err := objects.TruthOf(flush)
+		if err != nil {
+			return err
+		}
+		if flushOn {
+			if _, err := objects.CallMethod(file, "flush", nil); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // printOpt resolves one print separator option. Probed wording:
 // sep must be None or a string, not int.
 func printOpt(name string, o objects.Object, dflt string) (string, error) {
