@@ -10,6 +10,7 @@ var explanations = map[string]string{
 	"UNA-THR-004": unaThr004Explain,
 	"UNA-THR-005": unaThr005Explain,
 	"UNA-THR-006": unaThr006Explain,
+	"UNA-THR-007": unaThr007Explain,
 }
 
 // Explain returns the long-form text for a finding code and whether the code is
@@ -206,4 +207,35 @@ of the collector:
 
 The same holds for any object whose cleanup you were leaving to the refcount,
 such as a socket or a lock; bind it and close it, or manage it with with.
+`
+
+const unaThr007Explain = `UNA-THR-007: daemon thread holding a resource
+
+A daemon thread does not keep the process alive. When the main thread exits, the
+interpreter kills every daemon where it stands, without unwinding its stack. No
+finally runs, no with block closes, and no buffer is flushed.
+
+    def log_forever():
+        with open("out.log", "a") as f:
+            while True:
+                f.write(next_line())
+
+    threading.Thread(target=log_forever, daemon=True).start()
+
+Whatever the daemon had written into a userspace buffer but not yet flushed is
+lost, and a file it was partway through is left truncated. The with block above
+does not save it, because the abrupt kill never reaches the block's exit.
+
+If the work must complete, run a non-daemon thread and join it, so the program
+waits for it to finish:
+
+    t = threading.Thread(target=log_forever)
+    t.start()
+    ...
+    stop.set()
+    t.join()
+
+If the thread should stop when the program does, give it a shutdown Event it
+checks each iteration, so it can flush and close before returning, and signal
+that event before exit.
 `
