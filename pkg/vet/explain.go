@@ -9,6 +9,7 @@ var explanations = map[string]string{
 	"UNA-THR-003": unaThr003Explain,
 	"UNA-THR-004": unaThr004Explain,
 	"UNA-THR-005": unaThr005Explain,
+	"UNA-THR-006": unaThr006Explain,
 }
 
 // Explain returns the long-form text for a finding code and whether the code is
@@ -180,4 +181,29 @@ prefer:
 
 This check leaves a try-lock such as ` + "`if lock.acquire(timeout=1):`" + ` alone,
 since that form deliberately inspects the return value rather than blocking.
+`
+
+const unaThr006Explain = `UNA-THR-006: reliance on prompt finalization
+
+CPython frees an object the instant its last reference goes away, by reference
+count. Code often leaned on that to close a file without saying so:
+
+    data = open(path).read()      # closed the moment read() returns
+    for line in open(path):       # closed when the loop ends
+        ...
+
+The file object has no remaining reference after the statement, so CPython
+closed the descriptor right away. unagi runs on Go's garbage collector, which
+frees objects at some later collection, not at the last reference. The
+descriptor stays open until then, and a thread that opens many files in a loop
+can exhaust the file table before a collection runs.
+
+Use a with block, which closes the file at the end of the statement regardless
+of the collector:
+
+    with open(path) as f:
+        data = f.read()
+
+The same holds for any object whose cleanup you were leaving to the refcount,
+such as a socket or a lock; bind it and close it, or manage it with with.
 `
