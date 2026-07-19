@@ -15,6 +15,7 @@ var explanations = map[string]string{
 	"UNA-AIO-001": unaAio001Explain,
 	"UNA-AIO-002": unaAio002Explain,
 	"UNA-AIO-003": unaAio003Explain,
+	"UNA-MP-001":  unaMp001Explain,
 }
 
 // Explain returns the long-form text for a finding code and whether the code is
@@ -374,4 +375,34 @@ handed to Thread(target=...), executor.submit, and loop.run_in_executor, and
 flags a loop-affine call (call_soon, call_later, call_at, set_result,
 set_exception) inside one of those bodies. The threadsafe form has a different
 name and passes the completion as a value, so it is not flagged.
+`
+
+const unaMp001Explain = `UNA-MP-001: unsupported multiprocessing start method
+
+A compiled unagi program is a single Go binary, and multiprocessing starts a
+worker by re-executing that binary into a fresh process, reading its job from a
+pipe by pickle. That is exactly CPython's spawn start method: a clean process
+with no inherited interpreter state. spawn is the only method unagi supports.
+
+fork and forkserver are not supported, and asking for them raises ValueError at
+runtime:
+
+    multiprocessing.set_start_method("fork")     # ValueError at run time
+    ctx = multiprocessing.get_context("fork")    # same
+
+Forking a multithreaded runtime is unsafe: the child gets one thread and a
+scheduler frozen mid-step, so anything the other threads were holding, a lock, a
+half-written buffer, is inherited broken. This is not unagi being fussy; CPython
+3.14 flipped the Linux default away from fork for the same reason.
+
+Use spawn, which unagi provides and which is now CPython's default too:
+
+    multiprocessing.set_start_method("spawn")
+
+or drop the explicit call and take the default. Because a worker is a fresh
+process that reruns module top-level code, guard your entry point with
+if __name__ == "__main__": exactly as CPython documents for spawn.
+
+This check flags set_start_method and get_context called with fork or
+forkserver, whether the method is passed positionally or as method=.
 `
