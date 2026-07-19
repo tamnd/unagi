@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+type: _CallableGenericAlias
+origin: <class 'list'>
+args: (<class 'int'>, <class 'str'>, <class 'float'>)
+params: ()
+repr: Callable[[int, str], float]
+is GenericAlias: True
+guard: Callable must be used as Callable[[arg, ...], result].
+plain args: (<class 'str'>, <class 'int'>)
+plain origin: <class 'dict'>
+plain repr: plain(dict[str, int])
+== exception:
+== stderr:

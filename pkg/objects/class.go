@@ -1459,6 +1459,17 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 			return nil, err
 		}
 		inst.builtinData = v
+	case "types.GenericAlias":
+		// A GenericAlias subclass built directly, X(origin, item), wraps the
+		// parameterized generic as its payload. It carries no builtinBaseFn, so
+		// the value is built through NewGenericAlias rather than a base call. The
+		// two positional arguments are origin and the argument tuple, matching
+		// types.GenericAlias(origin, args).
+		v, err := newGenericAliasPayload(pos)
+		if err != nil {
+			return nil, err
+		}
+		inst.builtinData = v
 	}
 	init, ok := c.lookup("__init__")
 	if !ok {

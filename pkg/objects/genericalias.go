@@ -31,6 +31,18 @@ func NewGenericAlias(origin, item Object) Object {
 	return &genericAliasObject{origin: origin, args: args}
 }
 
+// newGenericAliasPayload builds the genericAliasObject a GenericAlias subclass
+// wraps, from the two positional arguments origin and args a constructor or a
+// super().__new__(cls, origin, args) chain supplies. It is the value-subclass
+// analogue of Call(builtinBaseFn, ...) for a base that is a type rather than a
+// builtin function.
+func newGenericAliasPayload(args []Object) (Object, error) {
+	if len(args) != 2 {
+		return nil, Raise(TypeError, "GenericAlias expected 2 arguments, got %d", len(args))
+	}
+	return NewGenericAlias(args[0], args[1]), nil
+}
+
 // genericAliasLoadAttr answers the three attributes a GenericAlias exposes:
 // __origin__ is the parameterized type, __args__ the argument tuple, and
 // __parameters__ the type variables among the arguments, empty here since the

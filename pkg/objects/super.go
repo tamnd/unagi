@@ -205,6 +205,17 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 						return nil, true, err
 					}
 					inst.builtinData = v
+				case "types.GenericAlias":
+					// super().__new__(cls, origin, args) reached through a
+					// _CallableGenericAlias-style __new__ builds the parameterized
+					// generic payload from the origin and argument tuple. The base
+					// is a type with no builtinBaseFn, so it goes through
+					// NewGenericAlias rather than a base call.
+					v, err := newGenericAliasPayload(args[1:])
+					if err != nil {
+						return nil, true, err
+					}
+					inst.builtinData = v
 				}
 				return inst, true, nil
 			}
@@ -242,8 +253,39 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 				return None, true, genericDelAttr(inst, n.v)
 			}
 		}
+	case "__repr__":
+		// A GenericAlias subclass reaches super().__repr__() to print its wrapped
+		// generic in the base's list[int] shape, the fall-through
+		// _CallableGenericAlias uses when its args are a parameter expression.
+		if g, ok := genericAliasBacked(self); ok {
+			s, err := genericAliasRepr(g)
+			if err != nil {
+				return nil, true, err
+			}
+			return NewStr(s), true, nil
+		}
+	case "__getitem__":
+		// super().__getitem__(item) on a GenericAlias subclass substitutes through
+		// the base generic, so _CallableGenericAlias can read the resulting
+		// __args__ before rewrapping them in its own subclass.
+		if g, ok := genericAliasBacked(self); ok && len(args) == 1 {
+			r, err := GetItem(g, args[0])
+			return r, true, err
+		}
 	}
 	return nil, false, nil
+}
+
+// genericAliasBacked returns the parameterized generic a GenericAlias subclass
+// instance wraps, so a super() delegation can run the base behavior on it. ok is
+// false for anything that is not such an instance.
+func genericAliasBacked(self Object) (*genericAliasObject, bool) {
+	inst, ok := self.(*instanceObject)
+	if !ok || inst.builtinData == nil {
+		return nil, false
+	}
+	g, ok := inst.builtinData.(*genericAliasObject)
+	return g, ok
 }
 
 // superCallMethodKw dispatches super().name(pos, **kw): the resolved function
