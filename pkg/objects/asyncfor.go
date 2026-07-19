@@ -100,11 +100,44 @@ func (it *asyncGenSendIter) Next() (Object, bool, error) {
 		if !a.ag.started && a.sig.err == nil && a.sig.val != None {
 			return nil, false, Raise(TypeError, "can't send non-None value to a just-started async generator")
 		}
+		// aclose on a never-started or already-finished async generator closes it
+		// to None without running the body, the shortcut closeGen takes for a sync
+		// generator.
+		if a.aclose && (a.ag.done || !a.ag.started) {
+			a.driven = true
+			it.started = true
+			a.ag.done = true
+			it.stop = None
+			return nil, false, nil
+		}
 		a.driven = true
 		it.started = true
 		sig = a.sig
 	}
 	val, _, done, err := a.ag.step(sig)
+	if a.aclose {
+		// aclose treats a clean shutdown as success: the body propagating
+		// GeneratorExit or returning completes the awaitable with None, so await
+		// aclose() is None. An inner await while the body unwinds is forwarded like
+		// any other; a bare yield instead is the RuntimeError CPython raises for a
+		// generator that swallowed the exit and kept producing. This mirrors the
+		// sync closeGen path.
+		if err != nil {
+			if e, ok := err.(*Exception); ok && e.Kind == "GeneratorExit" {
+				it.stop = None
+				return nil, false, nil
+			}
+			return nil, false, err
+		}
+		if done {
+			it.stop = None
+			return nil, false, nil
+		}
+		if a.ag.lastEventAwait {
+			return val, true, nil
+		}
+		return nil, false, Raise(RuntimeError, "async generator ignored GeneratorExit")
+	}
 	if err != nil {
 		return nil, false, err
 	}
