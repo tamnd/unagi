@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+len 2
+a in True
+c in False
+get a 1
+get b 2
+get default via method fallback
+keys ['a', 'b']
+values [1, 2]
+items [('a', 1), ('b', 2)]
+iter ['a', 'b']
+len keys 2 len values 2 len items 2
+a in keys True
+2 in values True
+KeyError on unset
+TypeError bad key: a ContextVar key was expected, got 'notavar'
+TypeError bad in: a ContextVar key was expected, got 'notavar'
+empty len 0 empty keys []
+== exception:
+== stderr:

@@ -94,6 +94,79 @@ func (c *contextObject) remove(v *contextVar) {
 
 func (c *contextObject) repr() string { return fmt.Sprintf("<Context object at %p>", c) }
 
+// keySlice, valSlice, and itemSlice materialise the set variables, their
+// values, and (key, value) pairs in insertion order, backing len, iteration,
+// and the keys/values/items views.
+func (c *contextObject) keySlice() []Object {
+	out := make([]Object, len(c.order))
+	for i, v := range c.order {
+		out[i] = v
+	}
+	return out
+}
+
+func (c *contextObject) valSlice() []Object {
+	out := make([]Object, len(c.order))
+	for i, v := range c.order {
+		out[i] = c.entries[v]
+	}
+	return out
+}
+
+func (c *contextObject) itemSlice() []Object {
+	out := make([]Object, len(c.order))
+	for i, v := range c.order {
+		out[i] = NewTuple([]Object{v, c.entries[v]})
+	}
+	return out
+}
+
+// getItem implements ctx[var]: the value var holds in this context. A missing
+// variable is a KeyError and a non-ContextVar key is a TypeError, matching the
+// mapping protocol CPython gives Context.
+func (c *contextObject) getItem(key Object) (Object, error) {
+	v, ok := key.(*contextVar)
+	if !ok {
+		return nil, Raise(TypeError, "a ContextVar key was expected, got %s", Repr(key))
+	}
+	if val, ok := c.lookup(v); ok {
+		return val, nil
+	}
+	return nil, Raise(KeyError, "%s", v.repr())
+}
+
+// containsKey implements var in ctx. Like subscript, a non-ContextVar key is a
+// TypeError rather than a plain false.
+func (c *contextObject) containsKey(key Object) (Object, error) {
+	v, ok := key.(*contextVar)
+	if !ok {
+		return nil, Raise(TypeError, "a ContextVar key was expected, got %s", Repr(key))
+	}
+	_, found := c.lookup(v)
+	return NewBool(found), nil
+}
+
+// contextKeysObject, contextValuesObject, and contextItemsObject back
+// Context.keys/values/items. Each holds the context and snapshots its variables
+// lazily, so len and iteration read whatever the context holds when asked.
+type contextKeysObject struct{ c *contextObject }
+
+func (*contextKeysObject) TypeName() string { return "keys" }
+
+func (k *contextKeysObject) repr() string { return fmt.Sprintf("<keys object at %p>", k) }
+
+type contextValuesObject struct{ c *contextObject }
+
+func (*contextValuesObject) TypeName() string { return "values" }
+
+func (v *contextValuesObject) repr() string { return fmt.Sprintf("<values object at %p>", v) }
+
+type contextItemsObject struct{ c *contextObject }
+
+func (*contextItemsObject) TypeName() string { return "items" }
+
+func (it *contextItemsObject) repr() string { return fmt.Sprintf("<items object at %p>", it) }
+
 // CopyThreadContext returns a copy of thread t's current context, the value
 // copy_context() gives back.
 func CopyThreadContext(t *Thread) Object { return t.context().copy() }
@@ -205,6 +278,21 @@ func contextMethod(t *Thread, c *contextObject, name string, args []Object) (Obj
 		return c.run(t, args, nil, nil)
 	case "get":
 		return c.getMethod(args)
+	case "keys":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "keys() takes no arguments (%d given)", len(args))
+		}
+		return &contextKeysObject{c: c}, nil
+	case "values":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "values() takes no arguments (%d given)", len(args))
+		}
+		return &contextValuesObject{c: c}, nil
+	case "items":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "items() takes no arguments (%d given)", len(args))
+		}
+		return &contextItemsObject{c: c}, nil
 	}
 	return nil, Raise(AttributeError, "'Context' object has no attribute '%s'", name)
 }
@@ -229,7 +317,7 @@ func (c *contextObject) getMethod(args []Object) (Object, error) {
 	}
 	v, ok := args[0].(*contextVar)
 	if !ok {
-		return nil, Raise(TypeError, "ContextVar key was expected, got %s", args[0].TypeName())
+		return nil, Raise(TypeError, "a ContextVar key was expected, got %s", Repr(args[0]))
 	}
 	if val, ok := c.lookup(v); ok {
 		return val, nil

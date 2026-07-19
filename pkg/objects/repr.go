@@ -398,6 +398,12 @@ func reprCore(o Object, strict bool) (string, error) {
 		return x.repr(), nil
 	case *contextObject:
 		return x.repr(), nil
+	case *contextKeysObject:
+		return x.repr(), nil
+	case *contextValuesObject:
+		return x.repr(), nil
+	case *contextItemsObject:
+		return x.repr(), nil
 	case *contextToken:
 		return x.repr(), nil
 	case *tokenClass:
