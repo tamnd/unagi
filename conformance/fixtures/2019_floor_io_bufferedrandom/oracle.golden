@@ -1,0 +1,40 @@
+== exit: 0
+== stdout:
+['BufferedRandom', '_BufferedIOBase', '_IOBase', 'object']
+True True
+True True True
+b'012' 3
+2 5
+b'012XY56789'
+0
+b'012X'
+2
+b'CDE' 5
+b'12CDEFGH'
+b'01'
+b'45'
+b'01AB456789'
+b'0000000000' 2
+b'0000000000'
+b'abcd000000'
+6 b'ABCDEF00000000000000'
+b'hello' b'he'
+b'wo'
+3 b'rld'
+4
+b'0123'
+b'abc' b''
+2
+b'BA'
+True True
+wclosed: write to closed file
+nonbytes: a bytes-like object is required, not 'str'
+noseek: File or stream is not seekable.
+bufsize: buffer size must be strictly positive
+True b'zz'
+detached: raw stream has been detached
+b'body'
+True
+BufferedRandom
+== exception:
+== stderr:
