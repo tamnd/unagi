@@ -15,6 +15,7 @@ type asyncioQueue struct {
 	putters    []*asyncFuture
 	unfinished int
 	finished   *asyncioEvent
+	isShutdown bool
 }
 
 func (q *asyncioQueue) TypeName() string {
@@ -101,8 +102,46 @@ func asyncioQueueMethod(q *asyncioQueue, name string, args []Object) (Object, er
 			return nil, Raise(TypeError, "join() takes 1 positional argument but %d were given", len(args)+1)
 		}
 		return q.joinCoro(), nil
+	case "shutdown":
+		if len(args) > 1 {
+			return nil, Raise(TypeError, "shutdown() takes from 1 to 2 positional arguments but %d were given", len(args)+1)
+		}
+		immediate := false
+		if len(args) == 1 {
+			immediate = Truth(args[0])
+		}
+		return None, q.shutdown(immediate)
 	}
 	return nil, noAttr(q, name)
+}
+
+// asyncioQueueMethodKw handles the one Queue method that takes a keyword,
+// shutdown(immediate=False); every other method rejects keywords as CPython does.
+func asyncioQueueMethodKw(q *asyncioQueue, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	if name == "shutdown" {
+		if len(pos) > 1 {
+			return nil, Raise(TypeError, "shutdown() takes from 1 to 2 positional arguments but %d were given", len(pos)+1)
+		}
+		set := map[string]Object{}
+		if len(pos) == 1 {
+			set["immediate"] = pos[0]
+		}
+		for i, k := range kwNames {
+			if k != "immediate" {
+				return nil, Raise(TypeError, "'%s' is an invalid keyword argument for shutdown()", k)
+			}
+			if _, dup := set[k]; dup {
+				return nil, Raise(TypeError, "argument for shutdown() given by name ('%s') and position", k)
+			}
+			set[k] = kwVals[i]
+		}
+		immediate := false
+		if v, ok := set["immediate"]; ok {
+			immediate = Truth(v)
+		}
+		return None, q.shutdown(immediate)
+	}
+	return nil, Raise(TypeError, "%s.%s() takes no keyword arguments", q.TypeName(), name)
 }
 
 func (q *asyncioQueue) empty() bool { return len(q.items) == 0 }
@@ -112,6 +151,9 @@ func (q *asyncioQueue) full() bool  { return q.maxsize > 0 && len(q.items) >= q.
 // bounded queue is full. Each stored item bumps the unfinished count and clears
 // the finished event, so a later join blocks until every item is marked done.
 func (q *asyncioQueue) putNoWait(item Object) error {
+	if q.isShutdown {
+		return raiseAsyncioQueueShutDown()
+	}
 	if q.full() {
 		return raiseAsyncioQueueFull()
 	}
@@ -132,6 +174,9 @@ func (q *asyncioQueue) putNoWait(item Object) error {
 // putter.
 func (q *asyncioQueue) getNoWait() (Object, error) {
 	if q.empty() {
+		if q.isShutdown {
+			return nil, raiseAsyncioQueueShutDown()
+		}
 		return nil, raiseAsyncioQueueEmpty()
 	}
 	item, err := q.get()
@@ -182,6 +227,9 @@ func (q *asyncioQueue) get() (Object, error) {
 func (q *asyncioQueue) putCoro(item Object) Object {
 	body := func(y Yielder) (Object, error) {
 		for q.full() {
+			if q.isShutdown {
+				return nil, raiseAsyncioQueueShutDown()
+			}
 			loop := runningLoop.Load()
 			if loop == nil {
 				return nil, Raise(RuntimeError, "no running event loop")
@@ -205,6 +253,9 @@ func (q *asyncioQueue) putCoro(item Object) Object {
 func (q *asyncioQueue) getCoro() Object {
 	body := func(y Yielder) (Object, error) {
 		for q.empty() {
+			if q.isShutdown {
+				return nil, raiseAsyncioQueueShutDown()
+			}
 			loop := runningLoop.Load()
 			if loop == nil {
 				return nil, Raise(RuntimeError, "no running event loop")
@@ -252,6 +303,43 @@ func (q *asyncioQueue) joinCoro() Object {
 	return &generatorObject{qual: "Queue.join", body: fromTop(body), ret: None, isCoro: true}
 }
 
+// shutdown is the 3.13 Queue.shutdown: it flips the queue to shut down so later
+// puts and gets raise QueueShutDown, then wakes every blocked putter and getter so
+// each re-checks and raises. With immediate it also drains the queue, dropping the
+// unfinished count for each drained item and releasing join if it reaches zero.
+func (q *asyncioQueue) shutdown(immediate bool) error {
+	q.isShutdown = true
+	if immediate {
+		for !q.empty() {
+			if _, err := q.get(); err != nil {
+				return err
+			}
+			if q.unfinished > 0 {
+				q.unfinished--
+			}
+		}
+		if q.unfinished == 0 {
+			q.finished.set()
+		}
+	}
+	// Every getter and putter re-checks the shutdown flag once woken.
+	for len(q.getters) > 0 {
+		g := q.getters[0]
+		q.getters = q.getters[1:]
+		if !g.doneP() {
+			g.setResult(None)
+		}
+	}
+	for len(q.putters) > 0 {
+		p := q.putters[0]
+		q.putters = q.putters[1:]
+		if !p.doneP() {
+			p.setResult(None)
+		}
+	}
+	return nil
+}
+
 // wakeupNext resolves the first pending waiter in the queue, dropping any already
 // resolved ahead of it, exactly as CPython's _wakeup_next pops the deque.
 func (q *asyncioQueue) wakeupNext(waiters *[]*asyncFuture) {
@@ -269,10 +357,12 @@ func (q *asyncioQueue) wakeupNext(waiters *[]*asyncFuture) {
 // get_nowait and put_nowait raise. They live in the asyncio.queues module,
 // matching their __module__ in CPython, and are built once on demand.
 var (
-	asyncioQueueEmptyOnce  sync.Once
-	asyncioQueueEmptyClass *classObject
-	asyncioQueueFullOnce   sync.Once
-	asyncioQueueFullClass  *classObject
+	asyncioQueueEmptyOnce     sync.Once
+	asyncioQueueEmptyClass    *classObject
+	asyncioQueueFullOnce      sync.Once
+	asyncioQueueFullClass     *classObject
+	asyncioQueueShutDownOnce  sync.Once
+	asyncioQueueShutDownClass *classObject
 )
 
 const asyncioQueuesModule = "asyncio.queues"
@@ -295,6 +385,15 @@ func AsyncioQueueFullClass() Object {
 	return asyncioQueueFullClass
 }
 
+// AsyncioQueueShutDownClass returns asyncio.QueueShutDown, raised by put and get
+// once the queue has been shut down.
+func AsyncioQueueShutDownClass() Object {
+	asyncioQueueShutDownOnce.Do(func() {
+		asyncioQueueShutDownClass = buildAsyncioQueueExc("QueueShutDown")
+	})
+	return asyncioQueueShutDownClass
+}
+
 func buildAsyncioQueueExc(name string) *classObject {
 	qual := asyncioQueuesModule + "." + name
 	c, err := NewClass(name, qual, []Object{ExcClass2("Exception")}, []string{"__module__"}, []Object{NewStr(asyncioQueuesModule)}, nil, nil)
@@ -308,6 +407,9 @@ func raiseAsyncioQueueEmpty() error {
 	return instantiateBareExc(AsyncioQueueEmptyClass(), "QueueEmpty")
 }
 func raiseAsyncioQueueFull() error { return instantiateBareExc(AsyncioQueueFullClass(), "QueueFull") }
+func raiseAsyncioQueueShutDown() error {
+	return instantiateBareExc(AsyncioQueueShutDownClass(), "QueueShutDown")
+}
 
 // instantiateBareExc builds a no-argument instance of a synthesized exception
 // class and returns it as the error to raise, falling back to a RuntimeError if

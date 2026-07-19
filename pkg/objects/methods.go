@@ -227,6 +227,8 @@ func CallMethodKwT(t *Thread, o Object, name string, pos []Object, kwNames []str
 		return queueMethodKw(x, name, pos, kwNames, kwVals)
 	case *simpleQueueObject:
 		return simpleQueueMethodKw(x, name, pos, kwNames, kwVals)
+	case *asyncioQueue:
+		return asyncioQueueMethodKw(x, name, pos, kwNames, kwVals)
 	case *futureObject:
 		return futureMethodKwT(t, x, name, pos, kwNames, kwVals)
 	case *asyncFuture:

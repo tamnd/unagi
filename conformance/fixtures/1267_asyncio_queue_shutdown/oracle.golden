@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+after shutdown empty False qsize 2
+get a
+get b
+get raised QueueShutDown
+put raised QueueShutDown
+put_nowait raised QueueShutDown
+q2 qsize before 2
+q2 empty after immediate True
+q2 join returned
+q2 get_nowait raised QueueShutDown
+consumer saw QueueShutDown
+producer saw QueueShutDown
+subclass of Exception True
+ok
+== exception:
+== stderr:
