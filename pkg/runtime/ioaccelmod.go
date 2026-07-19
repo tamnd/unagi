@@ -79,6 +79,11 @@ func init() {
 		panic("unagi: building _io.BufferedWriter: " + err.Error())
 	}
 
+	// BufferedRandom subclasses _BufferedIOBase, so that base must exist first.
+	if ioBufferedRandomClass, err = buildIOBufferedRandom(); err != nil {
+		panic("unagi: building _io.BufferedRandom: " + err.Error())
+	}
+
 	moduleTable["_io"] = &moduleEntry{builtin: true, exec: initIOAccel}
 }
 
@@ -111,6 +116,9 @@ func initIOAccel(m *objects.Module) error {
 		return err
 	}
 	if err := set("BufferedWriter", ioBufferedWriterClass); err != nil {
+		return err
+	}
+	if err := set("BufferedRandom", ioBufferedRandomClass); err != nil {
 		return err
 	}
 	// DEFAULT_BUFFER_SIZE is the buffer size the buffered streams and open()
