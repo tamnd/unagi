@@ -129,6 +129,65 @@ func (p *pickler) saveReduce(module, qualname string, args []Object, o Object) e
 	return nil
 }
 
+// saveReduceValue encodes the reduction tuple a user __reduce__/__reduce_ex__
+// returned: (callable, args[, state[, listitems[, dictitems[, state_setter]]]]).
+// It mirrors CPython's save_reduce for the general case — save the callable
+// (a module-level function or class, pickled by qualified name), save the
+// argument tuple, emit REDUCE, memoize the result, then, when a state is present
+// and not None, save it and emit BUILD. The list/dict-item iterators and the
+// state setter drive list and dict subclass reduction and custom state
+// application, which later slices back; a reduction that carries them is refused
+// rather than half-encoded.
+func (p *pickler) saveReduceValue(reduction Object, o Object) error {
+	t, ok := reduction.(*tupleObject)
+	if !ok {
+		// A __reduce__ returning a bare string names a global to copy by reference;
+		// that form is not backed yet.
+		return newPicklingError("__reduce__ must return a string or tuple, not %s", reduction.TypeName())
+	}
+	if len(t.elts) < 2 || len(t.elts) > 6 {
+		return newPicklingError("tuple returned by __reduce__ must contain 2 through 6 elements")
+	}
+	args, ok := t.elts[1].(*tupleObject)
+	if !ok {
+		return newPicklingError("second item of the tuple returned by __reduce__ must be a tuple, not %s", t.elts[1].TypeName())
+	}
+	for i := 3; i < len(t.elts); i++ {
+		if t.elts[i] != None {
+			return newPicklingError("cannot pickle a __reduce__ result carrying %s yet", reduceElementName(i))
+		}
+	}
+	if err := p.save(t.elts[0]); err != nil {
+		return err
+	}
+	if err := p.save(args); err != nil {
+		return err
+	}
+	p.framer.write(opReduce)
+	p.memoize(o)
+	if len(t.elts) >= 3 && t.elts[2] != None {
+		if err := p.save(t.elts[2]); err != nil {
+			return err
+		}
+		p.framer.write(opBuild)
+	}
+	return nil
+}
+
+// reduceElementName names the reduction-tuple slot at index i, for the refusal
+// message when a not-yet-backed element is present.
+func reduceElementName(i int) string {
+	switch i {
+	case 3:
+		return "listitems"
+	case 4:
+		return "dictitems"
+	case 5:
+		return "a state setter"
+	}
+	return "an extra element"
+}
+
 // reduceGlobal rebuilds the object a REDUCE opcode describes: it applies the
 // resolved global to its argument tuple. This slice resolves the two set types
 // pickled by the protocol-2/3 set reducers; any other global is an

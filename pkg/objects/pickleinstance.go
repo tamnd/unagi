@@ -54,6 +54,35 @@ func pickleDefaultReducible(o *instanceObject) bool {
 		!isExcClass(c)
 }
 
+// instanceReduceOverride calls a user-defined __reduce_ex__ or __reduce__ and
+// returns the reduction it produces, or reports custom=false when the class
+// inherits the default reduction. A class that overrides __reduce_ex__ has it
+// called with the protocol, matching object.__reduce_ex__'s own signature;
+// failing that, a class that overrides __reduce__ has it called with no
+// arguments. The lookup walks the MRO only, so object's fallback __reduce_ex__
+// (which is not in any MRO dict) never counts as an override, and a bare
+// __reduce_ex__ that resolves to object's placeholder stub is skipped so the
+// default path still runs.
+func instanceReduceOverride(o *instanceObject, proto int) (reduction Object, custom bool, err error) {
+	if red, ok := o.cls.lookup("__reduce_ex__"); ok && red != objectDunders["__reduce_ex__"] {
+		bound, err := instanceGet(o, "__reduce_ex__", red)
+		if err != nil {
+			return nil, true, err
+		}
+		res, err := Call(bound, []Object{NewInt(int64(proto))})
+		return res, true, err
+	}
+	if red, ok := o.cls.lookup("__reduce__"); ok {
+		bound, err := instanceGet(o, "__reduce__", red)
+		if err != nil {
+			return nil, true, err
+		}
+		res, err := Call(bound, nil)
+		return res, true, err
+	}
+	return nil, false, nil
+}
+
 // instancePickleState returns the object the default __getstate__ hands the
 // pickler: the instance __dict__ when it holds any attribute, or nil for an empty
 // one, which the caller turns into a stateless pickle with no BUILD.
@@ -77,6 +106,16 @@ func (p *pickler) saveInstance(o *instanceObject) error {
 		// copyreg._reconstructor instead, a later slice. The default protocol is 5,
 		// so this only guards an explicit low-protocol request.
 		return Raise(TypeError, "cannot pickle '%s' object below protocol 2 yet", o.TypeName())
+	}
+	// A class that defines its own __reduce_ex__ or __reduce__ pickles through the
+	// reduction tuple it returns instead of the default NEWOBJ path. CPython's
+	// object.__reduce_ex__ hands off to a user __reduce__ the same way, so the two
+	// overrides share one encoder.
+	if red, custom, err := instanceReduceOverride(o, p.proto); custom {
+		if err != nil {
+			return err
+		}
+		return p.saveReduceValue(red, o)
 	}
 	if !pickleDefaultReducible(o) {
 		return Raise(TypeError, "cannot pickle '%s' object", o.TypeName())
@@ -141,13 +180,22 @@ func pickleNewInstance(cls *classObject, args []Object) (Object, error) {
 	return &instanceObject{cls: cls, attrs: newAttrs()}, nil
 }
 
-// pickleApplyState applies a BUILD state to an instance: the default protocol
-// updates the instance __dict__ from the state dict, in the dict's order, the way
-// object.__setstate__ does when a class defines no __setstate__.
+// pickleApplyState applies a BUILD state to an instance. A class that defines
+// __setstate__ receives the state through it, the hook CPython gives an object
+// to restore itself however it chose to serialize; otherwise the default
+// protocol updates the instance __dict__ from the state dict, in the dict's
+// order, the way object.__setstate__ does.
 func pickleApplyState(obj, state Object) error {
 	inst, ok := obj.(*instanceObject)
 	if !ok {
 		return newUnpicklingError("cannot apply state to a %s", obj.TypeName())
+	}
+	if setter, defined, err := instanceLookupBound(inst, "__setstate__"); defined {
+		if err != nil {
+			return err
+		}
+		_, err := Call(setter, []Object{state})
+		return err
 	}
 	d, ok := state.(*dictObject)
 	if !ok {
