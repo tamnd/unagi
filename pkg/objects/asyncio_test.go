@@ -510,6 +510,98 @@ func TestAsyncioLockReleaseUnacquired(t *testing.T) {
 	}
 }
 
+// TestAsyncioConditionNotify checks a single notify wakes exactly one of two
+// waiters and notify_all wakes the rest, so the wake order follows the notifies.
+func TestAsyncioConditionNotify(t *testing.T) {
+	cond, err := AsyncioNewCondition(nil)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	c := cond.(*asyncioCondition)
+	var order []string
+	waiter := func(name string) Object {
+		return NewCoroutine("waiter", func(y Yielder) (Object, error) {
+			if _, err := awaitObj(y, c.lock.acquireCoro()); err != nil {
+				return nil, err
+			}
+			order = append(order, "wait "+name)
+			if _, err := awaitObj(y, c.waitCoro()); err != nil {
+				return nil, err
+			}
+			order = append(order, "woke "+name)
+			return None, c.lock.release()
+		})
+	}
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		w1, err := AsyncioCreateTask(waiter("a"), "")
+		if err != nil {
+			return nil, err
+		}
+		w2, err := AsyncioCreateTask(waiter("b"), "")
+		if err != nil {
+			return nil, err
+		}
+		for range 2 {
+			if _, err := y.YieldFrom(AsyncioSleep(0, None)); err != nil {
+				return nil, err
+			}
+		}
+		if _, err := awaitObj(y, c.lock.acquireCoro()); err != nil {
+			return nil, err
+		}
+		order = append(order, "notify one")
+		if err := c.notify(1); err != nil {
+			return nil, err
+		}
+		if err := c.lock.release(); err != nil {
+			return nil, err
+		}
+		for range 2 {
+			if _, err := y.YieldFrom(AsyncioSleep(0, None)); err != nil {
+				return nil, err
+			}
+		}
+		if _, err := awaitObj(y, c.lock.acquireCoro()); err != nil {
+			return nil, err
+		}
+		order = append(order, "notify all")
+		if err := c.notify(len(c.waiters)); err != nil {
+			return nil, err
+		}
+		if err := c.lock.release(); err != nil {
+			return nil, err
+		}
+		if _, err := awaitObj(y, w1); err != nil {
+			return nil, err
+		}
+		return awaitObj(y, w2)
+	})
+	if _, err := AsyncioRun(main); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	want := []string{"wait a", "wait b", "notify one", "woke a", "notify all", "woke b"}
+	if len(order) != len(want) {
+		t.Fatalf("order = %v, want %v", order, want)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Fatalf("order = %v, want %v", order, want)
+		}
+	}
+}
+
+// TestAsyncioConditionNotifyUnlocked checks notify without the lock held is the
+// RuntimeError CPython raises.
+func TestAsyncioConditionNotifyUnlocked(t *testing.T) {
+	cond, err := AsyncioNewCondition(nil)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	if _, err := CallMethod(cond, "notify", nil); coroExcKind(err) != "RuntimeError" {
+		t.Fatalf("notify unlocked = %v, want RuntimeError", err)
+	}
+}
+
 // TestAsyncioQueueNowaitErrors checks get_nowait on an empty queue is QueueEmpty
 // and put_nowait on a full bounded queue is QueueFull.
 func TestAsyncioQueueNowaitErrors(t *testing.T) {
@@ -536,7 +628,7 @@ func TestAsyncioLifoQueueOrder(t *testing.T) {
 		}
 	}
 	var got []int64
-	for i := range 3 {
+	for range 3 {
 		item, err := CallMethod(q, "get_nowait", nil)
 		if err != nil {
 			t.Fatalf("get_nowait: %v", err)
