@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+start
+child returns 30
+after sleep
+loop total 30
+run returns 42
+sleep result done
+no loop: no running event loop
+running loop present True
+bad run: An asyncio.Future, a coroutine or an awaitable is required
+nested: asyncio.run() cannot be called from a running event loop
+boom: kaboom
+== exception:
+== stderr:
