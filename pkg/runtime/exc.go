@@ -290,6 +290,48 @@ func WithExit(exitFn objects.Object, exc error) (error, bool) {
 	return exc, false
 }
 
+// AsyncWithExit runs a context manager's __aexit__ on the way out of an async
+// with block, awaiting its coroutine through the enclosing coroutine's yielder.
+// It mirrors WithExit: on a normal exit or a parked return, break, or continue
+// __aexit__ receives (None, None, None) and its awaited result is ignored; on
+// the exception path it receives the exception's type and value, a None
+// traceback, and an awaited truthy result suppresses the exception. An __aexit__
+// that raises before it awaits, or whose coroutine raises, replaces exc and
+// chains it in as context.
+//
+// Unlike WithExit this does not push the body exception as the handled one
+// around the call: __aexit__ runs on the coroutine's own goroutine, so a
+// goroutine-local handled-exception stack would not reach it. A raise inside
+// __aexit__ still chains onto the body exception through ChainContext, which
+// covers the context the fixture exercises.
+func AsyncWithExit(gy objects.Yielder, aexitFn objects.Object, exc error) (error, bool) {
+	et, ev := objects.None, objects.None
+	pe, _ := exc.(*objects.Exception)
+	if pe != nil {
+		et = objects.ExcType(pe.Kind)
+		ev = pe
+	}
+	coro, cerr := objects.Call(aexitFn, []objects.Object{et, ev, objects.None})
+	if cerr != nil {
+		return ChainContext(cerr, exc), true
+	}
+	res, aerr := objects.AwaitThrough(gy, coro)
+	if aerr != nil {
+		return ChainContext(aerr, exc), true
+	}
+	if pe == nil {
+		return nil, false
+	}
+	suppress, terr := objects.TruthOf(res)
+	if terr != nil {
+		return ChainContext(terr, exc), true
+	}
+	if suppress {
+		return nil, false
+	}
+	return exc, false
+}
+
 // ChainContext links a pending exception under a newer one as the newer one
 // leaves a handler, a finally, or an __exit__ with the pending one in flight.
 // It only fills a missing context: CPython attaches context at raise time
