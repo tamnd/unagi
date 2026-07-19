@@ -48,6 +48,11 @@ type eventLoop struct {
 	running bool
 	closed  bool
 	epoch   time.Time
+	// current is the task whose step is running, what current_task reports; tasks
+	// holds every not-yet-done task on this loop, what all_tasks reports. Both are
+	// touched only on the loop goroutine, so they need no lock.
+	current *asyncTask
+	tasks   map[*asyncTask]struct{}
 }
 
 // callSoon schedules cb to run on the next loop iteration, preserving FIFO order.
@@ -351,13 +356,19 @@ func newTask(coro *generatorObject, loop *eventLoop, name string) *asyncTask {
 	if name == "" {
 		name = nextTaskName()
 	}
-	return &asyncTask{coro: coro, loop: loop, doneFut: &asyncFuture{loop: loop}, name: name}
+	tk := &asyncTask{coro: coro, loop: loop, doneFut: &asyncFuture{loop: loop}, name: name}
+	if loop.tasks == nil {
+		loop.tasks = make(map[*asyncTask]struct{})
+	}
+	loop.tasks[tk] = struct{}{}
+	return tk
 }
 
 // finish records the task's outcome and resolves its completion future, waking
 // anything awaiting the task.
 func (tk *asyncTask) finish(result Object, err error) {
 	tk.done = true
+	delete(tk.loop.tasks, tk)
 	if err != nil {
 		tk.exc = err
 		tk.doneFut.setException(err)
@@ -371,6 +382,12 @@ func (tk *asyncTask) step(sig genSignal) {
 	if tk.done {
 		return
 	}
+	// current_task reports the task whose coroutine is running. Save and restore
+	// so a task stepped from within another loop callback nests correctly and the
+	// loop is left with no current task between steps, matching CPython.
+	prev := tk.loop.current
+	tk.loop.current = tk
+	defer func() { tk.loop.current = prev }()
 	val, ret, fin, err := tk.coro.step(sig)
 	if err != nil {
 		tk.finish(nil, err)
@@ -558,6 +575,59 @@ func AsyncioRunningLoop() Object {
 		return nil
 	}
 	return l
+}
+
+// AsyncioCurrentTask implements asyncio.current_task(loop=None). It returns the
+// task whose coroutine is running on the loop, or None when a loop is running but
+// no task currently is. A nil loop means the running loop; called with no running
+// loop and no explicit loop it is the RuntimeError asyncio raises.
+func AsyncioCurrentTask(loop Object) (Object, error) {
+	l, err := asyncioResolveLoop(loop)
+	if err != nil {
+		return nil, err
+	}
+	if l == nil {
+		return nil, Raise(RuntimeError, "no running event loop")
+	}
+	if l.current == nil {
+		return None, nil
+	}
+	return l.current, nil
+}
+
+// AsyncioAllTasks implements asyncio.all_tasks(loop=None). It returns a set of the
+// loop's not-yet-done tasks. A nil loop means the running loop; called with no
+// running loop and no explicit loop it is the RuntimeError asyncio raises.
+func AsyncioAllTasks(loop Object) (Object, error) {
+	l, err := asyncioResolveLoop(loop)
+	if err != nil {
+		return nil, err
+	}
+	if l == nil {
+		return nil, Raise(RuntimeError, "no running event loop")
+	}
+	elts := make([]Object, 0, len(l.tasks))
+	for tk := range l.tasks {
+		if !tk.done {
+			elts = append(elts, tk)
+		}
+	}
+	return NewSet(elts)
+}
+
+// asyncioResolveLoop turns the optional loop argument shared by current_task and
+// all_tasks into an *eventLoop. None or absent means the running loop, which may
+// be nil; an explicit loop must be an event loop, else the TypeError asyncio's
+// argument checking raises.
+func asyncioResolveLoop(loop Object) (*eventLoop, error) {
+	if loop == nil || loop == None {
+		return runningLoop.Load(), nil
+	}
+	l, ok := loop.(*eventLoop)
+	if !ok {
+		return nil, Raise(TypeError, "loop must be an event loop, not %s", loop.TypeName())
+	}
+	return l, nil
 }
 
 func (l *eventLoop) TypeName() string { return "EventLoop" }

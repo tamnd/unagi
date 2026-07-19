@@ -159,7 +159,7 @@ func hashKey(o Object) (string, error) {
 		return "U" + strings.Join(parts, "|"), nil
 	case *funcObject, *functionObject, *Exception, *dictValuesObject,
 		*ellipsisObject, *notImplementedObject, *classObject, *typeObject,
-		*patternObject, *matchObject, *futureObject:
+		*patternObject, *matchObject, *futureObject, *asyncTask, *asyncFuture:
 		// Identity types: the same objects PyHash hashes by pointer key
 		// dict slots by pointer, so two equal-by-identity reads collide
 		// and everything else stays distinct. The Ellipsis and NotImplemented

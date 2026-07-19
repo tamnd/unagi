@@ -728,3 +728,83 @@ func TestAsyncioQueueBlockingPut(t *testing.T) {
 		}
 	}
 }
+
+// TestAsyncioCurrentTaskOutsideLoop checks current_task and all_tasks raise the
+// RuntimeError CPython raises when no loop is running.
+func TestAsyncioCurrentTaskOutsideLoop(t *testing.T) {
+	if _, err := AsyncioCurrentTask(nil); coroExcKind(err) != "RuntimeError" {
+		t.Fatalf("current_task outside loop = %v, want RuntimeError", err)
+	}
+	if _, err := AsyncioAllTasks(nil); coroExcKind(err) != "RuntimeError" {
+		t.Fatalf("all_tasks outside loop = %v, want RuntimeError", err)
+	}
+}
+
+// TestAsyncioCurrentTaskReports checks current_task names the running task and
+// all_tasks counts every not-done task, dropping back to just the main task once
+// the workers finish.
+func TestAsyncioCurrentTaskReports(t *testing.T) {
+	var mainCurrent Object
+	var whilePending, afterGather int
+	worker := func(name string) Object {
+		return NewCoroutine(name, func(y Yielder) (Object, error) {
+			cur, err := AsyncioCurrentTask(nil)
+			if err != nil {
+				return nil, err
+			}
+			got, err := CallMethod(cur, "get_name", nil)
+			if err != nil {
+				return nil, err
+			}
+			if s, _ := AsStr(got); s != name {
+				t.Errorf("worker current_task = %v, want %s", Repr(got), name)
+			}
+			return y.YieldFrom(AsyncioSleep(0, NewStr(name)))
+		})
+	}
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		cur, err := AsyncioCurrentTask(nil)
+		if err != nil {
+			return nil, err
+		}
+		mainCurrent = cur
+		w0, err := AsyncioCreateTask(worker("w0"), "w0")
+		if err != nil {
+			return nil, err
+		}
+		w1, err := AsyncioCreateTask(worker("w1"), "w1")
+		if err != nil {
+			return nil, err
+		}
+		pending, err := AsyncioAllTasks(nil)
+		if err != nil {
+			return nil, err
+		}
+		whilePending, _ = Len(pending)
+		g, err := AsyncioGather([]Object{w0, w1}, false)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := awaitObj(y, g); err != nil {
+			return nil, err
+		}
+		remaining, err := AsyncioAllTasks(nil)
+		if err != nil {
+			return nil, err
+		}
+		afterGather, _ = Len(remaining)
+		return None, nil
+	})
+	if _, err := AsyncioRun(main); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if _, ok := mainCurrent.(*asyncTask); !ok {
+		t.Fatalf("main current_task = %v, want a Task", Repr(mainCurrent))
+	}
+	if whilePending != 3 {
+		t.Fatalf("all_tasks while pending = %d, want 3", whilePending)
+	}
+	if afterGather != 1 {
+		t.Fatalf("all_tasks after gather = %d, want 1", afterGather)
+	}
+}

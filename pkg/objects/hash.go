@@ -77,7 +77,7 @@ func PyHash(o Object) (int64, error) {
 		return pyHashUnion(x)
 	case *funcObject, *functionObject, *Exception, *dictValuesObject,
 		*ellipsisObject, *notImplementedObject, *classObject, *typeObject,
-		*patternObject, *matchObject, *futureObject:
+		*patternObject, *matchObject, *futureObject, *asyncTask, *asyncFuture:
 		// A class and a builtin type value hash by identity: type does not
 		// override __hash__, so a class keys a dict slot or set element by its
 		// pointer the way object.__hash__ does, letting {A, B} and {cls: v} work.
