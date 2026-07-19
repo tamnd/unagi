@@ -217,6 +217,37 @@ func TestAsyncioGatherOrder(t *testing.T) {
 	}
 }
 
+// TestAsyncioGatherOverFuture checks gather accepts a plain future, not only
+// coroutines and tasks, resolving with its result once another task sets it.
+func TestAsyncioGatherOverFuture(t *testing.T) {
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		loop := runningLoop.Load()
+		f := &asyncFuture{loop: loop}
+		setter := NewCoroutine("setter", func(y2 Yielder) (Object, error) {
+			if _, err := y2.YieldFrom(AsyncioSleep(0.005, None)); err != nil {
+				return nil, err
+			}
+			f.setResult(NewInt(77))
+			return None, nil
+		})
+		if _, err := AsyncioCreateTask(setter, ""); err != nil {
+			return nil, err
+		}
+		g, err := AsyncioGather([]Object{f}, false)
+		if err != nil {
+			return nil, err
+		}
+		return awaitObj(y, g)
+	})
+	got, err := AsyncioRun(main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if Repr(got) != "[77]" {
+		t.Fatalf("gather over future = %v, want [77]", Repr(got))
+	}
+}
+
 // TestAsyncioGatherFirstException checks that with return_exceptions off the
 // first awaitable to raise resolves the gather with that exception.
 func TestAsyncioGatherFirstException(t *testing.T) {

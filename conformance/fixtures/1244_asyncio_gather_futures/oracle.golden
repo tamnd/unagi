@@ -1,0 +1,7 @@
+== exit: 0
+== stdout:
+exec [0, 1, 4, 9]
+mixed [99, 10]
+caught ValueError bad
+== exception:
+== stderr:
