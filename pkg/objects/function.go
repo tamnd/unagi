@@ -126,6 +126,9 @@ func CallKwT(t *Thread, f Object, pos []Object, kwNames []string, kwVals []Objec
 	case *classObject:
 		return Instantiate(fn, pos, kwNames, kwVals)
 	case *funcObject:
+		if fn.kwfnT != nil {
+			return fn.kwfnT(t, pos, kwNames, kwVals)
+		}
 		if fn.kwfn != nil {
 			return fn.kwfn(pos, kwNames, kwVals)
 		}
