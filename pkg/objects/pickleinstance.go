@@ -83,14 +83,58 @@ func instanceReduceOverride(o *instanceObject, proto int) (reduction Object, cus
 	return nil, false, nil
 }
 
-// instancePickleState returns the object the default __getstate__ hands the
-// pickler: the instance __dict__ when it holds any attribute, or nil for an empty
-// one, which the caller turns into a stateless pickle with no BUILD.
-func instancePickleState(o *instanceObject) Object {
-	if len(o.attrs.entries) == 0 {
-		return nil
+// instanceNewargs returns the new-arguments the default reduction feeds NEWOBJ:
+// the tuple a class __getnewargs__ produces, or nil when the class defines none,
+// in which case the reduction reconstructs through cls.__new__(cls) with no
+// arguments. CPython requires __getnewargs__ to return a tuple and refuses any
+// other type, so this does too.
+func instanceNewargs(o *instanceObject) ([]Object, error) {
+	fn, ok := o.cls.lookup("__getnewargs__")
+	if !ok {
+		return nil, nil
 	}
-	return o.attrs
+	bound, err := instanceGet(o, "__getnewargs__", fn)
+	if err != nil {
+		return nil, err
+	}
+	res, err := Call(bound, nil)
+	if err != nil {
+		return nil, err
+	}
+	t, ok := res.(*tupleObject)
+	if !ok {
+		return nil, newPicklingError("__getnewargs__ should return a tuple, not %s", res.TypeName())
+	}
+	return t.elts, nil
+}
+
+// instancePickleState returns the state the reduction saves after NEWOBJ, which
+// BUILD applies. A class that defines __getstate__ supplies it through that hook,
+// and a hook returning None (or a falsey empty container CPython treats as no
+// state) suppresses BUILD entirely; the lookup walks the MRO so object's fallback
+// __getstate__ never counts as an override. A class without the hook falls back to
+// the default __getstate__: the instance __dict__ when it holds any attribute, or
+// nil for an empty one, which the caller turns into a stateless pickle with no
+// BUILD.
+func instancePickleState(o *instanceObject) (Object, error) {
+	if fn, ok := o.cls.lookup("__getstate__"); ok {
+		bound, err := instanceGet(o, "__getstate__", fn)
+		if err != nil {
+			return nil, err
+		}
+		state, err := Call(bound, nil)
+		if err != nil {
+			return nil, err
+		}
+		if state == None {
+			return nil, nil
+		}
+		return state, nil
+	}
+	if len(o.attrs.entries) == 0 {
+		return nil, nil
+	}
+	return o.attrs, nil
 }
 
 // saveInstance pickles a user class instance through the default reduction. It
@@ -120,15 +164,26 @@ func (p *pickler) saveInstance(o *instanceObject) error {
 	if !pickleDefaultReducible(o) {
 		return Raise(TypeError, "cannot pickle '%s' object", o.TypeName())
 	}
+	// The new-arguments come from __getnewargs__ when the class defines it, so
+	// NEWOBJ reconstructs through cls.__new__(cls, *args); a class without it
+	// pickles the empty tuple the plain object reduction uses.
+	newargs, err := instanceNewargs(o)
+	if err != nil {
+		return err
+	}
 	if err := p.saveGlobal(pickleClassModule(o.cls), pickleClassQualname(o.cls)); err != nil {
 		return err
 	}
-	if err := p.save(NewTuple(nil)); err != nil {
+	if err := p.save(NewTuple(newargs)); err != nil {
 		return err
 	}
 	p.framer.write(opNewObj)
 	p.memoize(o)
-	if state := instancePickleState(o); state != nil {
+	state, err := instancePickleState(o)
+	if err != nil {
+		return err
+	}
+	if state != nil {
 		if err := p.save(state); err != nil {
 			return err
 		}
@@ -171,11 +226,18 @@ func lookupPickleClass(module, qualname string) *classObject {
 // plain object-rooted case it pickles, a bare instance with an empty __dict__;
 // new-arguments and specialized layouts arrive with the slices that pickle them.
 func pickleNewInstance(cls *classObject, args []Object) (Object, error) {
-	if len(args) != 0 {
-		return nil, newUnpicklingError("cannot unpickle %s with constructor arguments yet", cls.name)
-	}
 	if cls.builtinBase != "" || cls.hasSlots {
 		return nil, newUnpicklingError("cannot unpickle %s instance yet", cls.name)
+	}
+	// A class with a custom __new__ reconstructs through it, the staticmethod call
+	// CPython makes for NEWOBJ; the __getnewargs__ tuple arrives as its arguments,
+	// and __init__ never runs. A plain object-rooted class has no __new__ in its
+	// MRO and gets a bare instance, the empty-argument default.
+	if newRaw, ok := cls.lookup("__new__"); ok {
+		return CallKw(staticNew(newRaw), append([]Object{Object(cls)}, args...), nil, nil)
+	}
+	if len(args) != 0 {
+		return nil, newUnpicklingError("cannot unpickle %s with constructor arguments and no __new__", cls.name)
 	}
 	return &instanceObject{cls: cls, attrs: newAttrs()}, nil
 }

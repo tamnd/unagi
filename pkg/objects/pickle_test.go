@@ -747,6 +747,124 @@ func TestPickleDumpsReduce(t *testing.T) {
 	}
 }
 
+// mustNewargsClass builds a class with a custom __new__ and a __getnewargs__ that
+// round-trips the arguments __new__ needs, optionally with a __getstate__. The
+// __new__ allocates a bare instance and applies each (name, arg) pair as an
+// attribute so the reconstructed object carries the constructor's values.
+func mustNewargsClass(t *testing.T, name string, argNames []string, getstate Object) *classObject {
+	t.Helper()
+	params := append([]Param{{Name: "cls", Kind: ParamPlain}}, func() []Param {
+		ps := make([]Param, len(argNames))
+		for i, n := range argNames {
+			ps[i] = Param{Name: n, Kind: ParamPlain}
+		}
+		return ps
+	}()...)
+	var cls *classObject
+	newFn := NewFunctionT(name+".__new__", params, nil, func(_ *Thread, args []Object) (Object, error) {
+		o := &instanceObject{cls: cls, attrs: newAttrs()}
+		for i, n := range argNames {
+			_ = o.attrs.set(NewStr(n), args[i+1])
+		}
+		return o, nil
+	})
+	getnewargs := NewFunctionT(name+".__getnewargs__", []Param{{Name: "self", Kind: ParamPlain}}, nil, func(_ *Thread, args []Object) (Object, error) {
+		self := args[0].(*instanceObject)
+		vals := make([]Object, len(argNames))
+		for i, n := range argNames {
+			vals[i], _ = self.attrGet(n)
+		}
+		return NewTuple(vals), nil
+	})
+	names := []string{"__module__", "__new__", "__getnewargs__"}
+	vals := []Object{NewStr("__main__"), newFn, getnewargs}
+	if getstate != nil {
+		names = append(names, "__getstate__")
+		vals = append(vals, getstate)
+	}
+	c, err := NewClass(name, name, []Object{nil}, names, vals, nil, nil)
+	if err != nil {
+		t.Fatalf("NewClass(%s): %v", name, err)
+	}
+	cls = c.(*classObject)
+	registerPickleClass(cls)
+	return cls
+}
+
+// TestPickleDumpsNewargs pins the __getnewargs__ NEWOBJ path byte for byte against
+// CPython 3.14: a class defining __new__ and __getnewargs__ pickles the class
+// global, the new-arguments tuple, NEWOBJ, then the __dict__ state through BUILD,
+// and the loader rebuilds through cls.__new__(cls, *args).
+func TestPickleDumpsNewargs(t *testing.T) {
+	vec := mustNewargsClass(t, "Vec", []string{"x", "y"}, nil)
+
+	inst := &instanceObject{cls: vec, attrs: newAttrs()}
+	_ = inst.attrs.set(NewStr("x"), NewInt(3))
+	_ = inst.attrs.set(NewStr("y"), NewInt(4))
+
+	// CPython: pickle.dumps(Vec(3, 4), 2) with __new__ setting x, y and
+	// __getnewargs__ returning (x, y); NEWOBJ carries (3, 4), BUILD restores __dict__.
+	want := "8002635f5f6d61696e5f5f0a5665630a71004b034b048671018171027d71032858010000007871044b0358010000007971054b0475622e"
+	got, err := PickleDumps(inst, 2)
+	if err != nil {
+		t.Fatalf("PickleDumps: %v", err)
+	}
+	if h := hex.EncodeToString(got); h != want {
+		t.Fatalf("PickleDumps(newargs)\n got  %s\n want %s", h, want)
+	}
+
+	back, err := PickleLoads(got)
+	if err != nil {
+		t.Fatalf("PickleLoads: %v", err)
+	}
+	bi, ok := back.(*instanceObject)
+	if !ok || bi.cls != vec {
+		t.Fatalf("PickleLoads returned %s, want Vec instance", back.TypeName())
+	}
+	if x, _ := bi.attrGet("x"); !equals(x, NewInt(3)) {
+		t.Fatalf("rebuilt x = %v, want 3", x)
+	}
+	if y, _ := bi.attrGet("y"); !equals(y, NewInt(4)) {
+		t.Fatalf("rebuilt y = %v, want 4", y)
+	}
+}
+
+// TestPickleNewargsGetstateNone confirms a __getstate__ returning None suppresses
+// BUILD: the whole value rides in the __new__ arguments, so the pickle stops right
+// after NEWOBJ and no state is written even though the instance holds a __dict__.
+func TestPickleNewargsGetstateNone(t *testing.T) {
+	getstate := NewFunctionT("Frozen.__getstate__", []Param{{Name: "self", Kind: ParamPlain}}, nil, func(_ *Thread, _ []Object) (Object, error) {
+		return None, nil
+	})
+	frozen := mustNewargsClass(t, "Frozen", []string{"value"}, getstate)
+
+	inst := &instanceObject{cls: frozen, attrs: newAttrs()}
+	_ = inst.attrs.set(NewStr("value"), NewStr("hi"))
+
+	// CPython: pickle.dumps(Frozen("hi"), 2); __getstate__ returns None so there is
+	// no trailing BUILD, only the class global, the ("hi",) tuple, NEWOBJ, STOP.
+	want := "8002635f5f6d61696e5f5f0a46726f7a656e0a71005802000000686971018571028171032e"
+	got, err := PickleDumps(inst, 2)
+	if err != nil {
+		t.Fatalf("PickleDumps: %v", err)
+	}
+	if h := hex.EncodeToString(got); h != want {
+		t.Fatalf("PickleDumps(getstate=None)\n got  %s\n want %s", h, want)
+	}
+
+	back, err := PickleLoads(got)
+	if err != nil {
+		t.Fatalf("PickleLoads: %v", err)
+	}
+	bi, ok := back.(*instanceObject)
+	if !ok || bi.cls != frozen {
+		t.Fatalf("PickleLoads returned %s, want Frozen instance", back.TypeName())
+	}
+	if v, _ := bi.attrGet("value"); !equals(v, NewStr("hi")) {
+		t.Fatalf("rebuilt value = %v, want 'hi'", v)
+	}
+}
+
 // TestPickleReduceStateRoundTrip covers the three-element reduction: the state
 // dict is saved after REDUCE and applied by BUILD, so the reconstructed instance
 // carries the attributes the partial constructor left out.
