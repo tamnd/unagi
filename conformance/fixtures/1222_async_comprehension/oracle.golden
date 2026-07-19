@@ -1,0 +1,20 @@
+== exit: 0
+== stdout:
+list [0, 1, 2, 3]
+list class [0, 1, 2]
+list cond [0, 2, 4]
+list two conds [4, 6, 8]
+list empty []
+set [0, 1, 2]
+dict {0: 0, 1: 1, 2: 4, 3: 9, 4: 16}
+dict cond {1: 2, 3: 4, 5: 6}
+await elt [0, 2, 4, 6]
+await cond [0, 1, 2]
+await dict {0: 0, 1: 2, 2: 4}
+async async [(0, 0), (0, 1), (1, 0), (1, 1)]
+async sync [0, 1, 2, 1, 2, 3]
+sync async [0, 1, 2, 1, 2, 3]
+nested [[], [0], [0, 1], [0, 1, 2]]
+sync [0, 1, 4, 9]
+== exception:
+== stderr:

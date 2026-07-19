@@ -321,7 +321,11 @@ func de(e Expr) string {
 			parts = append(parts, de(e.Elt))
 		}
 		for _, cl := range e.Clauses {
-			s := "(for " + de(cl.Target) + " " + de(cl.Iter)
+			head := "for"
+			if cl.Async {
+				head = "async-for"
+			}
+			s := "(" + head + " " + de(cl.Target) + " " + de(cl.Iter)
 			for _, c := range cl.Ifs {
 				s += " (if " + de(c) + ")"
 			}
@@ -769,6 +773,13 @@ func TestParse(t *testing.T) {
 			"(expr (listcomp (listcomp j (for j (call range i))) (for i y)))"},
 		{"set comp", "{c for c in s}", "(expr (setcomp c (for c s)))"},
 		{"dict comp", "{k: v for k, v in y}", "(expr (dictcomp (k v) (for (tuple k v) y)))"},
+		{"async list comp", "[x async for x in y]", "(expr (listcomp x (async-for x y)))"},
+		{"async set comp", "{x async for x in y}", "(expr (setcomp x (async-for x y)))"},
+		{"async dict comp", "{k: v async for k, v in y}", "(expr (dictcomp (k v) (async-for (tuple k v) y)))"},
+		{"async genexp", "(x async for x in y)", "(expr (genexpr x (async-for x y)))"},
+		{"async second clause", "[x for x in y async for z in w]",
+			"(expr (listcomp x (for x y) (async-for z w)))"},
+		{"async comp condition", "[x async for x in y if x]", "(expr (listcomp x (async-for x y (if x))))"},
 		{"genexp", "(x * x for x in y)", "(expr (genexpr (* x x) (for x y)))"},
 		{"genexp condition", "(x for x in y if x > 0)", "(expr (genexpr x (for x y (if (cmp x > 0)))))"},
 		{"genexp sole call arg", "f(x for x in y)", "(expr (call f (genexpr x (for x y))))"},
@@ -1007,10 +1018,6 @@ func TestParseErrors(t *testing.T) {
 		{"dict comp bare tuple iterable", "{i: 1 for i in 1, 2}", "invalid syntax"},
 		{"comp bare walrus condition", "[i for i in a if i := 2]", "invalid syntax"},
 		{"dict key walrus", "{y := 1: 2}", "invalid syntax"},
-		{"async comprehension", "[x async for x in y]",
-			"asynchronous comprehension outside of an asynchronous function"},
-		{"async second clause", "[x for x in y async for z in w]",
-			"asynchronous comprehension outside of an asynchronous function"},
 		{"star element comp", "[*i for i in a]", "iterable unpacking cannot be used in comprehension"},
 		{"star element set comp", "{*i for i in a}", "iterable unpacking cannot be used in comprehension"},
 		{"double star dict comp", "{**d for d in a}", "dict unpacking cannot be used in dict comprehension"},

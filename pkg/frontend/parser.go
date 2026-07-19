@@ -1649,7 +1649,7 @@ func (p *parser) parseCall(fn Expr) Expr {
 				if len(call.Args) != 0 || sawKeyword || sawKwUnpack {
 					p.errf(p.cur().pos, "Generator expression must be parenthesized")
 				}
-				comp := &Comp{Pos_: arg.Span(), Kind: CompGen, Elt: arg, Clauses: p.parseCompClauses(p.cur())}
+				comp := &Comp{Pos_: arg.Span(), Kind: CompGen, Elt: arg, Clauses: p.parseCompClauses()}
 				p.validateComp(comp)
 				call.Args = append(call.Args, Arg{Pos_: comp.Pos_, Value: comp})
 				if !p.isOp(")") {
@@ -1898,7 +1898,7 @@ func (p *parser) parseParen() Expr {
 		if s, ok := first.(*Starred); ok {
 			p.errf(s.Span(), "iterable unpacking cannot be used in comprehension")
 		}
-		comp := &Comp{Pos_: lp.pos, Kind: CompGen, Elt: first, Clauses: p.parseCompClauses(lp)}
+		comp := &Comp{Pos_: lp.pos, Kind: CompGen, Elt: first, Clauses: p.parseCompClauses()}
 		p.wantCompClose(")")
 		p.validateComp(comp)
 		return comp
@@ -1945,7 +1945,7 @@ func (p *parser) parseList() Expr {
 		if s, ok := first.(*Starred); ok {
 			p.errf(s.Span(), "iterable unpacking cannot be used in comprehension")
 		}
-		comp := &Comp{Pos_: lb.pos, Kind: CompList, Elt: first, Clauses: p.parseCompClauses(lb)}
+		comp := &Comp{Pos_: lb.pos, Kind: CompList, Elt: first, Clauses: p.parseCompClauses()}
 		p.wantCompClose("]")
 		p.validateComp(comp)
 		return comp
@@ -1963,14 +1963,16 @@ func (p *parser) parseList() Expr {
 
 // parseCompClauses parses the `for ... in ... if ...` legs of a
 // comprehension. The iterable and the conditions are disjunctions per the
-// grammar, so a bare tuple or an unparenthesized walrus stops the parse.
-// An async clause gets the 3.14 wording, anchored at the whole
-// comprehension like CPython's caret.
-func (p *parser) parseCompClauses(open token) []CompClause {
+// grammar, so a bare tuple or an unparenthesized walrus stops the parse. An
+// `async for` leg parses and is recorded on the clause; whether an async
+// comprehension is legal here depends on the enclosing function, which the
+// parser does not track, so lowering raises the 3.14 wording.
+func (p *parser) parseCompClauses() []CompClause {
 	var clauses []CompClause
 	for {
-		if p.isAsyncFor() {
-			p.errf(open.pos, "asynchronous comprehension outside of an asynchronous function")
+		async := p.isAsyncFor()
+		if async {
+			p.advance()
 		}
 		if !p.isKw("for") {
 			return clauses
@@ -1983,7 +1985,7 @@ func (p *parser) parseCompClauses(open token) []CompClause {
 		if !p.eatKw("in") {
 			p.errf(p.cur().pos, "'in' expected after for-loop variables")
 		}
-		cl := CompClause{Pos_: ft.pos, Target: target, Iter: p.parseOr()}
+		cl := CompClause{Pos_: ft.pos, Async: async, Target: target, Iter: p.parseOr()}
 		for p.eatKw("if") {
 			cl.Ifs = append(cl.Ifs, p.parseOr())
 		}
@@ -2152,7 +2154,7 @@ func (p *parser) parseBraces() Expr {
 	}
 	key := p.parseNamedTest()
 	if p.isKw("for") || p.isAsyncFor() {
-		comp := &Comp{Pos_: lb.pos, Kind: CompSet, Elt: key, Clauses: p.parseCompClauses(lb)}
+		comp := &Comp{Pos_: lb.pos, Kind: CompSet, Elt: key, Clauses: p.parseCompClauses()}
 		p.wantCompClose("}")
 		p.validateComp(comp)
 		return comp
@@ -2168,7 +2170,7 @@ func (p *parser) parseBraces() Expr {
 	p.advance()
 	val := p.parseTest()
 	if p.isKw("for") || p.isAsyncFor() {
-		comp := &Comp{Pos_: lb.pos, Kind: CompDict, Elt: key, Val: val, Clauses: p.parseCompClauses(lb)}
+		comp := &Comp{Pos_: lb.pos, Kind: CompDict, Elt: key, Val: val, Clauses: p.parseCompClauses()}
 		p.wantCompClose("}")
 		p.validateComp(comp)
 		return comp
