@@ -33,6 +33,8 @@ func initAsyncio(m *objects.Module) error {
 		{"shield", objects.NewFuncKw("shield", asyncioShield)},
 		{"ensure_future", objects.NewFuncKw("ensure_future", asyncioEnsureFuture)},
 		{"run_coroutine_threadsafe", objects.NewFuncKw("run_coroutine_threadsafe", asyncioRunCoroutineThreadsafe)},
+		{"iscoroutine", objects.NewFunc("iscoroutine", 1, asyncioIsCoroutine)},
+		{"isfuture", objects.NewFunc("isfuture", 1, asyncioIsFuture)},
 		{"timeout", objects.NewFuncKw("timeout", asyncioTimeout)},
 		{"timeout_at", objects.NewFuncKw("timeout_at", asyncioTimeoutAt)},
 		{"Future", objects.NewFuncKw("Future", asyncioFuture)},
@@ -450,6 +452,18 @@ func asyncioRunCoroutineThreadsafe(pos []objects.Object, kwNames []string, kwVal
 		return nil, objects.Raise(objects.TypeError, "run_coroutine_threadsafe() missing 1 required positional argument: 'loop'")
 	}
 	return objects.RunCoroutineThreadsafe(coro, loop)
+}
+
+// asyncioIsCoroutine is asyncio.iscoroutine(obj). It reports whether obj is a
+// coroutine object, the value an async def call produces.
+func asyncioIsCoroutine(args []objects.Object) (objects.Object, error) {
+	return objects.NewBool(objects.IsCoroutineObject(args[0])), nil
+}
+
+// asyncioIsFuture is asyncio.isfuture(obj). It reports whether obj is an asyncio
+// Future or Task; a concurrent.futures.Future is not one.
+func asyncioIsFuture(args []objects.Object) (objects.Object, error) {
+	return objects.NewBool(objects.IsFutureObject(args[0])), nil
 }
 
 // asyncioShield is asyncio.shield(arg). It returns a future mirroring arg's

@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+coro iscoroutine True
+coro isfuture False
+task iscoroutine False
+task isfuture True
+future iscoroutine False
+future isfuture True
+plain False False
+plain False False
+plain False False
+plain False False
+ok
+== exception:
+== stderr:
