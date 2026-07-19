@@ -1454,3 +1454,51 @@ func TestAsyncioToThread(t *testing.T) {
 		t.Fatalf("to_thread = %v, want 42", Repr(got))
 	}
 }
+
+// TestAsyncioRunUntilComplete drives a coroutine on a manually created loop and
+// checks the result comes back, the loop reports not running, and it is reusable
+// until closed.
+func TestAsyncioRunUntilComplete(t *testing.T) {
+	loop := AsyncioNewEventLoop()
+	if r, _ := CallMethodT(mainThread, loop, "is_running", nil); Truth(r) {
+		t.Fatalf("fresh loop is_running = true")
+	}
+	if r, _ := CallMethodT(mainThread, loop, "is_closed", nil); Truth(r) {
+		t.Fatalf("fresh loop is_closed = true")
+	}
+	got, err := CallMethodT(mainThread, loop, "run_until_complete", []Object{sleepThen("w", 0, NewInt(5))})
+	if err != nil {
+		t.Fatalf("run_until_complete: %v", err)
+	}
+	if n, ok := AsInt(got); !ok || n != 5 {
+		t.Fatalf("run_until_complete = %v, want 5", Repr(got))
+	}
+	// reusable a second time
+	got2, err := CallMethodT(mainThread, loop, "run_until_complete", []Object{sleepThen("w2", 0, NewInt(9))})
+	if err != nil || Repr(got2) != "9" {
+		t.Fatalf("second run = %v, %v", Repr(got2), err)
+	}
+	if r, _ := CallMethodT(mainThread, loop, "is_running", nil); Truth(r) {
+		t.Fatalf("loop is_running after run = true")
+	}
+}
+
+// TestAsyncioRunUntilCompleteClosed checks a closed loop refuses to run and that
+// closing is idempotent.
+func TestAsyncioRunUntilCompleteClosed(t *testing.T) {
+	loop := AsyncioNewEventLoop()
+	if _, err := CallMethodT(mainThread, loop, "close", nil); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if r, _ := CallMethodT(mainThread, loop, "is_closed", nil); !Truth(r) {
+		t.Fatalf("closed loop is_closed = false")
+	}
+	// closing again is a no-op
+	if _, err := CallMethodT(mainThread, loop, "close", nil); err != nil {
+		t.Fatalf("second close: %v", err)
+	}
+	_, err := CallMethodT(mainThread, loop, "run_until_complete", []Object{sleepThen("late", 0, None)})
+	if coroExcKind(err) != "RuntimeError" {
+		t.Fatalf("run on closed loop = %v, want RuntimeError", err)
+	}
+}

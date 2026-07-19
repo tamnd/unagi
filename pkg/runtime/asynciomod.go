@@ -49,6 +49,7 @@ func initAsyncio(m *objects.Module) error {
 		{"all_tasks", objects.NewFuncKw("all_tasks", asyncioAllTasks)},
 		{"get_running_loop", objects.NewFunc("get_running_loop", 0, asyncioGetRunningLoop)},
 		{"get_event_loop", objects.NewFunc("get_event_loop", 0, asyncioGetEventLoop)},
+		{"new_event_loop", objects.NewFunc("new_event_loop", 0, asyncioNewEventLoop)},
 		{"CancelledError", objects.AsyncioCancelledErrorClass()},
 		{"InvalidStateError", objects.AsyncioInvalidStateErrorClass()},
 		{"TimeoutError", objects.ExcClass2("TimeoutError")},
@@ -440,4 +441,11 @@ func asyncioGetEventLoop(args []objects.Object) (objects.Object, error) {
 		return nil, objects.Raise(objects.RuntimeError, "no running event loop")
 	}
 	return l, nil
+}
+
+// asyncioNewEventLoop is asyncio.new_event_loop(). It builds a fresh, not-yet
+// running loop for the manual run_until_complete idiom, the object a program
+// drives itself and closes with loop.close().
+func asyncioNewEventLoop(args []objects.Object) (objects.Object, error) {
+	return objects.AsyncioNewEventLoop(), nil
 }
