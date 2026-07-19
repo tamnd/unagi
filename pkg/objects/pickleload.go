@@ -17,6 +17,7 @@ type unpickler struct {
 	pos   int
 	stack []Object
 	memo  []Object
+	marks []int // stack positions a MARK opcode recorded, for variable builds
 }
 
 // PickleLoads parses a pickle and returns the top object.
@@ -169,9 +170,153 @@ func (u *unpickler) dispatch(op byte) error {
 			return u.truncated()
 		}
 		return u.getAt(int(binary.LittleEndian.Uint32(b)))
+	case opMark:
+		u.marks = append(u.marks, len(u.stack))
+	case opEmptyTuple:
+		u.push(NewTuple(nil))
+	case opTuple1:
+		return u.buildTuple(1)
+	case opTuple2:
+		return u.buildTuple(2)
+	case opTuple3:
+		return u.buildTuple(3)
+	case opTuple:
+		return u.buildTupleFromMark()
+	case opEmptyList:
+		u.push(NewList(nil))
+	case opAppend:
+		return u.appendOne()
+	case opAppends:
+		return u.appendFromMark()
+	case opEmptyDict:
+		d, err := NewDict(nil, nil)
+		if err != nil {
+			return err
+		}
+		u.push(d)
+	case opSetItem:
+		return u.setItemOne()
+	case opSetItems:
+		return u.setItemsFromMark()
 	default:
 		return newUnpicklingError("unsupported pickle opcode: 0x%02x", op)
 	}
+	return nil
+}
+
+// buildTuple pops the top n items and pushes them as a tuple.
+func (u *unpickler) buildTuple(n int) error {
+	if len(u.stack) < n {
+		return newUnpicklingError("tuple build underflow")
+	}
+	at := len(u.stack) - n
+	elts := make([]Object, n)
+	copy(elts, u.stack[at:])
+	u.stack = u.stack[:at]
+	u.push(NewTuple(elts))
+	return nil
+}
+
+// popMark returns the stack position of the innermost mark, removing it.
+func (u *unpickler) popMark() (int, error) {
+	if len(u.marks) == 0 {
+		return 0, newUnpicklingError("no mark for a variable-length build")
+	}
+	at := u.marks[len(u.marks)-1]
+	u.marks = u.marks[:len(u.marks)-1]
+	if at > len(u.stack) {
+		return 0, newUnpicklingError("mark past the stack top")
+	}
+	return at, nil
+}
+
+// buildTupleFromMark pops everything back to the mark and pushes it as a tuple.
+func (u *unpickler) buildTupleFromMark() error {
+	at, err := u.popMark()
+	if err != nil {
+		return err
+	}
+	elts := make([]Object, len(u.stack)-at)
+	copy(elts, u.stack[at:])
+	u.stack = u.stack[:at]
+	u.push(NewTuple(elts))
+	return nil
+}
+
+// appendOne appends the top item to the list beneath it, mutating in place so a
+// memoized (shared or cyclic) list keeps its identity.
+func (u *unpickler) appendOne() error {
+	if len(u.stack) < 2 {
+		return newUnpicklingError("append underflow")
+	}
+	item := u.stack[len(u.stack)-1]
+	u.stack = u.stack[:len(u.stack)-1]
+	lst, ok := u.stack[len(u.stack)-1].(*listObject)
+	if !ok {
+		return newUnpicklingError("append onto a non-list")
+	}
+	lst.elts = append(lst.elts, item)
+	return nil
+}
+
+// appendFromMark appends everything back to the mark onto the list beneath it.
+func (u *unpickler) appendFromMark() error {
+	at, err := u.popMark()
+	if err != nil {
+		return err
+	}
+	items := u.stack[at:]
+	if at == 0 {
+		return newUnpicklingError("appends with no list under the mark")
+	}
+	lst, ok := u.stack[at-1].(*listObject)
+	if !ok {
+		return newUnpicklingError("appends onto a non-list")
+	}
+	lst.elts = append(lst.elts, items...)
+	u.stack = u.stack[:at]
+	return nil
+}
+
+// setItemOne sets the top key/value pair on the dict beneath them.
+func (u *unpickler) setItemOne() error {
+	if len(u.stack) < 3 {
+		return newUnpicklingError("setitem underflow")
+	}
+	val := u.stack[len(u.stack)-1]
+	key := u.stack[len(u.stack)-2]
+	u.stack = u.stack[:len(u.stack)-2]
+	d, ok := u.stack[len(u.stack)-1].(*dictObject)
+	if !ok {
+		return newUnpicklingError("setitem onto a non-dict")
+	}
+	return d.set(key, val)
+}
+
+// setItemsFromMark sets every key/value pair back to the mark on the dict
+// beneath them, in order.
+func (u *unpickler) setItemsFromMark() error {
+	at, err := u.popMark()
+	if err != nil {
+		return err
+	}
+	if (len(u.stack)-at)%2 != 0 {
+		return newUnpicklingError("setitems with an odd number of items")
+	}
+	if at == 0 {
+		return newUnpicklingError("setitems with no dict under the mark")
+	}
+	d, ok := u.stack[at-1].(*dictObject)
+	if !ok {
+		return newUnpicklingError("setitems onto a non-dict")
+	}
+	pairs := u.stack[at:]
+	for i := 0; i < len(pairs); i += 2 {
+		if err := d.set(pairs[i], pairs[i+1]); err != nil {
+			return err
+		}
+	}
+	u.stack = u.stack[:at]
 	return nil
 }
 

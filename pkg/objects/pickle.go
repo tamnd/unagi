@@ -173,6 +173,20 @@ func (p *pickler) save(o Object) error {
 		return p.saveStr(v.v, o)
 	case *bytesObject:
 		return p.saveBytes(v.v, o)
+	case *tupleObject:
+		// A plain tuple pickles structurally; a namedtuple is a tuple subclass
+		// that pickles through the reduction protocol, a later slice.
+		if v.named == nil {
+			return p.saveTuple(v, o)
+		}
+	case *listObject:
+		return p.saveList(v, o)
+	case *dictObject:
+		// A plain dict pickles structurally; the collections subclasses
+		// (defaultdict, Counter, OrderedDict) reduce, a later slice.
+		if v.kind == plainDict {
+			return p.saveDict(v, o)
+		}
 	}
 	// CPython raises TypeError (not PicklingError) for a type with no pickle
 	// support once reduction has been tried, e.g. "cannot pickle 'module' object".
