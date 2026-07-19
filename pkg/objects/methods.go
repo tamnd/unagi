@@ -215,6 +215,8 @@ func CallMethodKwT(t *Thread, o Object, name string, pos []Object, kwNames []str
 		return futureMethodKwT(t, x, name, pos, kwNames, kwVals)
 	case *asyncFuture:
 		return asyncFutureMethodKw(x, name, pos, kwNames, kwVals)
+	case *asyncTask:
+		return taskMethodKw(x, name, pos, kwNames, kwVals)
 	case *executorObject:
 		return executorMethodKwT(t, x, name, pos, kwNames, kwVals)
 	case *Module:
