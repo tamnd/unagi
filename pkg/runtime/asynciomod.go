@@ -26,6 +26,7 @@ func initAsyncio(m *objects.Module) error {
 		{"Future", objects.NewFuncKw("Future", asyncioFuture)},
 		{"Lock", objects.NewFuncKw("Lock", asyncioLock)},
 		{"Event", objects.NewFuncKw("Event", asyncioEvent)},
+		{"Condition", objects.NewFuncKw("Condition", asyncioCondition)},
 		{"Semaphore", objects.NewFuncKw("Semaphore", asyncioSemaphore)},
 		{"BoundedSemaphore", objects.NewFuncKw("BoundedSemaphore", asyncioBoundedSemaphore)},
 		{"Queue", objects.NewFuncKw("Queue", asyncioQueue)},
@@ -149,6 +150,21 @@ func asyncioEvent(pos []objects.Object, kwNames []string, kwVals []objects.Objec
 		return nil, objects.Raise(objects.TypeError, "Event() got an unexpected keyword argument '%s'", k)
 	}
 	return objects.AsyncioNewEvent(), nil
+}
+
+// asyncioCondition is asyncio.Condition(lock=None). With no lock it builds a fresh
+// one; a supplied asyncio.Lock is shared. Any other lock value is the TypeError
+// CPython raises.
+func asyncioCondition(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	vals, err := bindArgs("Condition", []string{"lock"}, pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	var lock objects.Object
+	if v, ok := vals["lock"]; ok {
+		lock = v
+	}
+	return objects.AsyncioNewCondition(lock)
 }
 
 // asyncioSemaphore is asyncio.Semaphore(value=1). value is the permit count and

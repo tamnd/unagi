@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+['wait a', 'wait b', 'notify one', 'woke a', 'notify all', 'woke b']
+got it
+locked start False
+locked in True
+locked out False
+wait err cannot wait on un-acquired lock
+notify err cannot notify on un-acquired lock
+== exception:
+== stderr:
