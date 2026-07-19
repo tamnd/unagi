@@ -138,6 +138,13 @@ type instanceObject struct {
 	// once at construction. It is nil for an instance whose class has no such
 	// base. The operators unwrap to it after an override lookup misses.
 	builtinData Object
+	// localData holds the per-thread attribute stores of a threading.local
+	// subclass instance, the layout a class whose builtinBase is "local" takes.
+	// It is nil for every ordinary instance; when set, the attribute protocol
+	// swaps the accessing thread's private dict into attrs for the duration of a
+	// read or write, so each thread sees its own instance attributes while the
+	// class methods and class attributes stay shared.
+	localData *localInstanceData
 }
 
 func (o *instanceObject) TypeName() string { return o.cls.name }
@@ -1493,6 +1500,21 @@ func (c *classObject) delAttr(name string) {
 // exactly as a direct call would; a class with no __init__ rejects any
 // argument with the takes-no-arguments message probed on 3.14.
 func Instantiate(c *classObject, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	return InstantiateT(mainThread, c, pos, kwNames, kwVals)
+}
+
+// InstantiateT builds an instance for the constructing thread t. It matters only
+// for a threading.local subclass, whose __init__ runs on the thread that creates
+// the instance; every other class ignores t and builds the same instance a t-less
+// call would. CallT threads the real caller here so `L(...)` on a worker thread
+// primes that worker's per-thread dict.
+func InstantiateT(t *Thread, c *classObject, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	// A threading.local subclass takes the per-thread attribute layout: its
+	// instance carries one attribute dict per thread and re-runs __init__ on each
+	// thread's first access, so it never reaches the ordinary instance path.
+	if c.builtinBase == "local" && !c.isMeta {
+		return instantiateLocal(t, c, pos, kwNames, kwVals)
+	}
 	// Calling a metaclass builds a class, not an ordinary instance: it runs the
 	// metaclass __new__/__init__ protocol, so Meta(name, bases, ns) creates the
 	// class the same three-argument type(...) call does.
@@ -1643,13 +1665,21 @@ func callInit(c *classObject, obj Object, pos []Object, kwNames []string, kwVals
 // directly; any other callable, such as the builtin NewMethod __init__ a
 // Go-built classObject carries, dispatches through CallKw with self prepended.
 func initSelf(init, self Object, pos []Object, kwNames []string, kwVals []Object) error {
+	return initSelfT(mainThread, init, self, pos, kwNames, kwVals)
+}
+
+// initSelfT runs __init__ under a given thread, the threaded core initSelf wraps
+// with the main thread. A threading.local subclass re-runs __init__ on each
+// thread that first touches the instance, so the store spine inside that
+// __init__ must carry the accessing thread rather than the main one.
+func initSelfT(t *Thread, init, self Object, pos []Object, kwNames []string, kwVals []Object) error {
 	withSelf := append([]Object{self}, pos...)
 	var ret Object
 	var err error
 	if fn, ok := init.(*functionObject); ok {
-		ret, err = fn.bind(mainThread, withSelf, kwNames, kwVals)
+		ret, err = fn.bind(t, withSelf, kwNames, kwVals)
 	} else {
-		ret, err = CallKw(init, withSelf, kwNames, kwVals)
+		ret, err = CallKwT(t, init, withSelf, kwNames, kwVals)
 	}
 	if err != nil {
 		return err

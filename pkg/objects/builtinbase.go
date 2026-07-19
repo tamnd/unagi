@@ -21,6 +21,12 @@ func builtinBaseName(b Object) (string, bool) {
 		switch f.name {
 		case "dict", "int", "str", "tuple", "classmethod", "staticmethod", "property":
 			return f.name, true
+		case "local":
+			// threading.local is exposed as the builtin `local`; a subclass takes
+			// the per-thread attribute layout rather than the ordinary instance
+			// dict. It carries no value payload, so construction never calls the
+			// base function; instantiateLocal builds the per-thread store instead.
+			return "local", true
 		}
 	}
 	// types.GenericAlias is a type object rather than a builtin function, the
