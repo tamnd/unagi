@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+1000
+1500
+5000
+ve recursion limit must be greater or equal than 1
+ve recursion limit must be greater or equal than 1
+5000
+te 'str' object cannot be interpreted as an integer
+te 'float' object cannot be interpreted as an integer
+te 'NoneType' object cannot be interpreted as an integer
+== exception:
+== stderr:
