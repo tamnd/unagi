@@ -466,3 +466,113 @@ func TestPickleProtocolDifferences(t *testing.T) {
 		})
 	}
 }
+
+// mustPickleClass builds a plain object-rooted class in the __main__ module and
+// registers it, so the pickle names it the way a class defined in the running
+// script is named and the loader's find_class can resolve it back.
+func mustPickleClass(t *testing.T, name string) *classObject {
+	t.Helper()
+	c, err := NewClass(name, name, []Object{nil}, []string{"__module__"}, []Object{NewStr("__main__")}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewClass(%s): %v", name, err)
+	}
+	return c.(*classObject)
+}
+
+// newPickleInstance builds an instance of c with the given name/value attribute
+// pairs in order, the __dict__ the default reduction pickles.
+func newPickleInstance(c *classObject, pairs ...Object) *instanceObject {
+	o := &instanceObject{cls: c, attrs: newAttrs()}
+	for i := 0; i < len(pairs); i += 2 {
+		_ = o.attrs.set(pairs[i], pairs[i+1])
+	}
+	return o
+}
+
+// TestPickleDumpsInstance pins the default instance reduction byte for byte
+// against CPython 3.14: NEWOBJ over the class global with the __dict__ restored
+// by BUILD, and an attribute-free instance that stops right after NEWOBJ with no
+// BUILD. The vectors are pickle.dumps of the equivalent classes under PYTHONHASHSEED=0.
+func TestPickleDumpsInstance(t *testing.T) {
+	P := mustPickleClass(t, "P")
+	E := mustPickleClass(t, "E")
+	point := newPickleInstance(P, NewStr("x"), NewInt(1), NewStr("y"), NewStr("hi"))
+	cases := []struct {
+		name  string
+		obj   Object
+		proto int
+		want  string
+	}{
+		{"point_p2", point, 2, "8002635f5f6d61696e5f5f0a500a7100298171017d71022858010000007871034b01580100000079710458020000006869710575622e"},
+		{"point_p4", point, 4, "80049529000000000000008c085f5f6d61696e5f5f948c01509493942981947d94288c0178944b018c0179948c0268699475622e"},
+		{"empty_p2", newPickleInstance(E), 2, "8002635f5f6d61696e5f5f0a450a7100298171012e"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := PickleDumps(tc.obj, tc.proto)
+			if err != nil {
+				t.Fatalf("PickleDumps(%s): %v", tc.name, err)
+			}
+			if h := hex.EncodeToString(got); h != tc.want {
+				t.Fatalf("PickleDumps(%s)\n got  %s\n want %s", tc.name, h, tc.want)
+			}
+		})
+	}
+}
+
+// TestPickleInstanceRoundTrip confirms the loader rebuilds a user instance at
+// every binary protocol: NEWOBJ resolves the class through the registry, and
+// BUILD restores its __dict__ in order, so the reconstructed attributes match.
+func TestPickleInstanceRoundTrip(t *testing.T) {
+	C := mustPickleClass(t, "RT")
+	for _, proto := range []int{2, 3, 4, 5} {
+		inst := newPickleInstance(C, NewStr("a"), NewInt(7), NewStr("b"), NewStr("hi"))
+		data, err := PickleDumps(inst, proto)
+		if err != nil {
+			t.Fatalf("dumps(proto=%d): %v", proto, err)
+		}
+		back, err := PickleLoads(data)
+		if err != nil {
+			t.Fatalf("loads(proto=%d): %v", proto, err)
+		}
+		bi, ok := back.(*instanceObject)
+		if !ok {
+			t.Fatalf("loads(proto=%d) returned %s, want instance", proto, back.TypeName())
+		}
+		if bi.cls != C {
+			t.Fatalf("loads(proto=%d) rebuilt class %p, want %p", proto, bi.cls, C)
+		}
+		for _, kv := range []struct {
+			k string
+			v Object
+		}{{"a", NewInt(7)}, {"b", NewStr("hi")}} {
+			got, ok := bi.attrGet(kv.k)
+			if !ok || !equals(got, kv.v) {
+				t.Fatalf("loads(proto=%d) attr %s = %v (ok=%v), want %s", proto, kv.k, got, ok, Repr(kv.v))
+			}
+		}
+	}
+}
+
+// TestPickleEmptyInstanceRoundTrip confirms an attribute-free instance, pickled
+// with no BUILD, comes back with an empty __dict__.
+func TestPickleEmptyInstanceRoundTrip(t *testing.T) {
+	C := mustPickleClass(t, "RTEmpty")
+	for _, proto := range []int{2, 3, 4, 5} {
+		data, err := PickleDumps(newPickleInstance(C), proto)
+		if err != nil {
+			t.Fatalf("dumps(proto=%d): %v", proto, err)
+		}
+		back, err := PickleLoads(data)
+		if err != nil {
+			t.Fatalf("loads(proto=%d): %v", proto, err)
+		}
+		bi, ok := back.(*instanceObject)
+		if !ok || bi.cls != C {
+			t.Fatalf("loads(proto=%d) returned %s, want RTEmpty instance", proto, back.TypeName())
+		}
+		if len(bi.attrs.entries) != 0 {
+			t.Fatalf("loads(proto=%d) __dict__ = %d entries, want 0", proto, len(bi.attrs.entries))
+		}
+	}
+}

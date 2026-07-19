@@ -265,6 +265,7 @@ func newClassCore(meta *classObject, name, qual string, bases []Object, names []
 	if err := c.runInitSubclass(kwNames, kwVals); err != nil {
 		return nil, err
 	}
+	registerPickleClass(c)
 	return c, nil
 }
 

@@ -124,11 +124,12 @@ func (f *pickleFramer) writeLargeBytes(header, payload []byte) {
 // pickler holds the state for one dumps() call: the framer, the running memo,
 // and the chosen protocol.
 type pickler struct {
-	framer  pickleFramer
-	memo    map[Object]int
-	globals map[string]*pickleGlobalRef // interned globals so a repeated reference shares a memo entry
-	proto   int
-	bin     bool // binary protocol (2+); the only protocols this slice emits
+	framer      pickleFramer
+	memo        map[Object]int
+	globals     map[string]*pickleGlobalRef // interned globals so a repeated reference shares a memo entry
+	moduleNames map[string]*strObject       // interned module-name strings; classes in a module share one __module__ object, so the second global fetches it from the memo
+	proto       int
+	bin         bool // binary protocol (2+); the only protocols this slice emits
 }
 
 // PickleDumps serializes o at the given protocol, returning the pickle bytes.
@@ -193,6 +194,8 @@ func (p *pickler) save(o Object) error {
 		return p.saveSet(v, o)
 	case *frozensetObject:
 		return p.saveFrozenset(v, o)
+	case *instanceObject:
+		return p.saveInstance(v)
 	}
 	// CPython raises TypeError (not PicklingError) for a type with no pickle
 	// support once reduction has been tried, e.g. "cannot pickle 'module' object".
