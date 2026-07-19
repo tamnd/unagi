@@ -1557,19 +1557,8 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 			}
 			return e, nil
 		}
-		fn, ok := init.(*functionObject)
-		if !ok {
-			// A non-function __init__ needs the descriptor protocol to call,
-			// which waits on a later slice.
-			return nil, Raise(TypeError, "%s() argument after __init__ is not a plain function", c.name)
-		}
-		withSelf := append([]Object{e}, pos...)
-		ret, err := fn.bind(mainThread, withSelf, kwNames, kwVals)
-		if err != nil {
+		if err := initSelf(init, e, pos, kwNames, kwVals); err != nil {
 			return nil, err
-		}
-		if _, isNone := ret.(*noneObject); !isNone {
-			return nil, Raise(TypeError, "__init__() should return None, not '%s'", ret.TypeName())
 		}
 		return e, nil
 	}
@@ -1621,19 +1610,8 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 		}
 		return inst, nil
 	}
-	fn, ok := init.(*functionObject)
-	if !ok {
-		// A non-function __init__ is legal Python but needs the descriptor
-		// protocol to call; that waits on a later slice.
-		return nil, Raise(TypeError, "%s() argument after __init__ is not a plain function", c.name)
-	}
-	withSelf := append([]Object{inst}, pos...)
-	ret, err := fn.bind(mainThread, withSelf, kwNames, kwVals)
-	if err != nil {
+	if err := initSelf(init, inst, pos, kwNames, kwVals); err != nil {
 		return nil, err
-	}
-	if _, isNone := ret.(*noneObject); !isNone {
-		return nil, Raise(TypeError, "__init__() should return None, not '%s'", ret.TypeName())
 	}
 	return inst, nil
 }
@@ -1657,11 +1635,22 @@ func callInit(c *classObject, obj Object, pos []Object, kwNames []string, kwVals
 	if !ok {
 		return nil
 	}
-	fn, ok := init.(*functionObject)
-	if !ok {
-		return Raise(TypeError, "%s() argument after __init__ is not a plain function", c.name)
+	return initSelf(init, obj, pos, kwNames, kwVals)
+}
+
+// initSelf runs a resolved __init__ against self with the constructor arguments
+// and enforces CPython's None-return rule. A plain def-statement function binds
+// directly; any other callable, such as the builtin NewMethod __init__ a
+// Go-built classObject carries, dispatches through CallKw with self prepended.
+func initSelf(init, self Object, pos []Object, kwNames []string, kwVals []Object) error {
+	withSelf := append([]Object{self}, pos...)
+	var ret Object
+	var err error
+	if fn, ok := init.(*functionObject); ok {
+		ret, err = fn.bind(mainThread, withSelf, kwNames, kwVals)
+	} else {
+		ret, err = CallKw(init, withSelf, kwNames, kwVals)
 	}
-	ret, err := fn.bind(mainThread, append([]Object{obj}, pos...), kwNames, kwVals)
 	if err != nil {
 		return err
 	}

@@ -59,6 +59,11 @@ func init() {
 		panic("unagi: building _io._TextIOBase: " + err.Error())
 	}
 
+	// BytesIO subclasses _BufferedIOBase, so that base must exist first.
+	if ioBytesIOClass, err = buildIOBytesIO(); err != nil {
+		panic("unagi: building _io.BytesIO: " + err.Error())
+	}
+
 	moduleTable["_io"] = &moduleEntry{builtin: true, exec: initIOAccel}
 }
 
@@ -79,6 +84,9 @@ func initIOAccel(m *objects.Module) error {
 		return err
 	}
 	if err := set("_TextIOBase", ioTextIOBase); err != nil {
+		return err
+	}
+	if err := set("BytesIO", ioBytesIOClass); err != nil {
 		return err
 	}
 	// DEFAULT_BUFFER_SIZE is the buffer size the buffered streams and open()

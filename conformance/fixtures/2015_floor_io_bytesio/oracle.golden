@@ -1,0 +1,34 @@
+== exit: 0
+== stdout:
+['BytesIO', '_BufferedIOBase', '_IOBase', 'object']
+True True
+[]
+1
+b'hello' 5
+b' wo'
+b'rld' b''
+b'hello world'
+b'hello world'
+4 b'hell'
+3 b'hel'
+3
+1 b'abc\x00\x00Z'
+b'abcd'
+2 3 4
+b'' 100
+3 b'abc' 3
+5 b'ab'
+True True True
+fileno -> fileno
+[b'a\n', b'b\n', b'c']
+cm read: b'z'
+closed after with: True
+closed: True
+read closed -> I/O operation on closed file.
+write closed -> I/O operation on closed file.
+tell closed -> I/O operation on closed file.
+readable closed -> I/O operation on closed file.
+getvalue closed -> I/O operation on closed file.
+<_io.BytesIO
+== exception:
+== stderr:
