@@ -675,3 +675,177 @@ func TestPickleLocalGlobalRefused(t *testing.T) {
 		t.Fatalf("PickleDumps(unregistered function) = nil error, want PicklingError")
 	}
 }
+
+// mustReduceClass builds a class whose instances pickle through a custom
+// __reduce__: the supplied closure produces the reduction tuple from self,
+// exactly the value a Python __reduce__ method returns.
+func mustReduceClass(t *testing.T, name string, reduce func(self *instanceObject) (Object, error)) *classObject {
+	t.Helper()
+	red := NewFunctionT("__reduce__", []Param{{Name: "self", Kind: ParamPlain}}, nil, func(_ *Thread, args []Object) (Object, error) {
+		self, ok := args[0].(*instanceObject)
+		if !ok {
+			return nil, Raise(TypeError, "__reduce__ self is not an instance")
+		}
+		return reduce(self)
+	})
+	c, err := NewClass(name, name, []Object{nil},
+		[]string{"__module__", "__reduce__"},
+		[]Object{NewStr("__main__"), red}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewClass(%s): %v", name, err)
+	}
+	return c.(*classObject)
+}
+
+// TestPickleDumpsReduce pins a plain two-element reduction byte for byte against
+// CPython 3.14: a class whose __reduce__ returns (rebuild, (self.x, self.y))
+// pickles as the rebuild global, the argument tuple, and REDUCE, and the loader
+// applies the registered rebuild function to reconstruct the instance.
+func TestPickleDumpsReduce(t *testing.T) {
+	var coord *classObject
+	rebuild := NewFunctionT("rebuild", []Param{{Name: "x", Kind: ParamPlain}, {Name: "y", Kind: ParamPlain}}, nil, func(_ *Thread, args []Object) (Object, error) {
+		o := &instanceObject{cls: coord, attrs: newAttrs()}
+		_ = o.attrs.set(NewStr("x"), args[0])
+		_ = o.attrs.set(NewStr("y"), args[1])
+		return o, nil
+	}).(*functionObject)
+	RegisterPickleFunction(rebuild)
+
+	coord = mustReduceClass(t, "Coord", func(self *instanceObject) (Object, error) {
+		x, _ := self.attrGet("x")
+		y, _ := self.attrGet("y")
+		return NewTuple([]Object{rebuild, NewTuple([]Object{x, y})}), nil
+	})
+
+	inst := &instanceObject{cls: coord, attrs: newAttrs()}
+	_ = inst.attrs.set(NewStr("x"), NewInt(3))
+	_ = inst.attrs.set(NewStr("y"), NewInt(4))
+
+	// CPython: pickle.dumps(Coord(3, 4), 2) with Coord.__reduce__ = (rebuild, (x, y)).
+	want := "8002635f5f6d61696e5f5f0a72656275696c640a71004b034b048671015271022e"
+	got, err := PickleDumps(inst, 2)
+	if err != nil {
+		t.Fatalf("PickleDumps: %v", err)
+	}
+	if h := hex.EncodeToString(got); h != want {
+		t.Fatalf("PickleDumps(reduce)\n got  %s\n want %s", h, want)
+	}
+
+	back, err := PickleLoads(got)
+	if err != nil {
+		t.Fatalf("PickleLoads: %v", err)
+	}
+	bi, ok := back.(*instanceObject)
+	if !ok || bi.cls != coord {
+		t.Fatalf("PickleLoads returned %s, want Coord instance", back.TypeName())
+	}
+	if x, _ := bi.attrGet("x"); !equals(x, NewInt(3)) {
+		t.Fatalf("rebuilt x = %v, want 3", x)
+	}
+	if y, _ := bi.attrGet("y"); !equals(y, NewInt(4)) {
+		t.Fatalf("rebuilt y = %v, want 4", y)
+	}
+}
+
+// TestPickleReduceStateRoundTrip covers the three-element reduction: the state
+// dict is saved after REDUCE and applied by BUILD, so the reconstructed instance
+// carries the attributes the partial constructor left out.
+func TestPickleReduceStateRoundTrip(t *testing.T) {
+	var box *classObject
+	makeBox := NewFunctionT("makeBox", []Param{{Name: "a", Kind: ParamPlain}}, nil, func(_ *Thread, args []Object) (Object, error) {
+		o := &instanceObject{cls: box, attrs: newAttrs()}
+		_ = o.attrs.set(NewStr("a"), args[0])
+		_ = o.attrs.set(NewStr("b"), None)
+		return o, nil
+	}).(*functionObject)
+	RegisterPickleFunction(makeBox)
+
+	box = mustReduceClass(t, "BoxRT", func(self *instanceObject) (Object, error) {
+		a, _ := self.attrGet("a")
+		b, _ := self.attrGet("b")
+		state, err := NewDict([]Object{NewStr("b")}, []Object{b})
+		if err != nil {
+			return nil, err
+		}
+		return NewTuple([]Object{makeBox, NewTuple([]Object{a}), state}), nil
+	})
+
+	for _, proto := range []int{2, 3, 4, 5} {
+		inst := &instanceObject{cls: box, attrs: newAttrs()}
+		_ = inst.attrs.set(NewStr("a"), NewStr("hi"))
+		_ = inst.attrs.set(NewStr("b"), NewInt(9))
+		data, err := PickleDumps(inst, proto)
+		if err != nil {
+			t.Fatalf("dumps(proto=%d): %v", proto, err)
+		}
+		back, err := PickleLoads(data)
+		if err != nil {
+			t.Fatalf("loads(proto=%d): %v", proto, err)
+		}
+		bi, ok := back.(*instanceObject)
+		if !ok || bi.cls != box {
+			t.Fatalf("loads(proto=%d) returned %s, want BoxRT instance", proto, back.TypeName())
+		}
+		if a, _ := bi.attrGet("a"); !equals(a, NewStr("hi")) {
+			t.Fatalf("loads(proto=%d) a = %v, want 'hi'", proto, a)
+		}
+		if b, _ := bi.attrGet("b"); !equals(b, NewInt(9)) {
+			t.Fatalf("loads(proto=%d) b = %v, want 9 (BUILD state)", proto, b)
+		}
+	}
+}
+
+// TestPickleReduceExProtocol confirms a class defining __reduce_ex__ is dispatched
+// with the protocol, and that a reduction naming the class itself as the callable
+// pickles the class global and rebuilds by calling it. The vector is CPython's
+// pickle.dumps(Temperature(21), 2).
+func TestPickleReduceExProtocol(t *testing.T) {
+	var seen int
+	redEx := NewFunctionT("__reduce_ex__", []Param{{Name: "self", Kind: ParamPlain}, {Name: "protocol", Kind: ParamPlain}}, nil, func(_ *Thread, args []Object) (Object, error) {
+		self := args[0].(*instanceObject)
+		if p, ok := args[1].(*intObject); ok {
+			seen = int(p.v)
+		}
+		c, _ := self.attrGet("celsius")
+		return NewTuple([]Object{self.cls, NewTuple([]Object{c})}), nil
+	})
+	initFn := NewFunctionT("__init__", []Param{{Name: "self", Kind: ParamPlain}, {Name: "celsius", Kind: ParamPlain}}, nil, func(_ *Thread, args []Object) (Object, error) {
+		self := args[0].(*instanceObject)
+		_ = self.attrs.set(NewStr("celsius"), args[1])
+		return None, nil
+	})
+	cobj, err := NewClass("Temperature", "Temperature", []Object{nil},
+		[]string{"__module__", "__reduce_ex__", "__init__"},
+		[]Object{NewStr("__main__"), redEx, initFn}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewClass: %v", err)
+	}
+	temp := cobj.(*classObject)
+
+	inst := &instanceObject{cls: temp, attrs: newAttrs()}
+	_ = inst.attrs.set(NewStr("celsius"), NewInt(21))
+
+	want := "8002635f5f6d61696e5f5f0a54656d70657261747572650a71004b158571015271022e"
+	got, err := PickleDumps(inst, 2)
+	if err != nil {
+		t.Fatalf("PickleDumps: %v", err)
+	}
+	if h := hex.EncodeToString(got); h != want {
+		t.Fatalf("PickleDumps(reduce_ex)\n got  %s\n want %s", h, want)
+	}
+	if seen != 2 {
+		t.Fatalf("__reduce_ex__ received protocol %d, want 2", seen)
+	}
+
+	back, err := PickleLoads(got)
+	if err != nil {
+		t.Fatalf("PickleLoads: %v", err)
+	}
+	bi, ok := back.(*instanceObject)
+	if !ok || bi.cls != temp {
+		t.Fatalf("PickleLoads returned %s, want Temperature instance", back.TypeName())
+	}
+	if c, _ := bi.attrGet("celsius"); !equals(c, NewInt(21)) {
+		t.Fatalf("rebuilt celsius = %v, want 21", c)
+	}
+}

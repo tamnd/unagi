@@ -483,20 +483,32 @@ func (u *unpickler) reduce() error {
 	argsObj := u.stack[len(u.stack)-1]
 	fn := u.stack[len(u.stack)-2]
 	u.stack = u.stack[:len(u.stack)-2]
-	ref, ok := fn.(*pickleGlobalRef)
-	if !ok {
-		return newUnpicklingError("reduce on a non-global callable is not supported yet")
-	}
 	args, ok := argsObj.(*tupleObject)
 	if !ok {
 		return newUnpicklingError("reduce argument is not a tuple")
 	}
-	res, err := reduceGlobal(ref, args)
-	if err != nil {
-		return err
+	switch f := fn.(type) {
+	case *pickleGlobalRef:
+		// A builtin reducer resolved as a stand-in ref (set/frozenset) rebuilds
+		// through its dedicated constructor.
+		res, err := reduceGlobal(f, args)
+		if err != nil {
+			return err
+		}
+		u.push(res)
+		return nil
+	case *functionObject, *classObject:
+		// A user reduction names a real module-level function or class, registered
+		// as its module executed; applying it to the argument tuple rebuilds the
+		// object, the same call CPython makes when it resolves the global by import.
+		res, err := Call(fn, args.elts)
+		if err != nil {
+			return err
+		}
+		u.push(res)
+		return nil
 	}
-	u.push(res)
-	return nil
+	return newUnpicklingError("reduce on a non-callable %s is not supported", fn.TypeName())
 }
 
 // readLine reads bytes through the next newline, returning the text without it,
