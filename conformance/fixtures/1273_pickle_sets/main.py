@@ -56,9 +56,12 @@ print("shared frozenset:", shared.hex(), sb[0] is sb[1])
 nested = pickle.dumps({"a": set([1, 2]), "b": [frozenset([3, 4])]})
 print("nested:", nested.hex(), pickle.loads(nested) == {"a": set([1, 2]), "b": [frozenset([3, 4])]})
 
-# The same set keeps its bytes across the protocols that carry the EMPTY_SET and
-# FROZENSET opcodes (4 and 5). Protocols 2 and 3 reach CPython's reduction
-# protocol, which lands with that machinery in a later slice.
-for proto in (4, 5):
-    print("proto", proto, pickle.dumps(set([1, 2, 3, 17, 33]), protocol=proto).hex())
-    print("proto", proto, pickle.dumps(frozenset([9, 8, 7]), protocol=proto).hex())
+# Protocols 4 and 5 carry the native EMPTY_SET and FROZENSET opcodes; protocols
+# 2 and 3 pickle a set through the object-reduction protocol, builtins.set (named
+# __builtin__ under protocol 2's fix_imports) applied to a list of the elements
+# in the same slot order. Every protocol keeps the bytes byte for byte, and each
+# round-trips back to the value.
+for proto in (2, 3, 4, 5):
+    for v in (set([1, 2, 3, 17, 33]), frozenset([9, 8, 7])):
+        data = pickle.dumps(v, protocol=proto)
+        print("proto", proto, data.hex(), pickle.loads(data) == v)

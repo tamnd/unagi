@@ -204,6 +204,12 @@ func (u *unpickler) dispatch(op byte) error {
 		return u.addItemsFromMark()
 	case opFrozenset:
 		return u.buildFrozensetFromMark()
+	case opGlobal:
+		return u.loadGlobal()
+	case opStackGlobal:
+		return u.loadStackGlobal()
+	case opReduce:
+		return u.reduce()
 	default:
 		return newUnpicklingError("unsupported pickle opcode: 0x%02x", op)
 	}
@@ -365,6 +371,100 @@ func (u *unpickler) buildFrozensetFromMark() error {
 	}
 	u.push(f)
 	return nil
+}
+
+// loadGlobal reads the newline-terminated module and qualname of a GLOBAL
+// opcode, resolves them through find_class, and pushes the result.
+func (u *unpickler) loadGlobal() error {
+	module, err := u.readLine()
+	if err != nil {
+		return err
+	}
+	name, err := u.readLine()
+	if err != nil {
+		return err
+	}
+	g, err := u.findClass(module, name)
+	if err != nil {
+		return err
+	}
+	u.push(g)
+	return nil
+}
+
+// loadStackGlobal takes the qualname and module a STACK_GLOBAL opcode left on
+// the stack (module pushed first, qualname on top), resolves them, and pushes
+// the result.
+func (u *unpickler) loadStackGlobal() error {
+	if len(u.stack) < 2 {
+		return newUnpicklingError("stack_global underflow")
+	}
+	name, ok := u.stack[len(u.stack)-1].(*strObject)
+	if !ok {
+		return newUnpicklingError("stack_global qualname is not a string")
+	}
+	module, ok := u.stack[len(u.stack)-2].(*strObject)
+	if !ok {
+		return newUnpicklingError("stack_global module is not a string")
+	}
+	u.stack = u.stack[:len(u.stack)-2]
+	g, err := u.findClass(module.v, name.v)
+	if err != nil {
+		return err
+	}
+	u.push(g)
+	return nil
+}
+
+// findClass resolves a global by module and qualname to the value the pickler
+// referenced. Old pickles name Python-2 modules, so the module is mapped forward
+// first. This slice records the reference as a pickleGlobalRef that REDUCE turns
+// back into an object; a later slice resolves globals used outside a reduction.
+func (u *unpickler) findClass(module, name string) (Object, error) {
+	if m, ok := compatForwardImport[module]; ok {
+		module = m
+	}
+	return &pickleGlobalRef{module: module, qualname: name}, nil
+}
+
+// reduce applies the callable a REDUCE opcode leaves below its argument tuple,
+// replacing both with the result.
+func (u *unpickler) reduce() error {
+	if len(u.stack) < 2 {
+		return newUnpicklingError("reduce underflow")
+	}
+	argsObj := u.stack[len(u.stack)-1]
+	fn := u.stack[len(u.stack)-2]
+	u.stack = u.stack[:len(u.stack)-2]
+	ref, ok := fn.(*pickleGlobalRef)
+	if !ok {
+		return newUnpicklingError("reduce on a non-global callable is not supported yet")
+	}
+	args, ok := argsObj.(*tupleObject)
+	if !ok {
+		return newUnpicklingError("reduce argument is not a tuple")
+	}
+	res, err := reduceGlobal(ref, args)
+	if err != nil {
+		return err
+	}
+	u.push(res)
+	return nil
+}
+
+// readLine reads bytes through the next newline, returning the text without it,
+// for the GLOBAL opcode's module and qualname fields.
+func (u *unpickler) readLine() (string, error) {
+	start := u.pos
+	for u.pos < len(u.data) {
+		if u.data[u.pos] == '\n' {
+			s := string(u.data[start:u.pos])
+			u.pos++
+			return s, nil
+		}
+		u.pos++
+	}
+	return "", u.truncated()
 }
 
 func (u *unpickler) push(o Object) { u.stack = append(u.stack, o) }

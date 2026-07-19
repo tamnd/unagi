@@ -249,16 +249,114 @@ func TestPickleSetRoundTrip(t *testing.T) {
 	}
 }
 
-// TestPickleSetProtocolRefusal confirms a set below protocol 4 is refused rather
-// than emitting wrong bytes: CPython reaches the object-reduction protocol there,
-// which this slice does not implement yet.
-func TestPickleSetProtocolRefusal(t *testing.T) {
-	for _, proto := range []int{2, 3} {
-		if _, err := PickleDumps(mustSet(t, NewInt(1)), proto); err == nil {
-			t.Fatalf("expected a set at protocol %d to be refused", proto)
+// TestPickleDumpsSetsReduction pins the exact protocol-2 and protocol-3 bytes for
+// sets and frozensets, which have no native opcode there and pickle through the
+// object-reduction protocol: builtins.set (or builtins.frozenset) applied to a
+// list of the elements in set-iteration order. Protocol 2 remaps the module to
+// the Python-2 name __builtin__ (fix_imports); protocol 3 keeps builtins. Each
+// want is the hex of pickle.dumps from CPython 3.14.6 under PYTHONHASHSEED=0.
+func TestPickleDumpsSetsReduction(t *testing.T) {
+	i := func(n int64) Object { return NewInt(n) }
+	cases := []struct {
+		name   string
+		obj    Object
+		p2, p3 string
+	}{
+		{
+			"empty_set", mustSet(t),
+			"8002635f5f6275696c74696e5f5f0a7365740a71005d71018571025271032e",
+			"8003636275696c74696e730a7365740a71005d71018571025271032e",
+		},
+		{
+			"set123", mustSet(t, i(1), i(2), i(3)),
+			"8002635f5f6275696c74696e5f5f0a7365740a71005d7101284b014b024b03658571025271032e",
+			"8003636275696c74696e730a7365740a71005d7101284b014b024b03658571025271032e",
+		},
+		{
+			"set_collide", mustSet(t, i(8), i(16), i(24), i(1)),
+			"8002635f5f6275696c74696e5f5f0a7365740a71005d7101284b084b104b184b01658571025271032e",
+			"8003636275696c74696e730a7365740a71005d7101284b084b104b184b01658571025271032e",
+		},
+		{
+			"set_str", mustSet(t, NewStr("a"), NewStr("b"), NewStr("c")),
+			"8002635f5f6275696c74696e5f5f0a7365740a71005d710128580100000063710258010000006171035801000000627104658571055271062e",
+			"8003636275696c74696e730a7365740a71005d710128580100000063710258010000006171035801000000627104658571055271062e",
+		},
+		{
+			"fset123", mustFrozenset(t, i(1), i(2), i(3)),
+			"8002635f5f6275696c74696e5f5f0a66726f7a656e7365740a71005d7101284b014b024b03658571025271032e",
+			"8003636275696c74696e730a66726f7a656e7365740a71005d7101284b014b024b03658571025271032e",
+		},
+		{
+			"empty_fset", mustFrozenset(t),
+			"8002635f5f6275696c74696e5f5f0a66726f7a656e7365740a71005d71018571025271032e",
+			"8003636275696c74696e730a66726f7a656e7365740a71005d71018571025271032e",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for proto, want := range map[int]string{2: tc.p2, 3: tc.p3} {
+				got, err := PickleDumps(tc.obj, proto)
+				if err != nil {
+					t.Fatalf("PickleDumps(%s, %d): %v", tc.name, proto, err)
+				}
+				if h := hex.EncodeToString(got); h != want {
+					t.Fatalf("PickleDumps(%s, %d)\n got  %s\n want %s", tc.name, proto, h, want)
+				}
+			}
+		})
+	}
+}
+
+// TestPickleDumpsGlobalStackGlobal pins the STACK_GLOBAL form saveGlobal writes
+// under protocol 4+, the branch the native set path never reaches. The bytes are
+// pickle.dumps(set, protocol=4/5) from CPython: the module and qualname go out as
+// memoized SHORT_BINUNICODE strings, then STACK_GLOBAL, then a memoize.
+func TestPickleDumpsGlobalStackGlobal(t *testing.T) {
+	for _, proto := range []int{4, 5} {
+		p := &pickler{memo: map[Object]int{}, proto: proto, bin: true}
+		p.framer.out = append(p.framer.out, opProto, byte(proto))
+		p.framer.startFraming()
+		if err := p.saveGlobal("builtins", "set"); err != nil {
+			t.Fatalf("saveGlobal(proto=%d): %v", proto, err)
 		}
-		if _, err := PickleDumps(mustFrozenset(t, NewInt(1)), proto); err == nil {
-			t.Fatalf("expected a frozenset at protocol %d to be refused", proto)
+		p.framer.write(opStop)
+		p.framer.endFraming()
+		want := "80" + hexByte(proto) + "9514000000000000008c086275696c74696e73948c037365749493942e"
+		if h := hex.EncodeToString(p.framer.out); h != want {
+			t.Fatalf("saveGlobal STACK_GLOBAL(proto=%d)\n got  %s\n want %s", proto, h, want)
+		}
+	}
+}
+
+func hexByte(n int) string { return hex.EncodeToString([]byte{byte(n)}) }
+
+// TestPickleSetReductionRoundTrip confirms the loader rebuilds sets and
+// frozensets pickled through the reduction protocol at protocols 2 and 3.
+func TestPickleSetReductionRoundTrip(t *testing.T) {
+	i := func(n int64) Object { return NewInt(n) }
+	values := []Object{
+		mustSet(t),
+		mustSet(t, i(1), i(2), i(3), i(17), i(33)),
+		mustSet(t, NewStr("x"), NewStr("y"), NewStr("z")),
+		mustFrozenset(t),
+		mustFrozenset(t, i(1), i(2), i(3)),
+		NewList([]Object{mustSet(t, i(1), i(2)), mustSet(t, i(3), i(4))}),
+		NewTuple([]Object{mustFrozenset(t, i(5)), mustFrozenset(t, i(5))}),
+	}
+	for _, proto := range []int{2, 3} {
+		for _, v := range values {
+			data, err := PickleDumps(v, proto)
+			if err != nil {
+				t.Fatalf("dumps(proto=%d) %s: %v", proto, Repr(v), err)
+			}
+			back, err := PickleLoads(data)
+			if err != nil {
+				t.Fatalf("loads(proto=%d) %s: %v", proto, Repr(v), err)
+			}
+			if !equals(v, back) {
+				t.Fatalf("roundtrip(proto=%d): %s != %s", proto, Repr(v), Repr(back))
+			}
 		}
 	}
 }
