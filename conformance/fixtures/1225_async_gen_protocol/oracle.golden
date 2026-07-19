@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+a 1
+got 5
+b 6
+got 10
+c 11
+n1 1
+n2 2
+stopped
+t1 1
+caught boom
+t2 99
+t3 3
+propagated 'missing'
+first 1
+aclosed
+closed exhausted
+f1 1
+finally log ['finally']
+ignored async generator ignored GeneratorExit
+never started closed
+for [0, 1, 4, 9, 16]
+== exception:
+== stderr:

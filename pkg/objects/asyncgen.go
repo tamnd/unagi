@@ -29,6 +29,11 @@ type asyncGenSend struct {
 	ag     *generatorObject
 	sig    genSignal
 	athrow bool
+	// aclose marks the athrow flavor aclose returns: it injects GeneratorExit and
+	// treats a clean shutdown as success, closing the generator to None rather than
+	// letting the exit escape. athrow stays true so the reported type is still
+	// async_generator_athrow, the type CPython names for aclose.
+	aclose bool
 	driven bool
 }
 
@@ -56,7 +61,28 @@ func (a *asyncGenSend) drive(sent Object) (Object, error) {
 		return nil, Raise(TypeError, "can't send non-None value to a just-started async generator")
 	}
 	a.driven = true
+	// aclose on a never-started or finished generator closes to None without
+	// running the body, the same shortcut closeGen takes.
+	if a.aclose && (a.ag.done || !a.ag.started) {
+		a.ag.done = true
+		return nil, stopIteration(None)
+	}
 	val, _, done, err := a.ag.step(a.sig)
+	if a.aclose {
+		// A clean shutdown, GeneratorExit propagating or the body returning, is
+		// success and completes the awaitable with None; a bare yield is the
+		// RuntimeError CPython raises. This mirrors the sync closeGen path.
+		if err != nil {
+			if e, ok := err.(*Exception); ok && e.Kind == "GeneratorExit" {
+				return nil, stopIteration(None)
+			}
+			return nil, err
+		}
+		if done {
+			return nil, stopIteration(None)
+		}
+		return nil, Raise(RuntimeError, "async generator ignored GeneratorExit")
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +176,7 @@ func asyncGenMethod(g *generatorObject, name string, args []Object) (Object, err
 		if len(args) != 0 {
 			return nil, Raise(TypeError, "aclose() takes no arguments (%d given)", len(args))
 		}
-		return &asyncGenSend{ag: g, sig: genSignal{err: &Exception{Kind: "GeneratorExit"}}, athrow: true}, nil
+		return &asyncGenSend{ag: g, sig: genSignal{err: &Exception{Kind: "GeneratorExit"}}, athrow: true, aclose: true}, nil
 	}
 	return nil, noAttr(g, name)
 }
