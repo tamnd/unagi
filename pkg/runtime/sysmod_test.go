@@ -30,6 +30,10 @@ func TestSysIdentityAttrs(t *testing.T) {
 	if s, _ := objects.AsStr(attr("byteorder")); s != "little" {
 		t.Errorf("sys.byteorder = %q, want little", s)
 	}
+	// platform reports the host, mapping Go's GOOS to CPython's spelling.
+	if s, _ := objects.AsStr(attr("platform")); s != sysPlatform() {
+		t.Errorf("sys.platform = %q, want %q", s, sysPlatform())
+	}
 	// version_info is a 5-tuple whose triple gates the common version check.
 	vi := attr("version_info")
 	if got := objects.Repr(vi); got != "(3, 14, 6, 'final', 0)" {

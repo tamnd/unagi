@@ -122,6 +122,13 @@ var BuiltinStarExports = map[string]StarExports{
 		"NotImplementedType", "SimpleNamespace", "TracebackType", "UnionType",
 		"WrapperDescriptorType",
 	}},
+	"_codecs": {All: []string{
+		"register", "unregister", "lookup", "encode", "decode",
+		"lookup_error", "register_error",
+		"utf_8_encode", "utf_8_decode",
+		"ascii_encode", "ascii_decode",
+		"latin_1_encode", "latin_1_decode",
+	}},
 }
 
 // ModuleExports computes a module's star-import surface: a literal top-level

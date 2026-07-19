@@ -204,6 +204,14 @@ func encodeStr(s, enc string) ([]byte, error) {
 	return nil, Raise("LookupError", "unknown encoding: %s", enc)
 }
 
+// EncodeStr encodes a str to bytes under the named codec, the exported entry
+// the _codecs accelerator's per-codec encode functions call. It shares the
+// codec switch str.encode and the two-argument bytes constructor use, so the
+// utf-8, ascii and latin-1 families and their error wording stay in one place.
+func EncodeStr(s, enc string) ([]byte, error) {
+	return encodeStr(s, enc)
+}
+
 // normalizeCodec folds a codec name to a canonical key: lowercased with
 // spaces, hyphens and underscores dropped, so "UTF-8" and "utf_8" both map
 // to "utf8". Only the small set this build supports is recognized.

@@ -2,9 +2,22 @@ package runtime
 
 import (
 	"math"
+	"runtime"
 
 	"github.com/tamnd/unagi/pkg/objects"
 )
+
+// sysPlatform reports sys.platform for the host the compiled program runs on,
+// mapping Go's GOOS to the value CPython uses: darwin and linux pass through,
+// and windows reads as win32, the string the stdlib branches on.
+func sysPlatform() string {
+	switch runtime.GOOS {
+	case "windows":
+		return "win32"
+	default:
+		return runtime.GOOS
+	}
+}
 
 // sys is the first built-in module: the runtime registers it in the import
 // table itself, so `import sys` works in every compiled program without a
@@ -61,6 +74,7 @@ func initSys(m *objects.Module) error {
 		{"maxsize", objects.NewInt(math.MaxInt64)},
 		{"maxunicode", objects.NewInt(0x10FFFF)},
 		{"byteorder", objects.NewStr("little")},
+		{"platform", objects.NewStr(sysPlatform())},
 	}
 	for _, a := range attrs {
 		if err := set(a.name, a.val); err != nil {

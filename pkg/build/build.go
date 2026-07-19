@@ -175,6 +175,16 @@ type pymod struct {
 	src  []byte
 }
 
+// floorDynamicCore names, per floor package, the submodules that package reaches
+// only through a dynamic __import__ the static import graph cannot see. The
+// encodings package resolves each codec by importing encodings.<name> from a
+// runtime string, so the core codecs the runtime actually backs are compiled in
+// eagerly whenever encodings is reached; codecs.lookup then finds them in the
+// table at runtime the way CPython's registry does on its first miss.
+var floorDynamicCore = map[string][]string{
+	"encodings": {"utf_8", "ascii", "latin_1"},
+}
+
 // collectModules compiles every module the program can import: the static
 // import graph from the entry module, each dotted name resolved next to the
 // entry file or in the embedded stdlib floor, package directories through
@@ -213,7 +223,8 @@ func collectModules(pyPath string, entry *frontend.Module) ([]pymod, map[string]
 	}
 	var found []parsed
 	var visit func(body []frontend.Stmt, pack string) error
-	compile := func(name, file string, pkg, ns, fromFloor bool) error {
+	var compile func(name, file string, pkg, ns, fromFloor bool) error
+	compile = func(name, file string, pkg, ns, fromFloor bool) error {
 		if ns {
 			// A namespace package has no source: record it so the table can
 			// register it, and keep walking, since its submodules resolve
@@ -245,7 +256,28 @@ func collectModules(pyPath string, entry *frontend.Module) ([]pymod, map[string]
 		} else if i := strings.LastIndex(name, "."); i >= 0 {
 			pack = name[:i]
 		}
-		return visit(m.Body, pack)
+		if err := visit(m.Body, pack); err != nil {
+			return err
+		}
+		// Pull in the submodules this package reaches only through a dynamic
+		// __import__ the static graph cannot see, so they land in the table and
+		// the runtime import finds them.
+		for _, sub := range floorDynamicCore[name] {
+			full := name + "." + sub
+			if seen[full] {
+				continue
+			}
+			subFile, subPkg, subNs, subFloor, ok := resolveModule(dir, floorFS, shimmed, full)
+			if !ok {
+				continue
+			}
+			seen[full] = true
+			seenPkg[full] = subPkg
+			if err := compile(full, subFile, subPkg, subNs, subFloor); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	visit = func(body []frontend.Stmt, pack string) error {
 		names := map[string]bool{}
