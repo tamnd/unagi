@@ -226,6 +226,10 @@ func reprCore(o Object, strict bool) (string, error) {
 		return fmt.Sprintf("<weakref; to '%s'>", x.referent.TypeName()), nil
 	case *genericAliasObject:
 		return genericAliasRepr(x)
+	case *frameObject:
+		return frameRepr(x), nil
+	case *codeObject:
+		return codeRepr(x), nil
 	case *listObject:
 		return reprSeqCore(x.elts, "[", "]", strict)
 	case *dequeObject:

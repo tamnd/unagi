@@ -44,6 +44,52 @@ type Thread struct {
 	// it in the loop policy's thread-local slot; here it rides the Thread the same
 	// way. Only the owning goroutine touches it, so it needs no synchronization.
 	currentLoop *eventLoop
+
+	// frames is the lightweight shadow call stack sys._getframe() reads: a
+	// compiled Python function pushes one on entry and pops it on exit, so the
+	// top is the frame currently executing and the slice below it is the caller
+	// chain. unagi compiles to Go and keeps no interpreter frames otherwise, so
+	// this is the only place a frame is live. Only the owning goroutine touches
+	// it, so it needs no synchronization.
+	frames []*frameObject
+}
+
+// PushFrame links a frame under the current top and makes it the running frame,
+// called from compiled code on function entry. The link is set here rather than
+// by the caller so f_back always mirrors the live stack.
+func (t *Thread) PushFrame(f *frameObject) {
+	if n := len(t.frames); n > 0 {
+		f.back = t.frames[n-1]
+	}
+	t.frames = append(t.frames, f)
+}
+
+// PopFrame drops the running frame as its function returns or unwinds, paired
+// with PushFrame through a deferred call. It never underflows, so a stray unwind
+// cannot corrupt the stack.
+func (t *Thread) PopFrame() {
+	if n := len(t.frames); n > 0 {
+		t.frames[n-1] = nil // let the frame be collected
+		t.frames = t.frames[:n-1]
+	}
+}
+
+// FrameAtDepth returns the frame depth levels above the running one, the value
+// sys._getframe(depth) hands back: depth 0 is the caller of _getframe, 1 its
+// caller, and so on. sys._getframe is a builtin and pushes no frame of its own,
+// so depth 0 is genuinely the compiled function that called it. A depth past the
+// bottom of the stack is the ValueError CPython raises, and a negative depth
+// reads as 0 the way CPython clamps it. It returns Object rather than the
+// unexported frame type so pkg/runtime can hand it straight back.
+func (t *Thread) FrameAtDepth(depth int) (Object, error) {
+	if depth < 0 {
+		depth = 0
+	}
+	i := len(t.frames) - 1 - depth
+	if i < 0 {
+		return nil, Raise(ValueError, "call stack is not deep enough")
+	}
+	return t.frames[i], nil
 }
 
 // context returns the thread's current contextvars context, creating an empty
