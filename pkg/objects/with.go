@@ -49,6 +49,13 @@ func WithEnterT(t *Thread, mgr Object) (exitFn Object, entered Object, err error
 	}
 	exitM, ok := classMethod(inst.cls, "__exit__")
 	if !ok {
+		// A Go-built class such as _io._IOBase carries its dunders as builtin
+		// methods rather than def-statement functions, so they are not
+		// *functionObject. When both are present on the class as callables, drive
+		// the protocol through CallMethod, still a type-level lookup.
+		if classCallable(inst.cls, "__exit__") && classCallable(inst.cls, "__enter__") {
+			return nativeInstanceCM(t, mgr)
+		}
 		return nil, nil, Raise(TypeError,
 			"'%s' object does not support the context manager protocol (missed __exit__ method)",
 			inst.cls.name)
@@ -159,9 +166,7 @@ func asyncCMProtocolError(mgr Object, missed string) error {
 // through the same check the with statement uses.
 func supportsSyncCM(o Object) bool {
 	if inst, ok := o.(*instanceObject); ok {
-		_, hasEnter := classMethod(inst.cls, "__enter__")
-		_, hasExit := classMethod(inst.cls, "__exit__")
-		return hasEnter && hasExit
+		return classCallable(inst.cls, "__enter__") && classCallable(inst.cls, "__exit__")
 	}
 	return supportsNativeCM(o)
 }
@@ -176,4 +181,26 @@ func classMethod(c *classObject, name string) (*functionObject, bool) {
 	}
 	fn, ok := v.(*functionObject)
 	return fn, ok
+}
+
+// classCallable reports whether a class resolves a dunder to any callable
+// through its MRO, the check for a Go-built class whose dunders are builtin
+// methods rather than def-statement functions.
+func classCallable(c *classObject, name string) bool {
+	v, ok := c.lookup(name)
+	return ok && Callable(v)
+}
+
+// nativeInstanceCM drives the with protocol over an instance whose __enter__ and
+// __exit__ are builtin methods on the class, entering now and handing back a
+// callable that runs __exit__ on the way out under the same thread.
+func nativeInstanceCM(t *Thread, mgr Object) (exitFn Object, entered Object, err error) {
+	entered, err = CallMethodT(t, mgr, "__enter__", nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	exit := NewFunc("__exit__", -1, func(args []Object) (Object, error) {
+		return CallMethodT(t, mgr, "__exit__", args)
+	})
+	return exit, entered, nil
 }

@@ -464,6 +464,17 @@ func NewFuncT(name string, arity int, fnT func(t *Thread, args []Object) (Object
 	return &funcObject{name: name, arity: arity, fnT: fnT}
 }
 
+// NewMethod wraps a Go function as an instance method for a class dict built by
+// NewClass. Read off an instance it binds the instance as self, the way a
+// def-statement method does, so a Go-built classObject (such as _io._IOBase) can
+// carry Python-visible methods. A plain NewFunc in a class dict comes back
+// unbound; this is the self-binding variant. The first argument is self, so a
+// method of n Python parameters takes arity n+1; a negative arity disables the
+// count check for methods with defaults or varargs.
+func NewMethod(name string, arity int, fn func(args []Object) (Object, error)) Object {
+	return &funcObject{name: name, arity: arity, fn: fn, selfBound: true}
+}
+
 // NewFuncKw wraps a keyword-aware Go function as a variadic builtin. Every call,
 // with or without keywords, routes through kwfn; the positional-only path fills
 // in empty keyword slices. Only the handful of builtins that take keyword
