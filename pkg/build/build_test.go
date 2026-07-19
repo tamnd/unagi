@@ -7,7 +7,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 
+	"github.com/tamnd/unagi/pkg/floor"
 	"github.com/tamnd/unagi/pkg/frontend"
 	"github.com/tamnd/unagi/pkg/partition"
 )
@@ -1540,41 +1542,53 @@ func TestResolvePy(t *testing.T) {
 	}
 }
 
-// TestResolveModule covers the floor fallback: a name that is not next to the
-// entry file resolves in the floor root, and a local module of the same name
-// shadows the floor one.
+// TestResolveModule covers the floor fallback: a name only in the floor
+// resolves there, a local module of the same name shadows the floor one, a
+// name the runtime shims in Go is never taken from the floor, and a nil floor
+// resolves nothing beyond the entry dir.
 func TestResolveModule(t *testing.T) {
 	entry := t.TempDir()
-	floorRoot := t.TempDir()
-	writeFile(t, filepath.Join(floorRoot, "onlyfloor.py"), "a = 1\n")
-	writeFile(t, filepath.Join(floorRoot, "shared.py"), "b = 2\n")
 	writeFile(t, filepath.Join(entry, "shared.py"), "c = 3\n")
+	floorFS := fstest.MapFS{
+		"onlyfloor.py": {Data: []byte("a = 1\n")},
+		"shared.py":    {Data: []byte("b = 2\n")},
+		"os.py":        {Data: []byte("d = 4\n")},
+	}
+	shimmed := map[string]bool{"os": true}
 
-	file, _, _, ok := resolveModule(entry, floorRoot, "onlyfloor")
-	if !ok || filepath.Dir(file) != floorRoot {
-		t.Errorf("onlyfloor resolved to %q, ok=%v; want the floor root", file, ok)
+	file, _, _, fromFloor, ok := resolveModule(entry, floorFS, shimmed, "onlyfloor")
+	if !ok || !fromFloor || file != "onlyfloor.py" {
+		t.Errorf("onlyfloor resolved to %q fromFloor=%v ok=%v; want the floor file", file, fromFloor, ok)
 	}
-	file, _, _, ok = resolveModule(entry, floorRoot, "shared")
-	if !ok || filepath.Dir(file) != entry {
-		t.Errorf("shared resolved to %q, ok=%v; want the entry dir to shadow the floor", file, ok)
+	file, _, _, fromFloor, ok = resolveModule(entry, floorFS, shimmed, "shared")
+	if !ok || fromFloor || filepath.Dir(file) != entry {
+		t.Errorf("shared resolved to %q fromFloor=%v ok=%v; want the entry dir to shadow the floor", file, fromFloor, ok)
 	}
-	if _, _, _, ok := resolveModule(entry, floorRoot, "absent"); ok {
+	if _, _, _, _, ok := resolveModule(entry, floorFS, shimmed, "os"); ok {
+		t.Error("a shimmed name must not resolve from the floor")
+	}
+	if _, _, _, _, ok := resolveModule(entry, floorFS, shimmed, "absent"); ok {
 		t.Error("absent name resolved")
 	}
-	if _, _, _, ok := resolveModule(entry, "", "onlyfloor"); ok {
-		t.Error("empty floor root should resolve nothing beyond the entry dir")
+	if _, _, _, _, ok := resolveModule(entry, nil, shimmed, "onlyfloor"); ok {
+		t.Error("nil floor should resolve nothing beyond the entry dir")
 	}
 }
 
-// TestFloorDirFindsStat checks the floor is located under the source tree and
-// carries the pinned stat module the pipeline is proven on.
-func TestFloorDirFindsStat(t *testing.T) {
-	root := floorDir()
-	if root == "" {
-		t.Skip("floor sources not on disk in this build")
+// TestFloorFSCarriesStat checks the embedded floor tree resolves the pinned
+// stat module the pipeline is proven on, and roots names the way the build
+// expects.
+func TestFloorFSCarriesStat(t *testing.T) {
+	fsys, err := floor.FS()
+	if err != nil {
+		t.Fatalf("floor.FS: %v", err)
 	}
-	if _, _, _, ok := resolvePy(root, "stat"); !ok {
-		t.Errorf("floor at %q does not carry stat", root)
+	path, _, _, ok := resolveFloor(fsys, "stat")
+	if !ok || path != "stat.py" {
+		t.Errorf("stat resolved to %q ok=%v; want stat.py", path, ok)
+	}
+	if _, pkg, _, ok := resolveFloor(fsys, "json"); !ok || !pkg {
+		t.Errorf("json did not resolve as a package: pkg=%v ok=%v", pkg, ok)
 	}
 }
 
