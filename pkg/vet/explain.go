@@ -5,6 +5,7 @@ package vet
 // the pattern is, why it was safe under the GIL and is not now, and the fix.
 var explanations = map[string]string{
 	"UNA-THR-001": unaThr001Explain,
+	"UNA-THR-002": unaThr002Explain,
 }
 
 // Explain returns the long-form text for a finding code and whether the code is
@@ -49,4 +50,37 @@ combine the results after join, so the threads never share a mutable cell.
         for _ in range(100_000):
             total += 1
         out[i] = total            # one writer per slot, summed after join
+`
+
+const unaThr002Explain = `UNA-THR-002: check-then-act race
+
+A check-then-act tests a shared object and then, in a separate step, acts on
+that observation. Under the GIL the two steps could not interleave, so the
+observation was still true when the action ran. Without the GIL another thread
+can change the object in the gap, so both threads pass the check and both act.
+
+    cache = {}
+
+    def get(key):
+        if key not in cache:      # check
+            cache[key] = build(key)   # act on a now-stale observation
+        return cache[key]
+
+Two threads can both find key missing, both call build, and the second store
+overwrites the first, so the work is done twice and one result is discarded. The
+lazy-init shape has the same window:
+
+    if conn is None:
+        conn = connect()          # two threads open two connections
+
+Hold a lock across both halves so the check and the act are one step:
+
+    with lock:
+        if key not in cache:
+            cache[key] = build(key)
+
+Where the primitive offers it, an atomic operation closes the window without a
+lock: dict.setdefault performs the test and the insert in one call.
+
+    cache.setdefault(key, build(key))
 `
