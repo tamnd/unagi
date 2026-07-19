@@ -1992,3 +1992,30 @@ func TestRunnerNestedRun(t *testing.T) {
 		t.Fatalf("close: %v", err)
 	}
 }
+
+// TestAsyncioRunViaRunnerDebug checks asyncio.run's debug keyword reaches the
+// loop, the way it does in CPython, where run is a Runner(debug=...) shorthand.
+func TestAsyncioRunViaRunnerDebug(t *testing.T) {
+	var onDebug, offDebug bool
+	probe := func(dst *bool) Object {
+		return NewCoroutine("probe", func(y Yielder) (Object, error) {
+			if _, err := y.YieldFrom(AsyncioSleep(0, None)); err != nil {
+				return nil, err
+			}
+			*dst = runningLoop.Load().debug
+			return None, nil
+		})
+	}
+	if _, err := AsyncioRunViaRunner(mainThread, probe(&onDebug), True); err != nil {
+		t.Fatalf("run debug=True: %v", err)
+	}
+	if _, err := AsyncioRunViaRunner(mainThread, probe(&offDebug), None); err != nil {
+		t.Fatalf("run debug=None: %v", err)
+	}
+	if !onDebug {
+		t.Fatalf("debug=True did not reach the loop")
+	}
+	if offDebug {
+		t.Fatalf("default run left debug on")
+	}
+}

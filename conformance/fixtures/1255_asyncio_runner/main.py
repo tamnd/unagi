@@ -77,4 +77,13 @@ try:
 except ValueError as e:
     print("propagated", e)
 r7.close()
+
+
+# asyncio.run is the Runner shorthand, so its debug keyword reaches the loop
+async def show_debug(tag):
+    print(tag, asyncio.get_running_loop().get_debug())
+
+
+asyncio.run(show_debug("run debug on"), debug=True)
+asyncio.run(show_debug("run debug off"))
 print("done")
