@@ -120,7 +120,37 @@ func (l *eventLoop) runUntil(done func() bool) error {
 			return nil
 		}
 		l.mu.Lock()
-		// Fire any timers due now into the ready queue.
+		if len(l.ready) == 0 {
+			if len(l.timers) == 0 {
+				// Nothing is ready and no timer will make anything ready. If an
+				// off-loop operation is outstanding, block until it wakes the loop;
+				// otherwise the awaited result can never arrive, the deadlock asyncio
+				// reports as the loop stopping early.
+				if l.pending == 0 {
+					l.mu.Unlock()
+					return Raise(RuntimeError, "Event loop stopped before Future completed.")
+				}
+				l.mu.Unlock()
+				<-l.wakeup
+				l.mu.Lock()
+			} else {
+				sort.SliceStable(l.timers, func(i, j int) bool { return l.timers[i].when.Before(l.timers[j].when) })
+				next := l.timers[0].when
+				l.mu.Unlock()
+				// Sleep until the earliest timer, but cut the sleep short if an
+				// off-loop wakeup arrives first, so an executor result is not stuck
+				// behind a pending timer.
+				if d := time.Until(next); d > 0 {
+					timer := time.NewTimer(d)
+					select {
+					case <-l.wakeup:
+						timer.Stop()
+					case <-timer.C:
+					}
+				}
+				l.mu.Lock()
+			}
+		}
 		if len(l.timers) > 0 {
 			now := time.Now()
 			sort.SliceStable(l.timers, func(i, j int) bool { return l.timers[i].when.Before(l.timers[j].when) })
@@ -136,43 +166,11 @@ func (l *eventLoop) runUntil(done func() bool) error {
 			}
 			l.timers = rest
 		}
-		if len(l.ready) > 0 {
-			batch := l.ready
-			l.ready = nil
-			l.mu.Unlock()
-			for _, cb := range batch {
-				cb()
-			}
-			continue
-		}
-		// Nothing is runnable this instant. Sleep until the next timer or an
-		// off-loop wakeup, whichever comes first. With neither a timer nor a
-		// pending off-loop operation the awaited result can never arrive, the
-		// deadlock asyncio reports as the loop stopping early.
-		var wait time.Duration
-		haveTimer := false
-		if len(l.timers) > 0 {
-			sort.SliceStable(l.timers, func(i, j int) bool { return l.timers[i].when.Before(l.timers[j].when) })
-			wait = time.Until(l.timers[0].when)
-			haveTimer = true
-		}
-		pending := l.pending
+		batch := l.ready
+		l.ready = nil
 		l.mu.Unlock()
-		if !haveTimer && pending == 0 {
-			return Raise(RuntimeError, "Event loop stopped before Future completed.")
-		}
-		if !haveTimer {
-			<-l.wakeup
-			continue
-		}
-		if wait <= 0 {
-			continue
-		}
-		timer := time.NewTimer(wait)
-		select {
-		case <-l.wakeup:
-			timer.Stop()
-		case <-timer.C:
+		for _, cb := range batch {
+			cb()
 		}
 	}
 }
@@ -616,13 +614,22 @@ func scheduleTask(coro Object, loop *eventLoop, name string) (*asyncTask, error)
 	return tk, nil
 }
 
-// ensureTask wraps a gather argument in a running task. A coroutine is
-// scheduled; a task passed straight through. Futures are a later slice.
-func ensureTask(arg Object, loop *eventLoop) (*asyncTask, error) {
-	if tk, ok := arg.(*asyncTask); ok {
-		return tk, nil
+// gatherWatch turns a gather argument into the future to watch for its result.
+// A coroutine is scheduled as a task and its doneFut watched; a task hands back
+// its doneFut, a future itself. This is the same normalisation ensure_future and
+// as_completed run, so gather accepts any awaitable, not only coroutines.
+func gatherWatch(arg Object) (*asyncFuture, error) {
+	fut, err := AsyncioEnsureFuture(arg)
+	if err != nil {
+		return nil, err
 	}
-	return scheduleTask(arg, loop, "")
+	switch f := fut.(type) {
+	case *asyncTask:
+		return f.doneFut, nil
+	case *asyncFuture:
+		return f, nil
+	}
+	return nil, Raise(TypeError, "Passing coroutines is forbidden, use tasks explicitly.")
 }
 
 // AsyncioGather implements asyncio.gather(*aws, return_exceptions=False). It runs
@@ -646,23 +653,24 @@ func AsyncioGather(args []Object, returnExceptions bool) (Object, error) {
 	// and results are touched by one goroutine at a time and need no lock.
 	remaining := len(args)
 	for i, arg := range args {
-		child, err := ensureTask(arg, loop)
+		watch, err := gatherWatch(arg)
 		if err != nil {
 			return nil, err
 		}
 		idx := i
-		child.doneFut.addDoneCallback(func() {
+		watch.addDoneCallback(func() {
 			if gfut.doneP() {
 				return
 			}
-			if child.exc != nil {
+			v, rerr := watch.pyResult()
+			if rerr != nil {
 				if !returnExceptions {
-					gfut.setException(child.exc)
+					gfut.setException(rerr)
 					return
 				}
-				results[idx] = errorObject(child.exc)
+				results[idx] = errorObject(rerr)
 			} else {
-				results[idx] = child.result
+				results[idx] = v
 			}
 			remaining--
 			if remaining == 0 {
