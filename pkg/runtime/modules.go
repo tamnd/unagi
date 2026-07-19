@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/tamnd/unagi/pkg/objects"
@@ -60,6 +61,25 @@ func modulesSet(name string, v objects.Object) {
 
 func modulesDel(name string) {
 	_ = objects.DelItem(modules, objects.NewStr(name))
+}
+
+// ShimmedModules returns the names the runtime provides itself as Go modules,
+// the built-in and whole-module shims registered from init. The build reads
+// this set to keep those names off the source floor: a name the runtime backs
+// in Go must not also be compiled from the vendored .py, or the two would race
+// to register the same table key and the source form would drag in accelerators
+// that do not exist yet. The list is sorted so callers get a deterministic set.
+// It reflects this binary's runtime, which is the same pkg/runtime copied into
+// the program under build, so the compiler and the program agree on the set.
+func ShimmedModules() []string {
+	names := make([]string, 0, len(moduleTable))
+	for name, ent := range moduleTable {
+		if ent.builtin {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 // RegisterModule adds one compiled module to the import table. The generated

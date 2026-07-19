@@ -1141,7 +1141,7 @@ func TestAsyncioShieldKeepsInnerRunning(t *testing.T) {
 			return nil, rerr
 		}
 		s, _ := AsStr(res)
-		return NewStr(s+":"+boolStr(outerCancelled)+":"+boolStr(inner.doneFut.isCancelled())), nil
+		return NewStr(s + ":" + boolStr(outerCancelled) + ":" + boolStr(inner.doneFut.isCancelled())), nil
 	})
 	got, err := AsyncioRun(main)
 	if err != nil {

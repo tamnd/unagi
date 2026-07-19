@@ -8,6 +8,7 @@ package build
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
@@ -22,6 +23,7 @@ import (
 	"github.com/tamnd/unagi/pkg/lower"
 	"github.com/tamnd/unagi/pkg/partition"
 	"github.com/tamnd/unagi/pkg/report"
+	unagirt "github.com/tamnd/unagi/pkg/runtime"
 )
 
 // entryModule is the name the entry file's units carry in the report, matching
@@ -175,17 +177,25 @@ type pymod struct {
 
 // collectModules compiles every module the program can import: the static
 // import graph from the entry module, each dotted name resolved next to the
-// entry file or in the bundled stdlib floor, package directories through their
-// __init__.py. Every resolvable prefix of a dotted name compiles as its own
-// module, since CPython executes each ancestor on the way to the leaf; the
+// entry file or in the embedded stdlib floor, package directories through
+// their __init__.py. Every resolvable prefix of a dotted name compiles as its
+// own module, since CPython executes each ancestor on the way to the leaf; the
 // walk down a dotted name stops at the first prefix that is missing or
 // resolves to a plain module, and the import raises ModuleNotFoundError at
 // runtime the way CPython does. The result is ordered by first discovery,
 // breadth within one module sorted by name, so the generated table is
 // deterministic.
+//
+// A floor module is compiled best effort: if its source cannot be read,
+// parsed, or lowered, it is left out of the table rather than failing the
+// build, so importing an unsupported stdlib module raises ModuleNotFoundError
+// at runtime the way it does for one the floor never carried. A module the
+// runtime shims in Go is kept off the floor entirely, so its Go form wins and
+// the vendored source is never compiled underneath it.
 func collectModules(pyPath string, entry *frontend.Module) ([]pymod, map[string]lower.StarExports, error) {
 	dir := filepath.Dir(pyPath)
-	floorRoot := floorDir()
+	floorFS, _ := floor.FS()
+	shimmed := shimmedModuleSet()
 	seen := map[string]bool{}
 	seenPkg := map[string]bool{}
 	// Discover and parse the whole import graph first, in first-seen order,
@@ -193,32 +203,39 @@ func collectModules(pyPath string, entry *frontend.Module) ([]pymod, map[string]
 	// module's export list up front, so the discovery pass cannot lower as it
 	// goes the way a single pass would.
 	type parsed struct {
-		name string
-		file string
-		pkg  bool
-		ns   bool
-		src  []byte
-		mod  *frontend.Module
+		name      string
+		file      string
+		pkg       bool
+		ns        bool
+		fromFloor bool
+		src       []byte
+		mod       *frontend.Module
 	}
 	var found []parsed
 	var visit func(body []frontend.Stmt, pack string) error
-	compile := func(name, file string, pkg, ns bool) error {
+	compile := func(name, file string, pkg, ns, fromFloor bool) error {
 		if ns {
 			// A namespace package has no source: record it so the table can
 			// register it, and keep walking, since its submodules resolve
 			// under the same directory.
-			found = append(found, parsed{name: name, file: file, pkg: true, ns: true})
+			found = append(found, parsed{name: name, file: file, pkg: true, ns: true, fromFloor: fromFloor})
 			return nil
 		}
-		src, err := os.ReadFile(file)
+		src, err := readModuleSource(floorFS, fromFloor, file)
 		if err != nil {
+			if fromFloor {
+				return nil
+			}
 			return err
 		}
 		m, err := frontend.Parse(src, file)
 		if err != nil {
+			if fromFloor {
+				return nil
+			}
 			return err
 		}
-		found = append(found, parsed{name: name, file: file, pkg: pkg, src: src, mod: m})
+		found = append(found, parsed{name: name, file: file, pkg: pkg, fromFloor: fromFloor, src: src, mod: m})
 		// The module's own package context, for resolving its relative
 		// imports: a package is its own parent, a submodule belongs to the
 		// package above it, a top-level module to none.
@@ -252,13 +269,13 @@ func collectModules(pyPath string, entry *frontend.Module) ([]pymod, map[string]
 					}
 					continue
 				}
-				file, pkg, ns, ok := resolveModule(dir, floorRoot, prefix)
+				file, pkg, ns, fromFloor, ok := resolveModule(dir, floorFS, shimmed, prefix)
 				if !ok {
 					break
 				}
 				seen[prefix] = true
 				seenPkg[prefix] = pkg
-				if err := compile(prefix, file, pkg, ns); err != nil {
+				if err := compile(prefix, file, pkg, ns, fromFloor); err != nil {
 					return err
 				}
 				if !pkg {
@@ -292,11 +309,39 @@ func collectModules(pyPath string, entry *frontend.Module) ([]pymod, map[string]
 		}
 		goSrc, err := lower.PyModuleStars(p.mod, p.name, p.file, p.src, stars)
 		if err != nil {
+			if p.fromFloor {
+				// A floor module unagi cannot lower yet drops out of the table
+				// rather than failing the build; importing it raises at runtime.
+				continue
+			}
 			return nil, nil, err
 		}
 		out = append(out, pymod{name: p.name, file: p.file, pkg: p.pkg, src: goSrc})
 	}
 	return out, stars, nil
+}
+
+// readModuleSource reads a module's source: from the embedded floor when the
+// name resolved there, otherwise from disk next to the entry file.
+func readModuleSource(floorFS fs.FS, fromFloor bool, file string) ([]byte, error) {
+	if fromFloor {
+		if floorFS == nil {
+			return nil, fs.ErrNotExist
+		}
+		return fs.ReadFile(floorFS, file)
+	}
+	return os.ReadFile(file)
+}
+
+// shimmedModuleSet is the set of module names the runtime provides itself in
+// Go, which must not be compiled from the vendored floor source underneath.
+func shimmedModuleSet() map[string]bool {
+	names := unagirt.ShimmedModules()
+	set := make(map[string]bool, len(names))
+	for _, n := range names {
+		set[n] = true
+	}
+	return set
 }
 
 // resolvePy maps a dotted module name onto disk under dir. A package directory
@@ -321,35 +366,42 @@ func resolvePy(dir, name string) (file string, pkg, ns, ok bool) {
 }
 
 // resolveModule resolves a dotted name next to the entry file first, then in
-// the bundled stdlib floor. A local module shadows a floor module of the same
+// the embedded stdlib floor. A local module shadows a floor module of the same
 // name, matching CPython where the script directory precedes the stdlib on the
-// path. floorRoot is empty when the floor sources cannot be located, which
-// leaves resolution exactly as it was before the floor existed.
-func resolveModule(dir, floorRoot, name string) (file string, pkg, ns, ok bool) {
+// path. A name the runtime shims in Go is never taken from the floor, so its Go
+// form stays authoritative during the migration off the whole-module shims.
+// floorFS is nil when the embedded tree is unavailable, which leaves resolution
+// exactly as it was before the floor existed.
+func resolveModule(dir string, floorFS fs.FS, shimmed map[string]bool, name string) (file string, pkg, ns, fromFloor, ok bool) {
 	if file, pkg, ns, ok = resolvePy(dir, name); ok {
-		return file, pkg, ns, ok
+		return file, pkg, ns, false, true
 	}
-	if floorRoot != "" {
-		return resolvePy(floorRoot, name)
+	if floorFS != nil && !shimmed[name] {
+		if p, pk, n, o := resolveFloor(floorFS, name); o {
+			return p, pk, n, true, true
+		}
 	}
-	return "", false, false, false
+	return "", false, false, false, false
 }
 
-// floorDir locates the bundled stdlib floor sources under the unagi source
-// tree, the same tree the runtime packages are copied from. It returns an
-// empty string when the tree or the floor directory cannot be found, so a
-// build without the floor on disk falls back to entry-file resolution alone
-// rather than failing.
-func floorDir() string {
-	root, err := sourceDir()
-	if err != nil {
-		return ""
+// resolveFloor maps a dotted name onto a path within the embedded floor tree,
+// the fs.FS mirror of resolvePy: a package with __init__.py wins over a plain
+// <path>.py, which wins over a bare directory that becomes a PEP 420 namespace
+// package. The returned path is fs-slashed and rooted in the floor, the shape
+// fs.ReadFile takes.
+func resolveFloor(fsys fs.FS, name string) (path string, pkg, ns, ok bool) {
+	base := strings.ReplaceAll(name, ".", "/")
+	initFile := base + "/__init__.py"
+	if st, err := fs.Stat(fsys, initFile); err == nil && !st.IsDir() {
+		return initFile, true, false, true
 	}
-	d := filepath.Join(root, filepath.FromSlash(floor.LibSubdir))
-	if st, err := os.Stat(d); err == nil && st.IsDir() {
-		return d
+	if st, err := fs.Stat(fsys, base+".py"); err == nil && !st.IsDir() {
+		return base + ".py", false, false, true
 	}
-	return ""
+	if st, err := fs.Stat(fsys, base); err == nil && st.IsDir() {
+		return base, true, true, true
+	}
+	return "", false, false, false
 }
 
 // importNames gathers every dotted module name the statements import, at any

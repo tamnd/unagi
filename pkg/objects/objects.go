@@ -414,8 +414,10 @@ func NewFuncKwT(name string, kwfnT func(t *Thread, pos []Object, kwNames []strin
 		name:  name,
 		arity: -1,
 		kwfnT: kwfnT,
-		kwfn:  func(pos []Object, kwNames []string, kwVals []Object) (Object, error) { return kwfnT(mainThread, pos, kwNames, kwVals) },
-		fn:    func(args []Object) (Object, error) { return kwfnT(mainThread, args, nil, nil) },
+		kwfn: func(pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+			return kwfnT(mainThread, pos, kwNames, kwVals)
+		},
+		fn: func(args []Object) (Object, error) { return kwfnT(mainThread, args, nil, nil) },
 	}
 }
 

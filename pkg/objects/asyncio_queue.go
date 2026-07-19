@@ -304,8 +304,10 @@ func buildAsyncioQueueExc(name string) *classObject {
 	return c.(*classObject)
 }
 
-func raiseAsyncioQueueEmpty() error { return instantiateBareExc(AsyncioQueueEmptyClass(), "QueueEmpty") }
-func raiseAsyncioQueueFull() error  { return instantiateBareExc(AsyncioQueueFullClass(), "QueueFull") }
+func raiseAsyncioQueueEmpty() error {
+	return instantiateBareExc(AsyncioQueueEmptyClass(), "QueueEmpty")
+}
+func raiseAsyncioQueueFull() error { return instantiateBareExc(AsyncioQueueFullClass(), "QueueFull") }
 
 // instantiateBareExc builds a no-argument instance of a synthesized exception
 // class and returns it as the error to raise, falling back to a RuntimeError if
