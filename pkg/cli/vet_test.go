@@ -80,6 +80,63 @@ func TestVetCmdNoArgs(t *testing.T) {
 	}
 }
 
+func TestVetCmdSuppressPrintsSummary(t *testing.T) {
+	const src = `import threading
+
+counter = 0
+
+def worker():
+    global counter
+    counter += 1  # unagi: ok UNA-THR-001
+
+threading.Thread(target=worker).start()
+`
+	got := runVet(t, src)
+	if got != "1 suppressed by # unagi: ok\n" {
+		t.Fatalf("suppressed finding should print only the summary, got %q", got)
+	}
+}
+
+func TestVetCmdStrictExitsNonzeroOnFinding(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "prog.py")
+	const src = `import threading
+
+counter = 0
+
+def worker():
+    global counter
+    counter += 1
+
+threading.Thread(target=worker).start()
+`
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runVetArgs(t, "--strict", path); err == nil {
+		t.Fatal("strict mode with a live finding should exit nonzero")
+	}
+}
+
+func TestVetCmdStrictSilentWhenSuppressed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "prog.py")
+	const src = `import threading
+
+counter = 0
+
+def worker():
+    global counter
+    counter += 1  # unagi: ok UNA-THR-001
+
+threading.Thread(target=worker).start()
+`
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runVetArgs(t, "--strict", path); err != nil {
+		t.Fatalf("strict mode should pass when every finding is suppressed: %v", err)
+	}
+}
+
 func TestVetCmdSilentOnCleanFile(t *testing.T) {
 	const src = `def add(a, b):
     return a + b
