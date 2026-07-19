@@ -1,6 +1,7 @@
 package objects
 
 import (
+	"fmt"
 	"net"
 	"testing"
 )
@@ -177,6 +178,121 @@ func TestSocketServerAsyncWith(t *testing.T) {
 	if _, err := AsyncioRun(main); err != nil {
 		t.Fatalf("run: %v", err)
 	}
+}
+
+// TestSocketConcurrentEcho is the streams exit-gate smoke test: one event loop
+// stands up a loopback echo server and drives many clients at once, each writing
+// a payload unique to it and asserting that exact payload comes back. Every part
+// of the netpoller handoff runs under contention here at once: the accept
+// goroutine feeding connections through callSoon, one read pump per connection on
+// each end, a handler task per accepted connection, and a client task per dial,
+// all serialised onto the single loop goroutine. Run under -race it proves the
+// handoff has no data race and no lost or crossed bytes.
+func TestSocketConcurrentEcho(t *testing.T) {
+	const clients = 200
+
+	// handler echoes one line back, finishes the write side, and closes.
+	handler := NewFunc("handler", 2, func(args []Object) (Object, error) {
+		reader := args[0].(*asyncioStreamReader)
+		writer := args[1].(*asyncioStreamWriter)
+		body := func(y Yielder) (Object, error) {
+			line, err := awaitCoro(y, reader.readlineCoro())
+			if err != nil {
+				return nil, err
+			}
+			b, _ := bytesLike(line)
+			if _, err := asyncioStreamWriterMethod(writer, "write", []Object{NewBytes(b)}); err != nil {
+				return nil, err
+			}
+			if _, err := awaitCoro(y, writer.drainCoro()); err != nil {
+				return nil, err
+			}
+			writer.close()
+			if _, err := awaitCoro(y, writer.waitClosedCoro()); err != nil {
+				return nil, err
+			}
+			return None, nil
+		}
+		return NewCoroutine("handler", body), nil
+	})
+
+	// mismatches records any client that did not read back its own payload. The
+	// clients all run on the loop goroutine, so appending needs no lock.
+	var mismatches []string
+
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		srvObj, err := awaitCoro(y, AsyncioStartServer(handler, "127.0.0.1", 0))
+		if err != nil {
+			return nil, err
+		}
+		srv := srvObj.(*asyncioServer)
+		port := serverPort(t, srv)
+
+		tasks := make([]Object, 0, clients)
+		for i := 0; i < clients; i++ {
+			want := fmt.Sprintf("client-%d\n", i)
+			body := func(y Yielder) (Object, error) {
+				pairObj, err := awaitCoro(y, AsyncioOpenConnection("127.0.0.1", port))
+				if err != nil {
+					return nil, err
+				}
+				pair := pairObj.(*tupleObject)
+				reader := pair.elts[0].(*asyncioStreamReader)
+				writer := pair.elts[1].(*asyncioStreamWriter)
+
+				if _, err := asyncioStreamWriterMethod(writer, "write", []Object{NewBytes([]byte(want))}); err != nil {
+					return nil, err
+				}
+				if _, err := awaitCoro(y, writer.drainCoro()); err != nil {
+					return nil, err
+				}
+				got, err := awaitCoro(y, reader.readlineCoro())
+				if err != nil {
+					return nil, err
+				}
+				gb, _ := bytesLike(got)
+				if string(gb) != want {
+					mismatches = append(mismatches, fmt.Sprintf("want %q, got %q", want, string(gb)))
+				}
+				writer.close()
+				if _, err := awaitCoro(y, writer.waitClosedCoro()); err != nil {
+					return nil, err
+				}
+				return None, nil
+			}
+			task, err := AsyncioCreateTask(NewCoroutine("client", body), "")
+			if err != nil {
+				return nil, err
+			}
+			tasks = append(tasks, task)
+		}
+
+		if _, err := awaitCoro(y, mustGather(tasks)); err != nil {
+			return nil, err
+		}
+		srv.closeServer()
+		if _, err := awaitCoro(y, srv.waitClosedCoro()); err != nil {
+			return nil, err
+		}
+		return None, nil
+	})
+
+	if _, err := AsyncioRun(main); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(mismatches) != 0 {
+		t.Fatalf("%d/%d clients mismatched, first: %s", len(mismatches), clients, mismatches[0])
+	}
+}
+
+// mustGather is the gather the concurrent test awaits; a builder that panics on
+// the impossible no-running-loop error keeps the test body flat.
+func mustGather(tasks []Object) Object {
+	g, err := AsyncioGather(tasks, false)
+	if err != nil {
+		panic(err)
+	}
+	return g
 }
 
 // TestSocketConnectionRefused checks open_connection to a closed port surfaces
