@@ -85,7 +85,7 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 	case *asyncFuture:
 		return asyncFutureMethod(x, name, args)
 	case *eventLoop:
-		return eventLoopMethod(x, name, args)
+		return eventLoopMethodT(t, x, name, args)
 	case *asyncHandle:
 		return asyncHandleMethod(x, name, args)
 	case *asyncTask:

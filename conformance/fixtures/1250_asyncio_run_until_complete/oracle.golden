@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+running before False
+closed before False
+gather ['A', 'B']
+log ['b', 'a']
+second C
+log2 ['b', 'a', 'c']
+plain D
+running after False
+closed after True
+closed twice True
+ValueError kaboom
+== exception:
+== stderr:

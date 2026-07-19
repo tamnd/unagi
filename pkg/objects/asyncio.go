@@ -637,6 +637,72 @@ func AsyncioRunT(t *Thread, main Object) (Object, error) {
 	return tk.result, nil
 }
 
+// AsyncioNewEventLoop builds a fresh, not-yet-running event loop, the object
+// asyncio.new_event_loop hands back for the manual run_until_complete idiom that
+// predates asyncio.run. The loop is bound to a running thread only when it is
+// first driven, so its epoch starts now and loop.time counts from here.
+func AsyncioNewEventLoop() Object {
+	return &eventLoop{epoch: time.Now(), wakeup: make(chan struct{}, 1)}
+}
+
+// runUntilComplete drives aw to completion on this loop and returns its result,
+// the loop.run_until_complete(future) entry for the manual loop idiom. aw is a
+// coroutine, task, or future; a bare coroutine is wrapped in a task the way
+// asyncio schedules it. Running a closed loop, an already running loop, or any
+// loop while another loop is running is the RuntimeError asyncio raises.
+func (l *eventLoop) runUntilComplete(t *Thread, aw Object) (Object, error) {
+	if l.closed {
+		return nil, Raise(RuntimeError, "Event loop is closed")
+	}
+	if l.running {
+		return nil, Raise(RuntimeError, "This event loop is already running")
+	}
+	if runningLoop.Load() != nil {
+		return nil, Raise(RuntimeError, "Cannot run the event loop while another loop is running")
+	}
+	l.running = true
+	l.thread = t
+	runningLoop.Store(l)
+	defer func() {
+		l.running = false
+		runningLoop.Store(nil)
+	}()
+	fut, err := AsyncioEnsureFuture(aw)
+	if err != nil {
+		return nil, err
+	}
+	switch f := fut.(type) {
+	case *asyncTask:
+		if err := l.runUntil(func() bool { return f.done }); err != nil {
+			return nil, err
+		}
+		if f.exc != nil {
+			return nil, f.exc
+		}
+		return f.result, nil
+	case *asyncFuture:
+		if err := l.runUntil(func() bool { return f.doneP() }); err != nil {
+			return nil, err
+		}
+		if f.exc != nil {
+			return nil, f.exc
+		}
+		return f.result, nil
+	}
+	return nil, Raise(TypeError, "An asyncio.Future, a coroutine or an awaitable is required")
+}
+
+// closeLoop closes the loop, the loop.close() entry. A closed loop refuses to
+// run again; closing a running loop is the RuntimeError asyncio raises. Closing
+// an already closed loop is a no-op, matching CPython.
+func (l *eventLoop) closeLoop() (Object, error) {
+	if l.running {
+		return nil, Raise(RuntimeError, "Cannot close a running event loop")
+	}
+	l.closed = true
+	return None, nil
+}
+
 // AsyncioCreateTask implements asyncio.create_task(coro): it schedules coro to
 // run concurrently on the running loop and returns the Task at once, before the
 // coroutine has run. Called outside a running loop it is the RuntimeError
@@ -1168,6 +1234,24 @@ func (l *eventLoop) TypeName() string { return "EventLoop" }
 // surface. create_future hands back a Future bound to the loop, and time reports
 // the loop's monotonic clock so a later reading is never before an earlier one.
 // Callback scheduling, call_soon and call_later, is a later slice.
+// eventLoopMethodT dispatches the loop methods that need the running thread,
+// run_until_complete above all, and delegates the rest to eventLoopMethod.
+func eventLoopMethodT(t *Thread, l *eventLoop, name string, args []Object) (Object, error) {
+	switch name {
+	case "run_until_complete":
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "run_until_complete() takes 2 positional arguments but %d were given", len(args)+1)
+		}
+		return l.runUntilComplete(t, args[0])
+	case "close":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "close() takes 1 positional argument but %d were given", len(args)+1)
+		}
+		return l.closeLoop()
+	}
+	return eventLoopMethod(l, name, args)
+}
+
 func eventLoopMethod(l *eventLoop, name string, args []Object) (Object, error) {
 	switch name {
 	case "create_future":
