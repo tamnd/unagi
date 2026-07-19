@@ -694,6 +694,15 @@ func (f *fnCtx) whileStmt(s *frontend.While) error {
 }
 
 func (f *fnCtx) forStmt(s *frontend.For) error {
+	if s.Async {
+		// async for awaits each __anext__ on the enclosing coroutine's frame, so
+		// it only lowers inside an async def. Outside one it is the SyntaxError
+		// CPython's symtable raises, reported here the way await is.
+		if !f.inAsync {
+			return f.e.errf(s.Span(), "'async for' outside async function")
+		}
+		return f.asyncForStmt(s)
+	}
 	iter, err := f.expr(s.Iter)
 	if err != nil {
 		return err
@@ -710,6 +719,49 @@ func (f *fnCtx) forStmt(s *frontend.For) error {
 	ok := f.tmpVar()
 	next := &ast.SelectorExpr{X: ident(it), Sel: ident("Next")}
 	f.add(assign(token.DEFINE, []ast.Expr{ident(v), ident(ok), ident("err")}, callExpr(next)))
+	f.check(nil)
+	f.add(&ast.IfStmt{
+		Cond: notExpr(ident(ok)),
+		Body: block(&ast.BranchStmt{Tok: token.BREAK}),
+	})
+	if err := f.assignTo(s.Target, ident(v)); err != nil {
+		return err
+	}
+	f.loops = append(f.loops, loop)
+	if err := f.stmts(s.Body); err != nil {
+		return err
+	}
+	f.loops = f.loops[:len(f.loops)-1]
+	f.add(&ast.ForStmt{Body: f.pop()})
+	return f.loopElse(loop, s.Else)
+}
+
+// asyncForStmt lowers an async for the way forStmt lowers a plain for, so the
+// break flag, the else, and the target binding are identical. The two
+// differences are that the async iterator comes from AsyncIterT, which resolves
+// __aiter__ and checks __anext__ up front, and that each step comes from
+// AsyncNextT, which awaits __anext__ on the frame's yielder and reports
+// StopAsyncIteration as exhaustion in the same (value, ok, err) shape the sync
+// iterator's Next has.
+func (f *fnCtx) asyncForStmt(s *frontend.For) error {
+	iter, err := f.expr(s.Iter)
+	if err != nil {
+		return err
+	}
+	ait := f.tmpVar()
+	f.add(assign(token.DEFINE, []ast.Expr{ident(ait), ident("err")},
+		callExpr(f.e.obj("AsyncIterT"), threadArg(), iter)))
+	f.check(nil)
+	loop := &loopInfo{depth: f.closure}
+	if len(s.Else) > 0 && hasBreak(s.Body) {
+		loop.flag = f.tmpVar()
+		f.add(define(ident(loop.flag), ident("false")))
+	}
+	f.push()
+	v := f.tmpVar()
+	ok := f.tmpVar()
+	f.add(assign(token.DEFINE, []ast.Expr{ident(v), ident(ok), ident("err")},
+		callExpr(f.e.obj("AsyncNextT"), threadArg(), ident(f.genYielder), ident(ait))))
 	f.check(nil)
 	f.add(&ast.IfStmt{
 		Cond: notExpr(ident(ok)),

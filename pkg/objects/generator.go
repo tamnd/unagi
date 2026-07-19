@@ -28,11 +28,16 @@ type genSignal struct {
 }
 
 // genEvent travels from the body back to the driver: a yielded value, a
-// propagating error, or completion carrying the return value.
+// propagating error, or completion carrying the return value. await marks a
+// value the body handed up from inside YieldFrom rather than a bare yield: for
+// an async generator, where yield from is illegal, that means the value came
+// from an inner await and the asend driver forwards it to the event loop, while
+// a bare yield completes the step.
 type genEvent struct {
-	val  Object
-	err  error
-	done bool
+	val   Object
+	err   error
+	done  bool
+	await bool
 }
 
 type generatorObject struct {
@@ -57,6 +62,15 @@ type generatorObject struct {
 	// except block takes its in-flight exception off the shared stack while the
 	// consumer runs and puts it back on resume.
 	excSeg []*Exception
+	// yieldFromDepth counts the YieldFrom calls in flight on this frame, so a
+	// Yield they make forwarding a sub-iterable is tagged apart from a bare
+	// yield. Only an async generator's asend driver reads the tag; yield from is
+	// illegal in an async def, so a tagged event there is always an inner await.
+	yieldFromDepth int
+	// lastEventAwait carries the await tag of the value the last step observed,
+	// so the asend driver can read it without threading a new step return
+	// through every caller.
+	lastEventAwait bool
 }
 
 func (g *generatorObject) TypeName() string {
@@ -158,7 +172,7 @@ func (g *generatorObject) start() {
 // Yield suspends the body: it hands v to the driver, then blocks until the
 // driver resumes, returning the sent value or the injected exception.
 func (g *generatorObject) Yield(v Object) (Object, error) {
-	g.out <- genEvent{val: v}
+	g.out <- genEvent{val: v, await: g.yieldFromDepth > 0}
 	sig := <-g.resume
 	if sig.err != nil {
 		return nil, sig.err
@@ -170,6 +184,11 @@ func (g *generatorObject) Yield(v Object) (Object, error) {
 // sent values and thrown exceptions and contributes its return value; any other
 // iterable is driven with plain iteration and yields None as its value.
 func (g *generatorObject) YieldFrom(src Object) (Object, error) {
+	// A Yield made while this runs is forwarding a sub-iterable, not a bare
+	// yield, so tag it. An async generator's asend driver reads the tag to tell
+	// an inner await apart from a real yield; nothing else looks.
+	g.yieldFromDepth++
+	defer func() { g.yieldFromDepth-- }()
 	if sub, ok := src.(*generatorObject); ok {
 		return g.delegate(sub)
 	}
@@ -268,6 +287,7 @@ func (g *generatorObject) step(sig genSignal) (val, ret Object, done bool, err e
 		g.done = true
 		return nil, nil, false, ev.err
 	}
+	g.lastEventAwait = ev.await
 	return ev.val, nil, false, nil
 }
 
