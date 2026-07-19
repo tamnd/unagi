@@ -394,6 +394,16 @@ func reprCore(o Object, strict bool) (string, error) {
 		return asyncioTimeoutRepr(x), nil
 	case *executorObject:
 		return executorRepr(x), nil
+	case *contextVar:
+		return x.repr(), nil
+	case *contextObject:
+		return x.repr(), nil
+	case *contextToken:
+		return x.repr(), nil
+	case *tokenClass:
+		return "<class 'contextvars.Token'>", nil
+	case *missingSentinel:
+		return x.repr(), nil
 	case *stringIOObject:
 		return stringIORepr(x), nil
 	case *bytesIOObject:

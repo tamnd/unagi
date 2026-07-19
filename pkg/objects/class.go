@@ -1607,6 +1607,27 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return NewFloat(x.im), nil
 		}
 		return nil, Raise(AttributeError, "'complex' object has no attribute '%s'", name)
+	case *contextVar:
+		if name == "name" {
+			return NewStr(x.name), nil
+		}
+		return nil, Raise(AttributeError, "'ContextVar' object has no attribute '%s'", name)
+	case *contextToken:
+		switch name {
+		case "var":
+			return x.variable, nil
+		case "old_value":
+			if x.hadOld {
+				return x.oldValue, nil
+			}
+			return tokenMissing, nil
+		}
+		return nil, Raise(AttributeError, "'Token' object has no attribute '%s'", name)
+	case *tokenClass:
+		if name == "MISSING" {
+			return tokenMissing, nil
+		}
+		return nil, Raise(AttributeError, "type object 'Token' has no attribute '%s'", name)
 	case *sliceObject:
 		// The three parts are read-only attributes carrying whatever was
 		// stored, None included.

@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+default 0
+default arg 5
+after set root
+old is missing True
+token var is name True
+nested child
+old2 root
+after reset root
+lookup raised
+get default when unset fallback
+inside run 42
+outside after run 0
+ctx sees it 42
+ctx get default none
+run args 6
+snapshot before-copy
+current after-copy
+reuse raised
+reenter raised
+== exception:
+== stderr:
