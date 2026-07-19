@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+pending repr <Future pending>
+done before False
+awaited 42
+done after True cancelled False
+finished repr <Future finished result=42>
+result() 42
+exception() None
+result unset Result is not set.
+exception unset Exception is not set.
+set twice invalid state
+cancel pending True
+cancelled True done True
+cancel again False
+cancelled repr <Future cancelled>
+await saw CancelledError
+is BaseException True
+is Exception False
+exc repr <Future finished exception=ValueError('boom')>
+exception() ValueError('boom')
+await raised boom
+callback saw [7]
+== exception:
+== stderr:

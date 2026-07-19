@@ -82,6 +82,8 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		return simpleQueueMethod(x, name, args)
 	case *futureObject:
 		return futureMethodT(t, x, name, args)
+	case *asyncFuture:
+		return asyncFutureMethod(x, name, args)
 	case *executorObject:
 		return executorMethodT(t, x, name, args)
 	case *stringIOObject:
@@ -197,6 +199,8 @@ func CallMethodKwT(t *Thread, o Object, name string, pos []Object, kwNames []str
 		return simpleQueueMethodKw(x, name, pos, kwNames, kwVals)
 	case *futureObject:
 		return futureMethodKwT(t, x, name, pos, kwNames, kwVals)
+	case *asyncFuture:
+		return asyncFutureMethodKw(x, name, pos, kwNames, kwVals)
 	case *executorObject:
 		return executorMethodKwT(t, x, name, pos, kwNames, kwVals)
 	case *Module:

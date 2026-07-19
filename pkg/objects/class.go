@@ -1699,6 +1699,11 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return builtinMethodValue(x, name), nil
 		}
 		return nil, noAttr(x, name)
+	case *asyncFuture:
+		if asyncFutureMethodNames[name] {
+			return builtinMethodValue(x, name), nil
+		}
+		return nil, noAttr(x, name)
 	case *executorObject:
 		if executorMethodNames[name] {
 			return builtinMethodValue(x, name), nil

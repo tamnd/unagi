@@ -23,8 +23,12 @@ func initAsyncio(m *objects.Module) error {
 		{"sleep", objects.NewFuncKw("sleep", asyncioSleep)},
 		{"create_task", objects.NewFuncKw("create_task", asyncioCreateTask)},
 		{"gather", objects.NewFuncKw("gather", asyncioGather)},
+		{"Future", objects.NewFuncKw("Future", asyncioFuture)},
 		{"get_running_loop", objects.NewFunc("get_running_loop", 0, asyncioGetRunningLoop)},
 		{"get_event_loop", objects.NewFunc("get_event_loop", 0, asyncioGetEventLoop)},
+		{"CancelledError", objects.AsyncioCancelledErrorClass()},
+		{"InvalidStateError", objects.AsyncioInvalidStateErrorClass()},
+		{"TimeoutError", objects.ExcClass2("TimeoutError")},
 	} {
 		if err := objects.StoreAttr(m, e.name, e.obj); err != nil {
 			return err
@@ -85,6 +89,22 @@ func asyncioCreateTask(pos []objects.Object, kwNames []string, kwVals []objects.
 		}
 	}
 	return objects.AsyncioCreateTask(pos[0])
+}
+
+// asyncioFuture is asyncio.Future(*, loop=None). It builds a pending Future bound
+// to the running loop. The loop keyword is accepted for signature compatibility
+// but ignored, since this slice runs one loop; any other keyword and any
+// positional argument are the errors CPython raises.
+func asyncioFuture(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if len(pos) != 0 {
+		return nil, objects.Raise(objects.TypeError, "Future() takes no positional arguments")
+	}
+	for _, k := range kwNames {
+		if k != "loop" {
+			return nil, objects.Raise(objects.TypeError, "Future() got an unexpected keyword argument '%s'", k)
+		}
+	}
+	return objects.AsyncioNewFuture()
 }
 
 // asyncioGather is asyncio.gather(*aws, return_exceptions=False). The awaitables

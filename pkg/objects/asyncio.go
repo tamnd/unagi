@@ -121,6 +121,7 @@ func (l *eventLoop) runUntil(done func() bool) error {
 type asyncFuture struct {
 	mu        sync.Mutex
 	done      bool
+	cancelled bool
 	result    Object
 	exc       error
 	callbacks []func()
