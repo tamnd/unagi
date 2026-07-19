@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+run 7
+second 30
+same loop True
+running now False
+closed after with True
+debug on True
+debug default False
+type error An asyncio.Future, a coroutine or an awaitable is required
+close before init ok
+run closed Runner is closed
+get_loop closed Runner is closed
+nested Runner.run() cannot be called from a running event loop
+propagated boom
+done
+== exception:
+== stderr:

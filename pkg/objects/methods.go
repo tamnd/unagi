@@ -104,6 +104,8 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		return asyncioTimeoutMethod(x, name, args)
 	case *asyncioTaskGroup:
 		return asyncioTaskGroupMethod(x, name, args)
+	case *asyncioRunner:
+		return runnerMethodT(t, x, name, args)
 	case *asyncioAsCompleted:
 		return asyncCompletedMethod(x, name, args)
 	case *executorObject:
