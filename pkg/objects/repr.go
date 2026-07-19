@@ -392,6 +392,8 @@ func reprCore(o Object, strict bool) (string, error) {
 		return asyncFutureRepr(x), nil
 	case *asyncioTimeout:
 		return asyncioTimeoutRepr(x), nil
+	case *asyncioTaskGroup:
+		return asyncioTaskGroupRepr(x), nil
 	case *asyncHandle:
 		return x.repr(), nil
 	case *executorObject:

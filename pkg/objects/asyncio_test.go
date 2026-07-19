@@ -1703,3 +1703,136 @@ func TestRunCoroutineThreadsafeBadLoop(t *testing.T) {
 		t.Fatalf("run_coroutine_threadsafe(coro, int) = %v, want TypeError", err)
 	}
 }
+
+// taskGroupExit runs the async-with body over a TaskGroup: it enters the group,
+// hands it to fn to create tasks, then awaits __aexit__, returning the outcome the
+// block would raise. It threads the enclosing coroutine's yielder through both
+// halves so the enter and every task step run on the loop the way async with does.
+func taskGroupExit(y Yielder, fn func(tg Object) error) error {
+	tgObj := AsyncioNewTaskGroup()
+	aexit, entered, err := AsyncWithEnterT(mainThread, y, tgObj)
+	if err != nil {
+		return err
+	}
+	if err := fn(entered); err != nil {
+		return err
+	}
+	exitCoro, err := Call(aexit, []Object{None, None, None})
+	if err != nil {
+		return err
+	}
+	_, err = AwaitThrough(y, exitCoro)
+	return err
+}
+
+// TestTaskGroupAllSucceed drives a group whose two children both finish and
+// checks the block leaves cleanly with both task results available.
+func TestTaskGroupAllSucceed(t *testing.T) {
+	var t1, t2 Object
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		err := taskGroupExit(y, func(tg Object) error {
+			c1 := NewCoroutine("c1", func(y Yielder) (Object, error) {
+				if _, err := y.YieldFrom(AsyncioSleep(0, None)); err != nil {
+					return nil, err
+				}
+				return NewInt(10), nil
+			})
+			c2 := NewCoroutine("c2", func(y Yielder) (Object, error) { return NewInt(20), nil })
+			var e error
+			if t1, e = CallMethod(tg, "create_task", []Object{c1}); e != nil {
+				return e
+			}
+			t2, e = CallMethod(tg, "create_task", []Object{c2})
+			return e
+		})
+		if err != nil {
+			return nil, err
+		}
+		r1, err := CallMethod(t1, "result", nil)
+		if err != nil {
+			return nil, err
+		}
+		r2, err := CallMethod(t2, "result", nil)
+		if err != nil {
+			return nil, err
+		}
+		return NewTuple([]Object{r1, r2}), nil
+	})
+	got, err := AsyncioRunT(mainThread, main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	tup := got.(*tupleObject)
+	if a, _ := AsInt(tup.elts[0]); a != 10 {
+		t.Fatalf("t1.result() = %v, want 10", Repr(tup.elts[0]))
+	}
+	if b, _ := AsInt(tup.elts[1]); b != 20 {
+		t.Fatalf("t2.result() = %v, want 20", Repr(tup.elts[1]))
+	}
+}
+
+// TestTaskGroupChildFails checks a failing child cancels its sibling and the
+// block raises an ExceptionGroup carrying the one real error, while the sibling
+// ends cancelled rather than adding a second error.
+func TestTaskGroupChildFails(t *testing.T) {
+	var sibling Object
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		err := taskGroupExit(y, func(tg Object) error {
+			slow := NewCoroutine("slow", func(y Yielder) (Object, error) {
+				if _, err := y.YieldFrom(AsyncioSleep(1, None)); err != nil {
+					return nil, err
+				}
+				return None, nil
+			})
+			boom := NewCoroutine("boom", func(y Yielder) (Object, error) {
+				if _, err := y.YieldFrom(AsyncioSleep(0, None)); err != nil {
+					return nil, err
+				}
+				return nil, Raise(ValueError, "boom")
+			})
+			var e error
+			if sibling, e = CallMethod(tg, "create_task", []Object{slow}); e != nil {
+				return e
+			}
+			_, e = CallMethod(tg, "create_task", []Object{boom})
+			return e
+		})
+		if err == nil {
+			return nil, Raise(RuntimeError, "expected the group to raise")
+		}
+		return errorObject(err), nil
+	})
+	got, err := AsyncioRunT(mainThread, main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	grp, ok := got.(*Exception)
+	if !ok || grp.Kind != "ExceptionGroup" {
+		t.Fatalf("group = %v, want ExceptionGroup", Repr(got))
+	}
+	if len(grp.Group) != 1 || grp.Group[0].Kind != "ValueError" {
+		t.Fatalf("group members = %v, want one ValueError", grp.Group)
+	}
+	c, err := CallMethod(sibling, "cancelled", nil)
+	if err != nil {
+		t.Fatalf("cancelled: %v", err)
+	}
+	if !Truth(c) {
+		t.Fatalf("sibling was not cancelled")
+	}
+}
+
+// TestTaskGroupCreateTaskBeforeEntry checks create_task on a group that has not
+// been entered is the RuntimeError CPython raises.
+func TestTaskGroupCreateTaskBeforeEntry(t *testing.T) {
+	tg := AsyncioNewTaskGroup()
+	coro := NewCoroutine("c", func(y Yielder) (Object, error) { return None, nil })
+	_, err := CallMethod(tg, "create_task", []Object{coro})
+	e, ok := err.(*Exception)
+	if !ok || e.Kind != "RuntimeError" {
+		t.Fatalf("create_task before entry = %v, want RuntimeError", err)
+	}
+	if got := e.Text(); got != "TaskGroup <TaskGroup> has not been entered" {
+		t.Fatalf("message = %q", got)
+	}
+}

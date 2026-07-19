@@ -102,6 +102,8 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		return asyncioConditionMethod(x, name, args)
 	case *asyncioTimeout:
 		return asyncioTimeoutMethod(x, name, args)
+	case *asyncioTaskGroup:
+		return asyncioTaskGroupMethod(x, name, args)
 	case *asyncioAsCompleted:
 		return asyncCompletedMethod(x, name, args)
 	case *executorObject:
@@ -227,6 +229,8 @@ func CallMethodKwT(t *Thread, o Object, name string, pos []Object, kwNames []str
 		return asyncFutureMethodKw(x, name, pos, kwNames, kwVals)
 	case *asyncTask:
 		return taskMethodKw(x, name, pos, kwNames, kwVals)
+	case *asyncioTaskGroup:
+		return asyncioTaskGroupMethodKw(x, name, pos, kwNames, kwVals)
 	case *executorObject:
 		return executorMethodKwT(t, x, name, pos, kwNames, kwVals)
 	case *eventLoop:
