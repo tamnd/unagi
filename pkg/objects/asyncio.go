@@ -61,6 +61,12 @@ type eventLoop struct {
 	wakeup      chan struct{}
 	pending     int
 	defaultExec *executorObject
+	// thread is the goroutine's Thread that asyncio.run bound this loop to. Every
+	// coroutine driven by the loop was created on that thread and reads its
+	// current context, so a task step swaps this thread's context for the task's
+	// own around the resume, the way CPython runs each step under the task's
+	// captured context. It is nil only for a loop built without a run entry.
+	thread *Thread
 	// inBatch is true while the loop goroutine is running a batch of ready
 	// callbacks. A callSoon made during a batch is an on-loop call: the loop is
 	// already awake and will see the queue when the batch ends, so it skips the
@@ -346,6 +352,13 @@ type asyncTask struct {
 	futWaiter  *asyncFuture
 	mustCancel bool
 	cancelMsg  Object
+	// context is the task's own context, a copy of the context current when the
+	// task was created. Every step runs the coroutine under it, so a ContextVar
+	// set inside the task is confined to the task and its descendants and does not
+	// leak back to the creator, matching CPython, which runs Task.__step through
+	// the captured context. Changes made during a step persist across suspensions
+	// because the same context object is reused each step.
+	context *contextObject
 }
 
 func (tk *asyncTask) TypeName() string { return "Task" }
@@ -463,12 +476,22 @@ func newTask(coro *generatorObject, loop *eventLoop, name string) *asyncTask {
 	if name == "" {
 		name = nextTaskName()
 	}
-	tk := &asyncTask{coro: coro, loop: loop, doneFut: &asyncFuture{loop: loop}, name: name}
+	tk := &asyncTask{coro: coro, loop: loop, doneFut: &asyncFuture{loop: loop}, name: name, context: captureLoopContext(loop)}
 	if loop.tasks == nil {
 		loop.tasks = make(map[*asyncTask]struct{})
 	}
 	loop.tasks[tk] = struct{}{}
 	return tk
+}
+
+// captureLoopContext snapshots the context a new task should run under: a copy
+// of the context current on the loop's thread, the context live when the task
+// is created. A loop with no bound thread falls back to a fresh empty context.
+func captureLoopContext(loop *eventLoop) *contextObject {
+	if loop.thread == nil {
+		return newContext()
+	}
+	return loop.thread.context().copy()
 }
 
 // finish records the task's outcome and resolves its completion future, waking
@@ -537,6 +560,15 @@ func (tk *asyncTask) step(sig genSignal) {
 	prev := tk.loop.current
 	tk.loop.current = tk
 	defer func() { tk.loop.current = prev }()
+	// Run the coroutine under the task's own context. The loop's thread carries
+	// the context the coroutine body reads, so swapping it here and restoring it
+	// after the resume confines a ContextVar set inside the task to that context,
+	// the way CPython steps a task through its captured context.
+	if tk.loop.thread != nil && tk.context != nil {
+		prevCtx := tk.loop.thread.ctx
+		tk.loop.thread.ctx = tk.context
+		defer func() { tk.loop.thread.ctx = prevCtx }()
+	}
 	// The task is no longer parked on a future while its coroutine runs. A pending
 	// cancel arms a throw of CancelledError at the coroutine's current suspension.
 	tk.futWaiter = nil
@@ -574,7 +606,12 @@ func (tk *asyncTask) step(sig genSignal) {
 // returning its result or raising the exception it finished with. The
 // running-loop check comes first, matching CPython, so a nested call is the
 // RuntimeError even when its argument is not a coroutine.
-func AsyncioRun(main Object) (Object, error) {
+func AsyncioRun(main Object) (Object, error) { return AsyncioRunT(mainThread, main) }
+
+// AsyncioRunT is AsyncioRun binding the loop to the calling thread, so a task's
+// context swap acts on the same thread its coroutine reads. The t-less
+// AsyncioRun routes the main thread in, matching a single-threaded program.
+func AsyncioRunT(t *Thread, main Object) (Object, error) {
 	if runningLoop.Load() != nil {
 		return nil, Raise(RuntimeError, "asyncio.run() cannot be called from a running event loop")
 	}
@@ -582,7 +619,7 @@ func AsyncioRun(main Object) (Object, error) {
 	if !ok || !coro.isCoro {
 		return nil, Raise(TypeError, "An asyncio.Future, a coroutine or an awaitable is required")
 	}
-	loop := &eventLoop{running: true, epoch: time.Now(), wakeup: make(chan struct{}, 1)}
+	loop := &eventLoop{running: true, epoch: time.Now(), wakeup: make(chan struct{}, 1), thread: t}
 	runningLoop.Store(loop)
 	defer func() {
 		loop.running = false

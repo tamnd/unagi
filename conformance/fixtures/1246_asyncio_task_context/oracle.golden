@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+a ('root', 'a')
+b ('root', 'b')
+parent root
+nested ('outer', ('outer', 'inner'))
+parent after nested root
+gather [('root', 'g1'), ('root', 'g2')]
+parent after gather root
+== exception:
+== stderr:

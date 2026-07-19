@@ -228,6 +228,10 @@ type funcObject struct {
 	// three-argument type(). When present, CallKw routes the whole call through
 	// it so the keywords reach the builtin instead of being rejected.
 	kwfn func(pos []Object, kwNames []string, kwVals []Object) (Object, error)
+	// kwfnT is the thread-carrying keyword entry, for a keyword builtin that also
+	// needs the ambient Thread, such as asyncio.run binding its loop to the
+	// goroutine that called it. When set it supersedes kwfn on the CallKwT path.
+	kwfnT func(t *Thread, pos []Object, kwNames []string, kwVals []Object) (Object, error)
 	// attrs holds attributes a builtin attaches to itself, the way itertools.chain
 	// carries chain.from_iterable. It stays nil for the ordinary builtins, which
 	// expose no attributes beyond __name__/__qualname__.
@@ -397,6 +401,21 @@ func NewFuncKw(name string, kwfn func(pos []Object, kwNames []string, kwVals []O
 		arity: -1,
 		kwfn:  kwfn,
 		fn:    func(args []Object) (Object, error) { return kwfn(args, nil, nil) },
+	}
+}
+
+// NewFuncKwT wraps a keyword-aware Go function that also takes the ambient
+// Thread, for the rare builtin that needs both keywords and the calling
+// goroutine, such as asyncio.run binding its event loop to that thread. The
+// t-less paths route the main thread in, so a single-threaded program reads the
+// same value.
+func NewFuncKwT(name string, kwfnT func(t *Thread, pos []Object, kwNames []string, kwVals []Object) (Object, error)) Object {
+	return &funcObject{
+		name:  name,
+		arity: -1,
+		kwfnT: kwfnT,
+		kwfn:  func(pos []Object, kwNames []string, kwVals []Object) (Object, error) { return kwfnT(mainThread, pos, kwNames, kwVals) },
+		fn:    func(args []Object) (Object, error) { return kwfnT(mainThread, args, nil, nil) },
 	}
 }
 

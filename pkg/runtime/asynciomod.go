@@ -19,7 +19,7 @@ func initAsyncio(m *objects.Module) error {
 		name string
 		obj  objects.Object
 	}{
-		{"run", objects.NewFuncKw("run", asyncioRun)},
+		{"run", objects.NewFuncKwT("run", asyncioRun)},
 		{"sleep", objects.NewFuncKw("sleep", asyncioSleep)},
 		{"create_task", objects.NewFuncKw("create_task", asyncioCreateTask)},
 		{"gather", objects.NewFuncKw("gather", asyncioGather)},
@@ -63,7 +63,7 @@ func initAsyncio(m *objects.Module) error {
 // asyncioRun is asyncio.run(main, *, debug=None). It drives the coroutine to
 // completion on a fresh loop and returns its result. The debug flag is accepted
 // but not yet acted on; any other keyword is the TypeError CPython raises.
-func asyncioRun(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+func asyncioRun(t *objects.Thread, pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
 	if len(pos) != 1 {
 		return nil, objects.Raise(objects.TypeError, "run() takes 1 positional argument but %d were given", len(pos))
 	}
@@ -72,7 +72,7 @@ func asyncioRun(pos []objects.Object, kwNames []string, kwVals []objects.Object)
 			return nil, objects.Raise(objects.TypeError, "run() got an unexpected keyword argument '%s'", k)
 		}
 	}
-	return objects.AsyncioRun(pos[0])
+	return objects.AsyncioRunT(t, pos[0])
 }
 
 // asyncioSleep is asyncio.sleep(delay, result=None). delay is a number of
