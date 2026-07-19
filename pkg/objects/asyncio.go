@@ -2,6 +2,7 @@ package objects
 
 import (
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -261,18 +262,96 @@ type asyncTask struct {
 	result  Object
 	exc     error
 	doneFut *asyncFuture
+	name    string
 }
 
 func (tk *asyncTask) TypeName() string { return "Task" }
+
+// taskNameCounter names auto-named tasks. CPython bumps a process-global counter
+// only when a task is created without an explicit name, so an explicit name does
+// not consume a number; the first auto-named task, the one asyncio.run wraps its
+// main coroutine in, is Task-1.
+var taskNameCounter atomic.Uint64
+
+func nextTaskName() string {
+	return "Task-" + strconv.FormatUint(taskNameCounter.Add(1), 10)
+}
 
 // awaitIter makes the task awaitable: it yields the task's completion future, so
 // the awaiting task resumes when this one finishes with its result or exception.
 func (tk *asyncTask) awaitIter() (Object, error) { return &futureAwait{f: tk.doneFut}, nil }
 
+// taskMethod dispatches the Task methods. get_name, set_name, and get_coro read
+// or set the task's own state; done, result, exception, and cancelled delegate to
+// the completion future, which already carries CPython's not-done InvalidStateError
+// and cancelled CancelledError semantics.
+func taskMethod(tk *asyncTask, name string, args []Object) (Object, error) {
+	switch name {
+	case "get_name":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "get_name() takes 1 positional argument but %d were given", len(args)+1)
+		}
+		return NewStr(tk.name), nil
+	case "set_name":
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "set_name() takes 2 positional arguments but %d were given", len(args)+1)
+		}
+		tk.name = Str(args[0])
+		return None, nil
+	case "get_coro":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "get_coro() takes 1 positional argument but %d were given", len(args)+1)
+		}
+		return tk.coro, nil
+	case "done":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "done() takes 1 positional argument but %d were given", len(args)+1)
+		}
+		return NewBool(tk.doneFut.doneP()), nil
+	case "result":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "result() takes 1 positional argument but %d were given", len(args)+1)
+		}
+		return tk.doneFut.pyResult()
+	case "exception":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "exception() takes 1 positional argument but %d were given", len(args)+1)
+		}
+		return tk.doneFut.pyException()
+	case "cancelled":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "cancelled() takes 1 positional argument but %d were given", len(args)+1)
+		}
+		tk.doneFut.mu.Lock()
+		c := tk.doneFut.cancelled
+		tk.doneFut.mu.Unlock()
+		return NewBool(c), nil
+	case "get_loop":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "get_loop() takes 1 positional argument but %d were given", len(args)+1)
+		}
+		if tk.loop == nil {
+			return None, nil
+		}
+		return tk.loop, nil
+	case "add_done_callback":
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "add_done_callback() takes 2 positional arguments but %d were given", len(args)+1)
+		}
+		tk.doneFut.pyAddDoneCallback(args[0])
+		return None, nil
+	}
+	return nil, noAttr(tk, name)
+}
+
 // newTask builds a task for coro bound to loop, with a completion future the
-// loop resolves when the coroutine finishes.
-func newTask(coro *generatorObject, loop *eventLoop) *asyncTask {
-	return &asyncTask{coro: coro, loop: loop, doneFut: &asyncFuture{loop: loop}}
+// loop resolves when the coroutine finishes. An empty name is auto-numbered
+// Task-N; an explicit name is kept as given and does not consume a number.
+func newTask(coro *generatorObject, loop *eventLoop, name string) *asyncTask {
+	if name == "" {
+		name = nextTaskName()
+	}
+	return &asyncTask{coro: coro, loop: loop, doneFut: &asyncFuture{loop: loop}, name: name}
 }
 
 // finish records the task's outcome and resolves its completion future, waking
@@ -336,7 +415,7 @@ func AsyncioRun(main Object) (Object, error) {
 		loop.closed = true
 		runningLoop.Store(nil)
 	}()
-	tk := newTask(coro, loop)
+	tk := newTask(coro, loop, "")
 	loop.callSoon(func() { tk.step(genSignal{val: None}) })
 	if err := loop.runUntil(func() bool { return tk.done }); err != nil {
 		return nil, err
@@ -351,12 +430,12 @@ func AsyncioRun(main Object) (Object, error) {
 // run concurrently on the running loop and returns the Task at once, before the
 // coroutine has run. Called outside a running loop it is the RuntimeError
 // asyncio raises, and a non-coroutine argument is a TypeError.
-func AsyncioCreateTask(coro Object) (Object, error) {
+func AsyncioCreateTask(coro Object, name string) (Object, error) {
 	loop := runningLoop.Load()
 	if loop == nil {
 		return nil, Raise(RuntimeError, "no running event loop")
 	}
-	tk, err := scheduleTask(coro, loop)
+	tk, err := scheduleTask(coro, loop, name)
 	if err != nil {
 		return nil, err
 	}
@@ -364,13 +443,14 @@ func AsyncioCreateTask(coro Object) (Object, error) {
 }
 
 // scheduleTask builds a task for coro on loop and queues its first step, the
-// shared path of create_task and gather's coroutine arguments.
-func scheduleTask(coro Object, loop *eventLoop) (*asyncTask, error) {
+// shared path of create_task and gather's coroutine arguments. gather passes an
+// empty name so each wrapped coroutine is auto-numbered, matching CPython.
+func scheduleTask(coro Object, loop *eventLoop, name string) (*asyncTask, error) {
 	g, ok := coro.(*generatorObject)
 	if !ok || !g.isCoro {
 		return nil, Raise(TypeError, "a coroutine was expected, got %s", coro.TypeName())
 	}
-	tk := newTask(g, loop)
+	tk := newTask(g, loop, name)
 	loop.callSoon(func() { tk.step(genSignal{val: None}) })
 	return tk, nil
 }
@@ -381,7 +461,7 @@ func ensureTask(arg Object, loop *eventLoop) (*asyncTask, error) {
 	if tk, ok := arg.(*asyncTask); ok {
 		return tk, nil
 	}
-	return scheduleTask(arg, loop)
+	return scheduleTask(arg, loop, "")
 }
 
 // AsyncioGather implements asyncio.gather(*aws, return_exceptions=False). It runs

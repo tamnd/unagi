@@ -83,12 +83,21 @@ func asyncioCreateTask(pos []objects.Object, kwNames []string, kwVals []objects.
 	if len(pos) != 1 {
 		return nil, objects.Raise(objects.TypeError, "create_task() takes 1 positional argument but %d were given", len(pos))
 	}
-	for _, k := range kwNames {
-		if k != "name" && k != "context" {
+	name := ""
+	for i, k := range kwNames {
+		switch k {
+		case "name":
+			// A name of None keeps the auto-numbered default; any other value is
+			// stringified, matching CPython's set_name.
+			if kwVals[i] != objects.None {
+				name = objects.Str(kwVals[i])
+			}
+		case "context":
+		default:
 			return nil, objects.Raise(objects.TypeError, "create_task() got an unexpected keyword argument '%s'", k)
 		}
 	}
-	return objects.AsyncioCreateTask(pos[0])
+	return objects.AsyncioCreateTask(pos[0], name)
 }
 
 // asyncioFuture is asyncio.Future(*, loop=None). It builds a pending Future bound
