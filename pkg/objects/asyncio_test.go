@@ -1360,3 +1360,66 @@ func TestAsyncioEnsureFuture(t *testing.T) {
 		t.Fatalf("ensure_future = %v, want 9", Repr(got))
 	}
 }
+
+// TestAsyncioRunInExecutorResult checks run_in_executor runs a callable on the
+// default thread pool and that awaiting the returned future yields its result,
+// exercising the off-loop-to-loop wakeup: the loop parks on the wakeup channel
+// while the worker runs and resumes once the result is scheduled back.
+func TestAsyncioRunInExecutorResult(t *testing.T) {
+	fn := NewFunc("work", 0, func(args []Object) (Object, error) { return NewInt(42), nil })
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		loop := runningLoop.Load()
+		fut, err := loop.runInExecutor([]Object{None, fn})
+		if err != nil {
+			return nil, err
+		}
+		return awaitObj(y, fut)
+	})
+	got, err := AsyncioRun(main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if n, ok := AsInt(got); !ok || n != 42 {
+		t.Fatalf("run_in_executor = %v, want 42", Repr(got))
+	}
+}
+
+// TestAsyncioRunInExecutorException checks an exception raised in the worker
+// re-raises out of the awaited future.
+func TestAsyncioRunInExecutorException(t *testing.T) {
+	fn := NewFunc("boom", 0, func(args []Object) (Object, error) { return nil, Raise(ValueError, "nope") })
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		loop := runningLoop.Load()
+		fut, err := loop.runInExecutor([]Object{None, fn})
+		if err != nil {
+			return nil, err
+		}
+		return awaitObj(y, fut)
+	})
+	if _, err := AsyncioRun(main); coroExcKind(err) != "ValueError" {
+		t.Fatalf("run_in_executor(boom) = %v, want ValueError", err)
+	}
+}
+
+// TestAsyncioToThread checks to_thread forwards positional arguments to the
+// callable it runs on the default pool and resolves to its return value.
+func TestAsyncioToThread(t *testing.T) {
+	fn := NewFunc("double", 1, func(args []Object) (Object, error) {
+		n, _ := AsInt(args[0])
+		return NewInt(n * 2), nil
+	})
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		fut, err := AsyncioToThread(fn, []Object{NewInt(21)}, nil, nil)
+		if err != nil {
+			return nil, err
+		}
+		return awaitObj(y, fut)
+	})
+	got, err := AsyncioRun(main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if n, ok := AsInt(got); !ok || n != 42 {
+		t.Fatalf("to_thread = %v, want 42", Repr(got))
+	}
+}

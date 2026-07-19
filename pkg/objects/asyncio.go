@@ -53,13 +53,50 @@ type eventLoop struct {
 	// touched only on the loop goroutine, so they need no lock.
 	current *asyncTask
 	tasks   map[*asyncTask]struct{}
+	// wakeup carries a single pending signal from an off-loop goroutine so the loop
+	// stops sleeping and re-checks its queues. pending counts in-flight off-loop
+	// operations, like a run_in_executor call whose worker is still running, so the
+	// loop blocks for their result instead of declaring a deadlock. defaultExec is
+	// the lazily built thread pool run_in_executor uses when passed no executor.
+	wakeup      chan struct{}
+	pending     int
+	defaultExec *executorObject
+}
+
+// wake nudges the loop goroutine off a sleep so it re-checks its queues. It is
+// safe to call from any goroutine and coalesces: a signal already buffered is
+// left in place, since one wake is enough to make the loop look again.
+func (l *eventLoop) wake() {
+	select {
+	case l.wakeup <- struct{}{}:
+	default:
+	}
+}
+
+// addPending records an off-loop operation the loop must wait for, so runUntil
+// blocks on the wakeup channel rather than reporting a deadlock while a worker
+// thread is still running. donePending clears it and wakes the loop.
+func (l *eventLoop) addPending() {
+	l.mu.Lock()
+	l.pending++
+	l.mu.Unlock()
+}
+
+func (l *eventLoop) donePending() {
+	l.mu.Lock()
+	l.pending--
+	l.mu.Unlock()
+	l.wake()
 }
 
 // callSoon schedules cb to run on the next loop iteration, preserving FIFO order.
+// It wakes the loop so a callback queued from an off-loop goroutine is seen at
+// once; an on-loop call coalesces into a stale signal the loop drains harmlessly.
 func (l *eventLoop) callSoon(cb func()) {
 	l.mu.Lock()
 	l.ready = append(l.ready, cb)
 	l.mu.Unlock()
+	l.wake()
 }
 
 // callLater schedules cb to run after delay elapses on the loop's clock.
@@ -83,19 +120,7 @@ func (l *eventLoop) runUntil(done func() bool) error {
 			return nil
 		}
 		l.mu.Lock()
-		if len(l.ready) == 0 {
-			if len(l.timers) == 0 {
-				l.mu.Unlock()
-				return Raise(RuntimeError, "Event loop stopped before Future completed.")
-			}
-			sort.SliceStable(l.timers, func(i, j int) bool { return l.timers[i].when.Before(l.timers[j].when) })
-			next := l.timers[0].when
-			l.mu.Unlock()
-			if d := time.Until(next); d > 0 {
-				time.Sleep(d)
-			}
-			l.mu.Lock()
-		}
+		// Fire any timers due now into the ready queue.
 		if len(l.timers) > 0 {
 			now := time.Now()
 			sort.SliceStable(l.timers, func(i, j int) bool { return l.timers[i].when.Before(l.timers[j].when) })
@@ -111,11 +136,43 @@ func (l *eventLoop) runUntil(done func() bool) error {
 			}
 			l.timers = rest
 		}
-		batch := l.ready
-		l.ready = nil
+		if len(l.ready) > 0 {
+			batch := l.ready
+			l.ready = nil
+			l.mu.Unlock()
+			for _, cb := range batch {
+				cb()
+			}
+			continue
+		}
+		// Nothing is runnable this instant. Sleep until the next timer or an
+		// off-loop wakeup, whichever comes first. With neither a timer nor a
+		// pending off-loop operation the awaited result can never arrive, the
+		// deadlock asyncio reports as the loop stopping early.
+		var wait time.Duration
+		haveTimer := false
+		if len(l.timers) > 0 {
+			sort.SliceStable(l.timers, func(i, j int) bool { return l.timers[i].when.Before(l.timers[j].when) })
+			wait = time.Until(l.timers[0].when)
+			haveTimer = true
+		}
+		pending := l.pending
 		l.mu.Unlock()
-		for _, cb := range batch {
-			cb()
+		if !haveTimer && pending == 0 {
+			return Raise(RuntimeError, "Event loop stopped before Future completed.")
+		}
+		if !haveTimer {
+			<-l.wakeup
+			continue
+		}
+		if wait <= 0 {
+			continue
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-l.wakeup:
+			timer.Stop()
+		case <-timer.C:
 		}
 	}
 }
@@ -512,7 +569,7 @@ func AsyncioRun(main Object) (Object, error) {
 	if !ok || !coro.isCoro {
 		return nil, Raise(TypeError, "An asyncio.Future, a coroutine or an awaitable is required")
 	}
-	loop := &eventLoop{running: true, epoch: time.Now()}
+	loop := &eventLoop{running: true, epoch: time.Now(), wakeup: make(chan struct{}, 1)}
 	runningLoop.Store(loop)
 	defer func() {
 		loop.running = false
@@ -1078,6 +1135,8 @@ func eventLoopMethod(l *eventLoop, name string, args []Object) (Object, error) {
 			return nil, Raise(TypeError, "get_debug() takes 1 positional argument but %d were given", len(args)+1)
 		}
 		return NewBool(false), nil
+	case "run_in_executor":
+		return l.runInExecutor(args)
 	}
 	return nil, noAttr(l, name)
 }
