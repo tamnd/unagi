@@ -1,0 +1,9 @@
+== exit: 0
+== stdout:
+one 36
+gather [0, 1, 4, 9, 16]
+raised nope
+to_thread hi sam!
+to_thread kw hi kim?
+== exception:
+== stderr:

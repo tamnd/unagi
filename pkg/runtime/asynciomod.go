@@ -26,6 +26,7 @@ func initAsyncio(m *objects.Module) error {
 		{"wait_for", objects.NewFuncKw("wait_for", asyncioWaitFor)},
 		{"wait", objects.NewFuncKw("wait", asyncioWait)},
 		{"as_completed", objects.NewFuncKw("as_completed", asyncioAsCompleted)},
+		{"to_thread", objects.NewFuncKw("to_thread", asyncioToThread)},
 		{"FIRST_COMPLETED", objects.NewStr("FIRST_COMPLETED")},
 		{"FIRST_EXCEPTION", objects.NewStr("FIRST_EXCEPTION")},
 		{"ALL_COMPLETED", objects.NewStr("ALL_COMPLETED")},
@@ -328,6 +329,18 @@ func asyncioAsCompleted(pos []objects.Object, kwNames []string, kwVals []objects
 		timeout = kwVals[i]
 	}
 	return objects.AsyncioAsCompleted(pos[0], timeout)
+}
+
+// asyncioToThread is asyncio.to_thread(func, /, *args, **kwargs). It runs func in
+// the running loop's default thread pool and returns an awaitable that resolves
+// to its return value, the convenience wrapper over loop.run_in_executor. The
+// positional arguments after func and every keyword argument are forwarded to the
+// call.
+func asyncioToThread(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if len(pos) < 1 {
+		return nil, objects.Raise(objects.TypeError, "to_thread() missing 1 required positional argument: 'func'")
+	}
+	return objects.AsyncioToThread(pos[0], pos[1:], kwNames, kwVals)
 }
 
 // asyncioTimeout is asyncio.timeout(delay). It builds an async context manager
