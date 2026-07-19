@@ -652,6 +652,27 @@ func shieldInner(arg Object, loop *eventLoop) (Object, *asyncFuture, error) {
 	}
 }
 
+// AsyncioEnsureFuture implements asyncio.ensure_future(arg). A coroutine is
+// scheduled as a task and the task returned; a task or future is handed back
+// unchanged, so callers can treat any awaitable as a future. It needs a running
+// loop to schedule a coroutine, the RuntimeError CPython's get_event_loop path
+// raises here.
+func AsyncioEnsureFuture(arg Object) (Object, error) {
+	switch arg.(type) {
+	case *asyncTask, *asyncFuture:
+		return arg, nil
+	}
+	loop := runningLoop.Load()
+	if loop == nil {
+		return nil, Raise(RuntimeError, "no running event loop")
+	}
+	tk, err := scheduleTask(arg, loop, "")
+	if err != nil {
+		return nil, err
+	}
+	return tk, nil
+}
+
 // AsyncioShield implements asyncio.shield(arg). It returns a future that mirrors
 // the inner awaitable's outcome but keeps the inner running when the outer is
 // cancelled: a cancel of the returned future resolves it with CancelledError
