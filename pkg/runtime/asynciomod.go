@@ -21,6 +21,8 @@ func initAsyncio(m *objects.Module) error {
 	}{
 		{"run", objects.NewFuncKw("run", asyncioRun)},
 		{"sleep", objects.NewFuncKw("sleep", asyncioSleep)},
+		{"create_task", objects.NewFuncKw("create_task", asyncioCreateTask)},
+		{"gather", objects.NewFuncKw("gather", asyncioGather)},
 		{"get_running_loop", objects.NewFunc("get_running_loop", 0, asyncioGetRunningLoop)},
 		{"get_event_loop", objects.NewFunc("get_event_loop", 0, asyncioGetEventLoop)},
 	} {
@@ -67,6 +69,35 @@ func asyncioSleep(pos []objects.Object, kwNames []string, kwVals []objects.Objec
 		result = r
 	}
 	return objects.AsyncioSleep(delay, result), nil
+}
+
+// asyncioCreateTask is asyncio.create_task(coro, *, name=None, context=None). It
+// schedules the coroutine on the running loop and returns the Task at once. The
+// name and context keywords are accepted for signature compatibility but not yet
+// acted on; any other keyword is the TypeError CPython raises.
+func asyncioCreateTask(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if len(pos) != 1 {
+		return nil, objects.Raise(objects.TypeError, "create_task() takes 1 positional argument but %d were given", len(pos))
+	}
+	for _, k := range kwNames {
+		if k != "name" && k != "context" {
+			return nil, objects.Raise(objects.TypeError, "create_task() got an unexpected keyword argument '%s'", k)
+		}
+	}
+	return objects.AsyncioCreateTask(pos[0])
+}
+
+// asyncioGather is asyncio.gather(*aws, return_exceptions=False). The awaitables
+// are positional; return_exceptions is the one keyword and defaults to false.
+func asyncioGather(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	returnExceptions := false
+	for i, k := range kwNames {
+		if k != "return_exceptions" {
+			return nil, objects.Raise(objects.TypeError, "gather() got an unexpected keyword argument '%s'", k)
+		}
+		returnExceptions = objects.Truth(kwVals[i])
+	}
+	return objects.AsyncioGather(pos, returnExceptions)
 }
 
 // asyncioGetRunningLoop is asyncio.get_running_loop(). It returns the loop bound
