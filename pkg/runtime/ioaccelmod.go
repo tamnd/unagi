@@ -74,6 +74,11 @@ func init() {
 		panic("unagi: building _io.BufferedReader: " + err.Error())
 	}
 
+	// BufferedWriter subclasses _BufferedIOBase, so that base must exist first.
+	if ioBufferedWriterClass, err = buildIOBufferedWriter(); err != nil {
+		panic("unagi: building _io.BufferedWriter: " + err.Error())
+	}
+
 	moduleTable["_io"] = &moduleEntry{builtin: true, exec: initIOAccel}
 }
 
@@ -103,6 +108,9 @@ func initIOAccel(m *objects.Module) error {
 		return err
 	}
 	if err := set("BufferedReader", ioBufferedReaderClass); err != nil {
+		return err
+	}
+	if err := set("BufferedWriter", ioBufferedWriterClass); err != nil {
 		return err
 	}
 	// DEFAULT_BUFFER_SIZE is the buffer size the buffered streams and open()
