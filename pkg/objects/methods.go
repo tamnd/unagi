@@ -100,6 +100,8 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		return asyncioQueueMethod(x, name, args)
 	case *asyncioCondition:
 		return asyncioConditionMethod(x, name, args)
+	case *asyncioBarrier:
+		return asyncioBarrierMethod(x, name, args)
 	case *asyncioTimeout:
 		return asyncioTimeoutMethod(x, name, args)
 	case *asyncioTaskGroup:

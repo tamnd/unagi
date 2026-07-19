@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+ctor: parties must be >= 1
+parties 3 n_waiting 0 broken False
+indices [0, 1, 2]
+after trip n_waiting 0 broken False
+hits ['a', 'b', 'c']
+parked n_waiting 1
+aborted waiter: Abort or reset of barrier
+broken after abort True
+wait on broken: Barrier aborted
+reset broken False
+reset indices [0, 1]
+ok
+== exception:
+== stderr:
