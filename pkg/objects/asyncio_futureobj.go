@@ -137,6 +137,14 @@ func (f *asyncFuture) pyAddDoneCallback(cb Object) {
 // futureMethod dispatches the positional Future methods.
 func asyncFutureMethod(f *asyncFuture, name string, args []Object) (Object, error) {
 	switch name {
+	case "__await__":
+		// A Future is awaitable through __await__ too, so `yield from fut.__await__()`
+		// drives it the same way `await fut` does, forwarding the future up to the
+		// task until it resolves.
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "__await__() takes no arguments (%d given)", len(args))
+		}
+		return f.awaitIter()
 	case "result":
 		if len(args) != 0 {
 			return nil, Raise(TypeError, "result() takes 1 positional argument but %d were given", len(args)+1)

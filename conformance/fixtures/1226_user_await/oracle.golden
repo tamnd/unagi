@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+doubler 42
+sleeper slept!
+chain 12
+coro await 105
+future FUT-DONE
+gather [101, 102]
+== exception:
+== stderr:

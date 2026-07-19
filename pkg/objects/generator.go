@@ -386,6 +386,18 @@ func genMethod(g *generatorObject, name string, args []Object) (Object, error) {
 		return asyncGenMethod(g, name, args)
 	}
 	switch name {
+	case "__await__":
+		// A coroutine is awaitable through __await__ too, so `yield from
+		// coro.__await__()` drives it, the delegating idiom a user awaitable uses to
+		// forward to a library coroutine. The iterator is the coroutine itself,
+		// which YieldFrom delegates to; a plain generator has no __await__.
+		if !g.isCoro {
+			return nil, noAttr(g, name)
+		}
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "__await__() takes no arguments (%d given)", len(args))
+		}
+		return g, nil
 	case "send":
 		if len(args) != 1 {
 			return nil, Raise(TypeError, "send() takes exactly one argument (%d given)", len(args))
