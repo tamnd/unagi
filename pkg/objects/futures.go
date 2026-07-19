@@ -459,12 +459,12 @@ func stateWord(s futureState) string {
 // here: concurrent.futures re-exports the builtin TimeoutError, so the module
 // binds ExcClass("TimeoutError") directly.
 var (
-	futuresErrorOnce   sync.Once
-	futuresErrorClass  *classObject
-	cancelledErrOnce   sync.Once
-	cancelledErrClass  *classObject
-	invalidStateOnce   sync.Once
-	invalidStateClass  *classObject
+	futuresErrorOnce  sync.Once
+	futuresErrorClass *classObject
+	cancelledErrOnce  sync.Once
+	cancelledErrClass *classObject
+	invalidStateOnce  sync.Once
+	invalidStateClass *classObject
 )
 
 const futuresModule = "concurrent.futures._base"
