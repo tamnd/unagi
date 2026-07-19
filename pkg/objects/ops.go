@@ -1040,6 +1040,14 @@ func Contains(container, item Object) (Object, error) {
 		return seqContains(x.d.valSlice(), item), nil
 	case *dictItemsObject:
 		return seqContains(x.d.itemSlice(), item), nil
+	case *contextObject:
+		return x.containsKey(item)
+	case *contextKeysObject:
+		return x.c.containsKey(item)
+	case *contextValuesObject:
+		return seqContains(x.c.valSlice(), item), nil
+	case *contextItemsObject:
+		return seqContains(x.c.itemSlice(), item), nil
 	case *instanceObject:
 		if _, ok := x.cls.lookup("__contains__"); ok {
 			res, _, err := instanceSpecial(x, "__contains__", item)
@@ -1240,6 +1248,8 @@ func GetItem(o, key Object) (Object, error) {
 			return nil, Raise(IndexError, "range object index out of range")
 		}
 		return NewInt(x.start + i*x.step), nil
+	case *contextObject:
+		return x.getItem(key)
 	case *classObject:
 		return classSubscript(x, key)
 	case *instanceObject:
@@ -1358,6 +1368,14 @@ func Len(o Object) (int, error) {
 		return len(x.d.entries), nil
 	case *dictItemsObject:
 		return len(x.d.entries), nil
+	case *contextObject:
+		return len(x.order), nil
+	case *contextKeysObject:
+		return len(x.c.order), nil
+	case *contextValuesObject:
+		return len(x.c.order), nil
+	case *contextItemsObject:
+		return len(x.c.order), nil
 	case *mappingProxyObject:
 		return len(x.d.entries), nil
 	case *instanceObject:
@@ -1464,6 +1482,14 @@ func Iter(o Object) (Iterator, error) {
 		return &sliceIter{elts: x.d.valSlice()}, nil
 	case *dictItemsObject:
 		return &sliceIter{elts: x.d.itemSlice()}, nil
+	case *contextObject:
+		return &sliceIter{elts: x.keySlice()}, nil
+	case *contextKeysObject:
+		return &sliceIter{elts: x.c.keySlice()}, nil
+	case *contextValuesObject:
+		return &sliceIter{elts: x.c.valSlice()}, nil
+	case *contextItemsObject:
+		return &sliceIter{elts: x.c.itemSlice()}, nil
 	case *mappingProxyObject:
 		return &sliceIter{elts: x.d.keySlice()}, nil
 	case Iterable:
