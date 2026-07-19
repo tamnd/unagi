@@ -112,6 +112,12 @@ func (it *asyncGenSendIter) Next() (Object, bool, error) {
 			it.stop = None
 			return nil, false, nil
 		}
+		// The first forward drive under a running loop records the async generator so
+		// the loop's shutdown_asyncgens can aclose it at teardown. CPython's firstiter
+		// hook fires here, the first time the generator is iterated on the loop.
+		if !a.aclose && !a.ag.started {
+			registerAsyncGenWithLoop(a.ag)
+		}
 		a.driven = true
 		it.started = true
 		sig = a.sig

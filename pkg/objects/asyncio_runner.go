@@ -19,6 +19,10 @@ type asyncioRunner struct {
 	// to the loop once, at lazy init, matching CPython, which calls loop.set_debug
 	// only when debug is not None.
 	debug Object
+	// thread is the thread a run bound the loop to, captured so close can drive
+	// shutdown_asyncgens on that same thread. It is set on every run and is non-nil
+	// whenever an async generator could have been registered.
+	thread *Thread
 }
 
 type runnerState int
@@ -121,6 +125,7 @@ func (r *asyncioRunner) run(t *Thread, coro Object) (Object, error) {
 	default:
 		return nil, Raise(TypeError, "An asyncio.Future, a coroutine or an awaitable is required")
 	}
+	r.thread = t
 	return r.loop.runUntilComplete(t, coro)
 }
 
@@ -131,6 +136,20 @@ func (r *asyncioRunner) run(t *Thread, coro Object) (Object, error) {
 func (r *asyncioRunner) close() (Object, error) {
 	if r.state != runnerInitialized {
 		return None, nil
+	}
+	// Run the loop's async generators to their finalizers before closing it, the
+	// loop.shutdown_asyncgens step CPython's Runner.close takes first. An async
+	// generator left suspended at a yield gets acloseed so its finally runs. Only a
+	// run can register one, so r.thread is set whenever the tracked set is nonempty.
+	if len(r.loop.asyncgens) > 0 {
+		t := r.thread
+		if t == nil {
+			t = mainThread
+		}
+		coro := r.loop.shutdownAsyncGensCoro()
+		if _, err := r.loop.runUntilComplete(t, coro); err != nil {
+			return nil, err
+		}
 	}
 	if _, err := r.loop.closeLoop(); err != nil {
 		return nil, err

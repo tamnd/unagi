@@ -60,6 +60,12 @@ func (a *asyncGenSend) drive(sent Object) (Object, error) {
 	if !a.ag.started && a.sig.err == nil && a.sig.val != None {
 		return nil, Raise(TypeError, "can't send non-None value to a just-started async generator")
 	}
+	// The first forward drive under a running loop records the async generator, the
+	// firstiter hook CPython fires when iteration starts on the loop. In the bare
+	// run-to-completion model there is no loop, so this is a no-op then.
+	if !a.aclose && !a.ag.started {
+		registerAsyncGenWithLoop(a.ag)
+	}
 	a.driven = true
 	// aclose on a never-started or finished generator closes to None without
 	// running the body, the same shortcut closeGen takes.

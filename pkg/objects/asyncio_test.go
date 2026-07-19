@@ -2019,3 +2019,58 @@ func TestAsyncioRunViaRunnerDebug(t *testing.T) {
 		t.Fatalf("default run left debug on")
 	}
 }
+
+// TestRunnerShutdownAsyncGensRunsFinalizer checks a Runner acloses an async
+// generator left suspended at a yield when it closes, so the generator's finalizer
+// runs at teardown the way CPython's loop.shutdown_asyncgens drives it.
+func TestRunnerShutdownAsyncGensRunsFinalizer(t *testing.T) {
+	var closed bool
+	ag := NewAsyncGenerator("ticker", func(y Yielder) (Object, error) {
+		defer func() { closed = true }()
+		for i := 0; ; i++ {
+			if _, err := y.Yield(NewInt(int64(i))); err != nil {
+				return nil, err
+			}
+		}
+	})
+	// step the generator once through async for, then leave it suspended
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		ait, err := AsyncIterT(mainThread, ag)
+		if err != nil {
+			return nil, err
+		}
+		if _, _, err := AsyncNextT(mainThread, y, ait); err != nil {
+			return nil, err
+		}
+		return None, nil
+	})
+	if _, err := AsyncioRunViaRunner(mainThread, main, None); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !closed {
+		t.Fatalf("suspended async generator was not finalized at Runner close")
+	}
+}
+
+// TestLoopShutdownAsyncGensEmpty checks loop.shutdown_asyncgens on a loop with no
+// tracked generators is a coroutine that completes cleanly to None.
+func TestLoopShutdownAsyncGensEmpty(t *testing.T) {
+	loop, ok := AsyncioNewEventLoop().(*eventLoop)
+	if !ok {
+		t.Fatalf("new_event_loop did not return an event loop")
+	}
+	coro, err := CallMethodT(mainThread, loop, "shutdown_asyncgens", nil)
+	if err != nil {
+		t.Fatalf("shutdown_asyncgens: %v", err)
+	}
+	got, err := loop.runUntilComplete(mainThread, coro)
+	if err != nil {
+		t.Fatalf("run shutdown coro: %v", err)
+	}
+	if got != None {
+		t.Fatalf("shutdown_asyncgens returned %v, want None", Repr(got))
+	}
+	if _, err := loop.closeLoop(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+}
