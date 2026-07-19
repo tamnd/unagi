@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+run True
+run run
+first True
+first first
+second True
+second second
+used factory loop True
+factory calls 1
+done
+== exception:
+== stderr:

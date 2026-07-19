@@ -73,16 +73,18 @@ func asyncioRun(t *objects.Thread, pos []objects.Object, kwNames []string, kwVal
 		return nil, objects.Raise(objects.TypeError, "run() takes 1 positional argument but %d were given", len(pos))
 	}
 	debug := objects.Object(objects.None)
+	loopFactory := objects.Object(objects.None)
 	for i, k := range kwNames {
 		switch k {
 		case "debug":
 			debug = kwVals[i]
 		case "loop_factory":
+			loopFactory = kwVals[i]
 		default:
 			return nil, objects.Raise(objects.TypeError, "run() got an unexpected keyword argument '%s'", k)
 		}
 	}
-	return objects.AsyncioRunViaRunner(t, pos[0], debug)
+	return objects.AsyncioRunViaRunner(t, pos[0], debug, loopFactory)
 }
 
 // asyncioSleep is asyncio.sleep(delay, result=None). delay is a number of
@@ -154,16 +156,18 @@ func asyncioRunner(pos []objects.Object, kwNames []string, kwVals []objects.Obje
 		return nil, objects.Raise(objects.TypeError, "Runner() takes no positional arguments")
 	}
 	debug := objects.Object(objects.None)
+	loopFactory := objects.Object(objects.None)
 	for i, k := range kwNames {
 		switch k {
 		case "debug":
 			debug = kwVals[i]
 		case "loop_factory":
+			loopFactory = kwVals[i]
 		default:
 			return nil, objects.Raise(objects.TypeError, "Runner() got an unexpected keyword argument '%s'", k)
 		}
 	}
-	return objects.AsyncioNewRunner(debug), nil
+	return objects.AsyncioNewRunner(debug, loopFactory), nil
 }
 
 // asyncioFuture is asyncio.Future(*, loop=None). It builds a pending Future bound
