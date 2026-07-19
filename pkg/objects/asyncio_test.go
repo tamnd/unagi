@@ -1836,3 +1836,159 @@ func TestTaskGroupCreateTaskBeforeEntry(t *testing.T) {
 		t.Fatalf("message = %q", got)
 	}
 }
+
+// runnerRun drives runner.run(coro) through the object method surface, the way a
+// with block calls it, and hands back the result or error.
+func runnerRun(r Object, coro Object) (Object, error) {
+	return CallMethodT(mainThread, r, "run", []Object{coro})
+}
+
+// TestRunnerRunReturnsResult checks a Runner drives a coroutine to completion and
+// hands its result back, then reuses the one loop across a second run.
+func TestRunnerRunReturnsResult(t *testing.T) {
+	r := AsyncioNewRunner(None)
+	if _, err := CallMethodT(mainThread, r, "__enter__", nil); err != nil {
+		t.Fatalf("enter: %v", err)
+	}
+	child := func(n int) Object {
+		return NewCoroutine("child", func(y Yielder) (Object, error) {
+			if _, err := y.YieldFrom(AsyncioSleep(0, None)); err != nil {
+				return nil, err
+			}
+			return NewInt(int64(n)), nil
+		})
+	}
+	got, err := runnerRun(r, child(7))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if n, ok := AsInt(got); !ok || n != 7 {
+		t.Fatalf("run returned %v, want 7", Repr(got))
+	}
+	loop1, err := CallMethodT(mainThread, r, "get_loop", nil)
+	if err != nil {
+		t.Fatalf("get_loop: %v", err)
+	}
+	got, err = runnerRun(r, child(20))
+	if err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if n, ok := AsInt(got); !ok || n != 20 {
+		t.Fatalf("second run returned %v, want 20", Repr(got))
+	}
+	loop2, err := CallMethodT(mainThread, r, "get_loop", nil)
+	if err != nil {
+		t.Fatalf("get_loop: %v", err)
+	}
+	if loop1 != loop2 {
+		t.Fatalf("runner did not reuse its loop across runs")
+	}
+	if _, err := CallMethodT(mainThread, r, "__exit__", []Object{None, None, None}); err != nil {
+		t.Fatalf("exit: %v", err)
+	}
+	closed, err := CallMethodT(mainThread, loop1, "is_closed", nil)
+	if err != nil {
+		t.Fatalf("is_closed: %v", err)
+	}
+	if !Truth(closed) {
+		t.Fatalf("loop was not closed on exit")
+	}
+}
+
+// TestRunnerRunAfterClose checks run and get_loop on a closed Runner are the
+// RuntimeError CPython raises.
+func TestRunnerRunAfterClose(t *testing.T) {
+	r := AsyncioNewRunner(None)
+	if _, err := CallMethodT(mainThread, r, "get_loop", nil); err != nil {
+		t.Fatalf("get_loop: %v", err)
+	}
+	if _, err := CallMethodT(mainThread, r, "close", nil); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if _, err := CallMethodT(mainThread, r, "close", nil); err != nil {
+		t.Fatalf("double close: %v", err)
+	}
+	_, err := runnerRun(r, NewInt(1))
+	e, ok := err.(*Exception)
+	if !ok || e.Kind != "RuntimeError" || e.Text() != "Runner is closed" {
+		t.Fatalf("run after close = %v, want RuntimeError 'Runner is closed'", err)
+	}
+	_, err = CallMethodT(mainThread, r, "get_loop", nil)
+	e, ok = err.(*Exception)
+	if !ok || e.Kind != "RuntimeError" || e.Text() != "Runner is closed" {
+		t.Fatalf("get_loop after close = %v, want RuntimeError 'Runner is closed'", err)
+	}
+}
+
+// TestRunnerRunNonCoroutine checks run with a non-awaitable is the TypeError
+// CPython raises, matching its exact message.
+func TestRunnerRunNonCoroutine(t *testing.T) {
+	r := AsyncioNewRunner(None)
+	_, err := runnerRun(r, NewInt(1234))
+	e, ok := err.(*Exception)
+	if !ok || e.Kind != "TypeError" {
+		t.Fatalf("run(int) = %v, want TypeError", err)
+	}
+	if got := e.Text(); got != "An asyncio.Future, a coroutine or an awaitable is required" {
+		t.Fatalf("message = %q", got)
+	}
+	if _, err := CallMethodT(mainThread, r, "close", nil); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+}
+
+// TestRunnerDebugFlag checks the debug constructor argument reaches the loop and
+// that it defaults off.
+func TestRunnerDebugFlag(t *testing.T) {
+	on := AsyncioNewRunner(True)
+	loop, err := CallMethodT(mainThread, on, "get_loop", nil)
+	if err != nil {
+		t.Fatalf("get_loop: %v", err)
+	}
+	dbg, err := CallMethodT(mainThread, loop, "get_debug", nil)
+	if err != nil {
+		t.Fatalf("get_debug: %v", err)
+	}
+	if !Truth(dbg) {
+		t.Fatalf("debug=True runner loop reported get_debug False")
+	}
+	if _, err := CallMethodT(mainThread, on, "close", nil); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	off := AsyncioNewRunner(None)
+	loop, err = CallMethodT(mainThread, off, "get_loop", nil)
+	if err != nil {
+		t.Fatalf("get_loop: %v", err)
+	}
+	dbg, err = CallMethodT(mainThread, loop, "get_debug", nil)
+	if err != nil {
+		t.Fatalf("get_debug: %v", err)
+	}
+	if Truth(dbg) {
+		t.Fatalf("default runner loop reported get_debug True")
+	}
+	if _, err := CallMethodT(mainThread, off, "close", nil); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+}
+
+// TestRunnerNestedRun checks a Runner.run called from within a running loop is
+// the RuntimeError CPython raises, before any loop or argument check.
+func TestRunnerNestedRun(t *testing.T) {
+	r := AsyncioNewRunner(None)
+	var nested error
+	outer := NewCoroutine("outer", func(y Yielder) (Object, error) {
+		_, nested = runnerRun(r, NewInt(1))
+		return None, nil
+	})
+	if _, err := AsyncioRun(outer); err != nil {
+		t.Fatalf("outer run: %v", err)
+	}
+	e, ok := nested.(*Exception)
+	if !ok || e.Kind != "RuntimeError" || e.Text() != "Runner.run() cannot be called from a running event loop" {
+		t.Fatalf("nested run = %v, want RuntimeError running-loop message", nested)
+	}
+	if _, err := CallMethodT(mainThread, r, "close", nil); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+}

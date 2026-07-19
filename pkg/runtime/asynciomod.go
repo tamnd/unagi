@@ -47,6 +47,7 @@ func initAsyncio(m *objects.Module) error {
 		{"QueueEmpty", objects.AsyncioQueueEmptyClass()},
 		{"QueueFull", objects.AsyncioQueueFullClass()},
 		{"TaskGroup", objects.NewFunc("TaskGroup", 0, asyncioTaskGroup)},
+		{"Runner", objects.NewFuncKw("Runner", asyncioRunner)},
 		{"current_task", objects.NewFuncKw("current_task", asyncioCurrentTask)},
 		{"all_tasks", objects.NewFuncKw("all_tasks", asyncioAllTasks)},
 		{"get_running_loop", objects.NewFunc("get_running_loop", 0, asyncioGetRunningLoop)},
@@ -135,6 +136,29 @@ func asyncioTaskGroup(args []objects.Object) (objects.Object, error) {
 		return nil, objects.Raise(objects.TypeError, "TaskGroup() takes no arguments")
 	}
 	return objects.AsyncioNewTaskGroup(), nil
+}
+
+// asyncioRunner is asyncio.Runner(*, debug=None, loop_factory=None). It builds a
+// context manager that owns a fresh event loop, run on demand and closed at exit.
+// debug arms the loop's debug flag at first use; loop_factory is accepted for
+// signature compatibility but not honoured, since this slice builds the one loop
+// kind. Both are keyword-only, matching CPython, so any positional argument is the
+// error the constructor raises.
+func asyncioRunner(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if len(pos) != 0 {
+		return nil, objects.Raise(objects.TypeError, "Runner() takes no positional arguments")
+	}
+	debug := objects.Object(objects.None)
+	for i, k := range kwNames {
+		switch k {
+		case "debug":
+			debug = kwVals[i]
+		case "loop_factory":
+		default:
+			return nil, objects.Raise(objects.TypeError, "Runner() got an unexpected keyword argument '%s'", k)
+		}
+	}
+	return objects.AsyncioNewRunner(debug), nil
 }
 
 // asyncioFuture is asyncio.Future(*, loop=None). It builds a pending Future bound

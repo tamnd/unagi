@@ -108,6 +108,10 @@ type eventLoop struct {
 	// iteration, so the loop returns after finishing the batch in flight, the way
 	// CPython's stop schedules the loop to halt once it next becomes idle.
 	stopping bool
+	// debug is the loop's debug flag, what get_debug reports and set_debug and the
+	// Runner(debug=...) constructor arm. It gates no extra checking in this slice;
+	// it is carried so the introspection surface reads back what was set.
+	debug bool
 }
 
 // wake nudges the loop goroutine off a sleep so it re-checks its queues. It is
@@ -1312,7 +1316,7 @@ func (l *eventLoop) TypeName() string { return "EventLoop" }
 // method reaches here through LoadAttr.
 var eventLoopMethodNames = map[string]bool{
 	"create_future": true, "time": true, "is_running": true, "is_closed": true,
-	"get_debug": true, "run_in_executor": true, "call_soon": true, "call_later": true,
+	"get_debug": true, "set_debug": true, "run_in_executor": true, "call_soon": true, "call_later": true,
 	"call_at": true, "call_soon_threadsafe": true, "run_until_complete": true,
 	"run_forever": true, "stop": true, "close": true,
 }
@@ -1371,7 +1375,13 @@ func eventLoopMethod(l *eventLoop, name string, args []Object) (Object, error) {
 		if len(args) != 0 {
 			return nil, Raise(TypeError, "get_debug() takes 1 positional argument but %d were given", len(args)+1)
 		}
-		return NewBool(false), nil
+		return NewBool(l.debug), nil
+	case "set_debug":
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "set_debug() takes 2 positional arguments but %d were given", len(args)+1)
+		}
+		l.debug = Truth(args[0])
+		return None, nil
 	case "run_in_executor":
 		return l.runInExecutor(args)
 	case "call_soon", "call_soon_threadsafe":
