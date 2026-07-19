@@ -117,6 +117,11 @@ func genericGetAttr(x *instanceObject, name string) (Object, error) {
 	if v, ok := valueSubclassAttr(x, name); ok {
 		return v, nil
 	}
+	// A property subclass answers getter/setter/deleter and fget/fset/fdel through
+	// its wrapped property, so the @prop.setter chain works on the subclass.
+	if v, ok := descriptorSubclassAttr(x, name); ok {
+		return v, nil
+	}
 	// Every object inherits object's default dunder methods, so inst.__repr__()
 	// and inst.__format__(spec) resolve to the object-root implementation bound
 	// to the instance.
@@ -133,6 +138,9 @@ func genericGetAttr(x *instanceObject, name string) (Object, error) {
 func genericSetAttr(x *instanceObject, name string, val Object) error {
 	tv, tok := x.cls.lookup(name)
 	if tok {
+		if p, ok := descriptorPayload(tv); ok {
+			tv = p
+		}
 		switch d := tv.(type) {
 		case *propertyObject:
 			if d.fset == nil {
@@ -162,6 +170,9 @@ func genericSetAttr(x *instanceObject, name string, val Object) error {
 func genericDelAttr(x *instanceObject, name string) error {
 	tv, tok := x.cls.lookup(name)
 	if tok {
+		if p, ok := descriptorPayload(tv); ok {
+			tv = p
+		}
 		switch d := tv.(type) {
 		case *propertyObject:
 			if d.fdel == nil {

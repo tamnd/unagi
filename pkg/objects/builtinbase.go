@@ -19,11 +19,39 @@ package objects
 func builtinBaseName(b Object) (string, bool) {
 	if f, ok := b.(*funcObject); ok {
 		switch f.name {
-		case "dict", "int", "str", "tuple":
+		case "dict", "int", "str", "tuple", "classmethod", "staticmethod", "property":
 			return f.name, true
 		}
 	}
 	return "", false
+}
+
+// isDescriptorBase reports whether a builtin base wraps a callable as a
+// descriptor, the classmethod, staticmethod and property layer of builtin
+// subclassing. A subclass instance holds the wrapped descriptor as its payload
+// and delegates the descriptor protocol to it, the way abc's abstractclassmethod
+// and abstractproperty do.
+func isDescriptorBase(name string) bool {
+	return name == "classmethod" || name == "staticmethod" || name == "property"
+}
+
+// descriptorPayload unwraps a classmethod, staticmethod or property subclass
+// instance to the builtin descriptor it wraps, so the descriptor protocol runs
+// on that payload. It applies only when the subclass adds no descriptor hook of
+// its own; a subclass that defines __get__, __set__ or __delete__ keeps the
+// ordinary user-descriptor path. ok is false for anything that is not such an
+// instance, so a plain object still dispatches on its own type.
+func descriptorPayload(v Object) (Object, bool) {
+	inst, ok := v.(*instanceObject)
+	if !ok || !isDescriptorBase(inst.cls.builtinBase) || inst.builtinData == nil {
+		return nil, false
+	}
+	for _, hook := range []string{"__get__", "__set__", "__delete__"} {
+		if _, ok := inst.cls.lookup(hook); ok {
+			return nil, false
+		}
+	}
+	return inst.builtinData, true
 }
 
 // builtinUnwrap returns the immutable builtin payload a value subclass instance
