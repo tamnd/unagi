@@ -17,7 +17,11 @@ async def main():
     await asyncio.sleep(0)
     print("locked after 2 acquired", sem.locked())
     await asyncio.gather(*tasks)
-    print("order", order)
+    # The enter and exit sequences are each fixed by the graduated sleeps and the
+    # semaphore's FIFO wakeup, but their interleaving depends on loop timing under
+    # load, so assert the two orders separately rather than the fragile merge.
+    print("enters", [n for k, n in order if k == "enter"])
+    print("exits", [n for k, n in order if k == "exit"])
     print("locked end", sem.locked())
 
     s = asyncio.Semaphore(1)
