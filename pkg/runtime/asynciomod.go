@@ -51,6 +51,7 @@ func initAsyncio(m *objects.Module) error {
 		{"QueueEmpty", objects.AsyncioQueueEmptyClass()},
 		{"QueueFull", objects.AsyncioQueueFullClass()},
 		{"QueueShutDown", objects.AsyncioQueueShutDownClass()},
+		{"StreamReader", objects.NewFuncKw("StreamReader", asyncioStreamReader)},
 		{"TaskGroup", objects.NewFunc("TaskGroup", 0, asyncioTaskGroup)},
 		{"Runner", objects.NewFuncKw("Runner", asyncioRunner)},
 		{"current_task", objects.NewFuncKw("current_task", asyncioCurrentTask)},
@@ -289,6 +290,25 @@ func asyncioQueue(pos []objects.Object, kwNames []string, kwVals []objects.Objec
 		return nil, err
 	}
 	return objects.AsyncioNewQueue(maxsize), nil
+}
+
+// asyncioStreamReader is asyncio.StreamReader(limit=2**16, loop=None), the read
+// half of the streams API. The loop argument is accepted for signature
+// compatibility and ignored, since the running loop drives every read.
+func asyncioStreamReader(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	vals, err := bindArgs("StreamReader", []string{"limit", "loop"}, pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	limit := 1 << 16
+	if v, ok := vals["limit"]; ok {
+		n, ok := objects.AsInt(v)
+		if !ok {
+			return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", v.TypeName())
+		}
+		limit = int(n)
+	}
+	return objects.AsyncioNewStreamReader(limit)
 }
 
 // asyncioLifoQueue is asyncio.LifoQueue(maxsize=0), whose get returns the most
