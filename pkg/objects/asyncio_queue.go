@@ -9,6 +9,7 @@ import "sync"
 // task_done, and join.
 type asyncioQueue struct {
 	items      []Object
+	kind       queueKind
 	maxsize    int
 	getters    []*asyncFuture
 	putters    []*asyncFuture
@@ -16,13 +17,38 @@ type asyncioQueue struct {
 	finished   *asyncioEvent
 }
 
-func (q *asyncioQueue) TypeName() string { return "Queue" }
+func (q *asyncioQueue) TypeName() string {
+	switch q.kind {
+	case queueLifo:
+		return "LifoQueue"
+	case queuePriority:
+		return "PriorityQueue"
+	default:
+		return "Queue"
+	}
+}
 
-// AsyncioNewQueue builds asyncio.Queue(maxsize). A maxsize of zero or less is
-// unbounded, matching CPython. The finished event starts set, so join returns at
-// once until the first put.
+// AsyncioNewQueue builds asyncio.Queue(maxsize), the FIFO. A maxsize of zero or
+// less is unbounded, matching CPython. The finished event starts set, so join
+// returns at once until the first put.
 func AsyncioNewQueue(maxsize int) Object {
-	return &asyncioQueue{maxsize: maxsize, finished: &asyncioEvent{value: true}}
+	return newAsyncioQueue(queueFifo, maxsize)
+}
+
+// AsyncioNewLifoQueue builds asyncio.LifoQueue(maxsize), whose get returns the
+// most recently put item.
+func AsyncioNewLifoQueue(maxsize int) Object {
+	return newAsyncioQueue(queueLifo, maxsize)
+}
+
+// AsyncioNewPriorityQueue builds asyncio.PriorityQueue(maxsize), whose get returns
+// the smallest item under Python's <, keeping the items as a binary heap.
+func AsyncioNewPriorityQueue(maxsize int) Object {
+	return newAsyncioQueue(queuePriority, maxsize)
+}
+
+func newAsyncioQueue(kind queueKind, maxsize int) Object {
+	return &asyncioQueue{kind: kind, maxsize: maxsize, finished: &asyncioEvent{value: true}}
 }
 
 // asyncioQueueMethod dispatches the Queue surface. qsize, empty, and full read
@@ -89,23 +115,65 @@ func (q *asyncioQueue) putNoWait(item Object) error {
 	if q.full() {
 		return raiseAsyncioQueueFull()
 	}
-	q.items = append(q.items, item)
+	if err := q.put(item); err != nil {
+		// A PriorityQueue rejects an item its heap cannot order. CPython leaves the
+		// count and the not-empty wake untouched in that case, matching Queue.put
+		// where _put runs before the bookkeeping.
+		return err
+	}
 	q.unfinished++
 	q.finished.value = false
 	q.wakeupNext(&q.getters)
 	return nil
 }
 
-// getNoWait is get_nowait: it pops the front item, or raises QueueEmpty when the
-// queue is empty. Popping wakes the first blocked putter.
+// getNoWait is get_nowait: it pops the next item under the queue's discipline, or
+// raises QueueEmpty when the queue is empty. Popping wakes the first blocked
+// putter.
 func (q *asyncioQueue) getNoWait() (Object, error) {
 	if q.empty() {
 		return nil, raiseAsyncioQueueEmpty()
 	}
-	item := q.items[0]
-	q.items = q.items[1:]
+	item, err := q.get()
+	if err != nil {
+		return nil, err
+	}
 	q.wakeupNext(&q.putters)
 	return item, nil
+}
+
+// put stores item under the kind's discipline: appended for a FIFO or LifoQueue,
+// heap-pushed for a PriorityQueue. Only a PriorityQueue can report an error, the
+// TypeError raised when its heap compares two unorderable items.
+func (q *asyncioQueue) put(item Object) error {
+	if q.kind == queuePriority {
+		items, err := heapPushItems(q.items, item)
+		q.items = items
+		return err
+	}
+	q.items = append(q.items, item)
+	return nil
+}
+
+// get removes and returns the next item under the kind's discipline: the front for
+// a FIFO, the top of the stack for a LifoQueue, the smallest for a PriorityQueue.
+// The caller has checked the queue is non-empty.
+func (q *asyncioQueue) get() (Object, error) {
+	switch q.kind {
+	case queueLifo:
+		n := len(q.items) - 1
+		item := q.items[n]
+		q.items = q.items[:n]
+		return item, nil
+	case queuePriority:
+		item, items, err := heapPopItems(q.items)
+		q.items = items
+		return item, err
+	default:
+		item := q.items[0]
+		q.items = q.items[1:]
+		return item, nil
+	}
 }
 
 // putCoro is the coroutine put returns. It parks on a putter future while the

@@ -526,6 +526,55 @@ func TestAsyncioQueueNowaitErrors(t *testing.T) {
 	}
 }
 
+// TestAsyncioLifoQueueOrder checks LifoQueue.get_nowait returns items in
+// last-in first-out order.
+func TestAsyncioLifoQueueOrder(t *testing.T) {
+	q := AsyncioNewLifoQueue(0)
+	for i := range 3 {
+		if _, err := CallMethod(q, "put_nowait", []Object{NewInt(int64(i))}); err != nil {
+			t.Fatalf("put_nowait: %v", err)
+		}
+	}
+	var got []int64
+	for i := range 3 {
+		item, err := CallMethod(q, "get_nowait", nil)
+		if err != nil {
+			t.Fatalf("get_nowait: %v", err)
+		}
+		n, _ := AsInt(item)
+		got = append(got, n)
+	}
+	if len(got) != 3 || got[0] != 2 || got[1] != 1 || got[2] != 0 {
+		t.Fatalf("lifo order = %v, want [2 1 0]", got)
+	}
+}
+
+// TestAsyncioPriorityQueueOrder checks PriorityQueue.get_nowait returns items
+// smallest first under Python's <.
+func TestAsyncioPriorityQueueOrder(t *testing.T) {
+	q := AsyncioNewPriorityQueue(0)
+	for _, v := range []int64{3, 1, 4, 1, 5} {
+		if _, err := CallMethod(q, "put_nowait", []Object{NewInt(v)}); err != nil {
+			t.Fatalf("put_nowait: %v", err)
+		}
+	}
+	var got []int64
+	for range 5 {
+		item, err := CallMethod(q, "get_nowait", nil)
+		if err != nil {
+			t.Fatalf("get_nowait: %v", err)
+		}
+		n, _ := AsInt(item)
+		got = append(got, n)
+	}
+	want := []int64{1, 1, 3, 4, 5}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("priority order = %v, want %v", got, want)
+		}
+	}
+}
+
 // TestAsyncioQueueTaskDoneOverflow checks task_done past the outstanding count is
 // the ValueError CPython raises.
 func TestAsyncioQueueTaskDoneOverflow(t *testing.T) {
