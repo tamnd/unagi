@@ -508,3 +508,52 @@ func TestTypeObjectIntrospect(t *testing.T) {
 		t.Fatalf("reading an unknown type attribute did not raise")
 	}
 }
+
+// TestBuiltinTypeDictHash proves a builtin type's __dict__ carries the __hash__
+// entry the structural Hashable check reads: a callable computing the value's
+// own hash for a hashable type, the None sentinel for a mutable container, and
+// nothing for bool, which inherits int's down the MRO.
+func TestBuiltinTypeDictHash(t *testing.T) {
+	hashEntry := func(typeName string) (Object, bool) {
+		fn := NewFunc(typeName, 1, func([]Object) (Object, error) { return None, nil }).(*funcObject)
+		proxy, ok := builtinTypeDictProxy(fn).(*mappingProxyObject)
+		if !ok {
+			t.Fatalf("%s.__dict__ is not a mappingproxy", typeName)
+		}
+		v, _, err := proxy.d.lookup(NewStr("__hash__"))
+		if err != nil {
+			t.Fatalf("%s.__dict__ lookup: %v", typeName, err)
+		}
+		return v, v != nil
+	}
+
+	// A hashable builtin carries a callable that returns the value's own hash.
+	v, present := hashEntry("str")
+	if !present {
+		t.Fatalf("str.__dict__ has no __hash__")
+	}
+	got, err := Call(v, []Object{NewStr("x")})
+	if err != nil {
+		t.Fatalf("str.__dict__[__hash__](\"x\"): %v", err)
+	}
+	want, err := PyHash(NewStr("x"))
+	if err != nil {
+		t.Fatalf("hash(\"x\"): %v", err)
+	}
+	if i, ok := got.(*intObject); !ok || i.v != want {
+		t.Fatalf("str.__dict__[__hash__](\"x\") = %v, want %d", got, want)
+	}
+
+	// A mutable container carries None so the Hashable check breaks out.
+	for _, name := range []string{"list", "dict", "set", "bytearray"} {
+		v, present := hashEntry(name)
+		if !present || v != None {
+			t.Fatalf("%s.__dict__[__hash__] = %v, want None", name, v)
+		}
+	}
+
+	// bool defines no __hash__ of its own, inheriting int's down the MRO.
+	if _, present := hashEntry("bool"); present {
+		t.Fatalf("bool.__dict__ carries __hash__, want it absent")
+	}
+}
