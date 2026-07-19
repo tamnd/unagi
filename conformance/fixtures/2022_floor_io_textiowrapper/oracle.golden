@@ -1,0 +1,43 @@
+== exit: 0
+== stdout:
+['TextIOWrapper', '_TextIOBase', '_IOBase', 'object']
+utf-8 strict False False None
+buffer is True
+r/w/s True True True
+dict {}
+isatty False
+fileno: fileno
+read(2) 'ca'
+read(3) 'fé\n'
+read() 'xyz'
+write 6
+bytes b'abcaf\xc3\xa9'
+write nl None -> b'a\nb\n'
+write nl '' -> b'a\nb\n'
+write nl '\n' -> b'a\nb\n'
+write nl '\r' -> b'a\rb\r'
+write nl '\r\n' -> b'a\r\nb\r\n'
+read nl None -> 'a\nb\nc\n' newlines ('\r', '\n', '\r\n')
+read nl '' -> 'a\r\nb\rc\n' newlines ('\r', '\n', '\r\n')
+read nl '\n' -> 'a\r\nb\rc\n' newlines None
+read nl '\r' -> 'a\r\nb\rc\n' newlines None
+read nl '\r\n' -> 'a\r\nb\rc\n' newlines None
+lb pending b''
+lb flushed b'no newline now\n'
+wt b'x'
+writelines b'one\ntwo\n'
+ctx closed True
+detach is buffer True buffer now None enc utf-8
+closed after detach: underlying buffer has been detached
+read after detach: underlying buffer has been detached
+closed True True
+read closed: I/O operation on closed file.
+write closed: I/O operation on closed file.
+write type: write() argument must be str, not int
+noargs: TextIOWrapper() missing required argument 'buffer' (pos 1)
+badnl: illegal newline value: x
+toomany: TextIOWrapper() takes at most 6 arguments (7 given)
+badkw: TextIOWrapper() got an unexpected keyword argument 'bogus'
+enctype: TextIOWrapper() argument 'encoding' must be str or None, not int
+== exception:
+== stderr:

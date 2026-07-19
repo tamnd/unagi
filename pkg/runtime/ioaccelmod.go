@@ -96,6 +96,12 @@ func init() {
 		panic("unagi: building _io.IncrementalNewlineDecoder: " + err.Error())
 	}
 
+	// TextIOWrapper subclasses _TextIOBase and wraps a buffered stream in an
+	// IncrementalNewlineDecoder, so both must exist first.
+	if ioTextIOWrapperClass, err = buildIOTextIOWrapper(); err != nil {
+		panic("unagi: building _io.TextIOWrapper: " + err.Error())
+	}
+
 	moduleTable["_io"] = &moduleEntry{builtin: true, exec: initIOAccel}
 }
 
@@ -137,6 +143,9 @@ func initIOAccel(m *objects.Module) error {
 		return err
 	}
 	if err := set("IncrementalNewlineDecoder", ioIncrementalNewlineDecoderClass); err != nil {
+		return err
+	}
+	if err := set("TextIOWrapper", ioTextIOWrapperClass); err != nil {
 		return err
 	}
 	// DEFAULT_BUFFER_SIZE is the buffer size the buffered streams and open()
