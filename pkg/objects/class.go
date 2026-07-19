@@ -1039,40 +1039,91 @@ func classBases(c *classObject) Object {
 	if c == objectClass {
 		return NewTuple(nil)
 	}
-	if len(c.bases) == 0 {
-		return NewTuple([]Object{objectClass})
+	elts := make([]Object, 0, len(c.bases)+1)
+	for _, b := range c.bases {
+		elts = append(elts, b)
 	}
-	elts := make([]Object, len(c.bases))
-	for i, b := range c.bases {
-		elts[i] = b
+	// A value subclass records its builtin base (tuple, str, int) as a layout
+	// string rather than a classObject, so it is missing from the user-base
+	// slice; add it as a direct base the way class T(tuple) reports (tuple,). A
+	// class that only inherits the layout through a user base already lists that
+	// base, so the builtin is not a direct base of it and is left off.
+	if be, ok := builtinBaseElem(c); ok && !inheritsBuiltinBase(c) {
+		elts = append(elts, be)
+	}
+	if len(elts) == 0 {
+		elts = append(elts, objectClass)
 	}
 	return NewTuple(elts)
 }
 
-// classMroChain is the __mro__ tuple: the stored linearization with the object
-// root appended, since c3Linearize omits it. object's own chain is just itself.
+// classMroChain is the __mro__ tuple: the stored linearization with the value
+// base and object root appended, since c3Linearize omits both. A value subclass
+// carries its builtin base as a layout string, so it never lands in c.mro; it
+// belongs just before object, the place class T(tuple).__mro__ shows tuple.
+// object's own chain is just itself.
 func classMroChain(c *classObject) []Object {
 	if c == objectClass {
 		return []Object{objectClass}
 	}
-	elts := make([]Object, 0, len(c.mro)+1)
+	elts := make([]Object, 0, len(c.mro)+2)
 	for _, k := range c.mro {
 		elts = append(elts, k)
+	}
+	if be, ok := builtinBaseElem(c); ok {
+		elts = append(elts, be)
 	}
 	return append(elts, objectClass)
 }
 
 // classBase is __base__, the single primary base: object for a root class,
-// None for object itself, and the first written base otherwise. The
+// None for object itself, the first written base when there is one, and the
+// builtin base for a bare value subclass like class T(tuple). The
 // most-derived-base rule for multiple inheritance is a later slice.
 func classBase(c *classObject) Object {
 	if c == objectClass {
 		return None
 	}
-	if len(c.bases) == 0 {
-		return objectClass
+	if len(c.bases) > 0 {
+		return c.bases[0]
 	}
-	return c.bases[0]
+	if be, ok := builtinBaseElem(c); ok {
+		return be
+	}
+	return objectClass
+}
+
+// builtinBaseElem returns the type object a value subclass names as its builtin
+// base, the element CPython places in __bases__ and __mro__ between the class
+// and object. It is the constructor recorded when the base was written directly
+// (class T(tuple) keeps the tuple funcObject), otherwise the type registered
+// under the base name. A class with no builtin base answers a miss.
+func builtinBaseElem(c *classObject) (Object, bool) {
+	if c.builtinBase == "" {
+		return nil, false
+	}
+	if c.builtinBaseFn != nil {
+		return c.builtinBaseFn, true
+	}
+	if BuiltinTypeResolver != nil {
+		if e, ok := BuiltinTypeResolver(c.builtinBase); ok {
+			return e, true
+		}
+	}
+	return nil, false
+}
+
+// inheritsBuiltinBase reports whether the class takes its builtin layout through
+// a user base rather than naming the builtin directly. When a base already
+// carries the same layout, the builtin is not a direct base of this class, so
+// __bases__ lists the user base alone the way class U(T) shows (T,).
+func inheritsBuiltinBase(c *classObject) bool {
+	for _, b := range c.bases {
+		if b.builtinBase == c.builtinBase {
+			return true
+		}
+	}
+	return false
 }
 
 // builtinTypeArgName reports the type name carried by a value used as a type

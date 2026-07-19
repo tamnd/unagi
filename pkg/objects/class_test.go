@@ -509,6 +509,63 @@ func TestTypeObjectIntrospect(t *testing.T) {
 	}
 }
 
+// TestValueSubclassMro proves a value subclass reports its builtin base on
+// __mro__, __bases__, and __base__: directly for a bare subclass and on the
+// linearization but not as a direct base once the layout is inherited.
+func TestValueSubclassMro(t *testing.T) {
+	names := func(o Object) []string {
+		tup, ok := o.(*tupleObject)
+		if !ok {
+			t.Fatalf("expected a tuple, got %T", o)
+		}
+		out := make([]string, len(tup.elts))
+		for i, e := range tup.elts {
+			out[i] = e.TypeName()
+		}
+		return out
+	}
+	attr := func(c Object, name string) Object {
+		v, err := LoadAttr(c, name)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		return v
+	}
+
+	// class T(tuple): the builtin base sits between the class and object. The
+	// base is the tuple constructor, recorded as the class's builtinBaseFn and
+	// read back as the __bases__/__mro__ element.
+	tupleType := NewFunc("tuple", -1, func([]Object) (Object, error) { return NewTuple(nil), nil })
+	tSub, err := NewClass("T", "T", []Object{tupleType}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewClass T(tuple): %v", err)
+	}
+	mro := attr(tSub, "__mro__").(*tupleObject)
+	if len(mro.elts) != 3 || mro.elts[0] != tSub || mro.elts[1] != tupleType {
+		t.Fatalf("T.__mro__ names = %v, want (T, tuple, object)", names(mro))
+	}
+	if bases := attr(tSub, "__bases__").(*tupleObject); len(bases.elts) != 1 || bases.elts[0] != tupleType {
+		t.Fatalf("T.__bases__ = %v, want (tuple,)", names(bases))
+	}
+	if base := attr(tSub, "__base__"); base != tupleType {
+		t.Fatalf("T.__base__ = %v, want tuple", base)
+	}
+
+	// class U(T): the layout is inherited, so tuple stays on the MRO but T is
+	// the only direct base.
+	uSub, err := NewClass("U", "U", []Object{tSub}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewClass U(T): %v", err)
+	}
+	umro := attr(uSub, "__mro__").(*tupleObject)
+	if len(umro.elts) != 4 || umro.elts[1] != tSub || umro.elts[2] != tupleType {
+		t.Fatalf("U.__mro__ names = %v, want (U, T, tuple, object)", names(umro))
+	}
+	if ubases := attr(uSub, "__bases__").(*tupleObject); len(ubases.elts) != 1 || ubases.elts[0] != tSub {
+		t.Fatalf("U.__bases__ = %v, want (T,)", names(ubases))
+	}
+}
+
 // TestObjectSubclasshook proves a class inherits object.__subclasshook__, the
 // default that returns NotImplemented, while a class-body override shadows it.
 func TestObjectSubclasshook(t *testing.T) {
