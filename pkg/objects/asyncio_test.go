@@ -1604,3 +1604,96 @@ func TestAsyncioGetEventLoopPrefersRunning(t *testing.T) {
 		t.Fatalf("get_event_loop did not prefer the running loop")
 	}
 }
+
+// runLoopForever starts loop.run_forever on a fresh worker thread and returns a
+// channel that carries the run's error once it stops, the harness the
+// run_coroutine_threadsafe tests use to submit work from the test goroutine
+// while the loop runs on another.
+func runLoopForever(loop *eventLoop) chan error {
+	done := make(chan error, 1)
+	go func() {
+		_, err := loop.runForever(NewThread("worker", false))
+		done <- err
+	}()
+	return done
+}
+
+// stopLoopForever schedules the loop to stop from the test goroutine and waits
+// for run_forever to return, failing on a run error.
+func stopLoopForever(t *testing.T, loop *eventLoop, done chan error) {
+	t.Helper()
+	loop.callSoon(func() { loop.stopLoop() })
+	if err := <-done; err != nil {
+		t.Fatalf("run_forever: %v", err)
+	}
+}
+
+// TestRunCoroutineThreadsafeResult submits a coroutine to a loop running on
+// another thread and checks the concurrent future the calling thread blocks on
+// carries the coroutine's result.
+func TestRunCoroutineThreadsafeResult(t *testing.T) {
+	loopObj := AsyncioNewEventLoop()
+	loop := loopObj.(*eventLoop)
+	done := runLoopForever(loop)
+	coro := NewCoroutine("work", func(y Yielder) (Object, error) {
+		if _, err := y.YieldFrom(AsyncioSleep(0, None)); err != nil {
+			return nil, err
+		}
+		return NewInt(42), nil
+	})
+	cfObj, err := RunCoroutineThreadsafe(coro, loopObj)
+	if err != nil {
+		t.Fatalf("run_coroutine_threadsafe: %v", err)
+	}
+	cf := cfObj.(*futureObject)
+	got, err := cf.result(true, false, 0)
+	if err != nil {
+		t.Fatalf("result: %v", err)
+	}
+	if n, ok := AsInt(got); !ok || n != 42 {
+		t.Fatalf("result %v, want 42", Repr(got))
+	}
+	stopLoopForever(t, loop, done)
+}
+
+// TestRunCoroutineThreadsafeException checks an exception raised in the
+// submitted coroutine re-raises out of the concurrent future's result.
+func TestRunCoroutineThreadsafeException(t *testing.T) {
+	loopObj := AsyncioNewEventLoop()
+	loop := loopObj.(*eventLoop)
+	done := runLoopForever(loop)
+	coro := NewCoroutine("boom", func(y Yielder) (Object, error) {
+		if _, err := y.YieldFrom(AsyncioSleep(0, None)); err != nil {
+			return nil, err
+		}
+		return nil, Raise(ValueError, "kaboom")
+	})
+	cfObj, err := RunCoroutineThreadsafe(coro, loopObj)
+	if err != nil {
+		t.Fatalf("run_coroutine_threadsafe: %v", err)
+	}
+	cf := cfObj.(*futureObject)
+	_, err = cf.result(true, false, 0)
+	if coroExcKind(err) != "ValueError" {
+		t.Fatalf("result error = %v, want ValueError", err)
+	}
+	stopLoopForever(t, loop, done)
+}
+
+// TestRunCoroutineThreadsafeNonCoroutine checks a non-coroutine argument is the
+// TypeError CPython raises, before any loop is touched.
+func TestRunCoroutineThreadsafeNonCoroutine(t *testing.T) {
+	loop := AsyncioNewEventLoop()
+	if _, err := RunCoroutineThreadsafe(NewInt(1), loop); coroExcKind(err) != "TypeError" {
+		t.Fatalf("run_coroutine_threadsafe(int) = %v, want TypeError", err)
+	}
+}
+
+// TestRunCoroutineThreadsafeBadLoop checks a loop argument that is not an event
+// loop is a TypeError.
+func TestRunCoroutineThreadsafeBadLoop(t *testing.T) {
+	coro := NewCoroutine("work", func(y Yielder) (Object, error) { return None, nil })
+	if _, err := RunCoroutineThreadsafe(coro, NewInt(1)); coroExcKind(err) != "TypeError" {
+		t.Fatalf("run_coroutine_threadsafe(coro, int) = %v, want TypeError", err)
+	}
+}

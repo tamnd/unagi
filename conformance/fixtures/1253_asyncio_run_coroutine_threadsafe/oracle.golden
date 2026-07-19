@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+double 42
+done True
+double2 200
+caught nope
+running False
+closed True
+== exception:
+== stderr:
