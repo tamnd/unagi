@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+unset There is no current event loop in thread 'MainThread'.
+same True
+running False
+cleared There is no current event loop in thread 'MainThread'.
+badtype loop must be an instance of AbstractEventLoop or None, not 'int'
+inside True
+after run There is no current event loop in thread 'MainThread'.
+== exception:
+== stderr:

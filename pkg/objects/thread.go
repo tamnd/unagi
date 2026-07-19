@@ -38,6 +38,12 @@ type Thread struct {
 	// first use and Context.run swaps it for the duration of the call. Only the
 	// owning goroutine touches it, so it needs no synchronization.
 	ctx *contextObject
+
+	// currentLoop is the event loop set for this thread by asyncio.set_event_loop,
+	// the loop asyncio.get_event_loop returns when none is running. CPython keeps
+	// it in the loop policy's thread-local slot; here it rides the Thread the same
+	// way. Only the owning goroutine touches it, so it needs no synchronization.
+	currentLoop *eventLoop
 }
 
 // context returns the thread's current contextvars context, creating an empty

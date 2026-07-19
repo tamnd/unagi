@@ -28,6 +28,35 @@ import (
 // is shared.
 var runningLoop atomic.Pointer[eventLoop]
 
+// AsyncioSetEventLoop is asyncio.set_event_loop(loop). It stores loop as the
+// thread's current loop, the one get_event_loop hands back when none is running.
+// A None argument clears the slot; anything that is not a loop is the TypeError
+// CPython's policy raises.
+func AsyncioSetEventLoop(t *Thread, arg Object) error {
+	switch l := arg.(type) {
+	case *eventLoop:
+		t.currentLoop = l
+	case *noneObject:
+		t.currentLoop = nil
+	default:
+		return Raise(TypeError, "loop must be an instance of AbstractEventLoop or None, not '%s'", arg.TypeName())
+	}
+	return nil
+}
+
+// AsyncioGetEventLoop is asyncio.get_event_loop(). A running loop wins; otherwise
+// it returns the loop set by set_event_loop, and with neither it raises the
+// RuntimeError CPython 3.14 raises now that the implicit-loop creation is gone.
+func AsyncioGetEventLoop(t *Thread) (Object, error) {
+	if l := runningLoop.Load(); l != nil {
+		return l, nil
+	}
+	if t.currentLoop != nil {
+		return t.currentLoop, nil
+	}
+	return nil, Raise(RuntimeError, "There is no current event loop in thread '%s'.", t.name)
+}
+
 // loopTimer is a callback scheduled to fire at a deadline. call_later and
 // call_at push these onto the loop; a cancelled one is skipped at fire time.
 type loopTimer struct {
