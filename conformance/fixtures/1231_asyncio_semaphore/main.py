@@ -10,7 +10,7 @@ async def main():
     async def work(n):
         async with sem:
             order.append(("enter", n))
-            await asyncio.sleep(0.001 * n)
+            await asyncio.sleep(0.01 * n)
             order.append(("exit", n))
 
     tasks = [asyncio.create_task(work(n)) for n in (1, 2, 3, 4)]
