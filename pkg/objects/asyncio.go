@@ -1197,6 +1197,82 @@ func eventLoopMethod(l *eventLoop, name string, args []Object) (Object, error) {
 		return NewBool(false), nil
 	case "run_in_executor":
 		return l.runInExecutor(args)
+	case "call_soon":
+		return l.callSoonMethod(args, nil)
+	case "call_later":
+		return l.callLaterMethod(args, nil)
+	case "call_at":
+		return l.callAtMethod(args, nil)
 	}
 	return nil, noAttr(l, name)
+}
+
+// callSoonMethod implements loop.call_soon(callback, *args, context=None). ctx
+// is the value of the context keyword, nil when none was passed.
+func (l *eventLoop) callSoonMethod(args []Object, ctx Object) (Object, error) {
+	if len(args) < 1 {
+		return nil, Raise(TypeError, "call_soon() missing 1 required positional argument: 'callback'")
+	}
+	runCtx, err := handleContext(l, ctx)
+	if err != nil {
+		return nil, err
+	}
+	return l.callSoonHandle(args[0], append([]Object(nil), args[1:]...), runCtx), nil
+}
+
+// callLaterMethod implements loop.call_later(delay, callback, *args, context=None).
+func (l *eventLoop) callLaterMethod(args []Object, ctx Object) (Object, error) {
+	if len(args) < 2 {
+		return nil, Raise(TypeError, "call_later() missing required argument")
+	}
+	delay, ok := AsFloat(args[0])
+	if !ok {
+		return nil, Raise(TypeError, "'%s' object cannot be interpreted as a delay", args[0].TypeName())
+	}
+	runCtx, err := handleContext(l, ctx)
+	if err != nil {
+		return nil, err
+	}
+	return l.callLaterHandle(delay, args[1], append([]Object(nil), args[2:]...), runCtx), nil
+}
+
+// callAtMethod implements loop.call_at(when, callback, *args, context=None).
+func (l *eventLoop) callAtMethod(args []Object, ctx Object) (Object, error) {
+	if len(args) < 2 {
+		return nil, Raise(TypeError, "call_at() missing required argument")
+	}
+	when, ok := AsFloat(args[0])
+	if !ok {
+		return nil, Raise(TypeError, "'%s' object cannot be interpreted as a time", args[0].TypeName())
+	}
+	runCtx, err := handleContext(l, ctx)
+	if err != nil {
+		return nil, err
+	}
+	return l.callAtHandle(when, args[1], append([]Object(nil), args[2:]...), runCtx), nil
+}
+
+// eventLoopMethodKw handles the loop methods that accept a context keyword,
+// call_soon, call_later, and call_at. Any other method with keywords is an
+// error, matching the loop's positional-only surface.
+func eventLoopMethodKw(l *eventLoop, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	var ctx Object
+	for i, k := range kwNames {
+		if k != "context" {
+			return nil, Raise(TypeError, "%s() got an unexpected keyword argument '%s'", name, k)
+		}
+		ctx = kwVals[i]
+	}
+	switch name {
+	case "call_soon":
+		return l.callSoonMethod(pos, ctx)
+	case "call_later":
+		return l.callLaterMethod(pos, ctx)
+	case "call_at":
+		return l.callAtMethod(pos, ctx)
+	}
+	if len(kwNames) == 0 {
+		return eventLoopMethod(l, name, pos)
+	}
+	return nil, Raise(TypeError, "%s() takes no keyword arguments", name)
 }
