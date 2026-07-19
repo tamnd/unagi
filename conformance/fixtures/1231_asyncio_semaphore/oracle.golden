@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+locked0 False
+locked after 2 acquired True
+order [('enter', 1), ('enter', 2), ('exit', 1), ('enter', 3), ('exit', 2), ('enter', 4), ('exit', 3), ('exit', 4)]
+locked end False
+locked1 True
+locked after release False
+bounded err BoundedSemaphore released too many times
+negative err Semaphore initial value must be >= 0
+== exception:
+== stderr:
