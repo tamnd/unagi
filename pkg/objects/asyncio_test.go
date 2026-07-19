@@ -951,6 +951,71 @@ func TestAsyncioTaskCancelDone(t *testing.T) {
 	}
 }
 
+// TestAsyncioTaskCancellingUncancel checks the cancel-request counter:
+// cancelling() starts at zero, each cancel on a live task bumps it, uncancel()
+// walks it back down and floors at zero, and a done task neither cancels nor
+// disturbs the count.
+func TestAsyncioTaskCancellingUncancel(t *testing.T) {
+	var counts []int64
+	countAfter := func(task Object) int64 {
+		v, err := CallMethod(task, "cancelling", nil)
+		if err != nil {
+			t.Fatalf("cancelling: %v", err)
+		}
+		n, _ := AsInt(v)
+		return n
+	}
+	child := NewCoroutine("child", func(y Yielder) (Object, error) {
+		_, err := y.YieldFrom(AsyncioSleep(10, None))
+		if isCancelledError(err) {
+			return None, nil
+		}
+		return None, err
+	})
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		task, err := AsyncioCreateTask(child, "")
+		if err != nil {
+			return nil, err
+		}
+		if _, err := y.YieldFrom(AsyncioSleep(0, None)); err != nil {
+			return nil, err
+		}
+		counts = append(counts, countAfter(task)) // fresh: 0
+		task.(*asyncTask).cancel(None)
+		counts = append(counts, countAfter(task)) // after one cancel: 1
+		task.(*asyncTask).cancel(None)
+		counts = append(counts, countAfter(task)) // after two cancels: 2
+		for i := 0; i < 3; i++ {
+			v, err := CallMethod(task, "uncancel", nil)
+			if err != nil {
+				return nil, err
+			}
+			n, _ := AsInt(v)
+			counts = append(counts, n) // 1, 0, 0
+		}
+		if _, err := awaitObj(y, task); err != nil {
+			return nil, err
+		}
+		if r := task.(*asyncTask).cancel(None); r != False {
+			t.Errorf("cancel on done task = %v, want False", Repr(r))
+		}
+		counts = append(counts, countAfter(task)) // done: still 0
+		return None, nil
+	})
+	if _, err := AsyncioRun(main); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	want := []int64{0, 1, 2, 1, 0, 0, 0}
+	if len(counts) != len(want) {
+		t.Fatalf("counts = %v, want %v", counts, want)
+	}
+	for i, w := range want {
+		if counts[i] != w {
+			t.Fatalf("counts = %v, want %v", counts, want)
+		}
+	}
+}
+
 // TestAsyncioWaitForWithin checks wait_for returns the result when the awaitable
 // finishes before the timeout.
 func TestAsyncioWaitForWithin(t *testing.T) {

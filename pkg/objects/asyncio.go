@@ -505,6 +505,12 @@ type asyncTask struct {
 	futWaiter  *asyncFuture
 	mustCancel bool
 	cancelMsg  Object
+	// numCancelsRequested counts how many times cancel() has been requested on a
+	// live task, the count cancelling() reads back and uncancel() decrements. A
+	// TaskGroup uses it to tell its own cancellation apart from an external one;
+	// the count is bumped in cancel() and floored at zero in uncancel(), matching
+	// CPython's Task._num_cancels_requested.
+	numCancelsRequested int
 	// context is the task's own context, a copy of the context current when the
 	// task was created. Every step runs the coroutine under it, so a ContextVar
 	// set inside the task is confined to the task and its descendants and does not
@@ -597,6 +603,19 @@ func taskMethod(tk *asyncTask, name string, args []Object) (Object, error) {
 			return nil, Raise(TypeError, "cancel() takes from 1 to 2 positional arguments but %d were given", len(args)+1)
 		}
 		return tk.cancel(msg), nil
+	case "cancelling":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "cancelling() takes 1 positional argument but %d were given", len(args)+1)
+		}
+		return NewInt(int64(tk.numCancelsRequested)), nil
+	case "uncancel":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "uncancel() takes 1 positional argument but %d were given", len(args)+1)
+		}
+		if tk.numCancelsRequested > 0 {
+			tk.numCancelsRequested--
+		}
+		return NewInt(int64(tk.numCancelsRequested)), nil
 	}
 	return nil, noAttr(tk, name)
 }
@@ -678,6 +697,9 @@ func (tk *asyncTask) cancel(msg Object) Object {
 	if tk.doneFut.doneP() {
 		return False
 	}
+	// Each request on a live task bumps the counter cancelling() reports, before
+	// the future is touched, the way CPython increments _num_cancels_requested.
+	tk.numCancelsRequested++
 	if tk.futWaiter != nil && !tk.futWaiter.doneP() {
 		if Truth(tk.futWaiter.pyCancel(msg)) {
 			return True
