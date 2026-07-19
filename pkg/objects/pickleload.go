@@ -198,6 +198,12 @@ func (u *unpickler) dispatch(op byte) error {
 		return u.setItemOne()
 	case opSetItems:
 		return u.setItemsFromMark()
+	case opEmptySet:
+		u.push(&setObject{newSetCore(0)})
+	case opAddItems:
+		return u.addItemsFromMark()
+	case opFrozenset:
+		return u.buildFrozensetFromMark()
 	default:
 		return newUnpicklingError("unsupported pickle opcode: 0x%02x", op)
 	}
@@ -317,6 +323,47 @@ func (u *unpickler) setItemsFromMark() error {
 		}
 	}
 	u.stack = u.stack[:at]
+	return nil
+}
+
+// addItemsFromMark adds every element back to the mark to the set beneath them,
+// mutating it in place so a memoized (shared) set keeps its identity.
+func (u *unpickler) addItemsFromMark() error {
+	at, err := u.popMark()
+	if err != nil {
+		return err
+	}
+	if at == 0 {
+		return newUnpicklingError("additems with no set under the mark")
+	}
+	set, ok := u.stack[at-1].(*setObject)
+	if !ok {
+		return newUnpicklingError("additems onto a non-set")
+	}
+	for _, item := range u.stack[at:] {
+		if err := set.addElt(item); err != nil {
+			return err
+		}
+	}
+	u.stack = u.stack[:at]
+	return nil
+}
+
+// buildFrozensetFromMark pops everything back to the mark and pushes it as a
+// frozenset.
+func (u *unpickler) buildFrozensetFromMark() error {
+	at, err := u.popMark()
+	if err != nil {
+		return err
+	}
+	elts := make([]Object, len(u.stack)-at)
+	copy(elts, u.stack[at:])
+	u.stack = u.stack[:at]
+	f, err := NewFrozenset(elts)
+	if err != nil {
+		return err
+	}
+	u.push(f)
 	return nil
 }
 

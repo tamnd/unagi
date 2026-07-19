@@ -187,6 +187,10 @@ func (p *pickler) save(o Object) error {
 		if v.kind == plainDict {
 			return p.saveDict(v, o)
 		}
+	case *setObject:
+		return p.saveSet(v, o)
+	case *frozensetObject:
+		return p.saveFrozenset(v, o)
 	}
 	// CPython raises TypeError (not PicklingError) for a type with no pickle
 	// support once reduction has been tried, e.g. "cannot pickle 'module' object".

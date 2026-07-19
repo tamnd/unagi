@@ -15,9 +15,14 @@ package objects
 //     single-item APPEND/SETITEM, matching CPython's _batch_appends /
 //     _batch_setitems exactly.
 //
-// Sets and frozensets need CPython's set-iteration order to stay byte-identical
-// and arrive in a later slice; dict subclasses and namedtuples pickle through
-// the object-reduction protocol, also later.
+// A set and a frozenset stay byte-identical because the harness pins
+// PYTHONHASHSEED=0 and PyHash reproduces those hashes, so CPython's set
+// iteration order — the hash-table slot order — is deterministic and
+// reproducible; cpythonSetOrder rebuilds it. Only protocol 4+ has the
+// EMPTY_SET/FROZENSET opcodes; protocols 2 and 3 pickle a set through the
+// object-reduction protocol (a set() global applied to a list), which lands
+// with that machinery in a later slice. Dict subclasses and namedtuples
+// reduce as well, also later.
 
 // Container opcodes, spelled as CPython's pickle module names them.
 const (
@@ -33,8 +38,18 @@ const (
 	opEmptyDict  = '}'  // 0x7d a fresh empty dict
 	opSetItem    = 's'  // 0x73 set one key/value on the dict below them
 	opSetItems   = 'u'  // 0x75 set every key/value pair back to the mark
+	opEmptySet   = 0x8f // a fresh empty set (protocol 4+)
+	opAddItems   = 0x90 // add everything back to the mark to the set below it
+	opFrozenset  = 0x91 // build a frozenset from everything back to the mark
 
 	pickleBatchSize = 1000 // CPython's _BATCHSIZE for APPENDS/SETITEMS chunks
+)
+
+// CPython setobject.c layout constants, replayed by cpythonSetOrder.
+const (
+	pickleSetMinSize      = 8 // PySet_MINSIZE, the initial table size
+	pickleSetLinearProbes = 9 // LINEAR_PROBES, the contiguous scan before perturbing
+	pickleSetPerturbShift = 5 // PERTURB_SHIFT, folds high hash bits into the probe
 )
 
 // saveTuple writes a tuple. The empty tuple is the singleton EMPTY_TUPLE; one to
@@ -167,5 +182,176 @@ func (p *pickler) batchSetItems(entries []dictEntry) error {
 		if n < pickleBatchSize {
 			return nil
 		}
+	}
+}
+
+// saveSet writes a set: EMPTY_SET, memoize (before contents, so a set shared
+// through a container fetches back with a memo GET), then its elements in
+// MARK ... ADDITEMS batches, in CPython's set-iteration order. Protocols below
+// 4 have no EMPTY_SET opcode and pickle a set through the reduction protocol
+// instead, which this slice does not emit yet.
+func (p *pickler) saveSet(v *setObject, o Object) error {
+	if p.proto < 4 {
+		return Raise("NotImplementedError",
+			"pickling a set at protocol %d needs the object-reduction protocol, which is not supported yet; use protocol 4 or higher", p.proto)
+	}
+	if p.memoGet(o) {
+		return nil
+	}
+	order, err := cpythonSetOrder(&v.setCore)
+	if err != nil {
+		return err
+	}
+	p.framer.write(opEmptySet)
+	p.memoize(o)
+	return p.batchAddItems(v.elts, order)
+}
+
+// saveFrozenset writes a frozenset: MARK, its elements in set-iteration order,
+// then FROZENSET, memoized after (it is immutable and does not exist until its
+// members are built). A frozenset already in the memo — the same object shared
+// through a container — fetches back instead. A frozenset cannot take part in a
+// reference cycle (its members are all immutable and built before it), so no
+// mid-build recursion check is needed. Protocols below 4 reduce, a later slice.
+func (p *pickler) saveFrozenset(v *frozensetObject, o Object) error {
+	if p.proto < 4 {
+		return Raise("NotImplementedError",
+			"pickling a frozenset at protocol %d needs the object-reduction protocol, which is not supported yet; use protocol 4 or higher", p.proto)
+	}
+	if p.memoGet(o) {
+		return nil
+	}
+	order, err := cpythonSetOrder(&v.setCore)
+	if err != nil {
+		return err
+	}
+	p.framer.write(opMark)
+	for _, idx := range order {
+		if err := p.save(v.elts[idx]); err != nil {
+			return err
+		}
+	}
+	p.framer.write(opFrozenset)
+	p.memoize(o)
+	return nil
+}
+
+// batchAddItems writes set contents the way CPython's save_set does: up to
+// pickleBatchSize elements per MARK ... ADDITEMS group. Unlike a list, a set
+// always frames a non-empty batch with MARK ... ADDITEMS — there is no
+// single-item shortcut — and an empty set writes nothing. order carries the
+// indices of items in CPython's iteration order.
+func (p *pickler) batchAddItems(items []Object, order []int) error {
+	i := 0
+	for {
+		end := i + pickleBatchSize
+		if end > len(order) {
+			end = len(order)
+		}
+		n := end - i
+		if n > 0 {
+			p.framer.write(opMark)
+			for _, idx := range order[i:end] {
+				if err := p.save(items[idx]); err != nil {
+					return err
+				}
+			}
+			p.framer.write(opAddItems)
+		}
+		i = end
+		if n < pickleBatchSize {
+			return nil
+		}
+	}
+}
+
+// cpythonSetOrder returns the indices of c.elts in the order CPython 3.14
+// iterates the equivalent set: by hash-table slot. It replays setobject.c's
+// insert-and-grow exactly — the same initial size, linear-probe window, perturb
+// recurrence, load-factor resize, and re-insertion in old-slot order — over the
+// elements in insertion order, using the hashes PyHash pins to PYTHONHASHSEED=0.
+// The resulting slot walk is byte-for-byte what CPython's set and frozenset
+// picklers and iterators emit.
+func cpythonSetOrder(c *setCore) ([]int, error) {
+	n := len(c.elts)
+	hashes := make([]uint64, n)
+	for i, e := range c.elts {
+		h, err := PyHash(e)
+		if err != nil {
+			return nil, err
+		}
+		hashes[i] = uint64(h)
+	}
+	table := newPickleSetTable(pickleSetMinSize)
+	mask := uint64(pickleSetMinSize - 1)
+	fill := uint64(0)
+	for idx := 0; idx < n; idx++ {
+		pickleSetInsert(table, mask, idx, hashes[idx])
+		fill++
+		// CPython resizes once the table is three-fifths full, growing to four
+		// times the live count (doubling from PySet_MINSIZE until it fits), and
+		// re-inserts the survivors in old-slot order.
+		if fill*5 >= mask*3 {
+			minused := fill * 4
+			if fill > 50000 {
+				minused = fill * 2
+			}
+			newSize := uint64(pickleSetMinSize)
+			for newSize <= minused {
+				newSize <<= 1
+			}
+			grown := newPickleSetTable(newSize)
+			nmask := newSize - 1
+			for _, slot := range table {
+				if slot >= 0 {
+					pickleSetInsert(grown, nmask, slot, hashes[slot])
+				}
+			}
+			table = grown
+			mask = nmask
+		}
+	}
+	order := make([]int, 0, n)
+	for _, slot := range table {
+		if slot >= 0 {
+			order = append(order, slot)
+		}
+	}
+	return order, nil
+}
+
+// newPickleSetTable returns a set table of the given size with every slot empty,
+// an empty slot being -1.
+func newPickleSetTable(size uint64) []int {
+	table := make([]int, size)
+	for i := range table {
+		table[i] = -1
+	}
+	return table
+}
+
+// pickleSetInsert places element idx (with hash h) into a set table by CPython's
+// probe sequence: try the home slot, then a contiguous run of LINEAR_PROBES
+// slots while they stay within the table, then jump by the perturb recurrence
+// and repeat. Every element is distinct, so the search only ever looks for the
+// first empty slot.
+func pickleSetInsert(table []int, mask uint64, idx int, h uint64) {
+	perturb := h
+	i := h & mask
+	for {
+		if table[i] < 0 {
+			table[i] = idx
+			return
+		}
+		if i+pickleSetLinearProbes <= mask {
+			for j := uint64(1); j <= pickleSetLinearProbes; j++ {
+				if table[i+j] < 0 {
+					table[i+j] = idx
+					return
+				}
+			}
+		}
+		perturb >>= pickleSetPerturbShift
+		i = (i*5 + 1 + perturb) & mask
 	}
 }
