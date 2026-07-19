@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+0.005
+0.01
+1.0
+1.0
+ve switch interval must be strictly positive
+ve switch interval must be strictly positive
+1.0
+te must be real number, not str
+== exception:
+== stderr:
