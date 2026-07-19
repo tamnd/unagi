@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+co_name: inner
+co_qualname: inner
+co_firstlineno: 12
+locals type: FrameLocalsProxy
+caller: outer
+depth1: outer
+depth2: <module>
+module co_name: <module>
+module co_qualname: <module>
+module locals type: dict
+module f_back: None
+ValueError: call stack is not deep enough
+floor type: FrameLocalsProxy
+floor is not dict: True
+== exception:
+== stderr:

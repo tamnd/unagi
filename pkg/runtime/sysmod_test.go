@@ -135,3 +135,56 @@ func TestSysRecursionLimit(t *testing.T) {
 		}
 	}
 }
+
+// TestSysGetFrame drives sys._getframe over a thread's shadow stack: the default
+// depth is the running frame, a depth walks to an ancestor, a depth past the
+// bottom is the ValueError, and a non-integer depth is the coercion TypeError.
+func TestSysGetFrame(t *testing.T) {
+	th := objects.NewThread("t", false)
+	PushFrame(th, "t.py", "<module>", "<module>", 1, false)
+	PushFrame(th, "t.py", "outer", "outer", 10, true)
+	PushFrame(th, "t.py", "inner", "inner", 20, true)
+	defer func() {
+		th.PopFrame()
+		th.PopFrame()
+		th.PopFrame()
+	}()
+
+	coName := func(f objects.Object) string {
+		code, err := objects.LoadAttr(f, "f_code")
+		if err != nil {
+			t.Fatalf("f_code: %v", err)
+		}
+		name, err := objects.LoadAttr(code, "co_name")
+		if err != nil {
+			t.Fatalf("co_name: %v", err)
+		}
+		s, _ := objects.AsStr(name)
+		return s
+	}
+
+	f, err := sysGetFrame(th, nil)
+	if err != nil {
+		t.Fatalf("_getframe(): %v", err)
+	}
+	if got := coName(f); got != "inner" {
+		t.Errorf("_getframe() co_name = %q, want inner", got)
+	}
+	f, err = sysGetFrame(th, []objects.Object{objects.NewInt(2)})
+	if err != nil {
+		t.Fatalf("_getframe(2): %v", err)
+	}
+	if got := coName(f); got != "<module>" {
+		t.Errorf("_getframe(2) co_name = %q, want <module>", got)
+	}
+	// A depth past the bottom of the stack is the ValueError.
+	_, err = sysGetFrame(th, []objects.Object{objects.NewInt(50)})
+	if err == nil || err.Error() != "ValueError: call stack is not deep enough" {
+		t.Errorf("_getframe(50) error = %v, want too-deep ValueError", err)
+	}
+	// A non-integer depth is the integer-coercion TypeError.
+	_, err = sysGetFrame(th, []objects.Object{objects.NewStr("x")})
+	if err == nil || err.Error() != "TypeError: 'str' object cannot be interpreted as an integer" {
+		t.Errorf("_getframe('x') error = %v, want coercion TypeError", err)
+	}
+}

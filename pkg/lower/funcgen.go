@@ -141,6 +141,28 @@ func (f *fnCtx) recursionGuard() {
 	f.add(&ast.DeferStmt{Call: callExpr(sel("runtime", "LeaveRecursive"), threadArg())})
 }
 
+// frameGuard pushes this frame onto the thread's shadow call stack so
+// sys._getframe() can walk it, and defers the matching pop. firstline is the
+// def line, the value co_firstlineno reads back. co_qualname falls back to
+// co_name when a frame has no separate qualified name (the module body), the
+// way CPython names the module frame <module> for both. It runs after the
+// recursion guard, so a frame that trips the recursion limit is never pushed.
+func (f *fnCtx) frameGuard(firstline int) {
+	qual := f.qual
+	if qual == "" {
+		qual = f.fname
+	}
+	// A function frame is optimized (fast locals, so f_locals is a proxy); the
+	// module body is not (f_locals is the namespace dict), which f.inFunc tells
+	// apart.
+	optimized := ident("false")
+	if f.inFunc {
+		optimized = ident("true")
+	}
+	f.add(exprStmt(callExpr(sel("runtime", "PushFrame"), threadArg(), ident("pyFile"), strLit(f.fname), strLit(qual), intLit(strconv.Itoa(firstline)), optimized)))
+	f.add(&ast.DeferStmt{Call: callExpr(sel("runtime", "PopFrame"), threadArg())})
+}
+
 // tb wraps an unwinding error in runtime.TB so it picks up this frame's
 // traceback entry. Exactly one TB call runs per Python frame per unwind: the
 // check adjacent to the failing operation wraps, and every later propagation
@@ -225,6 +247,7 @@ func (e *emitter) emitMain(body []frontend.Stmt) (*ast.FuncDecl, error) {
 		f.deleted[n] = true
 	}
 	f.declPending(body)
+	f.frameGuard(1)
 	if err := f.stmts(body); err != nil {
 		return nil, err
 	}
@@ -390,6 +413,7 @@ func (e *emitter) fillFuncDecl(f *fnCtx, d *frontend.FuncDef, declName string) (
 	f.markNonlocalDeletes(d.Body)
 	f.declPending(d.Body)
 	f.recursionGuard()
+	f.frameGuard(d.Pos_.Line)
 	if err := f.stmts(d.Body); err != nil {
 		return nil, err
 	}

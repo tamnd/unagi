@@ -158,5 +158,30 @@ func initSys(m *objects.Module) error {
 	if err := set("setrecursionlimit", objects.NewFunc("setrecursionlimit", 1, sysSetRecursionLimit)); err != nil {
 		return err
 	}
+	if err := set("_getframe", objects.NewFuncT("_getframe", -1, sysGetFrame)); err != nil {
+		return err
+	}
 	return nil
+}
+
+// sysGetFrame implements sys._getframe(depth=0): return the frame depth levels
+// above the caller of _getframe, the entry point _collections_abc and traceback
+// machinery reach for. It takes the ambient thread so it reads that thread's own
+// shadow stack. depth defaults to 0, must read as an integer, and a depth past
+// the bottom of the stack is the ValueError CPython raises. _getframe is a
+// builtin and pushes no frame of its own, so depth 0 is the compiled Python
+// function that called it.
+func sysGetFrame(t *objects.Thread, args []objects.Object) (objects.Object, error) {
+	if len(args) > 1 {
+		return nil, objects.Raise(objects.TypeError, "_getframe expected at most 1 argument, got %d", len(args))
+	}
+	depth := 0
+	if len(args) == 1 {
+		n, ok := objects.AsInt(args[0])
+		if !ok {
+			return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", args[0].TypeName())
+		}
+		depth = int(n)
+	}
+	return t.FrameAtDepth(depth)
 }
