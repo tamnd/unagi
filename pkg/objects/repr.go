@@ -390,6 +390,8 @@ func reprCore(o Object, strict bool) (string, error) {
 		return futureRepr(x), nil
 	case *asyncFuture:
 		return asyncFutureRepr(x), nil
+	case *asyncioTimeout:
+		return asyncioTimeoutRepr(x), nil
 	case *executorObject:
 		return executorRepr(x), nil
 	case *stringIOObject:

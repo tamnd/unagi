@@ -13,6 +13,15 @@ func coroExcKind(err error) string {
 	return ""
 }
 
+// errObj turns an exception error into the Object form async with passes as the
+// exit's exc_val argument, or None when there is no exception.
+func errObj(err error) Object {
+	if o, ok := err.(Object); ok {
+		return o
+	}
+	return None
+}
+
 // TestAsyncioRunReturnsResult drives a coroutine that awaits a child coroutine
 // and a sleep, then returns a value, and checks run hands the value back.
 func TestAsyncioRunReturnsResult(t *testing.T) {
@@ -963,5 +972,87 @@ func TestAsyncioWaitForNoTimeout(t *testing.T) {
 	}
 	if s, _ := AsStr(got); s != "ok" {
 		t.Fatalf("wait_for None = %v, want ok", Repr(got))
+	}
+}
+
+// TestAsyncioTimeoutFires drives a timeout around a long sleep and checks the
+// deadline cancels the sleep and the exit converts the CancelledError into a
+// builtin TimeoutError.
+func TestAsyncioTimeoutFires(t *testing.T) {
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		cm, err := AsyncioNewTimeout(NewFloat(0.005))
+		if err != nil {
+			return nil, err
+		}
+		to := cm.(*asyncioTimeout)
+		enter, _ := to.aenter(nil)
+		if _, err := AwaitThrough(y, enter); err != nil {
+			return nil, err
+		}
+		_, berr := AwaitThrough(y, AsyncioSleep(10, None))
+		exit, _ := to.aexit(nil, []Object{None, errObj(berr), None})
+		_, xerr := AwaitThrough(y, exit)
+		if xerr != nil {
+			return NewStr(coroExcKind(xerr)), nil
+		}
+		return NewStr("none"), nil
+	})
+	got, err := AsyncioRun(main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if s, _ := AsStr(got); s != "TimeoutError" {
+		t.Fatalf("timeout exit = %v, want TimeoutError", Repr(got))
+	}
+}
+
+// TestAsyncioTimeoutWithin drives a timeout around a short sleep and checks a
+// body that finishes before the deadline leaves through the exit cleanly.
+func TestAsyncioTimeoutWithin(t *testing.T) {
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		cm, err := AsyncioNewTimeout(NewFloat(1.0))
+		if err != nil {
+			return nil, err
+		}
+		to := cm.(*asyncioTimeout)
+		enter, _ := to.aenter(nil)
+		if _, err := AwaitThrough(y, enter); err != nil {
+			return nil, err
+		}
+		if _, err := AwaitThrough(y, AsyncioSleep(0, None)); err != nil {
+			return nil, err
+		}
+		exit, _ := to.aexit(nil, []Object{None, None, None})
+		if _, err := AwaitThrough(y, exit); err != nil {
+			return nil, err
+		}
+		return NewBool(to.state == timeoutExited), nil
+	})
+	got, err := AsyncioRun(main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got != True {
+		t.Fatalf("within exit state = %v, want exited", Repr(got))
+	}
+}
+
+// TestAsyncioTimeoutRescheduleUnentered checks reschedule before entering raises
+// the RuntimeError CPython gives for a created timeout.
+func TestAsyncioTimeoutRescheduleUnentered(t *testing.T) {
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		cm, err := AsyncioNewTimeout(NewFloat(1.0))
+		if err != nil {
+			return nil, err
+		}
+		_, rerr := CallMethod(cm, "reschedule", []Object{NewFloat(2.0)})
+		return NewStr(coroExcKind(rerr)), nil
+	})
+	got, err := AsyncioRun(main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if s, _ := AsStr(got); s != "RuntimeError" {
+		t.Fatalf("reschedule error = %v, want RuntimeError", Repr(got))
 	}
 }

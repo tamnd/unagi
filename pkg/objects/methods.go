@@ -98,6 +98,8 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		return asyncioQueueMethod(x, name, args)
 	case *asyncioCondition:
 		return asyncioConditionMethod(x, name, args)
+	case *asyncioTimeout:
+		return asyncioTimeoutMethod(x, name, args)
 	case *executorObject:
 		return executorMethodT(t, x, name, args)
 	case *stringIOObject:

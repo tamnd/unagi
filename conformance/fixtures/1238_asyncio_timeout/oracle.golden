@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+within ok
+first cancelled
+timed out
+none when None
+none ok
+expired created False
+expired active False
+expired after True
+timeout_at fired
+rescheduled ok False
+inner boom
+type Timeout
+timeout is builtin True
+== exception:
+== stderr:
