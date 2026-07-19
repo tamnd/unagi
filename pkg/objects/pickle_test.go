@@ -162,6 +162,107 @@ func TestPickleCyclicList(t *testing.T) {
 	}
 }
 
+// mustSet builds a set from elts or fails the test.
+func mustSet(t *testing.T, elts ...Object) Object {
+	t.Helper()
+	s, err := NewSet(elts)
+	if err != nil {
+		t.Fatalf("NewSet: %v", err)
+	}
+	return s
+}
+
+// mustFrozenset builds a frozenset from elts or fails the test.
+func mustFrozenset(t *testing.T, elts ...Object) Object {
+	t.Helper()
+	f, err := NewFrozenset(elts)
+	if err != nil {
+		t.Fatalf("NewFrozenset: %v", err)
+	}
+	return f
+}
+
+// TestPickleDumpsSetsProtocol5 pins the exact protocol-5 bytes for sets and
+// frozensets, whose element order is CPython's hash-table iteration order under
+// the harness-pinned PYTHONHASHSEED=0. Each want is the hex of pickle.dumps from
+// CPython 3.14.6 under that seed. Cases include a collision chain and a
+// negative-int set (hash(-1) is -2, so -1 and -2 collide) to exercise the probe.
+func TestPickleDumpsSetsProtocol5(t *testing.T) {
+	i := func(n int64) Object { return NewInt(n) }
+	shared := mustFrozenset(t, i(1), i(2))
+	cases := []struct {
+		name string
+		obj  Object
+		want string
+	}{
+		{"empty_set", mustSet(t), "80058f942e"},
+		{"set123", mustSet(t, i(1), i(2), i(3)), "8005950b000000000000008f94284b014b024b03902e"},
+		{"set_resize", mustSet(t, i(1), i(2), i(3), i(17), i(33)), "8005950f000000000000008f94284b014b024b034b214b11902e"},
+		{"set_collide", mustSet(t, i(8), i(16), i(24), i(1)), "8005950d000000000000008f94284b084b104b184b01902e"},
+		{"set_str", mustSet(t, NewStr("a"), NewStr("b"), NewStr("c")), "80059511000000000000008f94288c0163948c0161948c016294902e"},
+		{"set_neg", mustSet(t, i(-1), i(-2), i(-3), i(-4), i(-5)), "8005951e000000000000008f94284afeffffff4afbffffff4afcffffff4afdffffff4affffffff902e"},
+		{"empty_frozenset", mustFrozenset(t), "80059504000000000000002891942e"},
+		{"frozenset123", mustFrozenset(t, i(1), i(2), i(3)), "8005950a00000000000000284b014b024b0391942e"},
+		{"shared_frozenset", NewTuple([]Object{shared, shared}), "8005950c00000000000000284b014b029194680086942e"},
+		{"list_of_sets", NewList([]Object{mustSet(t, i(1), i(2)), mustSet(t, i(3))}), "80059513000000000000005d94288f94284b014b02908f94284b0390652e"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := PickleDumps(tc.obj, 5)
+			if err != nil {
+				t.Fatalf("PickleDumps(%s): %v", tc.name, err)
+			}
+			if h := hex.EncodeToString(got); h != tc.want {
+				t.Fatalf("PickleDumps(%s)\n got  %s\n want %s", tc.name, h, tc.want)
+			}
+		})
+	}
+}
+
+// TestPickleSetRoundTrip confirms the loader rebuilds sets and frozensets the
+// pickler wrote, comparing by == (order-independent) across protocols 4 and 5.
+func TestPickleSetRoundTrip(t *testing.T) {
+	i := func(n int64) Object { return NewInt(n) }
+	values := []Object{
+		mustSet(t),
+		mustSet(t, i(1), i(2), i(3), i(17), i(33)),
+		mustSet(t, NewStr("x"), NewStr("y"), NewStr("z")),
+		mustFrozenset(t),
+		mustFrozenset(t, i(1), i(2), i(3)),
+		NewList([]Object{mustSet(t, i(1), i(2)), mustSet(t, i(3), i(4))}),
+		NewTuple([]Object{mustFrozenset(t, i(5)), mustFrozenset(t, i(5))}),
+	}
+	for _, proto := range []int{4, 5} {
+		for _, v := range values {
+			data, err := PickleDumps(v, proto)
+			if err != nil {
+				t.Fatalf("dumps(proto=%d) %s: %v", proto, Repr(v), err)
+			}
+			back, err := PickleLoads(data)
+			if err != nil {
+				t.Fatalf("loads(proto=%d) %s: %v", proto, Repr(v), err)
+			}
+			if !equals(v, back) {
+				t.Fatalf("roundtrip(proto=%d): %s != %s", proto, Repr(v), Repr(back))
+			}
+		}
+	}
+}
+
+// TestPickleSetProtocolRefusal confirms a set below protocol 4 is refused rather
+// than emitting wrong bytes: CPython reaches the object-reduction protocol there,
+// which this slice does not implement yet.
+func TestPickleSetProtocolRefusal(t *testing.T) {
+	for _, proto := range []int{2, 3} {
+		if _, err := PickleDumps(mustSet(t, NewInt(1)), proto); err == nil {
+			t.Fatalf("expected a set at protocol %d to be refused", proto)
+		}
+		if _, err := PickleDumps(mustFrozenset(t, NewInt(1)), proto); err == nil {
+			t.Fatalf("expected a frozenset at protocol %d to be refused", proto)
+		}
+	}
+}
+
 // TestPickleRoundTrip confirms the loader reconstructs every scalar the pickler
 // emits, so dumps followed by loads is an identity on the value.
 func TestPickleRoundTrip(t *testing.T) {
