@@ -18,11 +18,11 @@ package objects
 // A set and a frozenset stay byte-identical because the harness pins
 // PYTHONHASHSEED=0 and PyHash reproduces those hashes, so CPython's set
 // iteration order — the hash-table slot order — is deterministic and
-// reproducible; cpythonSetOrder rebuilds it. Only protocol 4+ has the
+// reproducible; cpythonSetOrder rebuilds it. Protocol 4+ has the native
 // EMPTY_SET/FROZENSET opcodes; protocols 2 and 3 pickle a set through the
-// object-reduction protocol (a set() global applied to a list), which lands
-// with that machinery in a later slice. Dict subclasses and namedtuples
-// reduce as well, also later.
+// object-reduction protocol in picklereduce.go — builtins.set (or
+// builtins.frozenset) applied to a list of the same slot-ordered elements.
+// Dict subclasses and namedtuples reduce as well, in a later slice.
 
 // Container opcodes, spelled as CPython's pickle module names them.
 const (
@@ -191,16 +191,15 @@ func (p *pickler) batchSetItems(entries []dictEntry) error {
 // 4 have no EMPTY_SET opcode and pickle a set through the reduction protocol
 // instead, which this slice does not emit yet.
 func (p *pickler) saveSet(v *setObject, o Object) error {
-	if p.proto < 4 {
-		return Raise("NotImplementedError",
-			"pickling a set at protocol %d needs the object-reduction protocol, which is not supported yet; use protocol 4 or higher", p.proto)
-	}
 	if p.memoGet(o) {
 		return nil
 	}
 	order, err := cpythonSetOrder(&v.setCore)
 	if err != nil {
 		return err
+	}
+	if p.proto < 4 {
+		return p.saveSetReduce("set", v.elts, order, o)
 	}
 	p.framer.write(opEmptySet)
 	p.memoize(o)
@@ -214,16 +213,15 @@ func (p *pickler) saveSet(v *setObject, o Object) error {
 // reference cycle (its members are all immutable and built before it), so no
 // mid-build recursion check is needed. Protocols below 4 reduce, a later slice.
 func (p *pickler) saveFrozenset(v *frozensetObject, o Object) error {
-	if p.proto < 4 {
-		return Raise("NotImplementedError",
-			"pickling a frozenset at protocol %d needs the object-reduction protocol, which is not supported yet; use protocol 4 or higher", p.proto)
-	}
 	if p.memoGet(o) {
 		return nil
 	}
 	order, err := cpythonSetOrder(&v.setCore)
 	if err != nil {
 		return err
+	}
+	if p.proto < 4 {
+		return p.saveSetReduce("frozenset", v.elts, order, o)
 	}
 	p.framer.write(opMark)
 	for _, idx := range order {
@@ -234,6 +232,18 @@ func (p *pickler) saveFrozenset(v *frozensetObject, o Object) error {
 	p.framer.write(opFrozenset)
 	p.memoize(o)
 	return nil
+}
+
+// saveSetReduce pickles a set or frozenset through the object-reduction protocol
+// for protocols 2 and 3: builtins.set (or builtins.frozenset) applied to a list
+// of the elements in CPython's set-iteration order. order carries the slot-order
+// indices into elts that cpythonSetOrder computed.
+func (p *pickler) saveSetReduce(qualname string, elts []Object, order []int, o Object) error {
+	items := make([]Object, len(order))
+	for i, idx := range order {
+		items[i] = elts[idx]
+	}
+	return p.saveReduce("builtins", qualname, []Object{NewList(items)}, o)
 }
 
 // batchAddItems writes set contents the way CPython's save_set does: up to

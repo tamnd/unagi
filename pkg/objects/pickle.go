@@ -11,9 +11,10 @@ import (
 // bytes are observable (programs hash them, write them to files, and compare
 // them), so the pickler mirrors CPython's opcode selection, integer-width
 // tiers, memo discipline, and protocol-4+ framing precisely rather than picking
-// any valid encoding. This slice covers the scalar leaves — None, bool, int,
-// float, str, bytes — for the binary protocols 2 through 5; containers, the
-// object-reduction protocol, and the text protocols 0/1 land in later slices.
+// any valid encoding. This file covers the scalar leaves — None, bool, int,
+// float, str, bytes — for the binary protocols 2 through 5; containers live in
+// picklecontainer.go and the object-reduction protocol (GLOBAL/REDUCE) in
+// picklereduce.go. The text protocols 0/1 land in a later slice.
 
 // Pickle opcodes, spelled as CPython's pickle module names them.
 const (
@@ -123,10 +124,11 @@ func (f *pickleFramer) writeLargeBytes(header, payload []byte) {
 // pickler holds the state for one dumps() call: the framer, the running memo,
 // and the chosen protocol.
 type pickler struct {
-	framer pickleFramer
-	memo   map[Object]int
-	proto  int
-	bin    bool // binary protocol (2+); the only protocols this slice emits
+	framer  pickleFramer
+	memo    map[Object]int
+	globals map[string]*pickleGlobalRef // interned globals so a repeated reference shares a memo entry
+	proto   int
+	bin     bool // binary protocol (2+); the only protocols this slice emits
 }
 
 // PickleDumps serializes o at the given protocol, returning the pickle bytes.
