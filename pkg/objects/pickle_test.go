@@ -65,6 +65,103 @@ func TestPickleDumpsProtocol5(t *testing.T) {
 	}
 }
 
+// TestPickleDumpsContainersProtocol5 pins the container wire format against
+// CPython 3.14.6: the tuple opcode tiers (EMPTY_TUPLE, TUPLE1/2/3, MARK+TUPLE),
+// list EMPTY_LIST + APPEND/APPENDS batching, dict EMPTY_DICT + SETITEM/SETITEMS,
+// nesting, and the memo GET that a shared child produces.
+func TestPickleDumpsContainersProtocol5(t *testing.T) {
+	// shared child list, referenced twice.
+	shared := &listObject{elts: []Object{NewInt(1)}}
+	cases := []struct {
+		name string
+		obj  Object
+		want string
+	}{
+		{"empty_tuple", NewTuple(nil), "8005292e"},
+		{"tuple1", NewTuple([]Object{NewInt(1)}), "80059505000000000000004b0185942e"},
+		{"tuple2", NewTuple([]Object{NewInt(1), NewInt(2)}), "80059507000000000000004b014b0286942e"},
+		{"tuple3", NewTuple([]Object{NewInt(1), NewInt(2), NewInt(3)}), "80059509000000000000004b014b024b0387942e"},
+		{"tuple4", NewTuple([]Object{NewInt(1), NewInt(2), NewInt(3), NewInt(4)}), "8005950c00000000000000284b014b024b034b0474942e"},
+		{"nested_tuple", NewTuple([]Object{NewInt(1), NewTuple([]Object{NewInt(2), NewInt(3)})}), "8005950b000000000000004b014b024b03869486942e"},
+		{"empty_list", NewList(nil), "80055d942e"},
+		{"list1", NewList([]Object{NewInt(1)}), "80059506000000000000005d944b01612e"},
+		{"list123", NewList([]Object{NewInt(1), NewInt(2), NewInt(3)}), "8005950b000000000000005d94284b014b024b03652e"},
+		{"nested_list", NewList([]Object{NewInt(1), NewList([]Object{NewInt(2), NewInt(3)}), NewStr("x")}), "80059513000000000000005d94284b015d94284b024b03658c017894652e"},
+		{"empty_dict", mustDict(), "80057d942e"},
+		{"dict1", mustDict(NewStr("k"), NewInt(9)), "8005950a000000000000007d948c016b944b09732e"},
+		{"dict_ab", mustDict(NewStr("a"), NewInt(1), NewStr("b"), NewInt(2)), "80059511000000000000007d94288c0161944b018c0162944b02752e"},
+		{"shared_list", NewList([]Object{shared, shared}), "8005950c000000000000005d94285d944b01616801652e"},
+		{"tuple_shared", NewTuple([]Object{shared, shared}), "8005950a000000000000005d944b0161680086942e"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := PickleDumps(tc.obj, 5)
+			if err != nil {
+				t.Fatalf("PickleDumps(%s): %v", tc.name, err)
+			}
+			if h := hex.EncodeToString(got); h != tc.want {
+				t.Fatalf("PickleDumps(%s)\n got  %s\n want %s", tc.name, h, tc.want)
+			}
+		})
+	}
+}
+
+// TestPickleContainerRoundTrip dumps then loads a spread of nested and shared
+// containers and checks the result reprs identically, so the loader rebuilds the
+// structure the pickler wrote across every binary protocol.
+func TestPickleContainerRoundTrip(t *testing.T) {
+	shared := &listObject{elts: []Object{NewInt(1), NewStr("s")}}
+	values := []Object{
+		NewTuple(nil),
+		NewTuple([]Object{NewInt(1), NewStr("two"), NewFloat(3.0)}),
+		NewTuple([]Object{NewInt(1), NewInt(2), NewInt(3), NewInt(4), NewInt(5)}),
+		NewList(nil),
+		NewList([]Object{NewInt(1), NewList([]Object{NewInt(2), NewInt(3)}), NewStr("x")}),
+		mustDict(NewStr("a"), NewInt(1), NewStr("b"), NewList([]Object{NewInt(2)})),
+		NewList([]Object{shared, shared}),
+		NewTuple([]Object{NewStr("k"), mustDict(NewInt(1), NewStr("v"))}),
+	}
+	for _, proto := range []int{2, 3, 4, 5} {
+		for _, v := range values {
+			data, err := PickleDumps(v, proto)
+			if err != nil {
+				t.Fatalf("dumps(proto=%d) %s: %v", proto, Repr(v), err)
+			}
+			back, err := PickleLoads(data)
+			if err != nil {
+				t.Fatalf("loads(proto=%d) %s: %v", proto, Repr(v), err)
+			}
+			if Repr(back) != Repr(v) {
+				t.Fatalf("roundtrip(proto=%d): %s -> %s", proto, Repr(v), Repr(back))
+			}
+		}
+	}
+}
+
+// TestPickleCyclicList confirms a self-referential list round-trips: the loader
+// must mutate the memoized list in place so the reconstructed cycle closes on
+// the same object.
+func TestPickleCyclicList(t *testing.T) {
+	cyc := &listObject{}
+	cyc.elts = []Object{cyc}
+	data, err := PickleDumps(cyc, 5)
+	if err != nil {
+		t.Fatalf("dumps cyclic: %v", err)
+	}
+	// CPython: pickle.dumps(L, 5) for L=[]; L.append(L).
+	if h := hex.EncodeToString(data); h != "80059506000000000000005d946800612e" {
+		t.Fatalf("cyclic bytes\n got  %s\n want 80059506000000000000005d946800612e", h)
+	}
+	back, err := PickleLoads(data)
+	if err != nil {
+		t.Fatalf("loads cyclic: %v", err)
+	}
+	bl, ok := back.(*listObject)
+	if !ok || len(bl.elts) != 1 || bl.elts[0] != Object(bl) {
+		t.Fatalf("cyclic list did not close on itself: %#v", back)
+	}
+}
+
 // TestPickleRoundTrip confirms the loader reconstructs every scalar the pickler
 // emits, so dumps followed by loads is an identity on the value.
 func TestPickleRoundTrip(t *testing.T) {

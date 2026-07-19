@@ -56,6 +56,42 @@ for proto in (2, 3, 4, 5):
         data = pickle.dumps(v, protocol=proto)
         print(proto, repr(v), data.hex(), pickle.loads(data) == v)
 
+# Ordered containers: tuples pick a fixed opcode by arity, lists and dicts
+# stream their contents in batches, and nesting and sharing round-trip.
+containers = [
+    (),
+    (1,),
+    (1, 2),
+    (1, 2, 3),
+    (1, 2, 3, 4),
+    (1, (2, 3)),
+    [],
+    [1],
+    [1, 2, 3],
+    [1, [2, 3], "x"],
+    {},
+    {"k": 9},
+    {"a": 1, "b": 2},
+    {"nested": [1, {"deep": 2}], "t": (3, 4)},
+]
+for v in containers:
+    data = pickle.dumps(v)
+    print(repr(v), data.hex(), pickle.loads(data) == v)
+
+# A shared child is written once and referenced by a memo get afterwards.
+child = [1]
+shared = [child, child]
+sdata = pickle.dumps(shared)
+sback = pickle.loads(sdata)
+print("shared:", sdata.hex(), sback[0] is sback[1])
+
+# A self-referential list closes on itself through the memo.
+cyc = []
+cyc.append(cyc)
+cdata = pickle.dumps(cyc)
+cback = pickle.loads(cdata)
+print("cyclic:", cdata.hex(), cback[0] is cback)
+
 # A negative protocol means the highest; None means the default.
 print("neg proto:", pickle.dumps(42, protocol=-1).hex())
 print("none proto:", pickle.dumps(42, protocol=None).hex())
