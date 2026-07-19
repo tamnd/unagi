@@ -865,6 +865,98 @@ func TestPickleNewargsGetstateNone(t *testing.T) {
 	}
 }
 
+// mustNewargsExClass builds a class with a custom __new__ taking one positional
+// and one keyword-only argument, a __getnewargs_ex__ that round-trips them, and a
+// __getstate__ returning None so the whole value rides in NEWOBJ_EX.
+func mustNewargsExClass(t *testing.T, name string) *classObject {
+	t.Helper()
+	var cls *classObject
+	newFn := NewFunctionT(name+".__new__",
+		[]Param{{Name: "cls", Kind: ParamPlain}, {Name: "x", Kind: ParamPlain}, {Name: "y", Kind: ParamKwOnly}},
+		nil, func(_ *Thread, args []Object) (Object, error) {
+			o := &instanceObject{cls: cls, attrs: newAttrs()}
+			_ = o.attrs.set(NewStr("x"), args[1])
+			_ = o.attrs.set(NewStr("y"), args[2])
+			return o, nil
+		})
+	getnewargsEx := NewFunctionT(name+".__getnewargs_ex__", []Param{{Name: "self", Kind: ParamPlain}}, nil, func(_ *Thread, args []Object) (Object, error) {
+		self := args[0].(*instanceObject)
+		x, _ := self.attrGet("x")
+		y, _ := self.attrGet("y")
+		kw, err := NewDict([]Object{NewStr("y")}, []Object{y})
+		if err != nil {
+			return nil, err
+		}
+		return NewTuple([]Object{NewTuple([]Object{x}), kw}), nil
+	})
+	getstate := NewFunctionT(name+".__getstate__", []Param{{Name: "self", Kind: ParamPlain}}, nil, func(_ *Thread, _ []Object) (Object, error) {
+		return None, nil
+	})
+	c, err := NewClass(name, name, []Object{nil},
+		[]string{"__module__", "__new__", "__getnewargs_ex__", "__getstate__"},
+		[]Object{NewStr("__main__"), newFn, getnewargsEx, getstate}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewClass(%s): %v", name, err)
+	}
+	cls = c.(*classObject)
+	registerPickleClass(cls)
+	return cls
+}
+
+// TestPickleDumpsNewargsEx pins the __getnewargs_ex__ NEWOBJ_EX path byte for byte
+// against CPython 3.14: a class defining __getnewargs_ex__ pickles the class
+// global, the positional argument tuple, the keyword dict, and NEWOBJ_EX, and the
+// loader rebuilds through cls.__new__(cls, *args, **kwargs).
+func TestPickleDumpsNewargsEx(t *testing.T) {
+	point := mustNewargsExClass(t, "Point")
+
+	inst := &instanceObject{cls: point, attrs: newAttrs()}
+	_ = inst.attrs.set(NewStr("x"), NewInt(3))
+	_ = inst.attrs.set(NewStr("y"), NewInt(4))
+
+	// CPython: pickle.dumps(Point(3, y=4), 4); NEWOBJ_EX carries ((3,), {"y": 4})
+	// and __getstate__ returning None stops the pickle right after it.
+	want := "80049525000000000000008c085f5f6d61696e5f5f948c05506f696e749493944b0385947d948c0179944b047392942e"
+	got, err := PickleDumps(inst, 4)
+	if err != nil {
+		t.Fatalf("PickleDumps: %v", err)
+	}
+	if h := hex.EncodeToString(got); h != want {
+		t.Fatalf("PickleDumps(newargs_ex)\n got  %s\n want %s", h, want)
+	}
+
+	back, err := PickleLoads(got)
+	if err != nil {
+		t.Fatalf("PickleLoads: %v", err)
+	}
+	bi, ok := back.(*instanceObject)
+	if !ok || bi.cls != point {
+		t.Fatalf("PickleLoads returned %s, want Point instance", back.TypeName())
+	}
+	if x, _ := bi.attrGet("x"); !equals(x, NewInt(3)) {
+		t.Fatalf("rebuilt x = %v, want 3", x)
+	}
+	if y, _ := bi.attrGet("y"); !equals(y, NewInt(4)) {
+		t.Fatalf("rebuilt y = %v, want 4 (keyword argument)", y)
+	}
+}
+
+// TestPickleNewargsExRefusedBelowProto4 confirms a class with __getnewargs_ex__ is
+// refused under protocols 2 and 3, which have no NEWOBJ_EX opcode; the
+// functools.partial fallback CPython uses there is a later slice.
+func TestPickleNewargsExRefusedBelowProto4(t *testing.T) {
+	point := mustNewargsExClass(t, "PointLow")
+	inst := &instanceObject{cls: point, attrs: newAttrs()}
+	_ = inst.attrs.set(NewStr("x"), NewInt(3))
+	_ = inst.attrs.set(NewStr("y"), NewInt(4))
+
+	for _, proto := range []int{2, 3} {
+		if _, err := PickleDumps(inst, proto); err == nil {
+			t.Fatalf("PickleDumps(proto=%d) succeeded, want refusal", proto)
+		}
+	}
+}
+
 // TestPickleReduceStateRoundTrip covers the three-element reduction: the state
 // dict is saved after REDUCE and applied by BUILD, so the reconstructed instance
 // carries the attributes the partial constructor left out.
