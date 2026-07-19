@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+False
+dflt
+True True
+set()
+setattr: True
+getattr raise: True
+== exception:
+== stderr:
