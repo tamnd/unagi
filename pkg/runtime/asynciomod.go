@@ -24,6 +24,7 @@ func initAsyncio(m *objects.Module) error {
 		{"create_task", objects.NewFuncKw("create_task", asyncioCreateTask)},
 		{"gather", objects.NewFuncKw("gather", asyncioGather)},
 		{"wait_for", objects.NewFuncKw("wait_for", asyncioWaitFor)},
+		{"shield", objects.NewFuncKw("shield", asyncioShield)},
 		{"timeout", objects.NewFuncKw("timeout", asyncioTimeout)},
 		{"timeout_at", objects.NewFuncKw("timeout_at", asyncioTimeoutAt)},
 		{"Future", objects.NewFuncKw("Future", asyncioFuture)},
@@ -309,6 +310,20 @@ func asyncioTimeoutAt(pos []objects.Object, kwNames []string, kwVals []objects.O
 		return nil, objects.Raise(objects.TypeError, "timeout_at() missing 1 required positional argument: 'when'")
 	}
 	return objects.AsyncioNewTimeoutAt(when)
+}
+
+// asyncioShield is asyncio.shield(arg). It returns a future mirroring arg's
+// outcome that shields arg from cancellation of the returned future.
+func asyncioShield(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	vals, err := bindArgs("shield", []string{"arg"}, pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	arg, ok := vals["arg"]
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "shield() missing 1 required positional argument: 'arg'")
+	}
+	return objects.AsyncioShield(arg)
 }
 
 // asyncioGetRunningLoop is asyncio.get_running_loop(). It returns the loop bound

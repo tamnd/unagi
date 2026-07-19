@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+plain a-done
+outer cancelled
+inner cancelled False
+inner result b-done
+inner error kaboom
+shield saw inner cancel
+== exception:
+== stderr:

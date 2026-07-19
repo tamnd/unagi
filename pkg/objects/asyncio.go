@@ -626,6 +626,71 @@ func errorObject(err error) Object {
 	return Raise(RuntimeError, "%s", err.Error())
 }
 
+// isCancelled reports whether the future was cancelled, the state shield reads
+// to decide whether to cancel its outer future when the inner one completes.
+func (f *asyncFuture) isCancelled() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.cancelled
+}
+
+// shieldInner turns a shield argument into the future to mirror and the object
+// to hand back on the already-done shortcut. A task or future is used directly;
+// a coroutine is scheduled as a task, exactly as ensure_future does.
+func shieldInner(arg Object, loop *eventLoop) (Object, *asyncFuture, error) {
+	switch a := arg.(type) {
+	case *asyncTask:
+		return a, a.doneFut, nil
+	case *asyncFuture:
+		return a, a, nil
+	default:
+		tk, err := scheduleTask(arg, loop, "")
+		if err != nil {
+			return nil, nil, err
+		}
+		return tk, tk.doneFut, nil
+	}
+}
+
+// AsyncioShield implements asyncio.shield(arg). It returns a future that mirrors
+// the inner awaitable's outcome but keeps the inner running when the outer is
+// cancelled: a cancel of the returned future resolves it with CancelledError
+// while the inner task carries on, its result simply discarded. An inner that is
+// itself cancelled cancels the outer, and an inner exception or result copies
+// across. An already-done inner is returned directly, the CPython shortcut.
+func AsyncioShield(arg Object) (Object, error) {
+	loop := runningLoop.Load()
+	if loop == nil {
+		return nil, Raise(RuntimeError, "no running event loop")
+	}
+	inner, innerFut, err := shieldInner(arg, loop)
+	if err != nil {
+		return nil, err
+	}
+	if innerFut.doneP() {
+		return inner, nil
+	}
+	outer := &asyncFuture{loop: loop}
+	innerFut.addDoneCallback(func() {
+		// A cancelled outer has already resolved and detached from the inner, so
+		// the inner finishing later must not touch it, the guard that lets the
+		// inner run on past the outer's cancellation.
+		if outer.isCancelled() {
+			return
+		}
+		if innerFut.isCancelled() {
+			outer.pyCancel(None)
+			return
+		}
+		if innerFut.exc != nil {
+			outer.setException(innerFut.exc)
+			return
+		}
+		outer.setResult(innerFut.result)
+	})
+	return outer, nil
+}
+
 // AsyncioSleep implements asyncio.sleep(delay, result=None). A non-positive
 // delay is a bare yield through the ready queue, so the coroutine hands control
 // back once and resumes without a timer. A positive delay creates a future the
