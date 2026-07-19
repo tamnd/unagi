@@ -848,6 +848,11 @@ func equals(a, b Object) bool {
 		// bare referent.
 		y, ok := b.(*weakrefObject)
 		return ok && equals(x.referent, y.referent)
+	case *genericAliasObject:
+		// Two generic aliases are equal when their origins and argument tuples
+		// match, so list[int] equals a second list[int] but not list[str].
+		y, ok := b.(*genericAliasObject)
+		return ok && equals(x.origin, y.origin) && seqEquals(x.args, y.args)
 	}
 	return a == b
 }
@@ -1258,6 +1263,14 @@ func GetItem(o, key Object) (Object, error) {
 		return x.getItem(key)
 	case *classObject:
 		return classSubscript(x, key)
+	case *funcObject:
+		// A builtin container type answers a subscript with a parameterized
+		// generic, so list[int] and dict[str, int] build a GenericAlias the way
+		// CPython's __class_getitem__ does; a plain builtin like len stays a
+		// TypeError.
+		if name, ok := BuiltinFuncName(x); ok && subscriptableBuiltinType[name] {
+			return NewGenericAlias(x, key), nil
+		}
 	case *instanceObject:
 		res, defined, err := instanceSpecial(x, "__getitem__", key)
 		if err != nil {

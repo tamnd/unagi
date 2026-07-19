@@ -125,6 +125,10 @@ func CallKwT(t *Thread, f Object, pos []Object, kwNames []string, kwVals []Objec
 		return fn.fn.bind(t, append([]Object{fn.self}, pos...), kwNames, kwVals)
 	case *classObject:
 		return Instantiate(fn, pos, kwNames, kwVals)
+	case *genericAliasObject:
+		// Calling a parameterized generic constructs its origin, so dict[str,
+		// int](a=1) builds a dict and keyword arguments thread through.
+		return CallKwT(t, fn.origin, pos, kwNames, kwVals)
 	case *funcObject:
 		if fn.kwfnT != nil {
 			return fn.kwfnT(t, pos, kwNames, kwVals)

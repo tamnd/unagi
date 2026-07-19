@@ -88,6 +88,8 @@ func PyHash(o Object) (int64, error) {
 		// A ref hashes as its referent, so ref(cls) keys a set slot the way cls
 		// does and two refs to one class collide, which is what WeakSet relies on.
 		return PyHash(x.referent)
+	case *genericAliasObject:
+		return pyHashGenericAlias(x)
 	case *instanceObject:
 		val, hasVal, _, err := instanceHashInfo(x)
 		if err != nil {
@@ -104,6 +106,25 @@ func PyHash(o Object) (int64, error) {
 		return pyHashPointer(o), nil
 	}
 	return 0, Raise(TypeError, "unhashable type: '%s'", o.TypeName())
+}
+
+// pyHashGenericAlias folds the origin hash with the argument-tuple hash, the way
+// CPython's ga_hash xors hash(origin) with hash(args), so list[int] and a second
+// list[int] hash alike while list[str] differs.
+func pyHashGenericAlias(g *genericAliasObject) (int64, error) {
+	ho, err := PyHash(g.origin)
+	if err != nil {
+		return 0, err
+	}
+	ha, err := pyHashTuple(g.args)
+	if err != nil {
+		return 0, err
+	}
+	r := int64(uint64(ho) ^ uint64(ha))
+	if r == -1 {
+		r = -2
+	}
+	return r, nil
 }
 
 // instanceHashInfo resolves how a user instance hashes, following CPython's

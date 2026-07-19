@@ -1,0 +1,24 @@
+== exit: 0
+== stdout:
+list[int]
+dict[str, int]
+tuple[int, ...]
+set[frozenset[int]]
+list[list[int]]
+True
+True
+True (<class 'int'>,)
+True (<class 'str'>, <class 'int'>)
+(<class 'int'>, Ellipsis)
+()
+[]
+{'a': 1}
+(1, 2, 3)
+True False False
+True
+3
+True
+list[int]
+no subscript: TypeError
+== exception:
+== stderr:

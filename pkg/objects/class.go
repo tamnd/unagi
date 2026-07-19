@@ -1606,6 +1606,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return propertyGetAttr(x, name)
 	case *cachedPropertyObject:
 		return cachedPropertyAttr(x, name)
+	case *genericAliasObject:
+		return genericAliasLoadAttr(x, name)
 	case *superObject:
 		return superLoadAttr(x, name)
 	case *Exception:

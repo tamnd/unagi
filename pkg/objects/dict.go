@@ -186,6 +186,23 @@ func hashKey(o Object) (string, error) {
 			return "", err
 		}
 		return "w" + rk, nil
+	case *genericAliasObject:
+		// A generic alias keys by its origin and arguments, so list[int] and a
+		// second list[int] share a dict slot and set element, matching the
+		// equality below.
+		ok, err := hashKey(x.origin)
+		if err != nil {
+			return "", err
+		}
+		parts := make([]string, len(x.args))
+		for i, a := range x.args {
+			ak, err := hashKey(a)
+			if err != nil {
+				return "", err
+			}
+			parts[i] = ak
+		}
+		return "G" + ok + "[" + strings.Join(parts, ",") + "]", nil
 	case *instanceObject:
 		val, hasVal, eqDefined, err := instanceHashInfo(x)
 		if err != nil {
