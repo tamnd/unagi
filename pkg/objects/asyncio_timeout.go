@@ -155,14 +155,15 @@ func (t *asyncioTimeout) aexit(th *Thread, args []Object) (Object, error) {
 			t.timer.cancelled = true
 			t.timer = nil
 		}
-		if t.state == timeoutExpiring {
+		switch t.state {
+		case timeoutExpiring:
 			t.state = timeoutExpired
 			if len(args) >= 2 {
 				if pe, ok := args[1].(*Exception); ok && isCancelledError(pe) {
 					return nil, newFuturesTimeout()
 				}
 			}
-		} else if t.state == timeoutEntered {
+		case timeoutEntered:
 			t.state = timeoutExited
 		}
 		return None, nil
