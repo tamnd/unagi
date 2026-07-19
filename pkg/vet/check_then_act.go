@@ -145,7 +145,8 @@ func isSharedRoot(name string, globals map[string]bool, sc *rmwScope) bool {
 // place, so `seen.add(x)` and `items.append(x)` read as acts on a shared object.
 func mutatingMethod(name string) bool {
 	switch name {
-	case "add", "append", "extend", "insert", "update", "setdefault", "__setitem__":
+	case "add", "append", "extend", "insert", "update", "setdefault", "__setitem__",
+		"pop", "popitem", "remove", "discard", "clear":
 		return true
 	}
 	return false
