@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+constants: FIRST_COMPLETED FIRST_EXCEPTION ALL_COMPLETED
+result type: DoneAndNotDoneFutures
+result fields: ('done', 'not_done')
+all done: 4 not done: 0
+all results: [0, 1, 4, 9]
+first done: 1 first not done: 1
+first has fast: True not slow: True
+exc done: 1 exc not done: 1
+exc raised: ValueError('boom')
+timeout done: 0 timeout not done: 1
+after release: True
+invalid return_when: Invalid return condition: 'BOGUS'
+invalid but all done: 1
+non-future: 'int' object has no attribute '_condition'
+as_completed: [1, 2, 4, 8, 16]
+as_completed dedup: [99]
+as_completed timeout: 1 (of 1) futures unfinished
+== exception:
+== stderr:

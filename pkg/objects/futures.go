@@ -55,6 +55,36 @@ func (f *futureObject) cancelledState() bool {
 	return f.state == futureCancelled || f.state == futureCancelledNotified
 }
 
+// completedForWait reports whether wait and as_completed count the future as
+// done: finished, or cancelled and notified. A plain cancelled future, one the
+// executor has not yet picked up to notify, is not counted, matching CPython's
+// `_state in [CANCELLED_AND_NOTIFIED, FINISHED]` membership test. It takes f.mu
+// itself, for callers that scan a set of futures without holding each lock.
+func (f *futureObject) completedForWait() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.state == futureCancelledNotified || f.state == futureFinished
+}
+
+// hasWaitException reports whether a done future carries an exception, the test
+// wait's FIRST_EXCEPTION arm makes over the futures already finished. A
+// cancelled future carries none, so only a plain finished-with-exception one
+// counts. The caller must have seen completedForWait return true first.
+func (f *futureObject) hasWaitException() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.state == futureFinished && f.exc != nil
+}
+
+// waitChannel returns the future's done channel, closed on the first terminal
+// transition, so a waiter can park on the next completion. The caller holds no
+// lock; the channel itself never changes after construction.
+func (f *futureObject) waitChannel() chan struct{} {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.done
+}
+
 // finish flips the future to a terminal state, closes the done channel exactly
 // once, and detaches the callbacks so they run outside the lock. The caller
 // holds f.mu; the returned slice is the callbacks to invoke.

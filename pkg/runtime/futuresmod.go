@@ -3,6 +3,7 @@ package runtime
 import (
 	"math"
 	goruntime "runtime"
+	"time"
 
 	"github.com/tamnd/unagi/pkg/objects"
 )
@@ -35,6 +36,11 @@ func initFutures(m *objects.Module) error {
 	}{
 		{"Future", objects.NewFuncKw("Future", futuresNewFuture)},
 		{"ThreadPoolExecutor", objects.NewFuncKw("ThreadPoolExecutor", futuresNewThreadPool)},
+		{"wait", objects.NewFuncKw("wait", futuresWait)},
+		{"as_completed", objects.NewFuncKw("as_completed", futuresAsCompleted)},
+		{"FIRST_COMPLETED", objects.NewStr("FIRST_COMPLETED")},
+		{"FIRST_EXCEPTION", objects.NewStr("FIRST_EXCEPTION")},
+		{"ALL_COMPLETED", objects.NewStr("ALL_COMPLETED")},
 		{"CancelledError", objects.CancelledErrorClass()},
 		{"InvalidStateError", objects.InvalidStateErrorClass()},
 		{"TimeoutError", objects.ExcClass2("TimeoutError")},
@@ -115,4 +121,88 @@ func futuresNewThreadPool(pos []objects.Object, kwNames []string, kwVals []objec
 	}
 
 	return objects.NewExecutor(maxWorkers, prefix), nil
+}
+
+// futuresWait is concurrent.futures.wait(fs, timeout=None, return_when=ALL_COMPLETED).
+// timeout and return_when may be given positionally or by keyword. The first
+// positional argument is the required future iterable.
+func futuresWait(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	vals, err := bindArgs("wait", []string{"fs", "timeout", "return_when"}, pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	fs, ok := vals["fs"]
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "wait() missing 1 required positional argument: 'fs'")
+	}
+	hasTimeout, timeout, err := futuresTimeout(vals["timeout"])
+	if err != nil {
+		return nil, err
+	}
+	returnWhen := objects.Object(objects.NewStr("ALL_COMPLETED"))
+	if rw, ok := vals["return_when"]; ok {
+		returnWhen = rw
+	}
+	return objects.Wait(fs, hasTimeout, timeout, returnWhen)
+}
+
+// futuresAsCompleted is concurrent.futures.as_completed(fs, timeout=None). It
+// returns the iterator that yields the futures in completion order.
+func futuresAsCompleted(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	vals, err := bindArgs("as_completed", []string{"fs", "timeout"}, pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	fs, ok := vals["fs"]
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "as_completed() missing 1 required positional argument: 'fs'")
+	}
+	hasTimeout, timeout, err := futuresTimeout(vals["timeout"])
+	if err != nil {
+		return nil, err
+	}
+	return objects.AsCompleted(fs, hasTimeout, timeout)
+}
+
+// bindArgs maps positional and keyword arguments onto a parameter list, raising
+// the TypeErrors CPython raises for too many positionals, an unknown keyword, or
+// a keyword that repeats a value already given positionally.
+func bindArgs(fn string, params []string, pos []objects.Object, kwNames []string, kwVals []objects.Object) (map[string]objects.Object, error) {
+	vals := map[string]objects.Object{}
+	if len(pos) > len(params) {
+		return nil, objects.Raise(objects.TypeError, "%s() takes from 1 to %d positional arguments but %d were given", fn, len(params), len(pos))
+	}
+	for i, v := range pos {
+		vals[params[i]] = v
+	}
+	known := map[string]bool{}
+	for _, p := range params {
+		known[p] = true
+	}
+	for i, k := range kwNames {
+		if !known[k] {
+			return nil, objects.Raise(objects.TypeError, "%s() got an unexpected keyword argument '%s'", fn, k)
+		}
+		if _, dup := vals[k]; dup {
+			return nil, objects.Raise(objects.TypeError, "%s() got multiple values for argument '%s'", fn, k)
+		}
+		vals[k] = kwVals[i]
+	}
+	return vals, nil
+}
+
+// futuresTimeout reads a timeout argument shared by wait and as_completed. None
+// or a missing argument means no deadline; a number sets one, with a non-positive
+// value meaning an immediate check. A non-numeric timeout is the TypeError the
+// future's own timeout parsing raises.
+func futuresTimeout(v objects.Object) (bool, time.Duration, error) {
+	if v == nil || v == objects.None {
+		return false, 0, nil
+	}
+	f, ok := objects.AsFloat(v)
+	if !ok {
+		return false, 0, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as a float", v.TypeName())
+	}
+	d := max(time.Duration(f*float64(time.Second)), 0)
+	return true, d, nil
 }
