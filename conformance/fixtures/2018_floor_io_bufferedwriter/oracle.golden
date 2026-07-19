@@ -1,0 +1,31 @@
+== exit: 0
+== stdout:
+['BufferedWriter', '_BufferedIOBase', '_IOBase', 'object']
+True True
+3 b''
+5 b''
+2 b'abcdefgh'
+b'abcdefghij' 10
+False True True
+10 b'0123456789'
+0 b'abXXXXXX'
+b'CDXXXXXX'
+read: UnsupportedOperation read
+read1: UnsupportedOperation read1
+b'aabbcc'
+2
+b'BA'
+False
+True True
+write: write to closed file
+flush: flush of closed file
+nonbytes: a bytes-like object is required, not 'str'
+rowraw: File or stream is not writable.
+bufsize: buffer size must be strictly positive
+True b'zz'
+detached: raw stream has been detached
+True
+True
+BufferedWriter
+== exception:
+== stderr:
