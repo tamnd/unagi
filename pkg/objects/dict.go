@@ -177,6 +177,15 @@ func hashKey(o Object) (string, error) {
 			return "", err
 		}
 		return fmt.Sprintf("M%p:%s", x.fn, sk), nil
+	case *weakrefObject:
+		// A ref keys by its referent under a distinct prefix, so two refs to one
+		// object share a set slot while a ref never collides with the bare object,
+		// matching the equality below. This is what dedups WeakSet's data set.
+		rk, err := hashKey(x.referent)
+		if err != nil {
+			return "", err
+		}
+		return "w" + rk, nil
 	case *instanceObject:
 		val, hasVal, eqDefined, err := instanceHashInfo(x)
 		if err != nil {
