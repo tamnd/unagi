@@ -1,0 +1,7 @@
+== exit: 0
+== stdout:
+lines ['ONE', 'TWO', 'THREE']
+serving False
+ok
+== exception:
+== stderr:
