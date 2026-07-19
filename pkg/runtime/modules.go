@@ -123,6 +123,79 @@ func ImportModule(name string) (objects.Object, error) {
 	return m, nil
 }
 
+// dunderImport is the __import__ builtin, the hook the import statement lowers
+// through and that the encodings search function calls directly to pull a codec
+// submodule in by name. It imports the whole dotted path and, matching CPython,
+// returns the top package when fromlist is empty and the leaf module when it is
+// not: encodings calls __import__('encodings.utf_8', fromlist=('*',)) and wants
+// the utf_8 submodule back. Only absolute imports (level 0) are modeled; the
+// relative form the statement handles through its own lowering is not reachable
+// here.
+func dunderImport(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if len(pos) < 1 {
+		return nil, objects.Raise(objects.TypeError, "__import__() missing required argument 'name'")
+	}
+	name, ok := objects.AsStr(pos[0])
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "__import__() argument 'name' must be str, not %s", pos[0].TypeName())
+	}
+	// fromlist and level are positional 3 and 4, or keyword; globals and locals
+	// (positional 1 and 2) are ignored the way CPython's builtin ignores them.
+	var fromlist objects.Object
+	level := int64(0)
+	if len(pos) >= 4 {
+		fromlist = pos[3]
+	}
+	if len(pos) >= 5 {
+		if lv, ok := objects.AsInt(pos[4]); ok {
+			level = lv
+		}
+	}
+	for i, kn := range kwNames {
+		switch kn {
+		case "fromlist":
+			fromlist = kwVals[i]
+		case "level":
+			if lv, ok := objects.AsInt(kwVals[i]); ok {
+				level = lv
+			}
+		case "globals", "locals":
+			// Accepted and ignored, as the builtin does.
+		default:
+			return nil, objects.Raise(objects.TypeError, "'%s' is an invalid keyword argument for __import__()", kn)
+		}
+	}
+	if level != 0 {
+		return nil, objects.Raise(objects.ImportError, "__import__: relative import is not supported")
+	}
+	leaf, err := ImportModule(name)
+	if err != nil {
+		return nil, err
+	}
+	if importHasFromList(fromlist) {
+		return leaf, nil
+	}
+	top := strings.SplitN(name, ".", 2)[0]
+	if v, ok := modulesGet(top); ok {
+		return v, nil
+	}
+	return leaf, nil
+}
+
+// importHasFromList reports whether the fromlist argument names anything, so
+// __import__ returns the leaf module rather than the top package. None and an
+// empty sequence both mean no fromlist.
+func importHasFromList(fromlist objects.Object) bool {
+	if fromlist == nil || fromlist == objects.None {
+		return false
+	}
+	n, err := objects.Len(fromlist)
+	if err != nil {
+		return true
+	}
+	return n > 0
+}
+
 // importOne imports a single dotted prefix whose ancestors are already
 // imported, binding the result on the parent when this call ran the body. The
 // registry-hit path skips the parent bind, matching CPython where a cycle can

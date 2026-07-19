@@ -23,7 +23,7 @@ var builtinNames = map[string]bool{
 	"any": true, "all": true, "callable": true, "ascii": true,
 	"iter": true, "map": true, "filter": true, "vars": true,
 	"type": true, "object": true, "slice": true, "memoryview": true,
-	"globals": true,
+	"globals": true, "__import__": true,
 }
 
 // descriptorBuiltins are the builtin names that resolve to a value: the three
@@ -211,6 +211,12 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		// object() builds a bare instance through the ordinary class-call path,
 		// which owns the takes-no-arguments check, so it needs no dedicated
 		// helper; the name resolves to the object type as a value.
+		return f.dynCall(e)
+	}
+	if name == "__import__" {
+		// __import__ has no positional fast path; it takes fromlist and level
+		// keywords, so it resolves to its runtime object and calls through the
+		// dynamic path where the keyword binder handles them.
 		return f.dynCall(e)
 	}
 	for _, a := range e.Args {

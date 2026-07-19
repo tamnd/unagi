@@ -455,6 +455,7 @@ func init() {
 		return v, ok
 	}
 	register(map[string]objects.Object{
+		"__import__": objects.NewFuncKw("__import__", dunderImport),
 		"print": objects.NewFunc("print", -1, func(args []objects.Object) (objects.Object, error) {
 			if err := Print(args...); err != nil {
 				return nil, err

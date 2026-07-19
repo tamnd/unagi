@@ -48,6 +48,14 @@ func decodeCodec(v []byte, encoding, errors string) (Object, error) {
 	return nil, Raise("LookupError", "unknown encoding: %s", encoding)
 }
 
+// DecodeBytes decodes raw bytes to a str under the named codec and error
+// handler, the exported entry the _codecs accelerator's per-codec decode
+// functions call. It shares decodeCodec with bytes.decode and str(), so the
+// utf-8, ascii and latin-1 families and their error wording stay in one place.
+func DecodeBytes(v []byte, encoding, errors string) (Object, error) {
+	return decodeCodec(v, encoding, errors)
+}
+
 // StrDecode implements the decoding form of the str constructor,
 // str(object, encoding='utf-8', errors='strict'). A str object cannot be
 // decoded, and a non-bytes-like object is rejected the way CPython's

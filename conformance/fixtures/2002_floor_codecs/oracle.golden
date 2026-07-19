@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+b'h\xc3\xa9llo'
+héllo
+b'hi' hi
+b'\xff' ÿ
+utf-8 -> CodecInfo utf-8
+utf8 -> CodecInfo utf-8
+UTF-8 -> CodecInfo utf-8
+ascii -> CodecInfo ascii
+us-ascii -> CodecInfo ascii
+latin-1 -> CodecInfo iso8859-1
+iso-8859-1 -> CodecInfo iso8859-1
+True True
+(b'a\xc3\xa9', 2) ('aé', 3)
+b'world' world
+strict_errors ignore_errors
+True
+lookup: unknown encoding: no-such-codec
+handler: unknown error handler name 'no-such-handler'
+codecs
+== exception:
+== stderr:
