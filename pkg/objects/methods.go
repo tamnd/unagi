@@ -88,6 +88,8 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		return eventLoopMethod(x, name, args)
 	case *asyncTask:
 		return taskMethod(x, name, args)
+	case *asyncioLock:
+		return asyncioLockMethod(x, name, args)
 	case *executorObject:
 		return executorMethodT(t, x, name, args)
 	case *stringIOObject:

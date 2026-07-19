@@ -85,6 +85,22 @@ func WithEnterT(t *Thread, mgr Object) (exitFn Object, entered Object, err error
 // the same thread. The yielder drives the awaits, so a real coroutine __aenter__
 // suspends the frame and a bare one runs to completion, exactly as await does.
 func AsyncWithEnterT(t *Thread, gy Yielder, mgr Object) (aexitFn Object, entered Object, err error) {
+	// A native async context manager, such as asyncio.Lock, supplies its enter
+	// and exit coroutines directly rather than through a Python class body.
+	if cm, ok := mgr.(asyncContextManager); ok {
+		coro, err := cm.aenter(t)
+		if err != nil {
+			return nil, nil, err
+		}
+		entered, err := AwaitThrough(gy, coro)
+		if err != nil {
+			return nil, nil, err
+		}
+		aexit := NewFunc("__aexit__", -1, func(args []Object) (Object, error) {
+			return cm.aexit(t, args)
+		})
+		return aexit, entered, nil
+	}
 	inst, ok := mgr.(*instanceObject)
 	if !ok {
 		return nil, nil, asyncCMProtocolError(mgr, "__aexit__")

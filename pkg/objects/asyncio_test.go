@@ -452,3 +452,60 @@ func TestAsyncioRunningLoopOutside(t *testing.T) {
 		t.Fatalf("running loop after run = %v, want nil", AsyncioRunningLoop())
 	}
 }
+
+// TestAsyncioLockExcludes checks the lock serialises contenders: while the main
+// coroutine holds it, a task that acquires it blocks until the main releases,
+// and the whole run records the two critical sections in order.
+func TestAsyncioLockExcludes(t *testing.T) {
+	lk := AsyncioNewLock().(*asyncioLock)
+	var order []string
+	worker := func(name string) Object {
+		return NewCoroutine(name, func(y Yielder) (Object, error) {
+			if _, err := awaitObj(y, lk.acquireCoro()); err != nil {
+				return nil, err
+			}
+			order = append(order, name)
+			if err := lk.release(); err != nil {
+				return nil, err
+			}
+			return None, nil
+		})
+	}
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		if _, err := awaitObj(y, lk.acquireCoro()); err != nil {
+			return nil, err
+		}
+		order = append(order, "main")
+		task, err := AsyncioCreateTask(worker("worker"), "")
+		if err != nil {
+			return nil, err
+		}
+		// Yield to let the worker run and block on the held lock, then release.
+		if _, err := y.YieldFrom(AsyncioSleep(0, None)); err != nil {
+			return nil, err
+		}
+		if lk.locked != true {
+			return nil, Raise(RuntimeError, "lock not held while worker waits")
+		}
+		if err := lk.release(); err != nil {
+			return nil, err
+		}
+		return awaitObj(y, task)
+	})
+	if _, err := AsyncioRun(main); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(order) != 2 || order[0] != "main" || order[1] != "worker" {
+		t.Fatalf("critical-section order = %v, want [main worker]", order)
+	}
+}
+
+// TestAsyncioLockReleaseUnacquired checks releasing a lock that is not held is
+// the RuntimeError CPython raises.
+func TestAsyncioLockReleaseUnacquired(t *testing.T) {
+	lk := AsyncioNewLock()
+	_, err := CallMethod(lk, "release", nil)
+	if coroExcKind(err) != "RuntimeError" {
+		t.Fatalf("release of free lock = %v, want RuntimeError", err)
+	}
+}
