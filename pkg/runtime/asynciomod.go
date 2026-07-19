@@ -50,6 +50,7 @@ func initAsyncio(m *objects.Module) error {
 		{"PriorityQueue", objects.NewFuncKw("PriorityQueue", asyncioPriorityQueue)},
 		{"QueueEmpty", objects.AsyncioQueueEmptyClass()},
 		{"QueueFull", objects.AsyncioQueueFullClass()},
+		{"QueueShutDown", objects.AsyncioQueueShutDownClass()},
 		{"TaskGroup", objects.NewFunc("TaskGroup", 0, asyncioTaskGroup)},
 		{"Runner", objects.NewFuncKw("Runner", asyncioRunner)},
 		{"current_task", objects.NewFuncKw("current_task", asyncioCurrentTask)},
