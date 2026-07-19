@@ -1,0 +1,22 @@
+== exit: 0
+== stdout:
+range
+0 1 2
+range(0, 1180591620717411303424)
+range(0, 1180591620717411303424, 2)
+range(1180591620717411303424, 0, -3)
+True
+False
+True
+False
+3
+1180591620717411303423
+True
+False
+True
+len: OverflowError
+1180591620717411303424
+[0, 1, 2, 3]
+1 [0, 1, 2]
+== exception:
+== stderr:

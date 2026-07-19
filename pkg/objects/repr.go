@@ -275,10 +275,7 @@ func reprCore(o Object, strict bool) (string, error) {
 		}
 		return "frozenset(" + s + ")", nil
 	case *rangeObject:
-		if x.step == 1 {
-			return fmt.Sprintf("range(%d, %d)", x.start, x.stop), nil
-		}
-		return fmt.Sprintf("range(%d, %d, %d)", x.start, x.stop, x.step), nil
+		return x.repr(), nil
 	case *sliceObject:
 		// Probed on 3.14: repr(slice(1, 10, 2)) is "slice(1, 10, 2)" and an
 		// omitted part prints as None, so slice(5) is "slice(None, 5, None)".

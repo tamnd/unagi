@@ -323,9 +323,82 @@ func BuiltinFuncName(o Object) (string, bool) {
 // constructor as the value's type.
 func IsBuiltinTypeName(name string) bool { return builtinTypeReprs[name] }
 
-type rangeObject struct{ start, stop, step int64 }
+// rangeObject stays on int64 for the common case; a bound that overflows int64
+// spills into the matching big field, which then overrides it. A range is
+// "big" when any big field is set, and only construct/iter/len/repr on such a
+// range are exercised (e.g. type(iter(range(1 << 1000))) in _collections_abc).
+type rangeObject struct {
+	start, stop, step          int64
+	bigStart, bigStop, bigStep *big.Int
+}
 
 func (*rangeObject) TypeName() string { return "range" }
+
+// big reports whether any bound spilled past int64.
+func (r *rangeObject) big() bool {
+	return r.bigStart != nil || r.bigStop != nil || r.bigStep != nil
+}
+
+func (r *rangeObject) bStart() *big.Int {
+	if r.bigStart != nil {
+		return r.bigStart
+	}
+	return big.NewInt(r.start)
+}
+
+func (r *rangeObject) bStop() *big.Int {
+	if r.bigStop != nil {
+		return r.bigStop
+	}
+	return big.NewInt(r.stop)
+}
+
+func (r *rangeObject) bStep() *big.Int {
+	if r.bigStep != nil {
+		return r.bigStep
+	}
+	return big.NewInt(r.step)
+}
+
+// lengthBig computes the element count with big arithmetic, mirroring
+// CPython's get_len_of_range so a huge range reports a huge length.
+func (r *rangeObject) lengthBig() *big.Int {
+	lo, hi, step := r.bStart(), r.bStop(), r.bStep()
+	if step.Sign() < 0 {
+		lo, hi = hi, lo
+		step = new(big.Int).Neg(step)
+	}
+	if lo.Cmp(hi) >= 0 {
+		return big.NewInt(0)
+	}
+	t := new(big.Int).Sub(hi, lo)
+	t.Sub(t, big.NewInt(1))
+	t.Div(t, step)
+	t.Add(t, big.NewInt(1))
+	return t
+}
+
+// lenAsBig gives the length of any range as a *big.Int.
+func (r *rangeObject) lenAsBig() *big.Int {
+	if r.big() {
+		return r.lengthBig()
+	}
+	return big.NewInt(r.length())
+}
+
+// repr renders a range the CPython way: the step is omitted when it is 1.
+func (r *rangeObject) repr() string {
+	if r.big() {
+		if r.bStep().Cmp(big.NewInt(1)) == 0 {
+			return fmt.Sprintf("range(%s, %s)", r.bStart(), r.bStop())
+		}
+		return fmt.Sprintf("range(%s, %s, %s)", r.bStart(), r.bStop(), r.bStep())
+	}
+	if r.step == 1 {
+		return fmt.Sprintf("range(%d, %d)", r.start, r.stop)
+	}
+	return fmt.Sprintf("range(%d, %d, %d)", r.start, r.stop, r.step)
+}
 
 // The singletons. Identity checks (Is) rely on these being unique pointers.
 var (
@@ -462,6 +535,25 @@ var builtinFuncReprs = map[string]bool{
 // NewRange builds a range object. The caller must reject a zero step.
 func NewRange(start, stop, step int64) Object {
 	return &rangeObject{start: start, stop: stop, step: step}
+}
+
+// NewRangeBig builds a range from arbitrary-precision bounds. Each bound that
+// fits int64 lands in the fast field, so a range of small numbers built this
+// way is indistinguishable from NewRange; only the genuinely huge bounds spill
+// into the big fields. The caller must reject a zero step.
+func NewRangeBig(start, stop, step *big.Int) Object {
+	r := &rangeObject{step: 1}
+	set := func(b *big.Int, i64 *int64, big **big.Int) {
+		if b.IsInt64() {
+			*i64 = b.Int64()
+		} else {
+			*big = b
+		}
+	}
+	set(start, &r.start, &r.bigStart)
+	set(stop, &r.stop, &r.bigStop)
+	set(step, &r.step, &r.bigStep)
+	return r
 }
 
 // Call invokes a function object with positional arguments. It is the
