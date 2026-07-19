@@ -212,6 +212,8 @@ func (u *unpickler) dispatch(op byte) error {
 		return u.reduce()
 	case opNewObj:
 		return u.newObj()
+	case opNewObjEx:
+		return u.newObjEx()
 	case opBuild:
 		return u.build()
 	default:
@@ -455,6 +457,37 @@ func (u *unpickler) newObj() error {
 		return newUnpicklingError("newobj on a non-class")
 	}
 	obj, err := pickleNewInstance(cls, args.elts)
+	if err != nil {
+		return err
+	}
+	u.push(obj)
+	return nil
+}
+
+// newObjEx rebuilds the instance a NEWOBJ_EX opcode describes, calling
+// cls.__new__(cls, *args, **kwargs) from the class, argument tuple, and keyword
+// dict on the stack, in that stacking order.
+func (u *unpickler) newObjEx() error {
+	if len(u.stack) < 3 {
+		return newUnpicklingError("newobj_ex underflow")
+	}
+	kwargsObj := u.stack[len(u.stack)-1]
+	argsObj := u.stack[len(u.stack)-2]
+	clsObj := u.stack[len(u.stack)-3]
+	u.stack = u.stack[:len(u.stack)-3]
+	kwargs, ok := kwargsObj.(*dictObject)
+	if !ok {
+		return newUnpicklingError("newobj_ex keyword arguments are not a dict")
+	}
+	args, ok := argsObj.(*tupleObject)
+	if !ok {
+		return newUnpicklingError("newobj_ex arguments are not a tuple")
+	}
+	cls, ok := clsObj.(*classObject)
+	if !ok {
+		return newUnpicklingError("newobj_ex on a non-class")
+	}
+	obj, err := pickleNewInstanceEx(cls, args.elts, kwargs)
 	if err != nil {
 		return err
 	}

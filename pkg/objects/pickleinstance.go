@@ -19,8 +19,9 @@ import (
 
 // Instance-reduction opcodes, spelled as CPython's pickle module names them.
 const (
-	opNewObj = 0x81 // build cls.__new__(cls, *args) from the class and arg tuple on the stack
-	opBuild  = 'b'  // 0x62 apply the state object on top to the instance below it
+	opNewObj   = 0x81 // build cls.__new__(cls, *args) from the class and arg tuple on the stack
+	opNewObjEx = 0x92 // build cls.__new__(cls, *args, **kwargs) from class, arg tuple, kwarg dict (protocol 4+)
+	opBuild    = 'b'  // 0x62 apply the state object on top to the instance below it
 )
 
 // pickleClassModule reports the class's __module__, the module half of the
@@ -108,6 +109,41 @@ func instanceNewargs(o *instanceObject) ([]Object, error) {
 	return t.elts, nil
 }
 
+// instanceNewargsEx returns the (args, kwargs) a class __getnewargs_ex__ produces,
+// the pair NEWOBJ_EX feeds cls.__new__(cls, *args, **kwargs). It reports has=false
+// when the class defines no __getnewargs_ex__, so the caller falls back to the
+// plain __getnewargs__ path. CPython requires the hook to return a two-tuple of a
+// tuple and a dict and refuses anything else, so this does too. __getnewargs_ex__
+// takes precedence over __getnewargs__ the way object.__reduce_ex__ prefers the
+// ex-form when both are present.
+func instanceNewargsEx(o *instanceObject) (args []Object, kwargs *dictObject, has bool, err error) {
+	fn, ok := o.cls.lookup("__getnewargs_ex__")
+	if !ok {
+		return nil, nil, false, nil
+	}
+	bound, err := instanceGet(o, "__getnewargs_ex__", fn)
+	if err != nil {
+		return nil, nil, true, err
+	}
+	res, err := Call(bound, nil)
+	if err != nil {
+		return nil, nil, true, err
+	}
+	pair, ok := res.(*tupleObject)
+	if !ok || len(pair.elts) != 2 {
+		return nil, nil, true, newPicklingError("__getnewargs_ex__ should return a tuple, not %s", res.TypeName())
+	}
+	at, ok := pair.elts[0].(*tupleObject)
+	if !ok {
+		return nil, nil, true, newPicklingError("first item of the tuple returned by __getnewargs_ex__ must be a tuple, not %s", pair.elts[0].TypeName())
+	}
+	kw, ok := pair.elts[1].(*dictObject)
+	if !ok {
+		return nil, nil, true, newPicklingError("second item of the tuple returned by __getnewargs_ex__ must be a dict, not %s", pair.elts[1].TypeName())
+	}
+	return at.elts, kw, true, nil
+}
+
 // instancePickleState returns the state the reduction saves after NEWOBJ, which
 // BUILD applies. A class that defines __getstate__ supplies it through that hook,
 // and a hook returning None (or a falsey empty container CPython treats as no
@@ -164,21 +200,47 @@ func (p *pickler) saveInstance(o *instanceObject) error {
 	if !pickleDefaultReducible(o) {
 		return Raise(TypeError, "cannot pickle '%s' object", o.TypeName())
 	}
-	// The new-arguments come from __getnewargs__ when the class defines it, so
-	// NEWOBJ reconstructs through cls.__new__(cls, *args); a class without it
-	// pickles the empty tuple the plain object reduction uses.
-	newargs, err := instanceNewargs(o)
+	// A class defining __getnewargs_ex__ reconstructs through
+	// cls.__new__(cls, *args, **kwargs), which NEWOBJ_EX carries as the class, an
+	// argument tuple, and a keyword dict; failing that, __getnewargs__ supplies the
+	// positional-only NEWOBJ arguments, and a class with neither pickles the empty
+	// tuple the plain object reduction uses.
+	exArgs, exKwargs, hasEx, err := instanceNewargsEx(o)
 	if err != nil {
 		return err
 	}
-	if err := p.saveGlobal(pickleClassModule(o.cls), pickleClassQualname(o.cls)); err != nil {
-		return err
+	if hasEx {
+		if p.proto < 4 {
+			// Protocols 2 and 3 have no NEWOBJ_EX opcode; CPython reconstructs through a
+			// functools.partial(cls.__new__, cls, *args, **kwargs) reduction there, a
+			// later slice.
+			return Raise(TypeError, "cannot pickle '%s' object with __getnewargs_ex__ below protocol 4 yet", o.TypeName())
+		}
+		if err := p.saveGlobal(pickleClassModule(o.cls), pickleClassQualname(o.cls)); err != nil {
+			return err
+		}
+		if err := p.save(NewTuple(exArgs)); err != nil {
+			return err
+		}
+		if err := p.save(exKwargs); err != nil {
+			return err
+		}
+		p.framer.write(opNewObjEx)
+		p.memoize(o)
+	} else {
+		newargs, err := instanceNewargs(o)
+		if err != nil {
+			return err
+		}
+		if err := p.saveGlobal(pickleClassModule(o.cls), pickleClassQualname(o.cls)); err != nil {
+			return err
+		}
+		if err := p.save(NewTuple(newargs)); err != nil {
+			return err
+		}
+		p.framer.write(opNewObj)
+		p.memoize(o)
 	}
-	if err := p.save(NewTuple(newargs)); err != nil {
-		return err
-	}
-	p.framer.write(opNewObj)
-	p.memoize(o)
 	state, err := instancePickleState(o)
 	if err != nil {
 		return err
@@ -240,6 +302,32 @@ func pickleNewInstance(cls *classObject, args []Object) (Object, error) {
 		return nil, newUnpicklingError("cannot unpickle %s with constructor arguments and no __new__", cls.name)
 	}
 	return &instanceObject{cls: cls, attrs: newAttrs()}, nil
+}
+
+// pickleNewInstanceEx rebuilds the instance a NEWOBJ_EX opcode describes:
+// cls.__new__(cls, *args, **kwargs) without running __init__. The keyword dict
+// carries the __getnewargs_ex__ keywords, applied in the dict's order the way the
+// call site would spell them; a class with no __new__ cannot consume them, so that
+// shape is refused rather than silently dropped.
+func pickleNewInstanceEx(cls *classObject, args []Object, kwargs *dictObject) (Object, error) {
+	if cls.builtinBase != "" || cls.hasSlots {
+		return nil, newUnpicklingError("cannot unpickle %s instance yet", cls.name)
+	}
+	newRaw, ok := cls.lookup("__new__")
+	if !ok {
+		return nil, newUnpicklingError("cannot unpickle %s with keyword arguments and no __new__", cls.name)
+	}
+	kwNames := make([]string, 0, len(kwargs.entries))
+	kwVals := make([]Object, 0, len(kwargs.entries))
+	for _, e := range kwargs.entries {
+		name, ok := e.key.(*strObject)
+		if !ok {
+			return nil, newUnpicklingError("cannot unpickle %s with a non-string keyword", cls.name)
+		}
+		kwNames = append(kwNames, name.v)
+		kwVals = append(kwVals, e.val)
+	}
+	return CallKw(staticNew(newRaw), append([]Object{Object(cls)}, args...), kwNames, kwVals)
 }
 
 // pickleApplyState applies a BUILD state to an instance. A class that defines
