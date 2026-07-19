@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+current no loop no running event loop
+all no loop no running event loop
+main task Task-1
+all count while pending 4
+all names while pending ['Task-1', 'w0', 'w1', 'w2']
+worker w0 sees w0
+worker w1 sees w1
+worker w2 sees w2
+results ['w0', 'w1', 'w2']
+all names after gather ['Task-1']
+current in main still Task-1
+== exception:
+== stderr:

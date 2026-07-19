@@ -34,6 +34,8 @@ func initAsyncio(m *objects.Module) error {
 		{"PriorityQueue", objects.NewFuncKw("PriorityQueue", asyncioPriorityQueue)},
 		{"QueueEmpty", objects.AsyncioQueueEmptyClass()},
 		{"QueueFull", objects.AsyncioQueueFullClass()},
+		{"current_task", objects.NewFuncKw("current_task", asyncioCurrentTask)},
+		{"all_tasks", objects.NewFuncKw("all_tasks", asyncioAllTasks)},
 		{"get_running_loop", objects.NewFunc("get_running_loop", 0, asyncioGetRunningLoop)},
 		{"get_event_loop", objects.NewFunc("get_event_loop", 0, asyncioGetEventLoop)},
 		{"CancelledError", objects.AsyncioCancelledErrorClass()},
@@ -267,6 +269,26 @@ func asyncioGetRunningLoop(args []objects.Object) (objects.Object, error) {
 		return nil, objects.Raise(objects.RuntimeError, "no running event loop")
 	}
 	return l, nil
+}
+
+// asyncioCurrentTask is asyncio.current_task(loop=None). It returns the currently
+// running task, or None when no task is running on the loop.
+func asyncioCurrentTask(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	vals, err := bindArgs("current_task", []string{"loop"}, pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	return objects.AsyncioCurrentTask(vals["loop"])
+}
+
+// asyncioAllTasks is asyncio.all_tasks(loop=None). It returns the set of the
+// loop's not-yet-done tasks, raising RuntimeError with no running loop.
+func asyncioAllTasks(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	vals, err := bindArgs("all_tasks", []string{"loop"}, pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	return objects.AsyncioAllTasks(vals["loop"])
 }
 
 // asyncioGetEventLoop is asyncio.get_event_loop(). Inside a running loop it
