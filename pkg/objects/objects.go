@@ -475,6 +475,20 @@ func NewMethod(name string, arity int, fn func(args []Object) (Object, error)) O
 	return &funcObject{name: name, arity: arity, fn: fn, selfBound: true}
 }
 
+// NewMethodKw is the keyword-aware self-binding method, for a Go-built class
+// method that takes keyword arguments, such as StringIO's __init__(initial_value,
+// newline). kwfn receives self as the first positional argument alongside the
+// keyword names and values; the positional-only fast path routes through it too.
+func NewMethodKw(name string, kwfn func(pos []Object, kwNames []string, kwVals []Object) (Object, error)) Object {
+	return &funcObject{
+		name:      name,
+		arity:     -1,
+		kwfn:      kwfn,
+		fn:        func(args []Object) (Object, error) { return kwfn(args, nil, nil) },
+		selfBound: true,
+	}
+}
+
 // NewFuncKw wraps a keyword-aware Go function as a variadic builtin. Every call,
 // with or without keywords, routes through kwfn; the positional-only path fills
 // in empty keyword slices. Only the handful of builtins that take keyword
