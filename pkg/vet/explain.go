@@ -7,6 +7,7 @@ var explanations = map[string]string{
 	"UNA-THR-001": unaThr001Explain,
 	"UNA-THR-002": unaThr002Explain,
 	"UNA-THR-003": unaThr003Explain,
+	"UNA-THR-004": unaThr004Explain,
 }
 
 // Explain returns the long-form text for a finding code and whether the code is
@@ -113,4 +114,40 @@ mutation can land while the walk is in progress:
     with lock:
         for x in items:
             handle(x)
+`
+
+const unaThr004Explain = `UNA-THR-004: GIL-relict spin-wait
+
+A spin-wait polls a shared flag in a loop that does no other work, waiting for
+another thread to flip it:
+
+    done = False
+
+    def worker():
+        global done
+        run()
+        done = True
+
+    while not done:       # spin, or time.sleep(0.01) to poll
+        pass
+
+Under the GIL this happened to work. The interpreter released and reacquired the
+GIL every few bytecodes, so the waiting thread kept re-reading done and the
+worker's write became visible on the next switch. Without the GIL the loop pins
+a CPU core re-reading an unsynchronized flag, and nothing guarantees the write
+is ever observed.
+
+Use a threading.Event, whose wait blocks until set with no polling and no busy
+loop:
+
+    done = threading.Event()
+
+    def worker():
+        run()
+        done.set()
+
+    done.wait()
+
+For a value handed from one thread to another rather than a bare flag, a
+queue.Queue or a Condition carries both the data and the wakeup.
 `
