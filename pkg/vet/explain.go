@@ -13,6 +13,7 @@ var explanations = map[string]string{
 	"UNA-THR-007": unaThr007Explain,
 	"UNA-THR-008": unaThr008Explain,
 	"UNA-AIO-001": unaAio001Explain,
+	"UNA-AIO-002": unaAio002Explain,
 }
 
 // Explain returns the long-form text for a finding code and whether the code is
@@ -304,4 +305,43 @@ onto a worker thread so the loop stays free:
 This check flags a recognized blocking primitive called straight inside an async
 function. Passing the function as a value to run_in_executor is not a call, so
 that offload form is not flagged.
+`
+
+const unaAio002Explain = `UNA-AIO-002: fire-and-forget task
+
+asyncio.create_task schedules a coroutine and returns a Task. The event loop
+keeps only a weak reference to that task, on the assumption that the caller
+holds a strong one. When the caller drops it, the task can be collected before
+it finishes:
+
+    async def main():
+        asyncio.create_task(worker())   # the returned task is kept nowhere
+        await serve()
+
+Two things can go wrong. The task may be garbage-collected mid-run and simply
+stop, with no error. And if it raises, the exception is delivered to the loop's
+default handler rather than to an awaiter, so it never surfaces where the work
+was started. Both make bugs that appear only sometimes and are hard to trace.
+
+Hold on to the task. Bind it and await it later:
+
+    task = asyncio.create_task(worker())
+    ...
+    await task
+
+or keep a set of tasks alive for as long as they need to run:
+
+    background = set()
+    t = asyncio.create_task(worker())
+    background.add(t)
+    t.add_done_callback(background.discard)
+
+Cleanest of all, let an asyncio.TaskGroup own the task and await it at the end
+of the block:
+
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(worker())
+
+This check flags a bare asyncio.create_task whose result is discarded. A
+create_task called on a TaskGroup is left alone, since the group holds it.
 `
