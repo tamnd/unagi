@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+set0 False
+before set False
+after set True
+log [('wait', 1), ('wait', 2), ('woke', 1, True), ('woke', 2, True)]
+immediate True
+cleared False
+== exception:
+== stderr:
