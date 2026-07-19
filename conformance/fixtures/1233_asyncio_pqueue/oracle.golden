@@ -1,0 +1,8 @@
+== exit: 0
+== stdout:
+lifo [2, 1, 0]
+priority [1, 1, 2, 3, 4, 5, 6, 9]
+tuples [(0, 'z'), (1, 'a'), (2, 'a'), (2, 'b')]
+lifo drained [3, 2, 1, 0]
+== exception:
+== stderr:

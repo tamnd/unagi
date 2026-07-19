@@ -29,6 +29,8 @@ func initAsyncio(m *objects.Module) error {
 		{"Semaphore", objects.NewFuncKw("Semaphore", asyncioSemaphore)},
 		{"BoundedSemaphore", objects.NewFuncKw("BoundedSemaphore", asyncioBoundedSemaphore)},
 		{"Queue", objects.NewFuncKw("Queue", asyncioQueue)},
+		{"LifoQueue", objects.NewFuncKw("LifoQueue", asyncioLifoQueue)},
+		{"PriorityQueue", objects.NewFuncKw("PriorityQueue", asyncioPriorityQueue)},
 		{"QueueEmpty", objects.AsyncioQueueEmptyClass()},
 		{"QueueFull", objects.AsyncioQueueFullClass()},
 		{"get_running_loop", objects.NewFunc("get_running_loop", 0, asyncioGetRunningLoop)},
@@ -182,19 +184,50 @@ func newAsyncioSemaphore(who string, bounded bool, pos []objects.Object, kwNames
 // asyncioQueue is asyncio.Queue(maxsize=0). maxsize bounds the queue; zero or
 // less is unbounded. A non-integer maxsize is the TypeError CPython raises.
 func asyncioQueue(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
-	maxsize := 0
-	vals, err := bindArgs("Queue", []string{"maxsize"}, pos, kwNames, kwVals)
+	maxsize, err := asyncioQueueMaxsize("Queue", pos, kwNames, kwVals)
 	if err != nil {
 		return nil, err
+	}
+	return objects.AsyncioNewQueue(maxsize), nil
+}
+
+// asyncioLifoQueue is asyncio.LifoQueue(maxsize=0), whose get returns the most
+// recently put item.
+func asyncioLifoQueue(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	maxsize, err := asyncioQueueMaxsize("LifoQueue", pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	return objects.AsyncioNewLifoQueue(maxsize), nil
+}
+
+// asyncioPriorityQueue is asyncio.PriorityQueue(maxsize=0), whose get returns the
+// smallest item under Python's <.
+func asyncioPriorityQueue(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	maxsize, err := asyncioQueueMaxsize("PriorityQueue", pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	return objects.AsyncioNewPriorityQueue(maxsize), nil
+}
+
+// asyncioQueueMaxsize binds the shared maxsize argument of the three queue
+// constructors. maxsize bounds the queue; zero or less is unbounded. A non-integer
+// maxsize is the TypeError CPython raises.
+func asyncioQueueMaxsize(who string, pos []objects.Object, kwNames []string, kwVals []objects.Object) (int, error) {
+	maxsize := 0
+	vals, err := bindArgs(who, []string{"maxsize"}, pos, kwNames, kwVals)
+	if err != nil {
+		return 0, err
 	}
 	if v, ok := vals["maxsize"]; ok {
 		n, ok := objects.AsInt(v)
 		if !ok {
-			return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", v.TypeName())
+			return 0, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", v.TypeName())
 		}
 		maxsize = int(n)
 	}
-	return objects.AsyncioNewQueue(maxsize), nil
+	return maxsize, nil
 }
 
 // asyncioGather is asyncio.gather(*aws, return_exceptions=False). The awaitables

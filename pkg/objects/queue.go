@@ -197,39 +197,54 @@ func (q *queueObject) dequeue() (Object, error) {
 }
 
 // heapPush appends item and sifts it up, keeping the item slice a binary min-heap.
-// It mirrors CPython heapq's heappush exactly so a PriorityQueue pops in the same
-// order CPython does, comparison for comparison.
 func (q *queueObject) heapPush(item Object) error {
-	q.items = append(q.items, item)
-	return q.siftdown(0, len(q.items)-1)
+	items, err := heapPushItems(q.items, item)
+	q.items = items
+	return err
 }
 
-// heapPop removes and returns the smallest item, mirroring CPython heapq's heappop:
-// the last leaf moves to the root and sifts down. The last element is popped first,
-// so a single-element heap returns it without a comparison.
+// heapPop removes and returns the smallest item.
 func (q *queueObject) heapPop() (Object, error) {
-	n := len(q.items) - 1
-	last := q.items[n]
-	q.items = q.items[:n]
-	if len(q.items) == 0 {
-		return last, nil
-	}
-	top := q.items[0]
-	q.items[0] = last
-	if err := q.siftup(0); err != nil {
-		return nil, err
-	}
-	return top, nil
+	item, items, err := heapPopItems(q.items)
+	q.items = items
+	return item, err
 }
 
-// siftdown walks the item at pos up toward startpos while it is smaller than its
-// parent, restoring the heap invariant after an append. It is CPython heapq's
+// heapPushItems appends item to a binary min-heap slice and sifts it up, mirroring
+// CPython heapq's heappush exactly so a PriorityQueue pops in the same order
+// CPython does, comparison for comparison. On a comparison error the item is left
+// appended, matching CPython leaving the partially pushed heap in place.
+func heapPushItems(items []Object, item Object) ([]Object, error) {
+	items = append(items, item)
+	return items, heapSiftdown(items, 0, len(items)-1)
+}
+
+// heapPopItems removes and returns the smallest item, mirroring CPython heapq's
+// heappop: the last leaf moves to the root and sifts down. The last element is
+// popped first, so a single-element heap returns it without a comparison.
+func heapPopItems(items []Object) (Object, []Object, error) {
+	n := len(items) - 1
+	last := items[n]
+	items = items[:n]
+	if len(items) == 0 {
+		return last, items, nil
+	}
+	top := items[0]
+	items[0] = last
+	if err := heapSiftup(items, 0); err != nil {
+		return nil, items, err
+	}
+	return top, items, nil
+}
+
+// heapSiftdown walks the item at pos up toward startpos while it is smaller than
+// its parent, restoring the heap invariant after an append. It is CPython heapq's
 // _siftdown, ordering with objLess so the sequence of comparisons matches.
-func (q *queueObject) siftdown(startpos, pos int) error {
-	newitem := q.items[pos]
+func heapSiftdown(items []Object, startpos, pos int) error {
+	newitem := items[pos]
 	for pos > startpos {
 		parentpos := (pos - 1) >> 1
-		parent := q.items[parentpos]
+		parent := items[parentpos]
 		less, err := objLess(newitem, parent)
 		if err != nil {
 			return err
@@ -237,25 +252,25 @@ func (q *queueObject) siftdown(startpos, pos int) error {
 		if !less {
 			break
 		}
-		q.items[pos] = parent
+		items[pos] = parent
 		pos = parentpos
 	}
-	q.items[pos] = newitem
+	items[pos] = newitem
 	return nil
 }
 
-// siftup walks the item at pos down to a leaf along the smaller child, then sifts
-// it back to its resting place, CPython heapq's _siftup. The child pick uses "not
-// left < right" so ties keep the left child, the same bias CPython has.
-func (q *queueObject) siftup(pos int) error {
-	endpos := len(q.items)
+// heapSiftup walks the item at pos down to a leaf along the smaller child, then
+// sifts it back to its resting place, CPython heapq's _siftup. The child pick uses
+// "not left < right" so ties keep the left child, the same bias CPython has.
+func heapSiftup(items []Object, pos int) error {
+	endpos := len(items)
 	startpos := pos
-	newitem := q.items[pos]
+	newitem := items[pos]
 	childpos := 2*pos + 1
 	for childpos < endpos {
 		rightpos := childpos + 1
 		if rightpos < endpos {
-			less, err := objLess(q.items[childpos], q.items[rightpos])
+			less, err := objLess(items[childpos], items[rightpos])
 			if err != nil {
 				return err
 			}
@@ -263,12 +278,12 @@ func (q *queueObject) siftup(pos int) error {
 				childpos = rightpos
 			}
 		}
-		q.items[pos] = q.items[childpos]
+		items[pos] = items[childpos]
 		pos = childpos
 		childpos = 2*pos + 1
 	}
-	q.items[pos] = newitem
-	return q.siftdown(startpos, pos)
+	items[pos] = newitem
+	return heapSiftdown(items, startpos, pos)
 }
 
 // objLess reports whether a < b under Python's comparison, the ordering CPython's
