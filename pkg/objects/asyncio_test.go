@@ -1693,7 +1693,7 @@ func runLoopForever(loop *eventLoop) chan error {
 // for run_forever to return, failing on a run error.
 func stopLoopForever(t *testing.T, loop *eventLoop, done chan error) {
 	t.Helper()
-	loop.callSoon(func() { loop.stopLoop() })
+	loop.callSoon(func() { _, _ = loop.stopLoop() })
 	if err := <-done; err != nil {
 		t.Fatalf("run_forever: %v", err)
 	}

@@ -30,7 +30,7 @@ func newVetCmd() *cobra.Command {
 				if !ok {
 					return fmt.Errorf("vet: no finding %q to explain", explain)
 				}
-				fmt.Fprint(cmd.OutOrStdout(), text)
+				_, _ = fmt.Fprint(cmd.OutOrStdout(), text)
 				return nil
 			}
 			if len(args) != 1 {
@@ -47,10 +47,10 @@ func newVetCmd() *cobra.Command {
 			findings, suppressed := vet.Suppress(src, vet.Analyze(mod))
 			out := cmd.OutOrStdout()
 			for _, f := range findings {
-				fmt.Fprintln(out, f.String(args[0]))
+				_, _ = fmt.Fprintln(out, f.String(args[0]))
 			}
 			if suppressed > 0 {
-				fmt.Fprintf(out, "%d suppressed by # unagi: ok\n", suppressed)
+				_, _ = fmt.Fprintf(out, "%d suppressed by # unagi: ok\n", suppressed)
 			}
 			if strict && len(findings) > 0 {
 				return &exitError{code: 1}
