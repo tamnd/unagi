@@ -2052,6 +2052,41 @@ func TestRunnerShutdownAsyncGensRunsFinalizer(t *testing.T) {
 	}
 }
 
+// TestRunnerCancelsPendingTasks checks a Runner cancels a task left pending on its
+// loop at close, so the task's CancelledError-handling and cleanup run at teardown.
+func TestRunnerCancelsPendingTasks(t *testing.T) {
+	var cancelled, cleaned bool
+	bg := NewCoroutine("bg", func(y Yielder) (Object, error) {
+		_, err := y.YieldFrom(AsyncioSleep(3600, None))
+		if err != nil {
+			if isCancelledError(err) {
+				cancelled = true
+			}
+			cleaned = true
+			return nil, err
+		}
+		return None, nil
+	})
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		if _, err := AsyncioCreateTask(bg, ""); err != nil {
+			return nil, err
+		}
+		if _, err := y.YieldFrom(AsyncioSleep(0, None)); err != nil {
+			return nil, err
+		}
+		return None, nil
+	})
+	if _, err := AsyncioRunViaRunner(mainThread, main, None); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !cancelled {
+		t.Fatalf("pending task was not cancelled at teardown")
+	}
+	if !cleaned {
+		t.Fatalf("pending task cleanup did not run at teardown")
+	}
+}
+
 // TestLoopShutdownAsyncGensEmpty checks loop.shutdown_asyncgens on a loop with no
 // tracked generators is a coroutine that completes cleanly to None.
 func TestLoopShutdownAsyncGensEmpty(t *testing.T) {
