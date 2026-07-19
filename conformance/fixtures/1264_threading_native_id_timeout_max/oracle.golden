@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+timeout_max 9223372036.0
+timeout_max type float
+native_id type int
+native_id positive True
+native_id stable True
+matches attr True
+== exception:
+== stderr:

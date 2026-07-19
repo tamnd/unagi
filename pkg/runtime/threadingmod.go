@@ -24,6 +24,8 @@ func initThreading(m *objects.Module) error {
 		fn   objects.Object
 	}{
 		{"get_ident", objects.NewFuncT("get_ident", -1, threadingGetIdent)},
+		{"get_native_id", objects.NewFuncT("get_native_id", -1, threadingGetNativeID)},
+		{"TIMEOUT_MAX", objects.NewFloat(9223372036.0)},
 		{"Thread", objects.NewFuncKw("Thread", threadingNewThread)},
 		{"current_thread", objects.NewFuncT("current_thread", -1, threadingCurrentThread)},
 		{"main_thread", objects.NewFunc("main_thread", -1, threadingMainThread)},
@@ -362,6 +364,18 @@ func threadingEnumerate(args []objects.Object) (objects.Object, error) {
 func threadingGetIdent(t *objects.Thread, args []objects.Object) (objects.Object, error) {
 	if len(args) != 0 {
 		return nil, objects.Raise(objects.TypeError, "get_ident() takes no arguments (%d given)", len(args))
+	}
+	return objects.NewInt(t.Ident()), nil
+}
+
+// threadingGetNativeID is threading.get_native_id(): the current thread's native
+// id, the value CPython reads from the OS thread. A goroutine has no stable OS
+// thread of its own, so the runtime uses the thread ident here, the same value
+// Thread.native_id already reports; it is a unique positive int per live thread,
+// which is the contract callers rely on (spec 2076 doc 10 §2.1).
+func threadingGetNativeID(t *objects.Thread, args []objects.Object) (objects.Object, error) {
+	if len(args) != 0 {
+		return nil, objects.Raise(objects.TypeError, "get_native_id() takes no arguments (%d given)", len(args))
 	}
 	return objects.NewInt(t.Ident()), nil
 }
