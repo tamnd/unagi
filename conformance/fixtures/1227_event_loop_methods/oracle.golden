@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+running True
+closed False
+debug False
+time is float True
+time monotonic True
+future pending True
+future result resolved
+same loop True
+== exception:
+== stderr:

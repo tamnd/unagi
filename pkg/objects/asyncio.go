@@ -46,6 +46,7 @@ type eventLoop struct {
 	timers  []*loopTimer
 	running bool
 	closed  bool
+	epoch   time.Time
 }
 
 // callSoon schedules cb to run on the next loop iteration, preserving FIFO order.
@@ -328,7 +329,7 @@ func AsyncioRun(main Object) (Object, error) {
 	if !ok || !coro.isCoro {
 		return nil, Raise(TypeError, "An asyncio.Future, a coroutine or an awaitable is required")
 	}
-	loop := &eventLoop{running: true}
+	loop := &eventLoop{running: true, epoch: time.Now()}
 	runningLoop.Store(loop)
 	defer func() {
 		loop.running = false
@@ -480,3 +481,38 @@ func AsyncioRunningLoop() Object {
 }
 
 func (l *eventLoop) TypeName() string { return "EventLoop" }
+
+// eventLoopMethod dispatches the loop's introspection and future-creation
+// surface. create_future hands back a Future bound to the loop, and time reports
+// the loop's monotonic clock so a later reading is never before an earlier one.
+// Callback scheduling, call_soon and call_later, is a later slice.
+func eventLoopMethod(l *eventLoop, name string, args []Object) (Object, error) {
+	switch name {
+	case "create_future":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "create_future() takes 1 positional argument but %d were given", len(args)+1)
+		}
+		return &asyncFuture{loop: l}, nil
+	case "time":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "time() takes 1 positional argument but %d were given", len(args)+1)
+		}
+		return NewFloat(time.Since(l.epoch).Seconds()), nil
+	case "is_running":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "is_running() takes 1 positional argument but %d were given", len(args)+1)
+		}
+		return NewBool(l.running), nil
+	case "is_closed":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "is_closed() takes 1 positional argument but %d were given", len(args)+1)
+		}
+		return NewBool(l.closed), nil
+	case "get_debug":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "get_debug() takes 1 positional argument but %d were given", len(args)+1)
+		}
+		return NewBool(false), nil
+	}
+	return nil, noAttr(l, name)
+}
