@@ -842,6 +842,12 @@ func equals(a, b Object) bool {
 		// str equals str | int but not int | bytes.
 		y, ok := b.(*unionObject)
 		return ok && unionArgsEqual(x, y)
+	case *weakrefObject:
+		// Two live refs are equal when their referents compare equal, so a set of
+		// refs dedups by referent the way WeakSet needs; a ref never equals its
+		// bare referent.
+		y, ok := b.(*weakrefObject)
+		return ok && equals(x.referent, y.referent)
 	}
 	return a == b
 }

@@ -220,6 +220,10 @@ func reprCore(o Object, strict bool) (string, error) {
 		return fmt.Sprintf("Use %s() or Ctrl-D (i.e. EOF) to exit", x.name), nil
 	case *printerObject:
 		return x.reprText, nil
+	case *weakrefObject:
+		// Deterministic without an address: the referent's type names what the ref
+		// points at, which is all a repr in this tier can promise.
+		return fmt.Sprintf("<weakref; to '%s'>", x.referent.TypeName()), nil
 	case *listObject:
 		return reprSeqCore(x.elts, "[", "]", strict)
 	case *dequeObject:

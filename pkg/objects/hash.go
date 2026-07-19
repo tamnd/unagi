@@ -84,6 +84,10 @@ func PyHash(o Object) (int64, error) {
 		// A compiled re.Pattern and re.Match hash by identity too, which is what
 		// functools.lru_cache needs when re._compile_template keys on the pattern.
 		return pyHashPointer(o), nil
+	case *weakrefObject:
+		// A ref hashes as its referent, so ref(cls) keys a set slot the way cls
+		// does and two refs to one class collide, which is what WeakSet relies on.
+		return PyHash(x.referent)
 	case *instanceObject:
 		val, hasVal, _, err := instanceHashInfo(x)
 		if err != nil {

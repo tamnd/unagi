@@ -509,6 +509,12 @@ func CallT(t *Thread, f Object, args []Object) (Object, error) {
 		}
 		return nil, Raise(TypeError, "'%s' object is not callable", f.TypeName())
 	}
+	if w, ok := f.(*weakrefObject); ok {
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "ref() takes no arguments (%d given)", len(args))
+		}
+		return weakrefTarget(w), nil
+	}
 	if q, ok := f.(*quitterObject); ok {
 		return q.call(args)
 	}
@@ -548,7 +554,7 @@ func Callable(f Object) bool {
 		return true
 	case *namedTupleType, *partialObject, *lruCacheObject, *keyObject:
 		return true
-	case *quitterObject, *printerObject:
+	case *quitterObject, *printerObject, *weakrefObject:
 		return true
 	case *typeObject:
 		// A constructor-less type value is callable even when the call only

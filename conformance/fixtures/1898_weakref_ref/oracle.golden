@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+True
+True True True
+1
+False 2
+True
+True
+no ref to int: TypeError
+2 True True False
+False
+True
+1 False True
+2
+1 True
+== exception:
+== stderr:
