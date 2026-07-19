@@ -75,6 +75,93 @@ func TestIODefaultBufferSize(t *testing.T) {
 	}
 }
 
+// newIOBase instantiates a bare _io._IOBase, the abstract base every stream
+// derives from.
+func newIOBase(t *testing.T) objects.Object {
+	t.Helper()
+	inst, err := objects.Call(ioAttr(t, "_IOBase"), nil)
+	if err != nil {
+		t.Fatalf("_IOBase(): %v", err)
+	}
+	return inst
+}
+
+// ioCall calls a method and fails the test on error.
+func ioCall(t *testing.T, self objects.Object, name string, args ...objects.Object) objects.Object {
+	t.Helper()
+	v, err := objects.CallMethod(self, name, args)
+	if err != nil {
+		t.Fatalf("%s(): %v", name, err)
+	}
+	return v
+}
+
+func TestIOBaseDefaults(t *testing.T) {
+	b := newIOBase(t)
+	// closed starts false; the predicates all report false on the bare base.
+	if v, _ := objects.LoadAttr(b, "closed"); objects.Truth(v) {
+		t.Fatal("fresh _IOBase should not be closed")
+	}
+	for _, m := range []string{"readable", "writable", "seekable", "isatty"} {
+		if objects.Truth(ioCall(t, b, m)) {
+			t.Fatalf("%s() should be false on the bare base", m)
+		}
+	}
+	// flush and _checkClosed are no-ops while open.
+	if ioCall(t, b, "flush") != objects.None {
+		t.Fatal("flush() on an open base should return None")
+	}
+	if ioCall(t, b, "_checkClosed") != objects.None {
+		t.Fatal("_checkClosed() on an open base should return None")
+	}
+}
+
+func TestIOBaseUnsupported(t *testing.T) {
+	b := newIOBase(t)
+	uo := ioAttr(t, "UnsupportedOperation")
+	// seek/tell/truncate/fileno all raise UnsupportedOperation; tell is seek.
+	for _, tc := range []struct{ name, msg string }{
+		{"seek", "seek"}, {"tell", "seek"}, {"truncate", "truncate"}, {"fileno", "fileno"},
+	} {
+		_, err := objects.CallMethod(b, tc.name, nil)
+		exc, ok := err.(*objects.Exception)
+		if !ok {
+			t.Fatalf("%s() error = %v, want UnsupportedOperation", tc.name, err)
+		}
+		if !objects.ExcMatchesClass(exc, uo) {
+			t.Fatalf("%s() should raise UnsupportedOperation, got %v", tc.name, err)
+		}
+		if exc.Text() != tc.msg {
+			t.Fatalf("%s() message = %q, want %q", tc.name, exc.Text(), tc.msg)
+		}
+	}
+}
+
+func TestIOBaseCloseIdempotent(t *testing.T) {
+	b := newIOBase(t)
+	if ioCall(t, b, "close") != objects.None {
+		t.Fatal("close() should return None")
+	}
+	if v, _ := objects.LoadAttr(b, "closed"); !objects.Truth(v) {
+		t.Fatal("closed should be true after close")
+	}
+	// A second close is a no-op.
+	if ioCall(t, b, "close") != objects.None {
+		t.Fatal("second close() should return None")
+	}
+	// flush and _checkClosed now raise ValueError on the closed stream.
+	for _, m := range []string{"flush", "_checkClosed"} {
+		_, err := objects.CallMethod(b, m, nil)
+		exc, ok := err.(*objects.Exception)
+		if !ok || exc.Kind != objects.ValueError {
+			t.Fatalf("%s() on closed = %v, want ValueError", m, err)
+		}
+		if exc.Text() != "I/O operation on closed file." {
+			t.Fatalf("%s() closed message = %q", m, exc.Text())
+		}
+	}
+}
+
 func TestIOBlockingIOErrorReexport(t *testing.T) {
 	// _io only re-exports BlockingIOError, so the name is the very builtin the
 	// exception namespace binds, not a fresh class.

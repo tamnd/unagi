@@ -1,0 +1,29 @@
+== exit: 0
+== stdout:
+False False False False False
+None None
+seek -> seek
+tell -> seek
+truncate -> truncate
+fileno -> fileno
+_checkReadable -> File or stream is not readable.
+_checkWritable -> File or stream is not writable.
+_checkSeekable -> File or stream is not seekable.
+None True
+['__IOBase_closed']
+None True
+flush closed -> I/O operation on closed file.
+_checkClosed closed -> I/O operation on closed file.
+['IOBase', '_IOBase', 'object']
+b'ab\n' b'cd\n' b'\n' b'ef' b''
+[b'x\n', b'y\n', b'z']
+[b'p\n', b'q\n']
+b'hel' b'lo\n'
+enter is self: True
+closed after with: True
+propagated, closed: True
+[b'a', b'bc', b'd']
+True True
+True
+== exception:
+== stderr:
