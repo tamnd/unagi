@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+fresh 0
+cancel1 True
+cancelling 1
+cancel2 True
+cancelling 2
+uncancel 1
+uncancel 0
+uncancel 0
+done cancel False
+done cancelling 0
+ok
+== exception:
+== stderr:
