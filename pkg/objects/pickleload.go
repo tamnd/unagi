@@ -210,6 +210,10 @@ func (u *unpickler) dispatch(op byte) error {
 		return u.loadStackGlobal()
 	case opReduce:
 		return u.reduce()
+	case opNewObj:
+		return u.newObj()
+	case opBuild:
+		return u.build()
 	default:
 		return newUnpicklingError("unsupported pickle opcode: 0x%02x", op)
 	}
@@ -424,7 +428,47 @@ func (u *unpickler) findClass(module, name string) (Object, error) {
 	if m, ok := compatForwardImport[module]; ok {
 		module = m
 	}
+	if c := lookupPickleClass(module, name); c != nil {
+		return c, nil
+	}
 	return &pickleGlobalRef{module: module, qualname: name}, nil
+}
+
+// newObj rebuilds the instance a NEWOBJ opcode describes from the class and the
+// new-arguments tuple on the stack: cls.__new__(cls, *args), without __init__.
+func (u *unpickler) newObj() error {
+	if len(u.stack) < 2 {
+		return newUnpicklingError("newobj underflow")
+	}
+	argsObj := u.stack[len(u.stack)-1]
+	clsObj := u.stack[len(u.stack)-2]
+	u.stack = u.stack[:len(u.stack)-2]
+	args, ok := argsObj.(*tupleObject)
+	if !ok {
+		return newUnpicklingError("newobj arguments are not a tuple")
+	}
+	cls, ok := clsObj.(*classObject)
+	if !ok {
+		return newUnpicklingError("newobj on a non-class")
+	}
+	obj, err := pickleNewInstance(cls, args.elts)
+	if err != nil {
+		return err
+	}
+	u.push(obj)
+	return nil
+}
+
+// build applies the state on top of the stack to the instance below it, the way
+// BUILD restores an instance's __dict__.
+func (u *unpickler) build() error {
+	if len(u.stack) < 2 {
+		return newUnpicklingError("build underflow")
+	}
+	state := u.stack[len(u.stack)-1]
+	u.stack = u.stack[:len(u.stack)-1]
+	obj := u.stack[len(u.stack)-1]
+	return pickleApplyState(obj, state)
 }
 
 // reduce applies the callable a REDUCE opcode leaves below its argument tuple,

@@ -56,6 +56,21 @@ func (p *pickler) globalRef(module, qualname string) *pickleGlobalRef {
 	return r
 }
 
+// moduleNameObj returns the interned strObject for a module name, so every global
+// referencing that module saves the same object and the pickler's identity-keyed
+// memo fetches it back after the first, matching CPython's shared __module__.
+func (p *pickler) moduleNameObj(module string) *strObject {
+	if p.moduleNames == nil {
+		p.moduleNames = map[string]*strObject{}
+	}
+	if s, ok := p.moduleNames[module]; ok {
+		return s
+	}
+	s := NewStr(module).(*strObject)
+	p.moduleNames[module] = s
+	return s
+}
+
 // saveGlobal writes a reference to a callable by its module and qualname. Under
 // protocol 4+ the two names go out as memoized strings followed by STACK_GLOBAL;
 // under protocols 2 and 3 they go out as the newline-terminated GLOBAL body,
@@ -68,7 +83,12 @@ func (p *pickler) saveGlobal(module, qualname string) error {
 		return nil
 	}
 	if p.proto >= 4 {
-		if err := p.saveStr(module, NewStr(module)); err != nil {
+		// The module name is memoized by identity in CPython, and every class in a
+		// module shares one __module__ string object, so a second class in the same
+		// module fetches the name from the memo instead of re-emitting it. Interning
+		// the module strObject per pickle reproduces that shared identity; the
+		// qualname is a per-class object, so it is written fresh each time.
+		if err := p.saveStr(module, p.moduleNameObj(module)); err != nil {
 			return err
 		}
 		if err := p.saveStr(qualname, NewStr(qualname)); err != nil {
