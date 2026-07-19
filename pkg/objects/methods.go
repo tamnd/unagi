@@ -98,6 +98,8 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		return asyncioSemaphoreMethod(x, name, args)
 	case *asyncioQueue:
 		return asyncioQueueMethod(x, name, args)
+	case *asyncioStreamReader:
+		return asyncioStreamReaderMethod(x, name, args)
 	case *asyncioCondition:
 		return asyncioConditionMethod(x, name, args)
 	case *asyncioBarrier:
@@ -229,6 +231,8 @@ func CallMethodKwT(t *Thread, o Object, name string, pos []Object, kwNames []str
 		return simpleQueueMethodKw(x, name, pos, kwNames, kwVals)
 	case *asyncioQueue:
 		return asyncioQueueMethodKw(x, name, pos, kwNames, kwVals)
+	case *asyncioStreamReader:
+		return asyncioStreamReaderMethodKw(x, name, pos, kwNames, kwVals)
 	case *futureObject:
 		return futureMethodKwT(t, x, name, pos, kwNames, kwVals)
 	case *asyncFuture:
