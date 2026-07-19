@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+t1 name Task-2
+t2 name doubler
+t1 done before False
+t1 loop is loop True
+results 10 14
+t1 done after True
+t1 result 10
+t2 result 14
+t1 cancelled False
+t1 exception None
+t1 renamed renamed
+caught nope
+tb done True
+tb exception nope
+tb cancelled False
+== exception:
+== stderr:

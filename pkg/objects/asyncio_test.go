@@ -135,7 +135,7 @@ func awaitObj(y Yielder, o Object) (Object, error) {
 // awaiting the returned task yields its result.
 func TestAsyncioCreateTaskAwait(t *testing.T) {
 	main := NewCoroutine("main", func(y Yielder) (Object, error) {
-		task, err := AsyncioCreateTask(sleepThen("child", 0.005, NewInt(11)))
+		task, err := AsyncioCreateTask(sleepThen("child", 0.005, NewInt(11)), "")
 		if err != nil {
 			return nil, err
 		}
@@ -164,11 +164,11 @@ func TestAsyncioCreateTaskConcurrent(t *testing.T) {
 		})
 	}
 	main := NewCoroutine("main", func(y Yielder) (Object, error) {
-		slow, err := AsyncioCreateTask(record("slow", 0.02))
+		slow, err := AsyncioCreateTask(record("slow", 0.02), "")
 		if err != nil {
 			return nil, err
 		}
-		fast, err := AsyncioCreateTask(record("fast", 0.005))
+		fast, err := AsyncioCreateTask(record("fast", 0.005), "")
 		if err != nil {
 			return nil, err
 		}
@@ -262,7 +262,7 @@ func TestAsyncioGatherReturnExceptions(t *testing.T) {
 // RuntimeError asyncio raises.
 func TestAsyncioCreateTaskOutsideLoop(t *testing.T) {
 	c := NewCoroutine("c", func(y Yielder) (Object, error) { return None, nil })
-	if _, err := AsyncioCreateTask(c); coroExcKind(err) != "RuntimeError" {
+	if _, err := AsyncioCreateTask(c, ""); coroExcKind(err) != "RuntimeError" {
 		t.Fatalf("create_task outside loop = %v, want RuntimeError", err)
 	}
 	if _, err := c.(*generatorObject).closeGen(); err != nil {
@@ -286,7 +286,7 @@ func TestAsyncioFutureResolveAndAwait(t *testing.T) {
 			}
 			return fut.pySetResult(NewInt(42))
 		})
-		if _, err := AsyncioCreateTask(setter); err != nil {
+		if _, err := AsyncioCreateTask(setter, ""); err != nil {
 			return nil, err
 		}
 		v, err := awaitObj(y, fut)
