@@ -431,6 +431,9 @@ func (u *unpickler) findClass(module, name string) (Object, error) {
 	if c := lookupPickleClass(module, name); c != nil {
 		return c, nil
 	}
+	if fn := lookupPickleFunction(module, name); fn != nil {
+		return fn, nil
+	}
 	return &pickleGlobalRef{module: module, qualname: name}, nil
 }
 

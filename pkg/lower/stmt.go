@@ -174,6 +174,11 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 			if _, err := build(); err != nil {
 				return err
 			}
+			// The function is the module attribute its name denotes, so it pickles
+			// by qualified name: register it so an unpickler resolves a global
+			// reference back to it. A decorated def is not registered — its name
+			// holds the decorator result, not this function.
+			f.add(exprStmt(callExpr(f.e.obj("RegisterPickleFunction"), ident(f.e.fnObjName(s.Name)))))
 			// A rebound def name is an ordinary variable; the def statement is
 			// the assignment that first binds it.
 			if f.e.rebound[s.Name] {

@@ -576,3 +576,102 @@ func TestPickleEmptyInstanceRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// mustPickleFunction builds a module-level function under the given qualname and
+// registers it, the way a compiled module-level def does, so it pickles by
+// qualified name and the loader resolves it back.
+func mustPickleFunction(qual string) *functionObject {
+	fn := NewFunctionT(qual, nil, nil, func(_ *Thread, args []Object) (Object, error) {
+		return NewStr("ok"), nil
+	}).(*functionObject)
+	RegisterPickleFunction(fn)
+	return fn
+}
+
+// TestPickleDumpsGlobal pins the bare global reference a module-level function
+// and a class object pickle as, byte for byte against CPython 3.14: GLOBAL plus a
+// BINPUT memo at protocol 2, SHORT_BINUNICODE names plus STACK_GLOBAL inside a
+// frame at protocol 4+.
+func TestPickleDumpsGlobal(t *testing.T) {
+	greet := mustPickleFunction("greetfn")
+	Pt := mustPickleClass(t, "PtGlobal")
+	cases := []struct {
+		name  string
+		obj   Object
+		proto int
+		want  string
+	}{
+		{"fn_p2", greet, 2, "8002635f5f6d61696e5f5f0a6772656574666e0a71002e"},
+		{"fn_p4", greet, 4, "80049518000000000000008c085f5f6d61696e5f5f948c076772656574666e9493942e"},
+		{"cls_p2", Pt, 2, "8002635f5f6d61696e5f5f0a5074476c6f62616c0a71002e"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := PickleDumps(tc.obj, tc.proto)
+			if err != nil {
+				t.Fatalf("PickleDumps(%s): %v", tc.name, err)
+			}
+			if h := hex.EncodeToString(got); h != tc.want {
+				t.Fatalf("PickleDumps(%s)\n got  %s\n want %s", tc.name, h, tc.want)
+			}
+		})
+	}
+}
+
+// TestPickleGlobalRoundTrip confirms a module-level function and a class object
+// come back as the very same registered object at every binary protocol.
+func TestPickleGlobalRoundTrip(t *testing.T) {
+	fn := mustPickleFunction("rtGlobalFn")
+	cls := mustPickleClass(t, "RTGlobalCls")
+	for _, proto := range []int{2, 3, 4, 5} {
+		for _, want := range []Object{fn, cls} {
+			data, err := PickleDumps(want, proto)
+			if err != nil {
+				t.Fatalf("dumps(proto=%d): %v", proto, err)
+			}
+			back, err := PickleLoads(data)
+			if err != nil {
+				t.Fatalf("loads(proto=%d): %v", proto, err)
+			}
+			if back != want {
+				t.Fatalf("loads(proto=%d) = %p, want %p", proto, back, want)
+			}
+		}
+	}
+}
+
+// TestPickleGlobalMemo confirms a global referenced twice is written once and
+// fetched back from the memo, so both slots recover the identical object.
+func TestPickleGlobalMemo(t *testing.T) {
+	fn := mustPickleFunction("memoFn")
+	// CPython: pickle.dumps([memoFn, memoFn], 4) — the second element is a BINGET.
+	data, err := PickleDumps(NewList([]Object{fn, fn}), 4)
+	if err != nil {
+		t.Fatalf("dumps: %v", err)
+	}
+	want := "8004951d000000000000005d94288c085f5f6d61696e5f5f948c066d656d6f466e9493946803652e"
+	if h := hex.EncodeToString(data); h != want {
+		t.Fatalf("dumps([fn, fn])\n got  %s\n want %s", h, want)
+	}
+}
+
+// TestPickleLocalGlobalRefused confirms a function or class not reachable by
+// qualified name — a lambda, a nested def, a class defined inside a function —
+// is refused with a PicklingError rather than pickled as a reference that would
+// not resolve the same way CPython's would.
+func TestPickleLocalGlobalRefused(t *testing.T) {
+	local := NewFunctionT("outer.<locals>.inner", nil, nil, func(_ *Thread, _ []Object) (Object, error) {
+		return None, nil
+	})
+	if _, err := PickleDumps(local, 5); err == nil {
+		t.Fatalf("PickleDumps(local function) = nil error, want PicklingError")
+	}
+	// An unregistered plain function (never bound as a module attribute) is also
+	// unreachable by name and is refused.
+	orphan := NewFunctionT("orphanFn", nil, nil, func(_ *Thread, _ []Object) (Object, error) {
+		return None, nil
+	})
+	if _, err := PickleDumps(orphan, 5); err == nil {
+		t.Fatalf("PickleDumps(unregistered function) = nil error, want PicklingError")
+	}
+}
