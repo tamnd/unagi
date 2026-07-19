@@ -1893,6 +1893,25 @@ func LoadAttr(o Object, name string) (Object, error) {
 		if name == "__name__" || name == "__qualname__" {
 			return NewStr(x.name), nil
 		}
+		// A constructor-less builtin type still answers the type introspection
+		// attributes, so _collections_abc can register coroutine, generator, and
+		// the iterator and view types: `_check_methods` opens with `mro = C.__mro__`
+		// and probes `method in B.__dict__` for each B in it. The floor gives every
+		// such type the plain (T, object) chain rooted at object; its own methods
+		// are not enumerated in __dict__ yet, so a structural subclass check returns
+		// NotImplemented and the ABC falls back to its registry, which register just
+		// populated, keeping isinstance faithful.
+		switch name {
+		case "__mro__":
+			return NewTuple([]Object{x, objectClass}), nil
+		case "__bases__":
+			return NewTuple([]Object{objectClass}), nil
+		case "__base__":
+			return objectClass, nil
+		case "__dict__":
+			d := &dictObject{index: map[string]int{}}
+			return &mappingProxyObject{d: d}, nil
+		}
 		return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
 	case *namedTupleType:
 		return namedTupleTypeAttr(x, name)
