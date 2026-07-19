@@ -166,7 +166,7 @@ func (l *eventLoop) callLater(delay time.Duration, cb func()) *loopTimer {
 // callback ready it sleeps until the earliest timer; with neither ready nor a
 // timer while the target is unmet, the awaited result can never arrive, the
 // deadlock asyncio reports as the loop stopping early.
-func (l *eventLoop) runUntil(done func() bool) error {
+func (l *eventLoop) runUntil(done func() bool, idleBlocks bool) error {
 	for {
 		if done() {
 			return nil
@@ -178,8 +178,10 @@ func (l *eventLoop) runUntil(done func() bool) error {
 				// Nothing is ready and no timer will make anything ready. If an
 				// off-loop operation is outstanding, block until it wakes the loop;
 				// otherwise the awaited result can never arrive, the deadlock asyncio
-				// reports as the loop stopping early.
-				if l.pending == 0 {
+				// reports as the loop stopping early. run_forever sets idleBlocks: it
+				// has no target future to strand, so it parks on the wakeup channel
+				// instead, waiting for a call_soon_threadsafe from another thread.
+				if l.pending == 0 && !idleBlocks {
 					l.mu.Unlock()
 					return Raise(RuntimeError, "Event loop stopped before Future completed.")
 				}
@@ -661,7 +663,7 @@ func AsyncioRunT(t *Thread, main Object) (Object, error) {
 	}()
 	tk := newTask(coro, loop, "")
 	loop.callSoon(func() { tk.step(genSignal{val: None}) })
-	if err := loop.runUntil(func() bool { return tk.done }); err != nil {
+	if err := loop.runUntil(func() bool { return tk.done }, false); err != nil {
 		return nil, err
 	}
 	if tk.exc != nil {
@@ -706,7 +708,7 @@ func (l *eventLoop) runUntilComplete(t *Thread, aw Object) (Object, error) {
 	}
 	switch f := fut.(type) {
 	case *asyncTask:
-		if err := l.runUntil(func() bool { return f.done }); err != nil {
+		if err := l.runUntil(func() bool { return f.done }, false); err != nil {
 			return nil, err
 		}
 		if f.exc != nil {
@@ -714,7 +716,7 @@ func (l *eventLoop) runUntilComplete(t *Thread, aw Object) (Object, error) {
 		}
 		return f.result, nil
 	case *asyncFuture:
-		if err := l.runUntil(func() bool { return f.doneP() }); err != nil {
+		if err := l.runUntil(func() bool { return f.doneP() }, false); err != nil {
 			return nil, err
 		}
 		if f.exc != nil {
@@ -748,7 +750,7 @@ func (l *eventLoop) runForever(t *Thread) (Object, error) {
 		l.stopping = false
 		runningLoop.Store(nil)
 	}()
-	if err := l.runUntil(func() bool { return l.stopping }); err != nil {
+	if err := l.runUntil(func() bool { return l.stopping }, true); err != nil {
 		return nil, err
 	}
 	return None, nil
@@ -1311,8 +1313,8 @@ func (l *eventLoop) TypeName() string { return "EventLoop" }
 var eventLoopMethodNames = map[string]bool{
 	"create_future": true, "time": true, "is_running": true, "is_closed": true,
 	"get_debug": true, "run_in_executor": true, "call_soon": true, "call_later": true,
-	"call_at": true, "run_until_complete": true, "run_forever": true, "stop": true,
-	"close": true,
+	"call_at": true, "call_soon_threadsafe": true, "run_until_complete": true,
+	"run_forever": true, "stop": true, "close": true,
 }
 
 // eventLoopMethodT dispatches the loop methods that need the running thread,
@@ -1372,7 +1374,7 @@ func eventLoopMethod(l *eventLoop, name string, args []Object) (Object, error) {
 		return NewBool(false), nil
 	case "run_in_executor":
 		return l.runInExecutor(args)
-	case "call_soon":
+	case "call_soon", "call_soon_threadsafe":
 		return l.callSoonMethod(args, nil)
 	case "call_later":
 		return l.callLaterMethod(args, nil)
@@ -1439,7 +1441,7 @@ func eventLoopMethodKw(l *eventLoop, name string, pos []Object, kwNames []string
 		ctx = kwVals[i]
 	}
 	switch name {
-	case "call_soon":
+	case "call_soon", "call_soon_threadsafe":
 		return l.callSoonMethod(pos, ctx)
 	case "call_later":
 		return l.callLaterMethod(pos, ctx)

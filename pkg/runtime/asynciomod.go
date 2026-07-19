@@ -32,6 +32,7 @@ func initAsyncio(m *objects.Module) error {
 		{"ALL_COMPLETED", objects.NewStr("ALL_COMPLETED")},
 		{"shield", objects.NewFuncKw("shield", asyncioShield)},
 		{"ensure_future", objects.NewFuncKw("ensure_future", asyncioEnsureFuture)},
+		{"run_coroutine_threadsafe", objects.NewFuncKw("run_coroutine_threadsafe", asyncioRunCoroutineThreadsafe)},
 		{"timeout", objects.NewFuncKw("timeout", asyncioTimeout)},
 		{"timeout_at", objects.NewFuncKw("timeout_at", asyncioTimeoutAt)},
 		{"Future", objects.NewFuncKw("Future", asyncioFuture)},
@@ -386,6 +387,25 @@ func asyncioEnsureFuture(pos []objects.Object, kwNames []string, kwVals []object
 		return nil, objects.Raise(objects.TypeError, "ensure_future() missing 1 required positional argument: 'coro_or_future'")
 	}
 	return objects.AsyncioEnsureFuture(arg)
+}
+
+// asyncioRunCoroutineThreadsafe is asyncio.run_coroutine_threadsafe(coro, loop).
+// It submits coro to a loop running on another thread and hands back a
+// concurrent.futures.Future the calling thread blocks on.
+func asyncioRunCoroutineThreadsafe(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	vals, err := bindArgs("run_coroutine_threadsafe", []string{"coro", "loop"}, pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	coro, ok := vals["coro"]
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "run_coroutine_threadsafe() missing 1 required positional argument: 'coro'")
+	}
+	loop, ok := vals["loop"]
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "run_coroutine_threadsafe() missing 1 required positional argument: 'loop'")
+	}
+	return objects.RunCoroutineThreadsafe(coro, loop)
 }
 
 // asyncioShield is asyncio.shield(arg). It returns a future mirroring arg's
