@@ -1,0 +1,26 @@
+== exit: 0
+== stdout:
+graceful qsize 2 empty False
+get a a
+get b b
+get past end raised ShutDown
+put raised ShutDown
+put_nowait raised ShutDown
+bounded get 1
+bounded put raised ShutDown
+q2 before 2 unfinished join would block
+q2 after immediate qsize 0 empty True
+q2 join returned
+q2 get raised ShutDown
+q3 after positional immediate qsize 0
+lifo drain 2 1
+lifo empty raised ShutDown
+pq drain 1 2 3
+pq empty raised ShutDown
+tq get x
+tq join returned after task_done
+plain get_nowait raised Empty
+ShutDown is Exception subclass True
+ok
+== exception:
+== stderr:

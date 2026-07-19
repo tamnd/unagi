@@ -22,6 +22,7 @@ type queueObject struct {
 	items      []Object
 	maxsize    int // zero or negative means unbounded
 	unfinished int // puts not yet balanced by task_done
+	isShutdown bool
 	notEmpty   []chan struct{}
 	notFull    []chan struct{}
 	allDone    []chan struct{}
@@ -84,6 +85,10 @@ func (q *queueObject) put(item Object, block bool, hasTimeout bool, timeout time
 		deadline = time.Now().Add(timeout)
 	}
 	q.mu.Lock()
+	if q.isShutdown {
+		q.mu.Unlock()
+		return newQueueShutDown()
+	}
 	for q.atCapacity() {
 		if !block {
 			q.mu.Unlock()
@@ -110,6 +115,12 @@ func (q *queueObject) put(item Object, block bool, hasTimeout bool, timeout time
 			}
 		}
 		q.mu.Lock()
+		// shutdown wakes every blocked putter to raise ShutDown, and it fires even
+		// when room has since opened, matching CPython's post-wait is_shutdown check.
+		if q.isShutdown {
+			q.mu.Unlock()
+			return newQueueShutDown()
+		}
 	}
 	if err := q.enqueue(item); err != nil {
 		// A PriorityQueue rejects an item its heap cannot order. CPython leaves the
@@ -132,6 +143,10 @@ func (q *queueObject) get(block bool, hasTimeout bool, timeout time.Duration) (O
 		deadline = time.Now().Add(timeout)
 	}
 	q.mu.Lock()
+	if q.isShutdown && len(q.items) == 0 {
+		q.mu.Unlock()
+		return nil, newQueueShutDown()
+	}
 	for len(q.items) == 0 {
 		if !block {
 			q.mu.Unlock()
@@ -155,6 +170,12 @@ func (q *queueObject) get(block bool, hasTimeout bool, timeout time.Duration) (O
 			}
 		}
 		q.mu.Lock()
+		// A shutdown drains the queue and wakes every blocked getter; one that wakes
+		// to an empty queue raises ShutDown rather than parking again.
+		if q.isShutdown && len(q.items) == 0 {
+			q.mu.Unlock()
+			return nil, newQueueShutDown()
+		}
 	}
 	item, err := q.dequeue()
 	if err != nil {
@@ -326,6 +347,33 @@ func (q *queueObject) join() {
 	q.mu.Unlock()
 }
 
+// shutdown marks the queue closed so later puts and empty gets raise ShutDown.
+// A graceful shutdown leaves the queued items for get to drain; an immediate one
+// drops them, balancing each against unfinished so a join unblocks, then wakes
+// every joiner. Either way it wakes every blocked getter and putter to re-check
+// and raise ShutDown, mirroring CPython's not_empty/not_full notify_all. Only the
+// immediate drain of a PriorityQueue can report an error, the TypeError its heap
+// raises on two unorderable items, matching CPython where _get runs under the lock.
+func (q *queueObject) shutdown(immediate bool) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.isShutdown = true
+	if immediate {
+		for len(q.items) > 0 {
+			if _, err := q.dequeue(); err != nil {
+				return err
+			}
+			if q.unfinished > 0 {
+				q.unfinished--
+			}
+		}
+		wakeAllWaiters(&q.allDone)
+	}
+	wakeAllWaiters(&q.notEmpty)
+	wakeAllWaiters(&q.notFull)
+	return nil
+}
+
 func (q *queueObject) size() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -453,6 +501,15 @@ func queueMethod(q *queueObject, name string, args []Object) (Object, error) {
 			return nil, Raise(TypeError, "full() takes no arguments (%d given)", len(args))
 		}
 		return NewBool(q.isFull()), nil
+	case "shutdown":
+		if len(args) > 1 {
+			return nil, Raise(TypeError, "shutdown() takes from 1 to 2 positional arguments but %d were given", len(args)+1)
+		}
+		immediate := false
+		if len(args) == 1 {
+			immediate = Truth(args[0])
+		}
+		return None, q.shutdown(immediate)
 	}
 	return nil, noAttr(q, name)
 }
@@ -471,8 +528,39 @@ func queueMethodKw(q *queueObject, name string, pos []Object, kwNames []string, 
 			return nil, err
 		}
 		return q.get(block, hasTimeout, timeout)
+	case "shutdown":
+		immediate, err := parseQueueShutdown(pos, kwNames, kwVals)
+		if err != nil {
+			return nil, err
+		}
+		return None, q.shutdown(immediate)
 	}
 	return nil, Raise(TypeError, "%s.%s() takes no keyword arguments", q.TypeName(), name)
+}
+
+// parseQueueShutdown reads the shutdown(immediate=False) signature, positionally
+// or by keyword. immediate is truth-tested, matching CPython's plain if.
+func parseQueueShutdown(pos []Object, kwNames []string, kwVals []Object) (bool, error) {
+	if len(pos) > 1 {
+		return false, Raise(TypeError, "shutdown() takes from 1 to 2 positional arguments but %d were given", len(pos)+1)
+	}
+	var arg Object
+	if len(pos) == 1 {
+		arg = pos[0]
+	}
+	for i, k := range kwNames {
+		if k != "immediate" {
+			return false, Raise(TypeError, "'%s' is an invalid keyword argument for shutdown()", k)
+		}
+		if arg != nil {
+			return false, Raise(TypeError, "argument for shutdown() given by name ('immediate') and position")
+		}
+		arg = kwVals[i]
+	}
+	if arg == nil {
+		return false, nil
+	}
+	return Truth(arg), nil
 }
 
 // parseQueuePut reads the put(item, block=True, timeout=None) signature.
@@ -557,6 +645,7 @@ func parseBlockTimeout(set map[string]Object) (bool, bool, time.Duration, error)
 var queueMethodNames = map[string]bool{
 	"put": true, "put_nowait": true, "get": true, "get_nowait": true,
 	"task_done": true, "join": true, "qsize": true, "empty": true, "full": true,
+	"shutdown": true,
 }
 
 // queueProperties are the read-only value attributes Queue exposes.
@@ -587,10 +676,12 @@ func queueRepr(q *queueObject) string {
 // no message. Each is built once on first use, after excclass.go's init has
 // populated the Exception base a program catches them through.
 var (
-	queueEmptyOnce  sync.Once
-	queueEmptyClass *classObject
-	queueFullOnce   sync.Once
-	queueFullClass  *classObject
+	queueEmptyOnce     sync.Once
+	queueEmptyClass    *classObject
+	queueFullOnce      sync.Once
+	queueFullClass     *classObject
+	queueShutDownOnce  sync.Once
+	queueShutDownClass *classObject
 )
 
 // QueueEmptyClass returns the queue.Empty class object, spelled _queue.Empty the
@@ -608,6 +699,16 @@ func QueueFullClass() Object {
 		queueFullClass = buildQueueExc("Full", "queue.Full", "queue")
 	})
 	return queueFullClass
+}
+
+// QueueShutDownClass returns the queue.ShutDown class object, raised by put and
+// get once the queue has been shut down. CPython added it in 3.13 and keeps it in
+// queue.py, so its qualified name is queue.ShutDown.
+func QueueShutDownClass() Object {
+	queueShutDownOnce.Do(func() {
+		queueShutDownClass = buildQueueExc("ShutDown", "queue.ShutDown", "queue")
+	})
+	return queueShutDownClass
 }
 
 // buildQueueExc constructs one of the queue exception classes against the
@@ -631,6 +732,10 @@ func newQueueEmpty() error { return instantiateQueueExc(QueueEmptyClass(), Value
 
 // newQueueFull builds a queue.Full instance ready to raise.
 func newQueueFull() error { return instantiateQueueExc(QueueFullClass(), ValueError) }
+
+// newQueueShutDown builds a queue.ShutDown instance ready to raise, carrying no
+// message the way CPython raises it.
+func newQueueShutDown() error { return instantiateQueueExc(QueueShutDownClass(), RuntimeError) }
 
 func instantiateQueueExc(class Object, fallback string) error {
 	inst, err := Instantiate(class.(*classObject), nil, nil, nil)

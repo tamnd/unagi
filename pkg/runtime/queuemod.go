@@ -27,6 +27,7 @@ func initQueue(m *objects.Module) error {
 		{"SimpleQueue", objects.NewFuncKw("SimpleQueue", queueNewSimpleQueue)},
 		{"Empty", objects.QueueEmptyClass()},
 		{"Full", objects.QueueFullClass()},
+		{"ShutDown", objects.QueueShutDownClass()},
 	} {
 		if err := objects.StoreAttr(m, e.name, e.fn); err != nil {
 			return err
