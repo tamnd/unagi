@@ -93,3 +93,45 @@ func TestSysSwitchInterval(t *testing.T) {
 		t.Errorf("setswitchinterval(\"x\") error = %v, want real-number TypeError", err)
 	}
 }
+
+func TestSysRecursionLimit(t *testing.T) {
+	// The limit is process-wide, so save and restore it around the test.
+	saved := RecursionLimit()
+	defer SetRecursionLimit(saved)
+
+	get := func() int64 {
+		v, err := sysGetRecursionLimit(nil)
+		if err != nil {
+			t.Fatalf("getrecursionlimit: %v", err)
+		}
+		n, _ := objects.AsInt(v)
+		return n
+	}
+	if got := get(); got != 1000 {
+		t.Errorf("default getrecursionlimit = %v, want 1000", got)
+	}
+	if _, err := sysSetRecursionLimit([]objects.Object{objects.NewInt(1500)}); err != nil {
+		t.Fatalf("setrecursionlimit(1500): %v", err)
+	}
+	if got := get(); got != 1500 {
+		t.Errorf("after set, getrecursionlimit = %v, want 1500", got)
+	}
+	// A limit below one is the strictly-positive ValueError and leaves the value.
+	for _, n := range []int64{0, -5} {
+		_, err := sysSetRecursionLimit([]objects.Object{objects.NewInt(n)})
+		if err == nil || err.Error() != "ValueError: recursion limit must be greater or equal than 1" {
+			t.Errorf("setrecursionlimit(%d) error = %v, want below-one ValueError", n, err)
+		}
+	}
+	if got := get(); got != 1500 {
+		t.Errorf("after rejected sets, getrecursionlimit = %v, want 1500", got)
+	}
+	// A non-integer is the integer-coercion TypeError.
+	for _, bad := range []objects.Object{objects.NewStr("x"), objects.NewFloat(1.5), objects.None} {
+		_, err := sysSetRecursionLimit([]objects.Object{bad})
+		want := "TypeError: '" + bad.TypeName() + "' object cannot be interpreted as an integer"
+		if err == nil || err.Error() != want {
+			t.Errorf("setrecursionlimit(%s) error = %v, want %q", objects.Repr(bad), err, want)
+		}
+	}
+}

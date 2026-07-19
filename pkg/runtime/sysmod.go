@@ -59,6 +59,33 @@ var (
 	switchInterval   = 0.005
 )
 
+// sysGetRecursionLimit implements sys.getrecursionlimit(): the current recursion
+// limit, the same process-wide value the frame-depth guard in recursion.go charges
+// against.
+func sysGetRecursionLimit(args []objects.Object) (objects.Object, error) {
+	return objects.NewInt(int64(RecursionLimit())), nil
+}
+
+// sysSetRecursionLimit implements sys.setrecursionlimit(n): set the process-wide
+// recursion limit. The argument must read as an integer, a non-integer is the
+// TypeError CPython raises coercing it, and a limit below one is the ValueError.
+// CPython also raises RecursionError at set time when the new limit is at or below
+// the current depth; that check is deferred here because the boxed frame depth does
+// not line up with CPython's frame count and its "at the recursion depth N" message
+// is not byte-matchable, so a too-low limit is enforced lazily at the next frame
+// charge instead.
+func sysSetRecursionLimit(args []objects.Object) (objects.Object, error) {
+	n, ok := objects.AsInt(args[0])
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", args[0].TypeName())
+	}
+	if n < 1 {
+		return nil, objects.Raise(objects.ValueError, "recursion limit must be greater or equal than 1")
+	}
+	SetRecursionLimit(int(n))
+	return objects.None, nil
+}
+
 // sysGetSwitchInterval implements sys.getswitchinterval(): the current interval
 // as a float, 0.005 until a program sets its own.
 func sysGetSwitchInterval(args []objects.Object) (objects.Object, error) {
@@ -123,6 +150,12 @@ func initSys(m *objects.Module) error {
 		return err
 	}
 	if err := set("setswitchinterval", objects.NewFunc("setswitchinterval", 1, sysSetSwitchInterval)); err != nil {
+		return err
+	}
+	if err := set("getrecursionlimit", objects.NewFunc("getrecursionlimit", 0, sysGetRecursionLimit)); err != nil {
+		return err
+	}
+	if err := set("setrecursionlimit", objects.NewFunc("setrecursionlimit", 1, sysSetRecursionLimit)); err != nil {
 		return err
 	}
 	return nil

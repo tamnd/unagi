@@ -11,8 +11,8 @@ import (
 // per-thread now, so a fresh objects.NewThread already starts at zero.
 func resetRecursion(t *testing.T) {
 	t.Helper()
-	oldLimit := recursionLimit
-	t.Cleanup(func() { recursionLimit = oldLimit })
+	oldLimit := RecursionLimit()
+	t.Cleanup(func() { SetRecursionLimit(oldLimit) })
 }
 
 func TestEnterRecursiveTripsAtLimit(t *testing.T) {

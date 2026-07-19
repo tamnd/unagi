@@ -1,6 +1,10 @@
 package runtime
 
-import "github.com/tamnd/unagi/pkg/objects"
+import (
+	"sync/atomic"
+
+	"github.com/tamnd/unagi/pkg/objects"
+)
 
 // Python bounds recursion with a depth counter (sys.getrecursionlimit,
 // default 1000 on 3.14) so a runaway call raises a catchable RecursionError
@@ -13,15 +17,18 @@ import "github.com/tamnd/unagi/pkg/objects"
 // threads through every frame, mirroring CPython's per-tstate accounting: two
 // threads each recursing deeply do not add up against one shared counter, and
 // the counter carries no data race because only the owning goroutine touches
-// it. The limit stays process-wide, matching sys.setrecursionlimit, and is set
-// on the main thread before any second goroutine starts, so its reads race with
-// nothing.
-var recursionLimit = 1000
+// it. The limit stays process-wide, matching sys.setrecursionlimit. It is an
+// atomic word because sys.setrecursionlimit can now rebind it at any time,
+// including after a second goroutine is running and charging frames against it,
+// so every read and write goes through sync/atomic to stay race-clean.
+var recursionLimit atomic.Int64
+
+func init() { recursionLimit.Store(1000) }
 
 // EnterRecursive charges one Python frame against t's depth and returns a
 // RecursionError when the new depth passes the limit.
 func EnterRecursive(t *objects.Thread) error {
-	return t.EnterRecursive(recursionLimit)
+	return t.EnterRecursive(int(recursionLimit.Load()))
 }
 
 // LeaveRecursive releases the slot as a Python frame on t returns or unwinds. It
@@ -32,7 +39,7 @@ func LeaveRecursive(t *objects.Thread) {
 
 // SetRecursionLimit and RecursionLimit back a future sys.setrecursionlimit /
 // sys.getrecursionlimit; the limit applies to the next frame charged.
-func SetRecursionLimit(n int) { recursionLimit = n }
+func SetRecursionLimit(n int) { recursionLimit.Store(int64(n)) }
 
 // RecursionLimit reports the current limit.
-func RecursionLimit() int { return recursionLimit }
+func RecursionLimit() int { return int(recursionLimit.Load()) }
