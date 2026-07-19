@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+empty0 True size0 0 full0 False
+size2 2 empty2 False
+get1 a
+get2 b
+empty end True
+empty err
+bfull True
+full err
+bget 1 bfull2 False
+produced
+consumed [0, 1, 2]
+order ['put x', 'get x', 'put y', 'get y']
+== exception:
+== stderr:

@@ -509,3 +509,81 @@ func TestAsyncioLockReleaseUnacquired(t *testing.T) {
 		t.Fatalf("release of free lock = %v, want RuntimeError", err)
 	}
 }
+
+// TestAsyncioQueueNowaitErrors checks get_nowait on an empty queue is QueueEmpty
+// and put_nowait on a full bounded queue is QueueFull.
+func TestAsyncioQueueNowaitErrors(t *testing.T) {
+	q := AsyncioNewQueue(0)
+	if _, err := CallMethod(q, "get_nowait", nil); coroExcKind(err) != "QueueEmpty" {
+		t.Fatalf("get_nowait of empty = %v, want QueueEmpty", err)
+	}
+	bq := AsyncioNewQueue(1)
+	if _, err := CallMethod(bq, "put_nowait", []Object{NewInt(1)}); err != nil {
+		t.Fatalf("put_nowait: %v", err)
+	}
+	if _, err := CallMethod(bq, "put_nowait", []Object{NewInt(2)}); coroExcKind(err) != "QueueFull" {
+		t.Fatalf("put_nowait of full = %v, want QueueFull", err)
+	}
+}
+
+// TestAsyncioQueueTaskDoneOverflow checks task_done past the outstanding count is
+// the ValueError CPython raises.
+func TestAsyncioQueueTaskDoneOverflow(t *testing.T) {
+	q := AsyncioNewQueue(0)
+	if _, err := CallMethod(q, "task_done", nil); coroExcKind(err) != "ValueError" {
+		t.Fatalf("task_done with no work = %v, want ValueError", err)
+	}
+}
+
+// TestAsyncioQueueBlockingPut checks a put on a full queue suspends until a get
+// frees a slot, then completes, so the producer and consumer interleave.
+func TestAsyncioQueueBlockingPut(t *testing.T) {
+	q := AsyncioNewQueue(1).(*asyncioQueue)
+	var order []string
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		producer := NewCoroutine("producer", func(y Yielder) (Object, error) {
+			if _, err := awaitObj(y, q.putCoro(NewInt(1))); err != nil {
+				return nil, err
+			}
+			order = append(order, "put 1")
+			if _, err := awaitObj(y, q.putCoro(NewInt(2))); err != nil {
+				return nil, err
+			}
+			order = append(order, "put 2")
+			return None, nil
+		})
+		task, err := AsyncioCreateTask(producer, "")
+		if err != nil {
+			return nil, err
+		}
+		if _, err := y.YieldFrom(AsyncioSleep(0, None)); err != nil {
+			return nil, err
+		}
+		got, err := awaitObj(y, q.getCoro())
+		if err != nil {
+			return nil, err
+		}
+		order = append(order, "get "+Str(got))
+		if _, err := y.YieldFrom(AsyncioSleep(0, None)); err != nil {
+			return nil, err
+		}
+		got, err = awaitObj(y, q.getCoro())
+		if err != nil {
+			return nil, err
+		}
+		order = append(order, "get "+Str(got))
+		return awaitObj(y, task)
+	})
+	if _, err := AsyncioRun(main); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	want := []string{"put 1", "get 1", "put 2", "get 2"}
+	if len(order) != len(want) {
+		t.Fatalf("interleave = %v, want %v", order, want)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Fatalf("interleave = %v, want %v", order, want)
+		}
+	}
+}

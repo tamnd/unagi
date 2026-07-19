@@ -94,6 +94,8 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		return asyncioEventMethod(x, name, args)
 	case *asyncioSemaphore:
 		return asyncioSemaphoreMethod(x, name, args)
+	case *asyncioQueue:
+		return asyncioQueueMethod(x, name, args)
 	case *executorObject:
 		return executorMethodT(t, x, name, args)
 	case *stringIOObject:

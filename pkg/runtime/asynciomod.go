@@ -28,6 +28,9 @@ func initAsyncio(m *objects.Module) error {
 		{"Event", objects.NewFuncKw("Event", asyncioEvent)},
 		{"Semaphore", objects.NewFuncKw("Semaphore", asyncioSemaphore)},
 		{"BoundedSemaphore", objects.NewFuncKw("BoundedSemaphore", asyncioBoundedSemaphore)},
+		{"Queue", objects.NewFuncKw("Queue", asyncioQueue)},
+		{"QueueEmpty", objects.AsyncioQueueEmptyClass()},
+		{"QueueFull", objects.AsyncioQueueFullClass()},
 		{"get_running_loop", objects.NewFunc("get_running_loop", 0, asyncioGetRunningLoop)},
 		{"get_event_loop", objects.NewFunc("get_event_loop", 0, asyncioGetEventLoop)},
 		{"CancelledError", objects.AsyncioCancelledErrorClass()},
@@ -174,6 +177,24 @@ func newAsyncioSemaphore(who string, bounded bool, pos []objects.Object, kwNames
 		value = int(n)
 	}
 	return objects.AsyncioNewSemaphore(value, bounded)
+}
+
+// asyncioQueue is asyncio.Queue(maxsize=0). maxsize bounds the queue; zero or
+// less is unbounded. A non-integer maxsize is the TypeError CPython raises.
+func asyncioQueue(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	maxsize := 0
+	vals, err := bindArgs("Queue", []string{"maxsize"}, pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	if v, ok := vals["maxsize"]; ok {
+		n, ok := objects.AsInt(v)
+		if !ok {
+			return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", v.TypeName())
+		}
+		maxsize = int(n)
+	}
+	return objects.AsyncioNewQueue(maxsize), nil
 }
 
 // asyncioGather is asyncio.gather(*aws, return_exceptions=False). The awaitables
