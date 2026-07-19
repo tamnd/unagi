@@ -1056,3 +1056,74 @@ func TestAsyncioTimeoutRescheduleUnentered(t *testing.T) {
 		t.Fatalf("reschedule error = %v, want RuntimeError", Repr(got))
 	}
 }
+
+// TestAsyncioShieldForwards checks a shield forwards the inner coroutine's
+// result when nothing cancels the outer.
+func TestAsyncioShieldForwards(t *testing.T) {
+	child := func() Object {
+		return NewCoroutine("child", func(y Yielder) (Object, error) {
+			return y.YieldFrom(AsyncioSleep(0, NewInt(11)))
+		})
+	}
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		sh, err := AsyncioShield(child())
+		if err != nil {
+			return nil, err
+		}
+		return awaitObj(y, sh)
+	})
+	got, err := AsyncioRun(main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if n, ok := AsInt(got); !ok || n != 11 {
+		t.Fatalf("shield = %v, want 11", Repr(got))
+	}
+}
+
+// TestAsyncioShieldKeepsInnerRunning checks cancelling the outer shield leaves
+// the inner task running to completion, its result still readable.
+func TestAsyncioShieldKeepsInnerRunning(t *testing.T) {
+	child := func() Object {
+		return NewCoroutine("child", func(y Yielder) (Object, error) {
+			if _, err := y.YieldFrom(AsyncioSleep(0, None)); err != nil {
+				return nil, err
+			}
+			return NewStr("survived"), nil
+		})
+	}
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		inner, err := scheduleTask(child(), runningLoop.Load(), "")
+		if err != nil {
+			return nil, err
+		}
+		sh, err := AsyncioShield(inner)
+		if err != nil {
+			return nil, err
+		}
+		outer := sh.(*asyncFuture)
+		outer.pyCancel(None)
+		_, aerr := awaitObj(y, outer)
+		outerCancelled := isCancelledError(aerr)
+		res, rerr := awaitObj(y, inner)
+		if rerr != nil {
+			return nil, rerr
+		}
+		s, _ := AsStr(res)
+		return NewStr(s+":"+boolStr(outerCancelled)+":"+boolStr(inner.doneFut.isCancelled())), nil
+	})
+	got, err := AsyncioRun(main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if s, _ := AsStr(got); s != "survived:true:false" {
+		t.Fatalf("shield cancel = %q, want survived:true:false", s)
+	}
+}
+
+func boolStr(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
