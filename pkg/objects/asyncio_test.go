@@ -808,3 +808,104 @@ func TestAsyncioCurrentTaskReports(t *testing.T) {
 		t.Fatalf("all_tasks after gather = %d, want 1", afterGather)
 	}
 }
+
+// TestAsyncioTaskCancelPropagates checks cancel throws CancelledError into a
+// sleeping task, and once the error propagates the task reports cancelled and
+// awaiting it raises CancelledError.
+func TestAsyncioTaskCancelPropagates(t *testing.T) {
+	var awaitErr error
+	var cancelledAfter Object
+	child := NewCoroutine("child", func(y Yielder) (Object, error) {
+		return y.YieldFrom(AsyncioSleep(10, None))
+	})
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		task, err := AsyncioCreateTask(child, "")
+		if err != nil {
+			return nil, err
+		}
+		if _, err := y.YieldFrom(AsyncioSleep(0, None)); err != nil {
+			return nil, err
+		}
+		tk := task.(*asyncTask)
+		if r := tk.cancel(None); r != True {
+			t.Errorf("cancel returned %v, want True", Repr(r))
+		}
+		_, awaitErr = awaitObj(y, task)
+		cancelledAfter, _ = CallMethod(task, "cancelled", nil)
+		return None, nil
+	})
+	if _, err := AsyncioRun(main); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !isCancelledError(awaitErr) {
+		t.Fatalf("await error = %v, want CancelledError", awaitErr)
+	}
+	if cancelledAfter != True {
+		t.Fatalf("cancelled() = %v, want True", Repr(cancelledAfter))
+	}
+}
+
+// TestAsyncioTaskCancelSwallowed checks a task that catches CancelledError and
+// returns normally is not a cancelled task: cancelled() is False and the awaited
+// result is the value it returned.
+func TestAsyncioTaskCancelSwallowed(t *testing.T) {
+	var result Object
+	var cancelled Object
+	child := NewCoroutine("child", func(y Yielder) (Object, error) {
+		_, err := y.YieldFrom(AsyncioSleep(10, None))
+		if isCancelledError(err) {
+			return NewStr("recovered"), nil
+		}
+		return None, err
+	})
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		task, err := AsyncioCreateTask(child, "")
+		if err != nil {
+			return nil, err
+		}
+		if _, err := y.YieldFrom(AsyncioSleep(0, None)); err != nil {
+			return nil, err
+		}
+		task.(*asyncTask).cancel(None)
+		result, err = awaitObj(y, task)
+		if err != nil {
+			return nil, err
+		}
+		cancelled, _ = CallMethod(task, "cancelled", nil)
+		return None, nil
+	})
+	if _, err := AsyncioRun(main); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if s, _ := AsStr(result); s != "recovered" {
+		t.Fatalf("swallowed result = %v, want recovered", Repr(result))
+	}
+	if cancelled != False {
+		t.Fatalf("cancelled() = %v, want False", Repr(cancelled))
+	}
+}
+
+// TestAsyncioTaskCancelDone checks cancelling a finished task returns False.
+func TestAsyncioTaskCancelDone(t *testing.T) {
+	var second Object
+	child := NewCoroutine("child", func(y Yielder) (Object, error) {
+		return NewInt(1), nil
+	})
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		task, err := AsyncioCreateTask(child, "")
+		if err != nil {
+			return nil, err
+		}
+		if _, err := awaitObj(y, task); err != nil {
+			return nil, err
+		}
+		second = task.(*asyncTask).cancel(None)
+		return None, nil
+	})
+	if _, err := AsyncioRun(main); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if second != False {
+		t.Fatalf("cancel on done task = %v, want False", Repr(second))
+	}
+}

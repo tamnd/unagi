@@ -268,6 +268,14 @@ type asyncTask struct {
 	exc     error
 	doneFut *asyncFuture
 	name    string
+	// futWaiter is the future the task is currently suspended on, so cancel can
+	// cancel that future and resume the coroutine with CancelledError at the await
+	// point. mustCancel arms a throw for a task that is scheduled but not parked on
+	// a future, the way CPython's Task._must_cancel does; cancelMsg carries the
+	// optional cancel message onto the raised CancelledError.
+	futWaiter  *asyncFuture
+	mustCancel bool
+	cancelMsg  Object
 }
 
 func (tk *asyncTask) TypeName() string { return "Task" }
@@ -345,8 +353,37 @@ func taskMethod(tk *asyncTask, name string, args []Object) (Object, error) {
 		}
 		tk.doneFut.pyAddDoneCallback(args[0])
 		return None, nil
+	case "cancel":
+		msg := Object(None)
+		if len(args) == 1 {
+			msg = args[0]
+		} else if len(args) > 1 {
+			return nil, Raise(TypeError, "cancel() takes from 1 to 2 positional arguments but %d were given", len(args)+1)
+		}
+		return tk.cancel(msg), nil
 	}
 	return nil, noAttr(tk, name)
+}
+
+// taskMethodKw dispatches the Task methods that take a keyword: cancel's msg. Any
+// other keyword is the TypeError CPython raises.
+func taskMethodKw(tk *asyncTask, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	if name == "cancel" {
+		msg := Object(None)
+		for i, k := range kwNames {
+			if k != "msg" {
+				return nil, Raise(TypeError, "cancel() got an unexpected keyword argument '%s'", k)
+			}
+			msg = kwVals[i]
+		}
+		if len(pos) == 1 {
+			msg = pos[0]
+		} else if len(pos) > 1 {
+			return nil, Raise(TypeError, "cancel() takes from 1 to 2 positional arguments but %d were given", len(pos)+1)
+		}
+		return tk.cancel(msg), nil
+	}
+	return nil, Raise(TypeError, "Task.%s() takes no keyword arguments", name)
 }
 
 // newTask builds a task for coro bound to loop, with a completion future the
@@ -370,12 +407,54 @@ func (tk *asyncTask) finish(result Object, err error) {
 	tk.done = true
 	delete(tk.loop.tasks, tk)
 	if err != nil {
+		// A task whose coroutine let a CancelledError propagate is a cancelled
+		// task, so its completion future reports cancelled and awaiting it raises
+		// CancelledError, matching CPython.
+		if isCancelledError(err) {
+			tk.doneFut.mu.Lock()
+			tk.doneFut.cancelled = true
+			tk.doneFut.mu.Unlock()
+		}
 		tk.exc = err
 		tk.doneFut.setException(err)
 		return
 	}
 	tk.result = result
 	tk.doneFut.setResult(result)
+}
+
+// cancel requests cancellation of the task. A done task cannot be cancelled and
+// returns False. A task parked on a future cancels that future, so it resumes
+// with CancelledError raised at its await; a task between steps arms mustCancel
+// so the next step throws CancelledError. Either way it returns True, matching
+// CPython's Task.cancel.
+func (tk *asyncTask) cancel(msg Object) Object {
+	if tk.doneFut.doneP() {
+		return False
+	}
+	if tk.futWaiter != nil && !tk.futWaiter.doneP() {
+		if Truth(tk.futWaiter.pyCancel(msg)) {
+			return True
+		}
+	}
+	tk.mustCancel = true
+	tk.cancelMsg = msg
+	return True
+}
+
+// isCancelledError reports whether err is a CancelledError, the exception a
+// cancelled task or future carries.
+func isCancelledError(err error) bool {
+	e, ok := err.(*Exception)
+	if !ok {
+		return false
+	}
+	cls, ok := excClassOf(e)
+	if !ok {
+		return false
+	}
+	res, cerr := subclassOf(cls, AsyncioCancelledErrorClass())
+	return cerr == nil && Truth(res)
 }
 
 func (tk *asyncTask) step(sig genSignal) {
@@ -388,6 +467,13 @@ func (tk *asyncTask) step(sig genSignal) {
 	prev := tk.loop.current
 	tk.loop.current = tk
 	defer func() { tk.loop.current = prev }()
+	// The task is no longer parked on a future while its coroutine runs. A pending
+	// cancel arms a throw of CancelledError at the coroutine's current suspension.
+	tk.futWaiter = nil
+	if tk.mustCancel {
+		tk.mustCancel = false
+		sig = genSignal{err: asyncioCancelledError(tk.cancelMsg)}
+	}
 	val, ret, fin, err := tk.coro.step(sig)
 	if err != nil {
 		tk.finish(nil, err)
@@ -399,6 +485,7 @@ func (tk *asyncTask) step(sig genSignal) {
 	}
 	switch v := val.(type) {
 	case *asyncFuture:
+		tk.futWaiter = v
 		v.addDoneCallback(func() { tk.step(genSignal{val: None}) })
 	default:
 		if val == None {

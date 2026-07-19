@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+cancel returned True
+propagate saw cancel
+await raised CancelledError
+cancelled() True
+done() True
+second cancel False
+swallow caught
+swallow result recovered cancelled False
+inner args ('stop now',)
+outer args ('stop now',)
+== exception:
+== stderr:
