@@ -77,13 +77,13 @@ func TestFutureCancel(t *testing.T) {
 	}
 
 	r := NewFuture()
-	r.setRunningOrNotifyCancel()
+	_, _ = r.setRunningOrNotifyCancel()
 	if ok, _ := r.cancel(); ok {
 		t.Fatal("cancel on running should return false")
 	}
 
 	d := NewFuture()
-	d.setResult(NewInt(1))
+	_, _ = d.setResult(NewInt(1))
 	if ok, _ := d.cancel(); ok {
 		t.Fatal("cancel on finished should return false")
 	}
@@ -109,7 +109,7 @@ func TestFutureResultTimeout(t *testing.T) {
 // the result.
 func TestFutureBlockingResult(t *testing.T) {
 	f := NewFuture()
-	f.setRunningOrNotifyCancel()
+	_, _ = f.setRunningOrNotifyCancel()
 	done := make(chan Object, 1)
 	go func() {
 		got, err := f.result(true, false, 0)
@@ -119,7 +119,7 @@ func TestFutureBlockingResult(t *testing.T) {
 		done <- got
 	}()
 	time.Sleep(10 * time.Millisecond)
-	f.setResult(NewStr("hi"))
+	_, _ = f.setResult(NewStr("hi"))
 	select {
 	case got := <-done:
 		if Repr(got) != Repr(NewStr("hi")) {
@@ -134,7 +134,7 @@ func TestFutureBlockingResult(t *testing.T) {
 // future raises InvalidStateError.
 func TestFutureInvalidState(t *testing.T) {
 	f := NewFuture()
-	f.setResult(NewInt(1))
+	_, _ = f.setResult(NewInt(1))
 	if _, err := f.setResult(NewInt(2)); !isFutureExc(err, InvalidStateErrorClass()) {
 		t.Fatalf("double set_result = %v, want InvalidStateError", err)
 	}

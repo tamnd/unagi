@@ -7,11 +7,13 @@ package conformance
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/tamnd/unagi/pkg/build"
@@ -261,9 +263,31 @@ func (r *Runner) stageRunDir(f Fixture) (runDir, home string, cleanup func(), er
 
 // execute runs one pipeline with the scrubbed environment, per-fixture
 // timeout, and optional stdin.
+//
+// The subject binary is freshly built and then run in the same process that is
+// building other fixtures' binaries in parallel. That is exactly the shape of
+// the Go fork/exec race (golang/go#22315): a concurrently forked child briefly
+// inherits the open-for-write fd of a just-linked binary, and until that child
+// reaches its own exec the file counts as busy, so our exec of it fails with
+// ETXTBSY. The window is tiny and self-clearing, so a bounded retry with a short
+// backoff turns the flake into a clean run without masking a real launch error.
 func (r *Runner) execute(ctx context.Context, f Fixture, runDir, home, bin string, args []string) (Outcome, error) {
 	ctx, cancel := context.WithTimeout(ctx, f.Config.TimeoutOrDefault())
 	defer cancel()
+	const maxAttempts = 8
+	for attempt := 0; ; attempt++ {
+		out, err := r.runOnce(ctx, f, runDir, home, bin, args)
+		if err != nil && errors.Is(err, syscall.ETXTBSY) && attempt < maxAttempts-1 && ctx.Err() == nil {
+			time.Sleep(time.Duration(attempt+1) * 5 * time.Millisecond)
+			continue
+		}
+		return out, err
+	}
+}
+
+// runOnce is a single launch of the pipeline binary. A Cmd cannot be reused, so
+// execute rebuilds it per attempt through here.
+func (r *Runner) runOnce(ctx context.Context, f Fixture, runDir, home, bin string, args []string) (Outcome, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = runDir
 	cmd.Env = scrubbedEnv(home, f.Config.Env)
