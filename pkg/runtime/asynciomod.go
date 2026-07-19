@@ -48,7 +48,8 @@ func initAsyncio(m *objects.Module) error {
 		{"current_task", objects.NewFuncKw("current_task", asyncioCurrentTask)},
 		{"all_tasks", objects.NewFuncKw("all_tasks", asyncioAllTasks)},
 		{"get_running_loop", objects.NewFunc("get_running_loop", 0, asyncioGetRunningLoop)},
-		{"get_event_loop", objects.NewFunc("get_event_loop", 0, asyncioGetEventLoop)},
+		{"get_event_loop", objects.NewFuncT("get_event_loop", 0, asyncioGetEventLoop)},
+		{"set_event_loop", objects.NewFuncT("set_event_loop", 1, asyncioSetEventLoop)},
 		{"new_event_loop", objects.NewFunc("new_event_loop", 0, asyncioNewEventLoop)},
 		{"CancelledError", objects.AsyncioCancelledErrorClass()},
 		{"InvalidStateError", objects.AsyncioInvalidStateErrorClass()},
@@ -431,16 +432,21 @@ func asyncioAllTasks(pos []objects.Object, kwNames []string, kwVals []objects.Ob
 	return objects.AsyncioAllTasks(vals["loop"])
 }
 
-// asyncioGetEventLoop is asyncio.get_event_loop(). Inside a running loop it
-// returns that loop, matching CPython 3.14, where calling it outside a running
-// loop is the deprecated path; this slice raises the same RuntimeError as
-// get_running_loop until loop policies land.
-func asyncioGetEventLoop(args []objects.Object) (objects.Object, error) {
-	l := objects.AsyncioRunningLoop()
-	if l == nil {
-		return nil, objects.Raise(objects.RuntimeError, "no running event loop")
+// asyncioGetEventLoop is asyncio.get_event_loop(). It returns the running loop,
+// or the loop set for this thread by set_event_loop, and raises RuntimeError
+// when neither exists, the way CPython 3.14 does now that get_event_loop no
+// longer creates a loop on demand.
+func asyncioGetEventLoop(t *objects.Thread, args []objects.Object) (objects.Object, error) {
+	return objects.AsyncioGetEventLoop(t)
+}
+
+// asyncioSetEventLoop is asyncio.set_event_loop(loop). It binds loop as this
+// thread's current loop; None clears the binding and a non-loop is a TypeError.
+func asyncioSetEventLoop(t *objects.Thread, args []objects.Object) (objects.Object, error) {
+	if err := objects.AsyncioSetEventLoop(t, args[0]); err != nil {
+		return nil, err
 	}
-	return l, nil
+	return objects.None, nil
 }
 
 // asyncioNewEventLoop is asyncio.new_event_loop(). It builds a fresh, not-yet

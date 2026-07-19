@@ -1533,3 +1533,74 @@ func TestAsyncioRunForever(t *testing.T) {
 		t.Fatalf("loop still running after run_forever")
 	}
 }
+
+// TestAsyncioGetEventLoopUnset checks get_event_loop with no loop set and none
+// running is the RuntimeError CPython 3.14 raises, named for the calling thread.
+func TestAsyncioGetEventLoopUnset(t *testing.T) {
+	th := NewThread("MainThread", false)
+	_, err := AsyncioGetEventLoop(th)
+	e, ok := err.(*Exception)
+	if !ok || e.Kind != "RuntimeError" {
+		t.Fatalf("get_event_loop unset = %v, want RuntimeError", err)
+	}
+	if got := e.Text(); got != "There is no current event loop in thread 'MainThread'." {
+		t.Fatalf("message = %q", got)
+	}
+}
+
+// TestAsyncioSetGetEventLoop checks a loop set with set_event_loop comes back
+// from get_event_loop, and setting None clears it back to the RuntimeError.
+func TestAsyncioSetGetEventLoop(t *testing.T) {
+	th := NewThread("worker", false)
+	loop := AsyncioNewEventLoop()
+	if err := AsyncioSetEventLoop(th, loop); err != nil {
+		t.Fatalf("set_event_loop: %v", err)
+	}
+	got, err := AsyncioGetEventLoop(th)
+	if err != nil {
+		t.Fatalf("get_event_loop after set: %v", err)
+	}
+	if got != loop {
+		t.Fatalf("get_event_loop returned a different loop")
+	}
+	if err := AsyncioSetEventLoop(th, None); err != nil {
+		t.Fatalf("set_event_loop None: %v", err)
+	}
+	if _, err := AsyncioGetEventLoop(th); coroExcKind(err) != "RuntimeError" {
+		t.Fatalf("get_event_loop after clear = %v, want RuntimeError", err)
+	}
+}
+
+// TestAsyncioSetEventLoopBadType checks a non-loop argument is the TypeError
+// CPython raises, carrying the offending type name.
+func TestAsyncioSetEventLoopBadType(t *testing.T) {
+	th := NewThread("worker", false)
+	err := AsyncioSetEventLoop(th, NewInt(42))
+	e, ok := err.(*Exception)
+	if !ok || e.Kind != "TypeError" {
+		t.Fatalf("set_event_loop(42) = %v, want TypeError", err)
+	}
+	if got := e.Text(); got != "loop must be an instance of AbstractEventLoop or None, not 'int'" {
+		t.Fatalf("message = %q", got)
+	}
+}
+
+// TestAsyncioGetEventLoopPrefersRunning checks a running loop wins over the loop
+// set for the thread, matching CPython's get_event_loop.
+func TestAsyncioGetEventLoopPrefersRunning(t *testing.T) {
+	th := NewThread("worker", false)
+	set := AsyncioNewEventLoop()
+	if err := AsyncioSetEventLoop(th, set); err != nil {
+		t.Fatalf("set_event_loop: %v", err)
+	}
+	running := AsyncioNewEventLoop().(*eventLoop)
+	runningLoop.Store(running)
+	defer runningLoop.Store(nil)
+	got, err := AsyncioGetEventLoop(th)
+	if err != nil {
+		t.Fatalf("get_event_loop: %v", err)
+	}
+	if got != Object(running) {
+		t.Fatalf("get_event_loop did not prefer the running loop")
+	}
+}
