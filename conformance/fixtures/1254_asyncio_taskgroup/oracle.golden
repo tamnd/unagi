@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+empty ok
+done b
+done a
+results 10 20
+caught 1 boom
+sibling cancelled True
+body group 1 'body'
+child cancelled True
+name w-e
+done e
+done f
+after exit TaskGroup <TaskGroup entered> is finished
+== exception:
+== stderr:

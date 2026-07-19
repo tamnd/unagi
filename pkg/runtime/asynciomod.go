@@ -46,6 +46,7 @@ func initAsyncio(m *objects.Module) error {
 		{"PriorityQueue", objects.NewFuncKw("PriorityQueue", asyncioPriorityQueue)},
 		{"QueueEmpty", objects.AsyncioQueueEmptyClass()},
 		{"QueueFull", objects.AsyncioQueueFullClass()},
+		{"TaskGroup", objects.NewFunc("TaskGroup", 0, asyncioTaskGroup)},
 		{"current_task", objects.NewFuncKw("current_task", asyncioCurrentTask)},
 		{"all_tasks", objects.NewFuncKw("all_tasks", asyncioAllTasks)},
 		{"get_running_loop", objects.NewFunc("get_running_loop", 0, asyncioGetRunningLoop)},
@@ -124,6 +125,16 @@ func asyncioCreateTask(pos []objects.Object, kwNames []string, kwVals []objects.
 		}
 	}
 	return objects.AsyncioCreateTask(pos[0], name)
+}
+
+// asyncioTaskGroup is asyncio.TaskGroup(). It builds an un-entered structured
+// concurrency group; the loop and parent task are bound when the async with block
+// enters it. The constructor takes no arguments, matching CPython.
+func asyncioTaskGroup(args []objects.Object) (objects.Object, error) {
+	if len(args) != 0 {
+		return nil, objects.Raise(objects.TypeError, "TaskGroup() takes no arguments")
+	}
+	return objects.AsyncioNewTaskGroup(), nil
 }
 
 // asyncioFuture is asyncio.Future(*, loop=None). It builds a pending Future bound
