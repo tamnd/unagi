@@ -701,6 +701,15 @@ func init() {
 				return "object"
 			}())
 		}),
+		"__subclasshook__": NewFunc("__subclasshook__", -1, func([]Object) (Object, error) {
+			// object.__subclasshook__ is the default a class inherits when it does
+			// not define its own. It always returns NotImplemented so an ABCMeta
+			// __subclasscheck__ can call cls.__subclasshook__(subclass) blind and
+			// fall through to its registry when the class has no structural test. A
+			// class that overrides the name shadows this via its own dict, which the
+			// class attribute lookup consults first.
+			return NotImplemented, nil
+		}),
 	}
 
 	// int and str carry their own string dunders and inherit the rest from

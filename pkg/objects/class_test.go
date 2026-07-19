@@ -509,6 +509,48 @@ func TestTypeObjectIntrospect(t *testing.T) {
 	}
 }
 
+// TestObjectSubclasshook proves a class inherits object.__subclasshook__, the
+// default that returns NotImplemented, while a class-body override shadows it.
+func TestObjectSubclasshook(t *testing.T) {
+	c := mkclass(t, "C")
+
+	// The default resolves on a plain class and answers NotImplemented.
+	hook, err := LoadAttr(c, "__subclasshook__")
+	if err != nil {
+		t.Fatalf("C.__subclasshook__: %v", err)
+	}
+	got, err := Call(hook, []Object{NewInt(0)})
+	if err != nil {
+		t.Fatalf("C.__subclasshook__(int): %v", err)
+	}
+	if got != NotImplemented {
+		t.Fatalf("C.__subclasshook__(int) = %v, want NotImplemented", got)
+	}
+
+	// object itself resolves the same default.
+	if _, err := LoadAttr(objectClass, "__subclasshook__"); err != nil {
+		t.Fatalf("object.__subclasshook__: %v", err)
+	}
+
+	// A class-body __subclasshook__ shadows the object default.
+	override := NewFunc("__subclasshook__", -1, func([]Object) (Object, error) { return NewBool(true), nil })
+	d, err := NewClass("D", "D", nil, []string{"__subclasshook__"}, []Object{override}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewClass D: %v", err)
+	}
+	dh, err := LoadAttr(d, "__subclasshook__")
+	if err != nil {
+		t.Fatalf("D.__subclasshook__: %v", err)
+	}
+	r, err := Call(dh, []Object{NewInt(0)})
+	if err != nil {
+		t.Fatalf("D.__subclasshook__(int): %v", err)
+	}
+	if b, ok := AsBool(r); !ok || !b {
+		t.Fatalf("D.__subclasshook__ did not shadow the object default")
+	}
+}
+
 // TestBuiltinTypeDictHash proves a builtin type's __dict__ carries the __hash__
 // entry the structural Hashable check reads: a callable computing the value's
 // own hash for a hashable type, the None sentinel for a mutable container, and
