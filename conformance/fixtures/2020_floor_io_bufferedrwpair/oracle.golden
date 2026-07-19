@@ -1,0 +1,40 @@
+== exit: 0
+== stdout:
+['BufferedRWPair', '_BufferedIOBase', '_IOBase', 'object']
+True True
+True True
+seek: seek
+tell: seek
+detach: detach
+fileno: fileno
+b'012' b'3'
+b'3'
+2 b'45'
+2 b'67'
+2 b''
+b'AB'
+b'abc'
+b'XY'
+b'abc'
+True True
+2
+b'BA'
+True True True
+read: read of closed file
+read1: read of closed file
+readinto: readinto of closed file
+readinto1: readinto of closed file
+peek: peek of closed file
+write: write to closed file
+flush: flush of closed file
+noread: File or stream is not readable.
+nowrite: File or stream is not writable.
+bufsize: buffer size must be strictly positive
+missing: BufferedRWPair expected at least 2 arguments, got 1
+nonbytes: a bytes-like object is required, not 'str'
+{}
+b'body'
+True
+BufferedRWPair
+== exception:
+== stderr:
