@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+['IncrementalNewlineDecoder', 'object']
+'a\nb\nc\nd' ('\r', '\n', '\r\n')
+'a' None
+'\nb' '\r\n'
+'a\r\nb' '\r\n'
+'a\nb' '\n'
+'a\nb' '\r'
+'a\nb' '\r\n'
+'a' '\n' '\r'
+state (b'', 1)
+resumed '\n'
+post reset None
+'' None
+'x\ny' '\r\n'
+kw 'p\nq'
+False False False
+noargs: IncrementalNewlineDecoder() missing required argument 'decoder' (pos 1)
+notrans: IncrementalNewlineDecoder() missing required argument 'translate' (pos 2)
+toomany: IncrementalNewlineDecoder() takes at most 3 arguments (4 given)
+== exception:
+== stderr:
