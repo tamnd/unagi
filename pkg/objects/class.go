@@ -79,6 +79,11 @@ type classObject struct {
 	order []string
 	bases []*classObject
 	mro   []*classObject
+	// subclasses holds the direct subclasses that name this class among their
+	// bases, appended as each is built, so __subclasses__() reports them the way
+	// _py_abc.__subclasscheck__ walks them. CPython holds these weakly; the floor
+	// never collects a class, so a strong list is faithful and simpler.
+	subclasses []*classObject
 	// meta is the class's metaclass, the type object type() reports for the
 	// class. A nil meta means the default `type` metatype; a user class
 	// created through a metaclass carries that metaclass here. isMeta marks a
@@ -228,6 +233,7 @@ func newClassCore(meta *classObject, name, qual string, bases []Object, names []
 			}
 		}
 		c.bases = append(c.bases, bc)
+		bc.subclasses = append(bc.subclasses, c)
 	}
 	// __slots__ processing installs the member descriptors and sets the layout
 	// flags; the layout check then rejects bases whose slot layouts cannot
@@ -594,8 +600,26 @@ func classIntrospect(c *classObject, name string) (Object, bool) {
 		return classBase(c), true
 	case "__dict__":
 		return classDictProxy(c), true
+	case "__subclasses__":
+		// A bound zero-argument method reporting the direct subclasses, the live
+		// list _py_abc.__subclasscheck__ iterates. It closes over the class, so a
+		// class created after this read still shows up on the next call.
+		return NewFunc("__subclasses__", 0, func([]Object) (Object, error) {
+			return classSubclassesList(c), nil
+		}), true
 	}
 	return nil, false
+}
+
+// classSubclassesList builds the list __subclasses__() returns, the direct
+// subclasses in creation order. Each element is the class object itself, so a
+// caller reads back the same classes it built.
+func classSubclassesList(c *classObject) Object {
+	elts := make([]Object, len(c.subclasses))
+	for i, sc := range c.subclasses {
+		elts[i] = sc
+	}
+	return NewList(elts)
 }
 
 // objectNewBuiltin is the canonical object.__new__: one shared builtin so
