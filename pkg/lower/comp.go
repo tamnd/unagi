@@ -29,6 +29,14 @@ func (f *fnCtx) comp(e *frontend.Comp) (ast.Expr, error) {
 	if e.Kind == frontend.CompGen {
 		return f.genexp(e)
 	}
+	// An async comprehension, one with an `async for` clause or an await in its
+	// own scope, only runs inside an async def, whose frame the inlined async
+	// for and await borrow. Outside one it is the SyntaxError CPython's symtable
+	// raises, anchored at the comprehension and reported here since the parser
+	// does not know the enclosing function.
+	if compIsAsync(e) && !f.inAsync {
+		return nil, f.e.errf(e.Span(), "asynchronous comprehension outside of an asynchronous function")
+	}
 	if f.compVars == nil {
 		f.compVars = map[string]string{}
 	}
@@ -112,13 +120,28 @@ func (f *fnCtx) comp(e *frontend.Comp) (ast.Expr, error) {
 			iter = v
 		}
 		it := f.tmpVar()
-		f.fallible(it, f.e.obj("Iter"), iter)
+		if cl.Async {
+			// An async clause takes the async iterator through AsyncIterT and
+			// steps it through AsyncNextT, which awaits __anext__ on the enclosing
+			// coroutine's yielder, in the same (value, ok, err) shape the sync
+			// clause's Iter and Next report, so the loop below is unchanged.
+			f.add(assign(token.DEFINE, []ast.Expr{ident(it), ident("err")},
+				callExpr(f.e.obj("AsyncIterT"), threadArg(), iter)))
+			f.check(nil)
+		} else {
+			f.fallible(it, f.e.obj("Iter"), iter)
+		}
 		bindClause(cl.Target)
 		f.push()
 		v := f.tmpVar()
 		ok := f.tmpVar()
-		next := &ast.SelectorExpr{X: ident(it), Sel: ident("Next")}
-		f.add(assign(token.DEFINE, []ast.Expr{ident(v), ident(ok), ident("err")}, callExpr(next)))
+		if cl.Async {
+			f.add(assign(token.DEFINE, []ast.Expr{ident(v), ident(ok), ident("err")},
+				callExpr(f.e.obj("AsyncNextT"), threadArg(), ident(f.genYielder), ident(it))))
+		} else {
+			next := &ast.SelectorExpr{X: ident(it), Sel: ident("Next")}
+			f.add(assign(token.DEFINE, []ast.Expr{ident(v), ident(ok), ident("err")}, callExpr(next)))
+		}
 		f.check(nil)
 		f.add(&ast.IfStmt{
 			Cond: notExpr(ident(ok)),
@@ -175,6 +198,13 @@ func (f *fnCtx) comp(e *frontend.Comp) (ast.Expr, error) {
 // `(x for x in bad)` raises where it is written while an inner iterable's error
 // surfaces only at the first next.
 func (f *fnCtx) genexp(e *frontend.Comp) (ast.Expr, error) {
+	// An async generator expression, `(x async for x in aiter)`, is its own
+	// async_generator object rather than an inlined loop, so it needs a frame
+	// this lowering does not build yet. Reject it up front rather than lower it
+	// over the sync iterator protocol, which would drive an async iterable wrong.
+	if compIsAsync(e) {
+		return nil, f.e.errf(e.Span(), "asynchronous generator expression is not supported yet")
+	}
 	// Eager outer iterator, evaluated in the enclosing scope before the
 	// generator object exists. Its check uses the enclosing function's return
 	// shape, so it must run before the yielder state is swapped in below.
@@ -326,6 +356,104 @@ func (f *fnCtx) genexp(e *frontend.Comp) (ast.Expr, error) {
 		qual = f.qual + ".<locals>.<genexpr>"
 	}
 	return callExpr(f.e.obj("NewGenerator"), strLit(qual), closure), nil
+}
+
+// compIsAsync reports whether a comprehension is asynchronous. CPython treats
+// it as async when it carries an `async for` clause or an await in its own
+// scope, and both make it a SyntaxError outside an async function. The element,
+// the value, every condition, and every inner iterable run in the
+// comprehension's scope, so an await in any of them counts; the outermost
+// iterable runs in the enclosing scope, so its await belongs to that scope and
+// is skipped, as is a nested lambda or comprehension, which starts its own.
+func compIsAsync(e *frontend.Comp) bool {
+	for i, cl := range e.Clauses {
+		if cl.Async {
+			return true
+		}
+		if i > 0 && awaitInExpr(cl.Iter) {
+			return true
+		}
+		for _, c := range cl.Ifs {
+			if awaitInExpr(c) {
+				return true
+			}
+		}
+	}
+	return awaitInExpr(e.Elt) || awaitInExpr(e.Val)
+}
+
+// awaitInExpr reports whether an await appears in e's own scope. It stops at a
+// lambda or a nested comprehension, which start their own scope, so their await
+// belongs to that scope rather than this one, mirroring how hasYield bounds a
+// generator's yields.
+func awaitInExpr(e frontend.Expr) bool {
+	if e == nil {
+		return false
+	}
+	found := false
+	var walk func(e frontend.Expr)
+	walkAll := func(list []frontend.Expr) {
+		for _, x := range list {
+			walk(x)
+		}
+	}
+	walk = func(e frontend.Expr) {
+		switch e := e.(type) {
+		case *frontend.Await:
+			found = true
+		case *frontend.ListLit:
+			walkAll(e.Elts)
+		case *frontend.TupleLit:
+			walkAll(e.Elts)
+		case *frontend.SetLit:
+			walkAll(e.Elts)
+		case *frontend.DictLit:
+			walkAll(e.Keys)
+			walkAll(e.Vals)
+		case *frontend.BinOp:
+			walk(e.Left)
+			walk(e.Right)
+		case *frontend.UnaryOp:
+			walk(e.X)
+		case *frontend.BoolOp:
+			walkAll(e.Values)
+		case *frontend.Compare:
+			walk(e.Left)
+			walkAll(e.Rights)
+		case *frontend.Call:
+			walk(e.Fn)
+			for _, a := range e.Args {
+				walk(a.Value)
+			}
+		case *frontend.Attribute:
+			walk(e.X)
+		case *frontend.Subscript:
+			walk(e.X)
+			walk(e.Index)
+		case *frontend.SliceExpr:
+			walk(e.Lo)
+			walk(e.Hi)
+			walk(e.Step)
+		case *frontend.IfExp:
+			walk(e.Cond)
+			walk(e.Then)
+			walk(e.Else)
+		case *frontend.NamedExpr:
+			walk(e.Value)
+		case *frontend.Starred:
+			walk(e.X)
+		case *frontend.Yield:
+			walk(e.Value)
+		case *frontend.FStr:
+			for _, in := range frontend.FInterps(e.Parts) {
+				walk(in.X)
+			}
+		}
+		// A Lambda or Comp starts a fresh scope; an await inside one is that
+		// scope's, so the walk stops here.
+	}
+	walk(e)
+	return found
 }
 
 // compBody emits the innermost accumulation step. Dict comprehensions

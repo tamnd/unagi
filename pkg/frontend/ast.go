@@ -484,9 +484,13 @@ const (
 )
 
 // CompClause is one `for target in iter` leg with its trailing `if`
-// conditions. A comprehension carries one or more in source order.
+// conditions. A comprehension carries one or more in source order. Async is
+// set for an `async for` leg, which makes the whole comprehension an
+// asynchronous one; whether that is legal depends on the enclosing function,
+// so lowering, not the parser, enforces the async-context rule.
 type CompClause struct {
 	Pos_   Pos
+	Async  bool
 	Target Expr
 	Iter   Expr
 	Ifs    []Expr
