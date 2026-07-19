@@ -24,6 +24,10 @@ func initAsyncio(m *objects.Module) error {
 		{"create_task", objects.NewFuncKw("create_task", asyncioCreateTask)},
 		{"gather", objects.NewFuncKw("gather", asyncioGather)},
 		{"wait_for", objects.NewFuncKw("wait_for", asyncioWaitFor)},
+		{"wait", objects.NewFuncKw("wait", asyncioWait)},
+		{"FIRST_COMPLETED", objects.NewStr("FIRST_COMPLETED")},
+		{"FIRST_EXCEPTION", objects.NewStr("FIRST_EXCEPTION")},
+		{"ALL_COMPLETED", objects.NewStr("ALL_COMPLETED")},
 		{"shield", objects.NewFuncKw("shield", asyncioShield)},
 		{"ensure_future", objects.NewFuncKw("ensure_future", asyncioEnsureFuture)},
 		{"timeout", objects.NewFuncKw("timeout", asyncioTimeout)},
@@ -282,6 +286,29 @@ func asyncioWaitFor(pos []objects.Object, kwNames []string, kwVals []objects.Obj
 		timeout = v
 	}
 	return objects.AsyncioWaitFor(aw, timeout), nil
+}
+
+// asyncioWait is asyncio.wait(aws, *, timeout=None, return_when=ALL_COMPLETED). It
+// returns a coroutine that waits on the Tasks or Futures and evaluates to the
+// (done, pending) pair. return_when defaults to ALL_COMPLETED; any other keyword
+// is the TypeError CPython raises.
+func asyncioWait(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if len(pos) != 1 {
+		return nil, objects.Raise(objects.TypeError, "wait() takes 1 positional argument but %d were given", len(pos))
+	}
+	timeout := objects.Object(objects.None)
+	returnWhen := objects.Object(objects.NewStr("ALL_COMPLETED"))
+	for i, k := range kwNames {
+		switch k {
+		case "timeout":
+			timeout = kwVals[i]
+		case "return_when":
+			returnWhen = kwVals[i]
+		default:
+			return nil, objects.Raise(objects.TypeError, "wait() got an unexpected keyword argument '%s'", k)
+		}
+	}
+	return objects.AsyncioWait(pos[0], timeout, returnWhen), nil
 }
 
 // asyncioTimeout is asyncio.timeout(delay). It builds an async context manager

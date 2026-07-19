@@ -1128,6 +1128,122 @@ func boolStr(b bool) string {
 	return "false"
 }
 
+// waitCounts drives asyncio.wait over the given awaitables and returns the sizes
+// of the resulting done and pending sets.
+func waitCounts(y Yielder, aws []Object, timeout Object, returnWhen Object) (int, int, error) {
+	res, err := awaitObj(y, AsyncioWait(NewList(aws), timeout, returnWhen))
+	if err != nil {
+		return 0, 0, err
+	}
+	tup := res.(*tupleObject)
+	dn, err := Len(tup.elts[0])
+	if err != nil {
+		return 0, 0, err
+	}
+	pn, err := Len(tup.elts[1])
+	if err != nil {
+		return 0, 0, err
+	}
+	return dn, pn, nil
+}
+
+// TestAsyncioWaitAllCompleted checks the default ALL_COMPLETED waits for every
+// task, so the done set holds both and the pending set is empty.
+func TestAsyncioWaitAllCompleted(t *testing.T) {
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		loop := runningLoop.Load()
+		t1, err := scheduleTask(NewCoroutine("a", func(y Yielder) (Object, error) {
+			return y.YieldFrom(AsyncioSleep(0, NewInt(1)))
+		}), loop, "")
+		if err != nil {
+			return nil, err
+		}
+		t2, err := scheduleTask(NewCoroutine("b", func(y Yielder) (Object, error) {
+			return y.YieldFrom(AsyncioSleep(0, NewInt(2)))
+		}), loop, "")
+		if err != nil {
+			return nil, err
+		}
+		dn, pn, err := waitCounts(y, []Object{t1, t2}, None, NewStr("ALL_COMPLETED"))
+		if err != nil {
+			return nil, err
+		}
+		return NewStr(boolStr(dn == 2) + boolStr(pn == 0)), nil
+	})
+	got, err := AsyncioRun(main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if s, _ := AsStr(got); s != "truetrue" {
+		t.Fatalf("wait all = %q, want truetrue (done=2 pending=0)", s)
+	}
+}
+
+// TestAsyncioWaitFirstException returns as soon as a task raises, before the
+// slower task is done, so one is done and one is still pending.
+func TestAsyncioWaitFirstException(t *testing.T) {
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		loop := runningLoop.Load()
+		slow, err := scheduleTask(NewCoroutine("slow", func(y Yielder) (Object, error) {
+			return y.YieldFrom(AsyncioSleep(0.05, NewInt(1)))
+		}), loop, "")
+		if err != nil {
+			return nil, err
+		}
+		bad, err := scheduleTask(NewCoroutine("bad", func(y Yielder) (Object, error) {
+			return nil, Raise(ValueError, "boom")
+		}), loop, "")
+		if err != nil {
+			return nil, err
+		}
+		dn, pn, err := waitCounts(y, []Object{slow, bad}, None, NewStr("FIRST_EXCEPTION"))
+		if err != nil {
+			return nil, err
+		}
+		return NewStr(boolStr(dn == 1) + boolStr(pn == 1)), nil
+	})
+	got, err := AsyncioRun(main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if s, _ := AsStr(got); s != "truetrue" {
+		t.Fatalf("wait first_exception = %q, want truetrue (done=1 pending=1)", s)
+	}
+}
+
+// TestAsyncioWaitEmpty checks an empty set of awaitables is the ValueError
+// CPython raises rather than an empty result.
+func TestAsyncioWaitEmpty(t *testing.T) {
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		_, err := awaitObj(y, AsyncioWait(NewList(nil), None, NewStr("ALL_COMPLETED")))
+		return NewStr(coroExcKind(err)), nil
+	})
+	got, err := AsyncioRun(main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if s, _ := AsStr(got); s != "ValueError" {
+		t.Fatalf("wait empty = %q, want ValueError", s)
+	}
+}
+
+// TestAsyncioWaitCoroForbidden checks a bare coroutine argument is the TypeError
+// CPython raises, since wait requires tasks or futures.
+func TestAsyncioWaitCoroForbidden(t *testing.T) {
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		coro := NewCoroutine("c", func(y Yielder) (Object, error) { return None, nil })
+		_, err := awaitObj(y, AsyncioWait(NewList([]Object{coro}), None, NewStr("ALL_COMPLETED")))
+		return NewStr(coroExcKind(err)), nil
+	})
+	got, err := AsyncioRun(main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if s, _ := AsStr(got); s != "TypeError" {
+		t.Fatalf("wait coro = %q, want TypeError", s)
+	}
+}
+
 // TestAsyncioEnsureFuture checks a coroutine becomes a task while a task or
 // future passes through ensure_future unchanged.
 func TestAsyncioEnsureFuture(t *testing.T) {
