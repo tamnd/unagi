@@ -137,15 +137,25 @@ func (r *asyncioRunner) close() (Object, error) {
 	if r.state != runnerInitialized {
 		return None, nil
 	}
-	// Run the loop's async generators to their finalizers before closing it, the
-	// loop.shutdown_asyncgens step CPython's Runner.close takes first. An async
-	// generator left suspended at a yield gets acloseed so its finally runs. Only a
-	// run can register one, so r.thread is set whenever the tracked set is nonempty.
-	if len(r.loop.asyncgens) > 0 {
-		t := r.thread
-		if t == nil {
-			t = mainThread
+	t := r.thread
+	if t == nil {
+		t = mainThread
+	}
+	// Cancel every task still pending on the loop and run it to completion, the
+	// _cancel_all_tasks step CPython's Runner.close takes first. A fire-and-forget
+	// task left suspended gets CancelledError at its await, so its except and finally
+	// run before teardown. Only a run can schedule one, so r.thread is set whenever
+	// the loop has pending tasks.
+	if r.loop.hasPendingTasks() {
+		coro := r.loop.cancelAllTasksCoro()
+		if _, err := r.loop.runUntilComplete(t, coro); err != nil {
+			return nil, err
 		}
+	}
+	// Then run the loop's async generators to their finalizers, the
+	// loop.shutdown_asyncgens step. An async generator left suspended at a yield gets
+	// acloseed so its finally runs.
+	if len(r.loop.asyncgens) > 0 {
 		coro := r.loop.shutdownAsyncGensCoro()
 		if _, err := r.loop.runUntilComplete(t, coro); err != nil {
 			return nil, err

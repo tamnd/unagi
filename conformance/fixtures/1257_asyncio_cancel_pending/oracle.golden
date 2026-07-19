@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+spawn_one done
+cancelled a
+finally a
+after spawn_one
+quick b
+awaited b
+after spawn_quick
+spawn_swallow done
+swallowed c
+after spawn_swallow
+start d
+leaky finally d
+done
+== exception:
+== stderr:

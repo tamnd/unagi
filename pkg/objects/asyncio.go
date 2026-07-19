@@ -144,6 +144,54 @@ func registerAsyncGenWithLoop(ag *generatorObject) {
 	}
 }
 
+// hasPendingTasks reports whether the loop has a task that has not finished, so the
+// teardown can skip the cancel drain when there is nothing to cancel.
+func (l *eventLoop) hasPendingTasks() bool {
+	for tk := range l.tasks {
+		if !tk.doneFut.doneP() {
+			return true
+		}
+	}
+	return false
+}
+
+// cancelAllTasksCoro builds the coroutine that cancels every task still pending on
+// the loop and drives it to completion, the _cancel_all_tasks step CPython's Runner
+// runs at teardown. A fire-and-forget task left suspended gets CancelledError raised
+// at its await, so its except and finally still run before the loop closes. The
+// pending tasks are snapshotted up front; the coroutine cancels each and awaits them
+// all through gather with return_exceptions, so one task's cancellation does not
+// abandon the rest. Nothing pending means the coroutine returns at once.
+func (l *eventLoop) cancelAllTasksCoro() Object {
+	toCancel := make([]Object, 0, len(l.tasks))
+	for tk := range l.tasks {
+		if tk.doneFut.doneP() {
+			continue
+		}
+		toCancel = append(toCancel, tk)
+	}
+	return NewCoroutine("cancel_all_tasks", func(y Yielder) (Object, error) {
+		if len(toCancel) == 0 {
+			return None, nil
+		}
+		for _, o := range toCancel {
+			o.(*asyncTask).cancel(None)
+		}
+		g, err := AsyncioGather(toCancel, true)
+		if err != nil {
+			return nil, err
+		}
+		aw, err := Await(g)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := y.YieldFrom(aw); err != nil {
+			return nil, err
+		}
+		return None, nil
+	})
+}
+
 // shutdownAsyncGensCoro builds the coroutine loop.shutdown_asyncgens() returns: it
 // acloses every tracked async generator in first-iteration order, awaiting each so
 // a finalizer that itself awaits still runs to completion. An aclose that raises is
