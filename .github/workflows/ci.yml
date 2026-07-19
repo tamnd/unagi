@@ -31,8 +31,13 @@ jobs:
           # keeps the runner's safe default (half the cores).
           - os: ubuntu-latest
             build_jobs: "4"
+            test_timeout: "30m"
           - os: macos-latest
             build_jobs: ""
+            # The macOS runner is slower and builds at half the cores, so the
+            # race-instrumented corpus brushes the 30m ceiling as the fixture set
+            # grows. Give it more headroom; the job timeout is still the real cap.
+            test_timeout: "50m"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7.0.0
@@ -58,9 +63,10 @@ jobs:
           UNAGI_TEST_BUILD_JOBS: ${{ matrix.build_jobs }}
         # The race-instrumented conformance corpus links one binary per fixture,
         # and the slower macOS runner keeps a lower build-concurrency cap, so the
-        # sweep can run past Go's default 10-minute per-test timeout. Give the run
-        # generous headroom; the CI job timeout is still the real ceiling.
-        run: go test -race -count=1 -timeout=30m -coverprofile=coverage.out ./...
+        # sweep can run past Go's default 10-minute per-test timeout. The per-OS
+        # timeout gives each runner headroom; the CI job timeout is still the real
+        # ceiling.
+        run: go test -race -count=1 -timeout=${{ matrix.test_timeout }} -coverprofile=coverage.out ./...
       - name: coverage summary
         if: matrix.os == 'ubuntu-latest'
         run: go tool cover -func=coverage.out | tail -1
