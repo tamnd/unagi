@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+all [1, 2] 0
+first_completed 1 1
+winner 1
+first_exception 1 1
+raised ValueError
+timeout 1 1 cancelled False
+dedup 1 0
+future 7
+empty Set of Tasks/Futures is empty.
+coro Passing coroutines is forbidden, use tasks explicitly.
+badrw Invalid return_when value: NOPE
+futarg expect a list of futures, not Task
+ALL_COMPLETED ALL_COMPLETED
+== exception:
+== stderr:

@@ -712,6 +712,188 @@ func AsyncioShield(arg Object) (Object, error) {
 	return outer, nil
 }
 
+// The three return_when values asyncio.wait accepts. CPython compares them by
+// value against these same strings, so an argument that is not one of them is the
+// ValueError wait raises.
+const (
+	asyncioFirstCompleted = "FIRST_COMPLETED"
+	asyncioFirstException = "FIRST_EXCEPTION"
+	asyncioAllCompleted   = "ALL_COMPLETED"
+)
+
+// hasExc reports whether the future finished with an exception rather than a
+// result or a cancellation, the state FIRST_EXCEPTION watches for.
+func (f *asyncFuture) hasExc() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.exc != nil && !f.cancelled
+}
+
+// waitEntry pairs a wait argument with the future whose completion wait watches.
+// obj is the Task or Future the caller gets back in the done and pending sets; fut
+// is what wait registers its callback on, a task's completion future or the future
+// itself.
+type waitEntry struct {
+	obj Object
+	fut *asyncFuture
+}
+
+// isFutureOrCoro reports whether o is a future, task, or coroutine, the arguments
+// asyncio.wait rejects when passed in place of the expected list of futures.
+func isFutureOrCoro(o Object) bool {
+	switch v := o.(type) {
+	case *asyncFuture, *asyncTask:
+		return true
+	case *generatorObject:
+		return v.isCoro
+	}
+	return false
+}
+
+// waitEntries turns the wait argument into the futures to watch, deduplicating on
+// the watched future's identity the way CPython's set(fs) does. A coroutine among
+// the elements is the TypeError wait raises after the empty and return_when checks;
+// a non-future element fails the way CPython does when _wait reaches for its
+// missing add_done_callback.
+func waitEntries(fs Object) ([]waitEntry, error) {
+	it, err := Iter(fs)
+	if err != nil {
+		return nil, err
+	}
+	var raw []Object
+	for {
+		v, ok, err := it.Next()
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			break
+		}
+		raw = append(raw, v)
+	}
+	// CPython's any(iscoroutine(f) for f in fs) scans the whole set before _wait
+	// touches a single future, so a coroutine anywhere is the forbidden-coroutine
+	// error rather than a later add_done_callback failure.
+	for _, v := range raw {
+		if g, ok := v.(*generatorObject); ok && g.isCoro {
+			return nil, Raise(TypeError, "Passing coroutines is forbidden, use tasks explicitly.")
+		}
+	}
+	seen := map[*asyncFuture]bool{}
+	var entries []waitEntry
+	for _, v := range raw {
+		var e waitEntry
+		switch a := v.(type) {
+		case *asyncTask:
+			e = waitEntry{obj: a, fut: a.doneFut}
+		case *asyncFuture:
+			e = waitEntry{obj: a, fut: a}
+		default:
+			return nil, Raise(AttributeError, "'%s' object has no attribute 'add_done_callback'", v.TypeName())
+		}
+		if !seen[e.fut] {
+			seen[e.fut] = true
+			entries = append(entries, e)
+		}
+	}
+	return entries, nil
+}
+
+// AsyncioWait implements asyncio.wait(aws, *, timeout=None, return_when=ALL_COMPLETED).
+// It returns a coroutine that suspends until the return condition is met or the
+// timeout elapses, then evaluates to the (done, pending) pair of sets. Unlike
+// wait_for it never cancels the still-pending awaitables when the timeout fires;
+// they are simply reported in the pending set. The awaitables must be Tasks or
+// Futures, not bare coroutines, matching CPython 3.11's removal of the implicit
+// wrapping.
+func AsyncioWait(fs Object, timeout Object, returnWhen Object) Object {
+	body := func(y Yielder) (Object, error) {
+		loop := runningLoop.Load()
+		if loop == nil {
+			return nil, Raise(RuntimeError, "no running event loop")
+		}
+		// A single future or coroutine passed where a list is expected is a TypeError
+		// before any of the other checks, matching CPython's first guard.
+		if isFutureOrCoro(fs) {
+			return nil, Raise(TypeError, "expect a list of futures, not %s", fs.TypeName())
+		}
+		if !Truth(fs) {
+			return nil, Raise(ValueError, "Set of Tasks/Futures is empty.")
+		}
+		rw, ok := AsStr(returnWhen)
+		if !ok || (rw != asyncioFirstCompleted && rw != asyncioFirstException && rw != asyncioAllCompleted) {
+			return nil, Raise(ValueError, "Invalid return_when value: %s", Str(returnWhen))
+		}
+		entries, err := waitEntries(fs)
+		if err != nil {
+			return nil, err
+		}
+		var timer *loopTimer
+		if timeout != nil && timeout != None {
+			secs, ok := AsFloat(timeout)
+			if !ok {
+				return nil, Raise(TypeError, "'%s' object cannot be interpreted as a float", timeout.TypeName())
+			}
+			timer = loop.callLater(time.Duration(secs*float64(time.Second)), func() {})
+		}
+		waiter := &asyncFuture{loop: loop}
+		if timer != nil {
+			// _release_waiter resolves the waiter when the deadline passes; the timer's
+			// callback is set now that the waiter exists.
+			timer.cb = func() {
+				if !waiter.doneP() {
+					waiter.setResult(None)
+				}
+			}
+		}
+		// counter starts at the full count, including futures already done: their
+		// callbacks are scheduled on the loop and decrement it on the next tick, the
+		// same path a still-pending future takes when it finishes. All callbacks run on
+		// the loop goroutine, so counter needs no lock.
+		counter := len(entries)
+		for _, e := range entries {
+			f := e.fut
+			f.addDoneCallback(func() {
+				counter--
+				if counter <= 0 ||
+					rw == asyncioFirstCompleted ||
+					(rw == asyncioFirstException && f.hasExc()) {
+					if timer != nil {
+						timer.cancelled = true
+					}
+					if !waiter.doneP() {
+						waiter.setResult(None)
+					}
+				}
+			})
+		}
+		if _, err := AwaitThrough(y, waiter); err != nil {
+			return nil, err
+		}
+		if timer != nil {
+			timer.cancelled = true
+		}
+		var doneObjs, pendingObjs []Object
+		for _, e := range entries {
+			if e.fut.doneP() {
+				doneObjs = append(doneObjs, e.obj)
+			} else {
+				pendingObjs = append(pendingObjs, e.obj)
+			}
+		}
+		doneSet, err := NewSet(doneObjs)
+		if err != nil {
+			return nil, err
+		}
+		pendingSet, err := NewSet(pendingObjs)
+		if err != nil {
+			return nil, err
+		}
+		return NewTuple([]Object{doneSet, pendingSet}), nil
+	}
+	return &generatorObject{qual: "wait", body: fromTop(body), ret: None, isCoro: true}
+}
+
 // AsyncioSleep implements asyncio.sleep(delay, result=None). A non-positive
 // delay is a bare yield through the ready queue, so the coroutine hands control
 // back once and resumes without a timer. A positive delay creates a future the
