@@ -116,11 +116,19 @@ func futuresNewThreadPool(pos []objects.Object, kwNames []string, kwVals []objec
 		prefix = s
 	}
 
+	e := objects.NewExecutor(maxWorkers, prefix)
 	if in, ok := vals["initializer"]; ok && in != objects.None {
-		return nil, objects.Raise("AssertionError", "initializer argument must be None for now")
+		if !objects.Callable(in) {
+			return nil, objects.Raise(objects.TypeError, "initializer must be a callable")
+		}
+		initargs := objects.NewTuple(nil)
+		if ia, ok := vals["initargs"]; ok && ia != objects.None {
+			initargs = ia
+		}
+		e.SetInitializer(in, initargs)
 	}
 
-	return objects.NewExecutor(maxWorkers, prefix), nil
+	return e, nil
 }
 
 // futuresWait is concurrent.futures.wait(fs, timeout=None, return_when=ALL_COMPLETED).
