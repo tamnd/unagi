@@ -1,0 +1,55 @@
+== exit: 0
+== stdout:
+['StringIO', '_TextIOBase', '_IOBase', 'object']
+True True
+[]
+1
+hel 3
+'lo\n'
+'world'
+''
+'hello\nworld'
+hello
+world
+3
+1 'abc\x00\x00Z'
+4 'a\r\nb\r\n'
+abcd
+'a\r\nb\rc\n' None
+["'a\\r\\n'", "'b\\rc\\n'"]
+'a\nb\nc\n' ('\r', '\n', '\r\n')
+["'a\\n'", "'b\\n'", "'c\\n'"]
+'a\r\nb\rc\n' ('\r', '\n', '\r\n')
+["'a\\r\\n'", "'b\\r'", "'c\\n'"]
+'x\ry\rz'
+["'x\\r'", "'y\\r'", "'z'"]
+'a\n\nb' ('\r', '\n')
+'abcd' 'ef\n'
+2 6
+cur-rel -> Can't do nonzero cur-relative seeks
+end-rel -> Can't do nonzero cur-relative seeks
+neg seek -> Negative seek position -1
+bad whence -> Invalid whence (3, should be 0, 1 or 2)
+3 'abc' 3
+2 'ab'
+neg trunc -> Negative size value -1
+True True True
+False
+fileno -> fileno
+detach -> detach
+None None
+["'a\\n'", "'b\\n'", "'c'"]
+cm read: 'z'
+closed after with: True
+closed: True
+read closed -> I/O operation on closed file
+write closed -> I/O operation on closed file
+tell closed -> I/O operation on closed file
+readable closed -> I/O operation on closed file
+getvalue closed -> I/O operation on closed file
+init bytes -> initial_value must be str or None, not bytes
+init int -> initial_value must be str or None, not int
+illegal newline -> illegal newline value: 'xx'
+<_io.StringIO
+== exception:
+== stderr:

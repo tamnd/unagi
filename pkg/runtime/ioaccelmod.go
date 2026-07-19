@@ -64,6 +64,11 @@ func init() {
 		panic("unagi: building _io.BytesIO: " + err.Error())
 	}
 
+	// StringIO subclasses _TextIOBase, so that base must exist first.
+	if ioStringIOClass, err = buildIOStringIO(); err != nil {
+		panic("unagi: building _io.StringIO: " + err.Error())
+	}
+
 	moduleTable["_io"] = &moduleEntry{builtin: true, exec: initIOAccel}
 }
 
@@ -87,6 +92,9 @@ func initIOAccel(m *objects.Module) error {
 		return err
 	}
 	if err := set("BytesIO", ioBytesIOClass); err != nil {
+		return err
+	}
+	if err := set("StringIO", ioStringIOClass); err != nil {
 		return err
 	}
 	// DEFAULT_BUFFER_SIZE is the buffer size the buffered streams and open()
