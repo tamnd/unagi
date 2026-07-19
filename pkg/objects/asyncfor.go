@@ -60,6 +60,8 @@ func hasAsyncMethod(o Object, name string) bool {
 		return ok
 	case *generatorObject:
 		return x.isAsyncGen && (name == "__aiter__" || name == "__anext__")
+	case *asyncioAsCompleted:
+		return name == "__aiter__" || name == "__anext__"
 	}
 	return false
 }

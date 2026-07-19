@@ -25,6 +25,7 @@ func initAsyncio(m *objects.Module) error {
 		{"gather", objects.NewFuncKw("gather", asyncioGather)},
 		{"wait_for", objects.NewFuncKw("wait_for", asyncioWaitFor)},
 		{"wait", objects.NewFuncKw("wait", asyncioWait)},
+		{"as_completed", objects.NewFuncKw("as_completed", asyncioAsCompleted)},
 		{"FIRST_COMPLETED", objects.NewStr("FIRST_COMPLETED")},
 		{"FIRST_EXCEPTION", objects.NewStr("FIRST_EXCEPTION")},
 		{"ALL_COMPLETED", objects.NewStr("ALL_COMPLETED")},
@@ -309,6 +310,24 @@ func asyncioWait(pos []objects.Object, kwNames []string, kwVals []objects.Object
 		}
 	}
 	return objects.AsyncioWait(pos[0], timeout, returnWhen), nil
+}
+
+// asyncioAsCompleted is asyncio.as_completed(aws, *, timeout=None). It returns an
+// iterator that produces the awaitables in completion order, raising TimeoutError
+// when the deadline passes with awaitables still pending. Any keyword but timeout
+// is the TypeError CPython raises.
+func asyncioAsCompleted(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if len(pos) != 1 {
+		return nil, objects.Raise(objects.TypeError, "as_completed() takes 1 positional argument but %d were given", len(pos))
+	}
+	timeout := objects.Object(objects.None)
+	for i, k := range kwNames {
+		if k != "timeout" {
+			return nil, objects.Raise(objects.TypeError, "as_completed() got an unexpected keyword argument '%s'", k)
+		}
+		timeout = kwVals[i]
+	}
+	return objects.AsyncioAsCompleted(pos[0], timeout)
 }
 
 // asyncioTimeout is asyncio.timeout(delay). It builds an async context manager

@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+order [2, 3, 1]
+coros [8, 7]
+async [20, 10]
+raised nope
+timed out
+empty []
+type _AsCompletedIterator
+== exception:
+== stderr:

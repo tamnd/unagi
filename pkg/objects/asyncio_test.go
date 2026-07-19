@@ -1227,6 +1227,91 @@ func TestAsyncioWaitEmpty(t *testing.T) {
 	}
 }
 
+// TestAsyncioAsCompletedOrder drives the plain-iterator form of as_completed and
+// checks the awaitables resolve in completion order, not argument order.
+func TestAsyncioAsCompletedOrder(t *testing.T) {
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		loop := runningLoop.Load()
+		t1, err := scheduleTask(sleepThen("a", 0.03, NewInt(1)), loop, "")
+		if err != nil {
+			return nil, err
+		}
+		t2, err := scheduleTask(sleepThen("b", 0.01, NewInt(2)), loop, "")
+		if err != nil {
+			return nil, err
+		}
+		t3, err := scheduleTask(sleepThen("c", 0.02, NewInt(3)), loop, "")
+		if err != nil {
+			return nil, err
+		}
+		ac, err := AsyncioAsCompleted(NewList([]Object{t1, t2, t3}), None)
+		if err != nil {
+			return nil, err
+		}
+		it, err := Iter(ac)
+		if err != nil {
+			return nil, err
+		}
+		var got []Object
+		for {
+			coro, ok, err := it.Next()
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				break
+			}
+			v, err := awaitObj(y, coro)
+			if err != nil {
+				return nil, err
+			}
+			got = append(got, v)
+		}
+		return NewList(got), nil
+	})
+	got, err := AsyncioRun(main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if s := Str(got); s != "[2, 3, 1]" {
+		t.Fatalf("as_completed order = %s, want [2, 3, 1]", s)
+	}
+}
+
+// TestAsyncioAsCompletedTimeout checks a timeout raises TimeoutError while an
+// awaitable is still pending.
+func TestAsyncioAsCompletedTimeout(t *testing.T) {
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		loop := runningLoop.Load()
+		slow, err := scheduleTask(sleepThen("slow", 0.5, NewInt(9)), loop, "")
+		if err != nil {
+			return nil, err
+		}
+		ac, err := AsyncioAsCompleted(NewList([]Object{slow}), NewFloat(0.02))
+		if err != nil {
+			return nil, err
+		}
+		it, err := Iter(ac)
+		if err != nil {
+			return nil, err
+		}
+		coro, _, err := it.Next()
+		if err != nil {
+			return nil, err
+		}
+		_, aerr := awaitObj(y, coro)
+		slow.cancel(None)
+		return NewStr(coroExcKind(aerr)), nil
+	})
+	got, err := AsyncioRun(main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if s, _ := AsStr(got); s != "TimeoutError" {
+		t.Fatalf("as_completed timeout = %q, want TimeoutError", s)
+	}
+}
+
 // TestAsyncioWaitCoroForbidden checks a bare coroutine argument is the TypeError
 // CPython raises, since wait requires tasks or futures.
 func TestAsyncioWaitCoroForbidden(t *testing.T) {
