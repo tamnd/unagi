@@ -515,6 +515,11 @@ func CallT(t *Thread, f Object, args []Object) (Object, error) {
 		}
 		return weakrefTarget(w), nil
 	}
+	if g, ok := f.(*genericAliasObject); ok {
+		// Calling a parameterized generic constructs its origin, so list[int]()
+		// builds a list; the type arguments are erased at runtime.
+		return CallT(t, g.origin, args)
+	}
 	if q, ok := f.(*quitterObject); ok {
 		return q.call(args)
 	}
@@ -554,7 +559,7 @@ func Callable(f Object) bool {
 		return true
 	case *namedTupleType, *partialObject, *lruCacheObject, *keyObject:
 		return true
-	case *quitterObject, *printerObject, *weakrefObject:
+	case *quitterObject, *printerObject, *weakrefObject, *genericAliasObject:
 		return true
 	case *typeObject:
 		// A constructor-less type value is callable even when the call only

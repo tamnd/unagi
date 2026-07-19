@@ -54,5 +54,14 @@ func callTypeObject(t *typeObject, args []Object) (Object, error) {
 			return nil, Raise(TypeError, "mappingproxy() takes at most 1 argument (%d given)", len(args))
 		}
 	}
+	if t.name == "types.GenericAlias" {
+		// types.GenericAlias(origin, args) is the explicit constructor for what
+		// origin[args] builds, so _collections_abc's classmethod(GenericAlias)
+		// path reaches the same value as list[int].
+		if len(args) != 2 {
+			return nil, Raise(TypeError, "GenericAlias expected 2 arguments, got %d", len(args))
+		}
+		return NewGenericAlias(args[0], args[1]), nil
+	}
 	return nil, Raise(TypeError, "cannot create '%s' instances", t.name)
 }
