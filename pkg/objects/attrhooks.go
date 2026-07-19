@@ -24,15 +24,41 @@ var objectSlotWrappers = map[string]bool{
 	"__delattr__":      true,
 }
 
+// objectAttrDefaults holds the three object-root slot wrappers by name, the
+// values a bare object() instance finds when it looks a slot up on its own
+// class. A user override is any value other than these, so the trampoline can
+// tell a real hook from object's default even for an object() instance, whose
+// class IS the object root and so does carry the slots on its MRO.
+var objectAttrDefaults = map[string]Object{}
+
 func init() {
 	// object carries the three slot wrappers so object.__getattribute__ and
 	// friends resolve as callables. Its own one-entry MRO lets classObject.lookup
-	// reach that dict for the explicit object.__slot__ form; instance MROs still
-	// omit object, so an override check on an instance never sees these.
+	// reach that dict for the explicit object.__slot__ form; a user class MRO omits
+	// object, so a lookup on such an instance finds only a genuine override.
 	objectClass.mro = []*classObject{objectClass}
 	objectClass.dict["__getattribute__"] = NewFunc("__getattribute__", 2, objectGetattribute)
 	objectClass.dict["__setattr__"] = NewFunc("__setattr__", 3, objectSetattr)
 	objectClass.dict["__delattr__"] = NewFunc("__delattr__", 2, objectDelattr)
+	for name := range objectSlotWrappers {
+		objectAttrDefaults[name] = objectClass.dict[name]
+	}
+}
+
+// userAttrHook reports the type's override of an attribute slot, if any. It is a
+// miss when the type defines none, and also when the only value on the MRO is
+// object's own default wrapper, which an object() instance reaches because its
+// class is the object root. That default is not an override, so the generic core
+// runs rather than the wrapper being called as if it were a user hook.
+func userAttrHook(cls *classObject, name string) (Object, bool) {
+	tv, ok := cls.lookup(name)
+	if !ok {
+		return nil, false
+	}
+	if tv == objectAttrDefaults[name] {
+		return nil, false
+	}
+	return tv, true
 }
 
 // instanceLoadAttr reads x.name through the full protocol: a user
@@ -43,7 +69,7 @@ func init() {
 func instanceLoadAttr(x *instanceObject, name string) (Object, error) {
 	var res Object
 	var err error
-	if _, ok := x.cls.lookup("__getattribute__"); ok {
+	if _, ok := userAttrHook(x.cls, "__getattribute__"); ok {
 		res, _, err = instanceSpecial(x, "__getattribute__", NewStr(name))
 	} else {
 		res, err = genericGetAttr(x, name)
@@ -60,7 +86,7 @@ func instanceLoadAttr(x *instanceObject, name string) (Object, error) {
 // instanceStoreAttr writes x.name = val, routing through a user __setattr__ when
 // the type defines one and otherwise to the generic core.
 func instanceStoreAttr(x *instanceObject, name string, val Object) error {
-	if _, ok := x.cls.lookup("__setattr__"); ok {
+	if _, ok := userAttrHook(x.cls, "__setattr__"); ok {
 		_, _, err := instanceSpecial(x, "__setattr__", NewStr(name), val)
 		return err
 	}
@@ -70,7 +96,7 @@ func instanceStoreAttr(x *instanceObject, name string, val Object) error {
 // instanceDelAttr deletes x.name, routing through a user __delattr__ when the
 // type defines one and otherwise to the generic core.
 func instanceDelAttr(x *instanceObject, name string) error {
-	if _, ok := x.cls.lookup("__delattr__"); ok {
+	if _, ok := userAttrHook(x.cls, "__delattr__"); ok {
 		_, _, err := instanceSpecial(x, "__delattr__", NewStr(name))
 		return err
 	}

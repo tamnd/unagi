@@ -142,3 +142,50 @@ func vRepr(o Object) string {
 	}
 	return Repr(o)
 }
+
+// TestObjectInstanceAttrDefaults proves a bare object() instance runs object's
+// default attribute protocol instead of mistaking object's own slot wrappers for
+// a user override. An object() instance's class IS the object root, so it carries
+// __getattribute__/__setattr__/__delattr__ on its MRO; userAttrHook must report
+// no override so the generic core runs. Regression for the misfire that raised
+// `__getattribute__() takes 2 positional arguments but 1 was given`.
+func TestObjectInstanceAttrDefaults(t *testing.T) {
+	if _, ok := userAttrHook(objectClass, "__getattribute__"); ok {
+		t.Fatalf("object's own __getattribute__ read as a user override")
+	}
+	if _, ok := userAttrHook(objectClass, "__setattr__"); ok {
+		t.Fatalf("object's own __setattr__ read as a user override")
+	}
+
+	m, err := Instantiate(objectClass, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("object(): %v", err)
+	}
+	inst := m.(*instanceObject)
+
+	// __class__ reads through the generic core rather than calling the slot
+	// wrapper, so the read succeeds and reports the object root.
+	cls, err := LoadAttr(inst, "__class__")
+	if err != nil {
+		t.Fatalf("object().__class__: %v", err)
+	}
+	if cls != Object(objectClass) {
+		t.Fatalf("object().__class__ = %v, want object", cls)
+	}
+
+	// A miss is a plain AttributeError, not an arity TypeError.
+	if _, err := LoadAttr(inst, "nope"); err == nil || !isAttrError(err) {
+		t.Fatalf("object().nope err = %v, want AttributeError", err)
+	}
+
+	// A genuine class-level override is still honored: a subclass defining
+	// __getattribute__ takes the hook path.
+	hook := NewFunction("Sub.__getattribute__",
+		[]Param{{Name: "self", Kind: ParamPlain}, {Name: "name", Kind: ParamPlain}}, nil,
+		func(args []Object) (Object, error) { return NewStr("hooked"), nil })
+	sub := mkclass(t, "Sub")
+	sub.setAttr("__getattribute__", hook)
+	if _, ok := userAttrHook(sub, "__getattribute__"); !ok {
+		t.Fatalf("a real __getattribute__ override was not detected")
+	}
+}
