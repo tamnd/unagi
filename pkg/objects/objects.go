@@ -611,7 +611,7 @@ func CallT(t *Thread, f Object, args []Object) (Object, error) {
 		return keyCall(k, args)
 	}
 	if c, ok := f.(*classObject); ok {
-		return Instantiate(c, args, nil, nil)
+		return InstantiateT(t, c, args, nil, nil)
 	}
 	if t, ok := f.(*typeObject); ok {
 		return callTypeObject(t, args)

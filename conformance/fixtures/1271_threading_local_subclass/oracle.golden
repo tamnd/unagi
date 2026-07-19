@@ -1,0 +1,22 @@
+== exit: 0
+== stdout:
+init on MainThread tag main
+main tag: main
+main version: v1
+main touch: ('main', 1)
+main touch: ('main', 2)
+init on W0 tag main
+worker 0 sees tag: main
+worker 0 version: v1
+worker 0 touch: ('w0', 1)
+worker 0 touch: ('w0', 2)
+init on W1 tag main
+worker 1 sees tag: main
+worker 1 version: v1
+worker 1 touch: ('w1', 1)
+worker 1 touch: ('w1', 2)
+main tag after: main
+main touch after: ('main', 3)
+miss: 'Store' object has no attribute 'missing'
+== exception:
+== stderr:
