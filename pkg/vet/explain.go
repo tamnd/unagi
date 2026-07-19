@@ -16,6 +16,7 @@ var explanations = map[string]string{
 	"UNA-AIO-002": unaAio002Explain,
 	"UNA-AIO-003": unaAio003Explain,
 	"UNA-MP-001":  unaMp001Explain,
+	"UNA-MP-002":  unaMp002Explain,
 }
 
 // Explain returns the long-form text for a finding code and whether the code is
@@ -405,4 +406,39 @@ if __name__ == "__main__": exactly as CPython documents for spawn.
 
 This check flags set_start_method and get_context called with fork or
 forkserver, whether the method is passed positionally or as method=.
+`
+
+const unaMp002Explain = `UNA-MP-002: unpicklable worker target
+
+multiprocessing runs a target in a fresh worker process, and it gets the target
+there by pickling it and unpickling it on the far side. pickle stores a function
+as a reference to its qualified name, module.qualname, which the worker looks up
+in its own module table. Two common targets have no such name:
+
+    multiprocessing.Process(target=lambda: work()).start()   # a lambda
+
+    def outer():
+        def job():                 # a closure, defined inside outer
+            ...
+        with multiprocessing.Pool() as pool:
+            pool.map(job, items)   # also unpicklable
+
+A lambda has no qualified name at all. A function defined inside another is not
+reachable by name from the top of its module, and it may also close over local
+variables that simply do not exist in the worker. Either way the parent raises
+PicklingError when it tries to send the job, the same error CPython raises.
+
+Give multiprocessing a module-level function, and pass anything it needs to
+capture as plain arguments, which are pickled alongside it:
+
+    def job(item, config):
+        ...
+
+    with multiprocessing.Pool() as pool:
+        pool.starmap(job, [(item, config) for item in items])
+
+This check flags a lambda or a provably nested function passed as target to
+Process or as the callable to a Pool dispatch method (map, imap, starmap, apply,
+and their async forms). A bound method is not flagged, since it pickles fine as
+long as its object does.
 `
