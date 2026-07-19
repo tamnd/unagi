@@ -45,6 +45,41 @@ threading.Thread(target=worker).start()
 	}
 }
 
+// runVetArgs runs `unagi vet` with raw args and returns stdout and the error.
+func runVetArgs(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	root := newRoot()
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs(append([]string{"vet"}, args...))
+	err := root.Execute()
+	return out.String(), err
+}
+
+func TestVetCmdExplain(t *testing.T) {
+	out, err := runVetArgs(t, "--explain", "UNA-THR-001")
+	if err != nil {
+		t.Fatalf("explain: %v", err)
+	}
+	if !strings.Contains(out, "UNA-THR-001: unsynchronized read-modify-write") ||
+		!strings.Contains(out, "private counter") {
+		t.Fatalf("explain text missing detail:\n%s", out)
+	}
+}
+
+func TestVetCmdExplainUnknown(t *testing.T) {
+	if _, err := runVetArgs(t, "--explain", "UNA-THR-999"); err == nil {
+		t.Fatal("an unknown code should be an error")
+	}
+}
+
+func TestVetCmdNoArgs(t *testing.T) {
+	if _, err := runVetArgs(t); err == nil {
+		t.Fatal("vet with no file and no --explain should error")
+	}
+}
+
 func TestVetCmdSilentOnCleanFile(t *testing.T) {
 	const src = `def add(a, b):
     return a + b
