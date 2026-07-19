@@ -11,6 +11,7 @@ var explanations = map[string]string{
 	"UNA-THR-005": unaThr005Explain,
 	"UNA-THR-006": unaThr006Explain,
 	"UNA-THR-007": unaThr007Explain,
+	"UNA-THR-008": unaThr008Explain,
 }
 
 // Explain returns the long-form text for a finding code and whether the code is
@@ -238,4 +239,38 @@ waits for it to finish:
 If the thread should stop when the program does, give it a shutdown Event it
 checks each iteration, so it can flush and close before returning, and signal
 that event before exit.
+`
+
+const unaThr008Explain = `UNA-THR-008: cross-tier sharing surprise
+
+This one is specific to unagi, not to CPython. unagi compiles code in two tiers.
+The static tier specializes a function on the types it can prove, and for a
+module global with a type annotation it may read a typed shadow of the value
+rather than the boxed cell every time.
+
+    counter: int = 0        # annotation makes counter a typed-shadow candidate
+
+    def bump():
+        global counter
+        counter = counter + 1
+
+When another thread rebinds counter, unagi bumps a binding version and
+eventually deoptimizes the static reader back to the boxed cell. But a reader
+already part way through its specialized body can still use the old shadow, so
+for a moment the two tiers disagree on the value. Plain CPython never shows this,
+because it always reads the live global.
+
+Two ways out. Keep the shared mutable state in a boxed container, a list or dict
+cell, and guard every access with a lock, so there is one source of truth and no
+per-tier shadow:
+
+    state = {"counter": 0}
+
+    def bump():
+        with lock:
+            state["counter"] += 1
+
+Or, if the value really is a shared scalar counter, drop the annotation so unagi
+never builds a typed shadow and the global stays boxed. A thread-mutated global
+is usually the wrong place for a type annotation.
 `
