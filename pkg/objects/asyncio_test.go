@@ -1127,3 +1127,35 @@ func boolStr(b bool) string {
 	}
 	return "false"
 }
+
+// TestAsyncioEnsureFuture checks a coroutine becomes a task while a task or
+// future passes through ensure_future unchanged.
+func TestAsyncioEnsureFuture(t *testing.T) {
+	main := NewCoroutine("main", func(y Yielder) (Object, error) {
+		coro := NewCoroutine("child", func(y Yielder) (Object, error) {
+			return y.YieldFrom(AsyncioSleep(0, NewInt(9)))
+		})
+		wrapped, err := AsyncioEnsureFuture(coro)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := wrapped.(*asyncTask); !ok {
+			return nil, Raise(RuntimeError, "ensure_future(coro) is %s, want Task", wrapped.TypeName())
+		}
+		again, err := AsyncioEnsureFuture(wrapped)
+		if err != nil {
+			return nil, err
+		}
+		if again != wrapped {
+			return nil, Raise(RuntimeError, "ensure_future(task) did not pass through")
+		}
+		return awaitObj(y, wrapped)
+	})
+	got, err := AsyncioRun(main)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if n, ok := AsInt(got); !ok || n != 9 {
+		t.Fatalf("ensure_future = %v, want 9", Repr(got))
+	}
+}

@@ -25,6 +25,7 @@ func initAsyncio(m *objects.Module) error {
 		{"gather", objects.NewFuncKw("gather", asyncioGather)},
 		{"wait_for", objects.NewFuncKw("wait_for", asyncioWaitFor)},
 		{"shield", objects.NewFuncKw("shield", asyncioShield)},
+		{"ensure_future", objects.NewFuncKw("ensure_future", asyncioEnsureFuture)},
 		{"timeout", objects.NewFuncKw("timeout", asyncioTimeout)},
 		{"timeout_at", objects.NewFuncKw("timeout_at", asyncioTimeoutAt)},
 		{"Future", objects.NewFuncKw("Future", asyncioFuture)},
@@ -310,6 +311,20 @@ func asyncioTimeoutAt(pos []objects.Object, kwNames []string, kwVals []objects.O
 		return nil, objects.Raise(objects.TypeError, "timeout_at() missing 1 required positional argument: 'when'")
 	}
 	return objects.AsyncioNewTimeoutAt(when)
+}
+
+// asyncioEnsureFuture is asyncio.ensure_future(obj). A coroutine becomes a task;
+// a task or future passes through unchanged.
+func asyncioEnsureFuture(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	vals, err := bindArgs("ensure_future", []string{"coro_or_future"}, pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	arg, ok := vals["coro_or_future"]
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "ensure_future() missing 1 required positional argument: 'coro_or_future'")
+	}
+	return objects.AsyncioEnsureFuture(arg)
 }
 
 // asyncioShield is asyncio.shield(arg). It returns a future mirroring arg's

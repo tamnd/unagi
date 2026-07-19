@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+is task Task
+result 42
+task same True
+t2 6
+future same True
+fut ok
+gathered [10, 12]
+== exception:
+== stderr:
