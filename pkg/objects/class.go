@@ -698,6 +698,15 @@ func init() {
 			"__format__":    NewFunc("__format__", 2, builtinFormatDunder),
 			"__reduce_ex__": objectDunders["__reduce_ex__"],
 		},
+		// tuple carries __new__ so tuple.__new__(cls, iterable) resolves off the
+		// type object and builds a value subclass instance, the allocator
+		// codecs.CodecInfo(tuple) calls in its __new__. Its repr prints the
+		// underlying tuple; the other dunders come from object.
+		"tuple": {
+			"__new__":       NewFunc("__new__", -1, builtinNewDunder),
+			"__repr__":      NewFunc("__repr__", 1, builtinReprDunder),
+			"__reduce_ex__": objectDunders["__reduce_ex__"],
+		},
 	}
 
 	// The string dunders are instance-method wrappers: read off an instance they
@@ -1438,7 +1447,7 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 	switch c.builtinBase {
 	case "dict":
 		inst.dictData = &dictObject{index: map[string]int{}}
-	case "int", "str":
+	case "int", "str", "tuple":
 		// A value subclass builds its immutable payload through the builtin base's
 		// own conversion, the way int.__new__ or str.__new__ sets the value from
 		// the constructor arguments before __init__ runs. The keyword arguments

@@ -1520,9 +1520,15 @@ func TestAsyncioRunForever(t *testing.T) {
 		_, err := CallMethodT(mainThread, loop, "stop", nil)
 		return None, err
 	})
-	CallMethodT(mainThread, loop, "call_soon", []Object{tick("a")})
-	CallMethodT(mainThread, loop, "call_soon", []Object{stopper})
-	CallMethodT(mainThread, loop, "call_soon", []Object{tick("b")})
+	if _, err := CallMethodT(mainThread, loop, "call_soon", []Object{tick("a")}); err != nil {
+		t.Fatalf("call_soon a: %v", err)
+	}
+	if _, err := CallMethodT(mainThread, loop, "call_soon", []Object{stopper}); err != nil {
+		t.Fatalf("call_soon stopper: %v", err)
+	}
+	if _, err := CallMethodT(mainThread, loop, "call_soon", []Object{tick("b")}); err != nil {
+		t.Fatalf("call_soon b: %v", err)
+	}
 	if _, err := CallMethodT(mainThread, loop, "run_forever", nil); err != nil {
 		t.Fatalf("run_forever: %v", err)
 	}
