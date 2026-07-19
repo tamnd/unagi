@@ -3,7 +3,6 @@ package lower
 import (
 	"fmt"
 	"go/ast"
-	"go/token"
 
 	"github.com/tamnd/unagi/pkg/frontend"
 	"github.com/tamnd/unagi/pkg/objects"
@@ -16,19 +15,6 @@ import (
 
 // builtinKwCall handles a builtin call with at least one keyword argument.
 func (f *fnCtx) builtinKwCall(name string, e *frontend.Call) (ast.Expr, error) {
-	// Rejections that need no argument evaluation come first.
-	switch name {
-	case "print":
-		for _, a := range e.Args {
-			if a.Name != "file" {
-				continue
-			}
-			if _, isNone := a.Value.(*frontend.NoneLit); !isNone {
-				return nil, f.e.errf(a.Pos_, "print() file argument other than None is not supported yet")
-			}
-		}
-	}
-
 	pos, kws, temps, err := f.evalArgs(e)
 	if err != nil {
 		return nil, err
@@ -134,28 +120,26 @@ func (f *fnCtx) complexKw(pos []ast.Expr, kws []kwVal, temps []ast.Expr) (ast.Ex
 	return ident(tmp), nil
 }
 
-// discard keeps an evaluated-but-unused temporary alive for Go.
-func (f *fnCtx) discard(v ast.Expr) {
-	f.add(assign(token.ASSIGN, []ast.Expr{ident("_")}, v))
-}
-
 func (f *fnCtx) unexpectedKw(fname, kw string, candidates []string) string {
 	return objects.UnexpectedKwMsg(fname, kw, candidates)
 }
 
-// printKw lowers print(*args, sep=..., end=..., flush=..., file=None).
-// flush is accepted and dropped because Stdout never buffers, and file
-// already passed the literal-None check.
+// printKw lowers print(*args, sep=..., end=..., file=..., flush=...). Without
+// a file keyword it takes the Stdout path; with one it routes to the runtime
+// helper that writes through file.write() and honours flush. A file of None
+// still means Stdout, resolved by the runtime rather than at compile time.
 func (f *fnCtx) printKw(pos []ast.Expr, kws []kwVal, temps []ast.Expr) (ast.Expr, error) {
-	var sepV, endV ast.Expr
+	var sepV, endV, fileV, flushV ast.Expr
 	for _, kw := range kws {
 		switch kw.name {
 		case "sep":
 			sepV = kw.val
 		case "end":
 			endV = kw.val
-		case "flush", "file":
-			f.discard(kw.val)
+		case "file":
+			fileV = kw.val
+		case "flush":
+			flushV = kw.val
 		default:
 			return f.raiseBindError(temps, f.unexpectedKw("print", kw.name, []string{"sep", "end", "file", "flush"})), nil
 		}
@@ -166,7 +150,17 @@ func (f *fnCtx) printKw(pos []ast.Expr, kws []kwVal, temps []ast.Expr) (ast.Expr
 	if endV == nil {
 		endV = f.e.obj("None")
 	}
-	f.fallibleVoid(sel("runtime", "PrintKw"), f.objSlice(pos), sepV, endV)
+	if fileV == nil && flushV == nil {
+		f.fallibleVoid(sel("runtime", "PrintKw"), f.objSlice(pos), sepV, endV)
+		return f.e.obj("None"), nil
+	}
+	if fileV == nil {
+		fileV = f.e.obj("None")
+	}
+	if flushV == nil {
+		flushV = f.e.obj("None")
+	}
+	f.fallibleVoid(sel("runtime", "PrintKwFile"), f.objSlice(pos), sepV, endV, fileV, flushV)
 	return f.e.obj("None"), nil
 }
 

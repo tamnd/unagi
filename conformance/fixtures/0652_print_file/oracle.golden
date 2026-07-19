@@ -1,0 +1,9 @@
+== exit: 0
+== stdout:
+'hello world\n1-2-3!flushed\n'
+to stdout
+plain
+['a', ',', 'b', '\n', 'c', '\n'] 1
+sep must be None or a string, not int
+== exception:
+== stderr:
