@@ -235,6 +235,58 @@ func TestIOTextIOBaseDefaults(t *testing.T) {
 	}
 }
 
+func TestIOTextEncoding(t *testing.T) {
+	te := ioAttr(t, "text_encoding")
+	call := func(args ...objects.Object) objects.Object {
+		t.Helper()
+		v, err := objects.Call(te, args)
+		if err != nil {
+			t.Fatalf("text_encoding(%v): %v", args, err)
+		}
+		return v
+	}
+	// None settles to the default text encoding; a concrete encoding passes
+	// through unchanged, without a type check.
+	if got := objects.Repr(call(objects.None)); got != "'locale'" {
+		t.Fatalf("text_encoding(None) = %s, want 'locale'", got)
+	}
+	if got := objects.Repr(call(objects.NewStr("utf-8"))); got != "'utf-8'" {
+		t.Fatalf("text_encoding('utf-8') = %s", got)
+	}
+	// stacklevel is accepted positionally, an int or a bool, and does not change
+	// the result.
+	if got := objects.Repr(call(objects.None, objects.NewInt(1))); got != "'locale'" {
+		t.Fatalf("text_encoding(None, 1) = %s", got)
+	}
+	if got := objects.Repr(call(objects.None, objects.True)); got != "'locale'" {
+		t.Fatalf("text_encoding(None, True) = %s", got)
+	}
+	// A non-None encoding is returned unchanged even when it is not a string.
+	list := objects.NewList([]objects.Object{objects.NewInt(1)})
+	if call(list) != list {
+		t.Fatal("text_encoding(list) should return the argument unchanged")
+	}
+
+	wantErr := func(kind, text string, args ...objects.Object) {
+		t.Helper()
+		_, err := objects.Call(te, args)
+		exc, ok := err.(*objects.Exception)
+		if !ok {
+			t.Fatalf("text_encoding(%v) error = %v, want %s", args, err, kind)
+		}
+		if exc.Kind != kind || exc.Text() != text {
+			t.Fatalf("text_encoding(%v) = %s: %q, want %s: %q", args, exc.Kind, exc.Text(), kind, text)
+		}
+	}
+	wantErr("TypeError", "text_encoding expected at least 1 argument, got 0")
+	wantErr("TypeError", "text_encoding expected at most 2 arguments, got 3",
+		objects.None, objects.NewInt(2), objects.NewInt(3))
+	wantErr("TypeError", "'NoneType' object cannot be interpreted as an integer",
+		objects.None, objects.None)
+	wantErr("TypeError", "'float' object cannot be interpreted as an integer",
+		objects.None, objects.NewFloat(2))
+}
+
 func TestIOBlockingIOErrorReexport(t *testing.T) {
 	// _io only re-exports BlockingIOError, so the name is the very builtin the
 	// exception namespace binds, not a fresh class.
