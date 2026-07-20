@@ -1,0 +1,30 @@
+== exit: 0
+== stdout:
+start 0
+read(5) 'hello'
+cookie 5 int
+read(6) ' world'
+reread ' world'
+rewound 'hello'
+mid cookie 6
+next line 'world\n'
+reseek line 'world\n'
+uni l1 'a\n'
+uni l2 'b\n'
+uni reread 'b\n' 'c\n'
+spec l1 'a\r\n'
+spec reread 'b\r\n'
+end 13 ''
+mb start 0
+mb all 'héllo wörld'
+mb end 13
+mb rewound 'héllo wörld'
+mb seekend 13
+cur nonzero: can't do nonzero cur-relative seeks
+end nonzero: can't do nonzero end-relative seeks
+neg: negative seek position -1
+whence: invalid whence (3, should be 0, 1 or 2)
+closed seek: I/O operation on closed file.
+closed tell: I/O operation on closed file.
+== exception:
+== stderr:
