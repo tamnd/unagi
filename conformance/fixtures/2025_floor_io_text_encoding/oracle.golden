@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+'locale'
+'utf-8'
+'ascii'
+'locale'
+'latin-1'
+'locale'
+[1, 2]
+no args: text_encoding expected at least 1 argument, got 0
+too many: text_encoding expected at most 2 arguments, got 3
+stacklevel None: 'NoneType' object cannot be interpreted as an integer
+stacklevel float: 'float' object cannot be interpreted as an integer
+== exception:
+== stderr:

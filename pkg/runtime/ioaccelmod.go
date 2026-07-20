@@ -148,6 +148,12 @@ func initIOAccel(m *objects.Module) error {
 	if err := set("TextIOWrapper", ioTextIOWrapperClass); err != nil {
 		return err
 	}
+	// text_encoding settles a possibly-None encoding to a concrete one; the
+	// higher-level text APIs call it so an omitted encoding reads back as the
+	// default. It is a plain module function, not a stream method.
+	if err := set("text_encoding", objects.NewFunc("text_encoding", -1, ioTextEncoding)); err != nil {
+		return err
+	}
 	// DEFAULT_BUFFER_SIZE is the buffer size the buffered streams and open()
 	// default to; io.py re-exports it under the same name.
 	if err := set("DEFAULT_BUFFER_SIZE", objects.NewInt(131072)); err != nil {
@@ -478,6 +484,31 @@ func ioNoneProperty(name string) objects.Object {
 	return objects.NewProperty(objects.NewFunc(name, 1, func([]objects.Object) (objects.Object, error) {
 		return objects.None, nil
 	}), nil, nil)
+}
+
+// ioTextEncoding implements _io.text_encoding(encoding, stacklevel=2), the
+// helper the text APIs use to settle on an encoding. When encoding is None it
+// returns the default text encoding, which is "locale" outside UTF-8 mode (this
+// build always is); otherwise it returns encoding unchanged without checking its
+// type, matching the C accelerator. stacklevel only positions a possible
+// EncodingWarning, which is off by default, so it is coerced to an int and then
+// ignored. The function takes no keyword arguments.
+func ioTextEncoding(args []objects.Object) (objects.Object, error) {
+	if len(args) < 1 {
+		return nil, objects.Raise(objects.TypeError, "text_encoding expected at least 1 argument, got %d", len(args))
+	}
+	if len(args) > 2 {
+		return nil, objects.Raise(objects.TypeError, "text_encoding expected at most 2 arguments, got %d", len(args))
+	}
+	if len(args) == 2 {
+		if _, ok := objects.AsInt(args[1]); !ok {
+			return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", args[1].TypeName())
+		}
+	}
+	if args[0] == objects.None {
+		return objects.NewStr("locale"), nil
+	}
+	return args[0], nil
 }
 
 // ioMethod builds a self-binding _IOBase method. args[0] is the instance.
