@@ -559,7 +559,7 @@ func writeModule(genDir string, goSrc, staticSrc []byte, mods []pymod) error {
 	if err := os.WriteFile(filepath.Join(slim, "go.mod"), []byte(slimMod), 0o644); err != nil {
 		return err
 	}
-	for _, pkg := range []string{"objects", "runtime", "sre"} {
+	for _, pkg := range []string{"objects", "runtime", "sre", "pytoken", "pylexer"} {
 		if err := copyPkg(filepath.Join(src, "pkg", pkg), filepath.Join(slim, "pkg", pkg)); err != nil {
 			return err
 		}
