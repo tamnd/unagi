@@ -271,7 +271,17 @@ func (f *fnCtx) matcherValues(t frontend.Expr) ([]ast.Expr, error) {
 		}
 		return out, nil
 	default:
-		return nil, f.e.errf(t.Span(), "except matcher must be an exception class name or a tuple of them")
+		// Any other matcher expression evaluates at match time, the way CPython
+		// runs the except clause: an attribute like case.SkipTest, a subscript,
+		// or a call all reach their value and the runtime validates it is an
+		// exception class or a tuple of them, raising the non-class TypeError
+		// when it is neither. This is the same deferral the bound-name case above
+		// takes, widened to the whole expression grammar.
+		v, err := f.expr(t)
+		if err != nil {
+			return nil, err
+		}
+		return []ast.Expr{v}, nil
 	}
 }
 
