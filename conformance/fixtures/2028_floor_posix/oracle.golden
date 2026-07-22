@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+error is OSError: True
+access: 0 4 2 1
+flags ints: True
+access modes distinct: True
+have_functions list: True
+pids positive: True
+cwd str: True
+cwdb bytes: True
+cwd matches cwdb: True
+strerror str: True
+umask roundtrip: True
+listdir list of str: True
+environ bytes: True
+create_environ dict: True
+getpid arg error
+== exception:
+== stderr:
