@@ -291,8 +291,17 @@ func (f *fnCtx) starImport(s *frontend.ImportFrom) error {
 	f.fallible(imp, sel("runtime", "ImportModule"), strLit(module))
 	exp, ok := f.e.stars[module]
 	if !ok {
-		// The module was not compiled: the import above already raised, so
-		// there is nothing to bind. Keep the module object referenced.
+		// The module was not compiled from Python: either it does not exist
+		// (the import above already raised) or it is a Go builtin module like
+		// posix, which has no compile-time export manifest. A builtin still
+		// carries a runtime surface, so in a module package bind its public
+		// names dynamically into this module's namespace; later reads resolve
+		// through runtime.LoadModuleName. A __main__ script reads through
+		// LoadName instead, which cannot see these, so there is nothing to do.
+		if f.e.pkgMode {
+			f.fallibleVoid(sel("runtime", "StarImportDynamic"),
+				ident("thisModule"), ident(imp), strSliceLit(nil))
+		}
 		f.add(set(ident("_"), ident(imp)))
 		return nil
 	}
