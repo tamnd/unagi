@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+names_match_listdir True
+name_str True
+paths_ok True
+types_bool True
+inode_int True
+fspath_ok True
+junction_false True
+has_DirEntry True
+stop_after_close True
+== exception:
+== stderr:
