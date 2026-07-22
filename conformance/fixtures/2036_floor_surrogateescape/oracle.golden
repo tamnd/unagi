@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+b'hello'
+b'hi'
+hi
+True True
+True True
+True True
+True True
+b'caf'
+b'caf?'
+b'caf'
+encode-raises
+lookup-raises
+== exception:
+== stderr:

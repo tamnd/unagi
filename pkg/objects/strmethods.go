@@ -305,7 +305,9 @@ func strMethod(x *strObject, name string, args []Object) (Object, error) {
 // bytes.decode. It shares the encodeStr codec switch the two-argument bytes
 // constructor uses, so the utf-8, ascii and latin-1 families and their error
 // wording stay in one place. encoding defaults to utf-8 and errors defaults to
-// strict, the only error handler this build implements.
+// strict. The handler is looked up lazily, only when a character cannot be
+// encoded, so an all-encodable string under an unknown handler does not raise,
+// matching CPython; os.fsencode reaches this with utf-8 and surrogateescape.
 func strEncode(s string, args []Object) (Object, error) {
 	enc := "utf-8"
 	if len(args) >= 1 && args[0] != None {
@@ -315,16 +317,15 @@ func strEncode(s string, args []Object) (Object, error) {
 		}
 		enc = e
 	}
+	errh := "strict"
 	if len(args) >= 2 && args[1] != None {
-		errh, ok := AsStr(args[1])
+		eh, ok := AsStr(args[1])
 		if !ok {
 			return nil, Raise(TypeError, "encode() argument 'errors' must be str, not %s", args[1].TypeName())
 		}
-		if errh != "strict" {
-			return nil, Raise("LookupError", "unknown error handler name '%s'", errh)
-		}
+		errh = eh
 	}
-	b, err := encodeStr(s, enc)
+	b, err := encodeStr(s, enc, errh)
 	if err != nil {
 		return nil, err
 	}

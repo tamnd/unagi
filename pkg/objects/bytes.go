@@ -150,7 +150,15 @@ func bytesFromArgs(args []Object, typeName string) ([]byte, error) {
 		if !ok {
 			return nil, Raise(TypeError, "%s() argument 'encoding' must be str, not %s", typeName, args[1].TypeName())
 		}
-		return encodeStr(s.v, enc.v)
+		errh := "strict"
+		if len(args) == 3 {
+			e, ok := args[2].(*strObject)
+			if !ok {
+				return nil, Raise(TypeError, "%s() argument 'errors' must be str, not %s", typeName, args[2].TypeName())
+			}
+			errh = e.v
+		}
+		return encodeStr(s.v, enc.v, errh)
 	default:
 		return nil, Raise(TypeError, "%s() takes at most 3 arguments (%d given)", typeName, len(args))
 	}
@@ -190,26 +198,29 @@ func bytesFromSource(o Object, typeName, rangeMsg string) ([]byte, error) {
 
 // encodeStr encodes a Python str to bytes for the two-argument constructor.
 // It supports the utf-8, ascii and latin-1 codec families; an unknown codec
-// raises LookupError and an unencodable character raises UnicodeEncodeError,
-// both with CPython's wording.
-func encodeStr(s, enc string) ([]byte, error) {
+// raises LookupError and an unencodable character is handed to the named error
+// handler, both with CPython's wording. utf-8 encodes every code point unagi
+// can hold, so the handler is never consulted there, matching CPython's lazy
+// lookup (an unknown handler with all-encodable input does not raise).
+func encodeStr(s, enc, errh string) ([]byte, error) {
 	switch normalizeCodec(enc) {
 	case "utf8":
 		return []byte(s), nil
 	case "ascii":
-		return encodeNarrow(s, "ascii", 0x80)
+		return encodeNarrow(s, "ascii", 0x80, errh)
 	case "latin1":
-		return encodeNarrow(s, "latin-1", 0x100)
+		return encodeNarrow(s, "latin-1", 0x100, errh)
 	}
 	return nil, Raise("LookupError", "unknown encoding: %s", enc)
 }
 
-// EncodeStr encodes a str to bytes under the named codec, the exported entry
-// the _codecs accelerator's per-codec encode functions call. It shares the
-// codec switch str.encode and the two-argument bytes constructor use, so the
-// utf-8, ascii and latin-1 families and their error wording stay in one place.
-func EncodeStr(s, enc string) ([]byte, error) {
-	return encodeStr(s, enc)
+// EncodeStr encodes a str to bytes under the named codec and error handler, the
+// exported entry the _codecs accelerator's per-codec encode functions call. It
+// shares the codec switch str.encode and the two-argument bytes constructor
+// use, so the utf-8, ascii and latin-1 families and their error wording stay in
+// one place.
+func EncodeStr(s, enc, errh string) ([]byte, error) {
+	return encodeStr(s, enc, errh)
 }
 
 // normalizeCodec folds a codec name to a canonical key: lowercased with
@@ -235,18 +246,45 @@ func normalizeCodec(enc string) string {
 }
 
 // encodeNarrow encodes a string under a single-byte codec whose code points
-// are the byte values below limit (0x80 for ascii, 0x100 for latin-1).
-func encodeNarrow(s, codec string, limit rune) ([]byte, error) {
+// are the byte values below limit (0x80 for ascii, 0x100 for latin-1). A code
+// point at or above the limit is handed to the error handler: strict raises,
+// ignore drops it, replace emits '?', and surrogateescape rescues a lone low
+// surrogate (U+DC80..U+DCFF) back to its byte. surrogatepass and any other
+// handler raise, since they rescue only the utf codecs' surrogate code points.
+// (unagi's str cannot hold a lone surrogate, so surrogateescape here never
+// fires in practice; the branch keeps the semantics exact for the day it can.)
+func encodeNarrow(s, codec string, limit rune, errh string) ([]byte, error) {
 	out := make([]byte, 0, len(s))
 	for i, r := range []rune(s) {
-		if r >= limit {
-			return nil, Raise("UnicodeEncodeError",
-				"'%s' codec can't encode character %s in position %d: ordinal not in range(%d)",
-				codec, charEscape(r), i, int(limit))
+		if r < limit {
+			out = append(out, byte(r))
+			continue
 		}
-		out = append(out, byte(r))
+		switch errh {
+		case "strict", "surrogatepass":
+			return nil, encodeNarrowErr(codec, r, i, limit)
+		case "ignore":
+		case "replace":
+			out = append(out, '?')
+		case "surrogateescape":
+			if r >= 0xDC80 && r <= 0xDCFF {
+				out = append(out, byte(r&0xFF))
+				continue
+			}
+			return nil, encodeNarrowErr(codec, r, i, limit)
+		default:
+			return nil, Raise("LookupError", "unknown error handler name '%s'", errh)
+		}
 	}
 	return out, nil
+}
+
+// encodeNarrowErr is the UnicodeEncodeError a narrow codec raises for a code
+// point it cannot represent, with CPython's wording.
+func encodeNarrowErr(codec string, r rune, pos int, limit rune) error {
+	return Raise("UnicodeEncodeError",
+		"'%s' codec can't encode character %s in position %d: ordinal not in range(%d)",
+		codec, charEscape(r), pos, int(limit))
 }
 
 // charEscape renders a single code point the way CPython's error message
