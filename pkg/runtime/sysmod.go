@@ -49,6 +49,43 @@ func init() {
 	moduleTable["sys"] = &moduleEntry{builtin: true, exec: initSys}
 }
 
+// sysFlagsType is the structseq class behind sys.flags. The first 18 fields are
+// the visible sequence CPython 3.14 exposes; gil, thread_inherit_context and
+// context_aware_warnings are named-only, past n_sequence_fields, the way the
+// stat_result extras are. n_unnamed_fields is 0.
+var sysFlagsType = objects.NewStructSeqType(
+	"sys.flags", "sys.flags",
+	[]string{
+		"debug", "inspect", "interactive", "optimize", "dont_write_bytecode",
+		"no_user_site", "no_site", "ignore_environment", "verbose",
+		"bytes_warning", "quiet", "hash_randomization", "isolated", "dev_mode",
+		"utf8_mode", "warn_default_encoding", "safe_path", "int_max_str_digits",
+		"gil", "thread_inherit_context", "context_aware_warnings",
+	},
+	18, 0,
+)
+
+// sysFlags builds the sys.flags value. A compiled program runs none of the
+// interpreter command-line switches these report, so they carry CPython's
+// default startup values, hardcoded rather than read from a live interpreter
+// state and identical on every host so the fixtures stay platform-stable.
+// dev_mode and safe_path are bools; gil and int_max_str_digits keep CPython's
+// defaults (1 and 4300); the rest are 0. hash_randomization is 0 rather than
+// CPython's usual 1 because the conformance oracle runs with PYTHONHASHSEED=0,
+// which disables it, and a compiled program has no hash-seed switch anyway.
+func sysFlags() objects.Object {
+	zero := objects.NewInt(0)
+	seq := []objects.Object{
+		zero, zero, zero, zero, zero,
+		zero, zero, zero, zero,
+		zero, zero, zero, zero, objects.False,
+		zero, zero, objects.False, objects.NewInt(4300),
+	}
+	named := append(append([]objects.Object{}, seq...),
+		objects.NewInt(1), zero, zero)
+	return sysFlagsType.NewStructSeq(seq, named)
+}
+
 // The thread switch interval, in seconds, that sys.getswitchinterval reads back
 // and sys.setswitchinterval stores. CPython uses it to pace how often the
 // interpreter yields the GIL; compiled programs run on Go's own scheduler, so
@@ -141,6 +178,8 @@ func initSys(m *objects.Module) error {
 		{"maxunicode", objects.NewInt(0x10FFFF)},
 		{"byteorder", objects.NewStr("little")},
 		{"platform", objects.NewStr(sysPlatform())},
+		{"flags", sysFlags()},
+		{"warnoptions", objects.NewList(nil)},
 	}
 	for _, a := range attrs {
 		if err := set(a.name, a.val); err != nil {
