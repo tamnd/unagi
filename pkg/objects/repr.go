@@ -25,9 +25,9 @@ func floatRepr(v float64) string {
 	if neg {
 		s = s[1:]
 	}
-	ePos := strings.IndexByte(s, 'e')
-	digits := strings.Replace(s[:ePos], ".", "", 1)
-	exp, _ := strconv.Atoi(s[ePos+1:])
+	mantissa, expStr, _ := strings.Cut(s, "e")
+	digits := strings.Replace(mantissa, ".", "", 1)
+	exp, _ := strconv.Atoi(expStr)
 	var out string
 	switch {
 	case exp >= 16 || exp < -4:
@@ -237,6 +237,9 @@ func reprCore(o Object, strict bool) (string, error) {
 	case *tupleObject:
 		if x.named != nil {
 			return namedTupleRepr(x, strict)
+		}
+		if x.sseq != nil {
+			return structSeqRepr(x, strict)
 		}
 		if len(x.elts) == 1 {
 			s, err := reprCore(x.elts[0], strict)
