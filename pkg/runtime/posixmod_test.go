@@ -98,4 +98,51 @@ func TestPosixSkeleton(t *testing.T) {
 	if _, err := objects.Call(attr("getpid"), []objects.Object{objects.NewInt(1)}); err == nil {
 		t.Error("getpid(1) should raise")
 	}
+
+	// cpu_count and getuid/geteuid return ints; cpu_count is at least one.
+	if n, ok := objects.AsInt(call("cpu_count")); !ok || n < 1 {
+		t.Errorf("cpu_count = %v, want >= 1", call("cpu_count"))
+	}
+	if _, ok := objects.AsInt(call("getuid")); !ok {
+		t.Error("getuid should return int")
+	}
+	if _, ok := objects.AsInt(call("geteuid")); !ok {
+		t.Error("geteuid should return int")
+	}
+
+	// __all__ is the synthesized public surface os.py's _get_exports_list reads
+	// (CPython's posix has none and relies on dir(), which unagi lacks). It is a
+	// non-empty list of public names and never leaks an underscore name.
+	all := attr("__all__")
+	if tn := all.TypeName(); tn != "list" {
+		t.Fatalf("__all__ is %s, want list", tn)
+	}
+	n, err := objects.Len(all)
+	if err != nil {
+		t.Fatalf("len(__all__): %v", err)
+	}
+	if n == 0 {
+		t.Error("__all__ is empty")
+	}
+	sawGetcwd := false
+	for i := 0; i < n; i++ {
+		it, err := objects.GetItem(all, objects.NewInt(int64(i)))
+		if err != nil {
+			t.Fatalf("__all__[%d]: %v", i, err)
+		}
+		s, ok := objects.AsStr(it)
+		if !ok {
+			t.Errorf("__all__ has non-str %v", it)
+			continue
+		}
+		if s == "" || s[0] == '_' {
+			t.Errorf("__all__ leaks private name %q", s)
+		}
+		if s == "getcwd" {
+			sawGetcwd = true
+		}
+	}
+	if !sawGetcwd {
+		t.Error("__all__ missing getcwd")
+	}
 }

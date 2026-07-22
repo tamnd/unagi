@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"os"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -154,11 +155,28 @@ func initPosix(m *objects.Module) error {
 		{"ftruncate", posixFtruncate},
 		{"fsync", posixFsync},
 		{"isatty", posixIsatty},
+		{"cpu_count", posixCPUCount},
+		{"readlink", posixReadlink},
+		{"symlink", posixSymlink},
+		{"getuid", posixGetuid},
+		{"geteuid", posixGeteuid},
 	}
 	for _, f := range fns {
 		if err := set(f.name, objects.NewFunc(f.name, -1, f.fn)); err != nil {
 			return err
 		}
+	}
+
+	// __all__ gives os.py's _get_exports_list the public surface without a dir()
+	// builtin: it reads posix.__all__ when present, else falls back to dir(). The
+	// list is the module's own public names now that every attribute is bound.
+	names := m.PublicNames()
+	all := make([]objects.Object, len(names))
+	for i, n := range names {
+		all[i] = objects.NewStr(n)
+	}
+	if err := set("__all__", objects.NewList(all)); err != nil {
+		return err
 	}
 	return nil
 }
@@ -290,4 +308,101 @@ func posixMExit(args []objects.Object) (objects.Object, error) {
 	}
 	os.Exit(int(code))
 	return objects.None, nil // unreachable
+}
+
+// posixCPUCount is posix.cpu_count(): the number of CPUs the process can use.
+// runtime.NumCPU is always at least one, so unlike CPython this never returns
+// None; os.py re-exports it as os.cpu_count.
+func posixCPUCount(args []objects.Object) (objects.Object, error) {
+	if len(args) != 0 {
+		return nil, objects.Raise(objects.TypeError, "cpu_count() takes no arguments (%d given)", len(args))
+	}
+	return objects.NewInt(int64(runtime.NumCPU())), nil
+}
+
+// posixReadlink is posix.readlink(path): the target a symlink points at. A str
+// path returns a str target and a bytes path a bytes target, matching CPython.
+// posixpath.realpath drives this to resolve link chains.
+func posixReadlink(args []objects.Object) (objects.Object, error) {
+	if len(args) != 1 {
+		return nil, objects.Raise(objects.TypeError, "readlink() takes exactly 1 argument (%d given)", len(args))
+	}
+	if b, ok := objects.AsBytes(args[0]); ok {
+		target, err := readlinkStr(string(b))
+		if err != nil {
+			return nil, posixStatErr(err)
+		}
+		return objects.NewBytes([]byte(target)), nil
+	}
+	p, ok := objects.AsStr(args[0])
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "readlink: path should be string or bytes, not %s", args[0].TypeName())
+	}
+	target, err := readlinkStr(p)
+	if err != nil {
+		return nil, posixStatErr(err)
+	}
+	return objects.NewStr(target), nil
+}
+
+// readlinkStr resolves a symlink target, growing the buffer until the whole
+// target fits (a truncated read means the link is longer than the buffer).
+func readlinkStr(path string) (string, error) {
+	for size := 128; ; size *= 2 {
+		buf := make([]byte, size)
+		n, err := syscall.Readlink(path, buf)
+		if err != nil {
+			return "", err
+		}
+		if n < size {
+			return string(buf[:n]), nil
+		}
+	}
+}
+
+// posixSymlink is posix.symlink(src, dst): create dst as a symlink to src. The
+// optional target_is_directory flag matters only on Windows, so it is accepted
+// and ignored here. os.symlink re-exports it and readlink reads it back.
+func posixSymlink(args []objects.Object) (objects.Object, error) {
+	if len(args) < 2 || len(args) > 3 {
+		return nil, objects.Raise(objects.TypeError, "symlink() takes from 2 to 3 arguments (%d given)", len(args))
+	}
+	src, ok := posixFsPath(args[0])
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "symlink: src should be string or bytes, not %s", args[0].TypeName())
+	}
+	dst, ok := posixFsPath(args[1])
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "symlink: dst should be string or bytes, not %s", args[1].TypeName())
+	}
+	if err := syscall.Symlink(src, dst); err != nil {
+		return nil, posixStatErr(err)
+	}
+	return objects.None, nil
+}
+
+// posixFsPath reads a filesystem path argument as a string, accepting both str
+// and bytes the way the POSIX calls do.
+func posixFsPath(o objects.Object) (string, bool) {
+	if b, ok := objects.AsBytes(o); ok {
+		return string(b), true
+	}
+	return objects.AsStr(o)
+}
+
+// posixGetuid is posix.getuid(): the process's real user id. posixpath.expanduser
+// reaches for it to resolve a bare ~ with no HOME set.
+func posixGetuid(args []objects.Object) (objects.Object, error) {
+	if len(args) != 0 {
+		return nil, objects.Raise(objects.TypeError, "getuid() takes no arguments (%d given)", len(args))
+	}
+	return objects.NewInt(int64(syscall.Getuid())), nil
+}
+
+// posixGeteuid is posix.geteuid(): the process's effective user id.
+func posixGeteuid(args []objects.Object) (objects.Object, error) {
+	if len(args) != 0 {
+		return nil, objects.Raise(objects.TypeError, "geteuid() takes no arguments (%d given)", len(args))
+	}
+	return objects.NewInt(int64(syscall.Geteuid())), nil
 }
