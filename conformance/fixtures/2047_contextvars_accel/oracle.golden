@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+no default
+42
+after reset: 1
+x
+d
+Context
+True
+True
+0
+== exception:
+== stderr:
