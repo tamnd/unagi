@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+ident is int: True
+ident positive: True
+acquire: True
+locked: True
+locked after release: False
+rlock reentered
+error is RuntimeError: True
+stack_size: 0
+worker computed: 42
+non-tuple args: 2nd arg must be a tuple
+== exception:
+== stderr:
