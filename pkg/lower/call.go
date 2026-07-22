@@ -36,13 +36,14 @@ var descriptorBuiltins = map[string]string{
 	"property":     "PropertyBuiltin",
 }
 
-// siteBuiltins are the value-only builtins CPython installs from its site
-// module: the exit/quit quitters and the copyright/credits/license/help
-// printers. They have no fast path, so a name reads as the registered object
-// and a call routes through the dynamic call path like any other value.
+// siteBuiltins are the value-only builtins with no fast-path lowering: the
+// site-module exit/quit quitters and copyright/credits/license/help printers,
+// plus open, which io.open resolves to. A name here reads as the registered
+// runtime object and a call routes through the dynamic call path like any other
+// value, so open's keyword arguments (encoding, newline, ...) bind at runtime.
 var siteBuiltins = map[string]bool{
 	"exit": true, "quit": true, "copyright": true, "credits": true,
-	"license": true, "help": true,
+	"license": true, "help": true, "open": true,
 }
 
 // call lowers a call expression. A name bound by a module-level def keeps

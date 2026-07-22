@@ -1,0 +1,26 @@
+== exit: 0
+== stdout:
+io_name io
+seek_set 0 1 2
+default_bufsize 131072
+open_is_builtin_open True
+write_count 17
+writable True readable False
+read_all 'alpha\nbeta\ngamma\n'
+readlines ['alpha\n', 'beta\n', 'gamma\n']
+first_line 'alpha\n'
+iter_rest ['beta', 'gamma']
+after_append 4
+bin_read [0, 1, 2, 255]
+bin_type bytes
+seek_end 4
+tell 1
+read_two [1, 2]
+missing FileNotFoundError
+bad_mode ValueError
+stringio in-memory
+bytesio b'bytes-io'
+unicode 'café\n'
+done
+== exception:
+== stderr:
