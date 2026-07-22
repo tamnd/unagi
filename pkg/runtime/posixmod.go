@@ -98,6 +98,11 @@ func initPosix(m *objects.Module) error {
 		return err
 	}
 
+	// stat_result is the structseq stat/lstat/fstat return; os.py re-exports it.
+	if err := set("stat_result", posixStatResultType); err != nil {
+		return err
+	}
+
 	fns := []struct {
 		name string
 		fn   func([]objects.Object) (objects.Object, error)
@@ -109,6 +114,10 @@ func initPosix(m *objects.Module) error {
 		{"strerror", posixStrerror},
 		{"umask", posixUmask},
 		{"listdir", posixListdir},
+		{"stat", posixStat},
+		{"lstat", posixLstat},
+		{"fstat", posixFstat},
+		{"access", posixAccess},
 	}
 	for _, f := range fns {
 		if err := set(f.name, objects.NewFunc(f.name, -1, f.fn)); err != nil {

@@ -206,11 +206,15 @@ func (*listObject) TypeName() string { return "list" }
 type tupleObject struct {
 	elts  []Object
 	named *namedType
+	sseq  *structSeqBinding
 }
 
 func (x *tupleObject) TypeName() string {
 	if x.named != nil {
 		return x.named.name
+	}
+	if x.sseq != nil {
+		return x.sseq.typ.name
 	}
 	return "tuple"
 }

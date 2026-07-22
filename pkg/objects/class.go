@@ -1182,6 +1182,11 @@ func instanceOfBuiltin(obj Object, name string) bool {
 			return true
 		}
 		return false
+	case "tuple":
+		// namedtuple and structseq values (os.stat_result) are tuple subclasses,
+		// so they report a distinct TypeName yet are instances of tuple.
+		_, ok := obj.(*tupleObject)
+		return ok
 	default:
 		return obj.TypeName() == name
 	}
@@ -2045,6 +2050,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
 	case *namedTupleType:
 		return namedTupleTypeAttr(x, name)
+	case *StructSeqType:
+		return structSeqTypeAttr(x, name)
 	case *partialObject:
 		return partialAttr(x, name)
 	case *patternObject:
@@ -2064,6 +2071,9 @@ func LoadAttr(o Object, name string) (Object, error) {
 	case *tupleObject:
 		if x.named != nil {
 			return namedTupleInstanceAttr(x, name)
+		}
+		if x.sseq != nil {
+			return structSeqInstanceAttr(x, name)
 		}
 	case *noneObject:
 		// NoneType inherits object.__new__, so None.__new__ resolves to the
