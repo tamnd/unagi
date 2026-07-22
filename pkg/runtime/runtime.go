@@ -588,7 +588,12 @@ func init() {
 		"issubclass": objects.NewFunc("issubclass", 2, func(args []objects.Object) (objects.Object, error) {
 			return IsSubclass(args[0], args[1])
 		}),
-		"next":     objects.NewFunc("next", -1, objects.NextValue),
+		"next": objects.NewFunc("next", -1, objects.NextValue),
+		// open is the builtin that io.open resolves to: the same function object
+		// _io exports, so `io.open is open` holds. It builds the FileIO stack in the
+		// _io accelerator and takes keyword arguments, so it resolves as a value and
+		// calls through the dynamic path.
+		"open":     ioBuiltinOpen,
 		"any":      objects.NewFunc("any", 1, func(args []objects.Object) (objects.Object, error) { return Any(args[0]) }),
 		"all":      objects.NewFunc("all", 1, func(args []objects.Object) (objects.Object, error) { return All(args[0]) }),
 		"callable": objects.NewFunc("callable", 1, func(args []objects.Object) (objects.Object, error) { return Callable(args[0]) }),

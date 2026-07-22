@@ -102,6 +102,12 @@ func init() {
 		panic("unagi: building _io.TextIOWrapper: " + err.Error())
 	}
 
+	// FileIO subclasses _RawIOBase; open() layers the buffered and text streams
+	// over it, so all of the above must exist first.
+	if ioFileIOClass, err = buildIOFileIO(); err != nil {
+		panic("unagi: building _io.FileIO: " + err.Error())
+	}
+
 	moduleTable["_io"] = &moduleEntry{builtin: true, exec: initIOAccel}
 }
 
@@ -146,6 +152,17 @@ func initIOAccel(m *objects.Module) error {
 		return err
 	}
 	if err := set("TextIOWrapper", ioTextIOWrapperClass); err != nil {
+		return err
+	}
+	if err := set("FileIO", ioFileIOClass); err != nil {
+		return err
+	}
+	// open builds the FileIO stack and open_code is open(path, "rb"); io.py
+	// re-exports both under the same names and the builtin open() resolves here.
+	if err := set("open", ioBuiltinOpen); err != nil {
+		return err
+	}
+	if err := set("open_code", objects.NewFunc("open_code", 1, ioOpenCode)); err != nil {
 		return err
 	}
 	// text_encoding settles a possibly-None encoding to a concrete one; the
