@@ -1771,6 +1771,13 @@ func LoadAttr(o Object, name string) (Object, error) {
 		if v, ok := objectDunders[name]; ok {
 			return v, nil
 		}
+		// Every class carries __doc__: a class with no docstring reads it back as
+		// None rather than raising, the way CPython's type object does. Vendored
+		// io.py leans on this when it copies `_io._IOBase.__doc__` onto its own
+		// abstract bases.
+		if name == "__doc__" {
+			return None, nil
+		}
 		return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
 	case *staticmethodObject:
 		if name == "__func__" || name == "__wrapped__" {
