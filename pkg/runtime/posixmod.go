@@ -103,6 +103,30 @@ func initPosix(m *objects.Module) error {
 		return err
 	}
 
+	// DirEntry and the scandir iterator are Go classObjects, built once and
+	// shared across imports. scandir yields DirEntry values; os.py re-exports
+	// DirEntry and os.walk drives scandir.
+	if posixDirEntryClass == nil {
+		cls, err := buildPosixDirEntry()
+		if err != nil {
+			return err
+		}
+		posixDirEntryClass = cls
+	}
+	if posixScandirClass == nil {
+		cls, err := buildPosixScandir()
+		if err != nil {
+			return err
+		}
+		posixScandirClass = cls
+	}
+	if err := set("DirEntry", posixDirEntryClass); err != nil {
+		return err
+	}
+	if err := set("scandir", objects.NewFunc("scandir", -1, posixScandir)); err != nil {
+		return err
+	}
+
 	fns := []struct {
 		name string
 		fn   func([]objects.Object) (objects.Object, error)
