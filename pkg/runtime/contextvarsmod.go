@@ -10,8 +10,18 @@ import (
 // get/set/reset, copy_context, Context with run, and Token for the reset
 // receipt. Context's mapping surface (iteration, len, subscript) is a later
 // slice.
+//
+// _contextvars is the C accelerator the public package imports its types from
+// (the vendored contextvars.py does from _contextvars import Context,
+// ContextVar, Token, copy_context). Modules that skip the public package go
+// straight to it, as _py_warnings does for its warnings_context variable, so
+// both names are registered here with the same surface. The public contextvars
+// stays a Go builtin rather than flipping onto the vendored .py, which registers
+// Context with collections.abc.Mapping and so needs Context as a registerable
+// type object, a later slice.
 
 func init() {
+	moduleTable["_contextvars"] = &moduleEntry{builtin: true, exec: initContextvars}
 	moduleTable["contextvars"] = &moduleEntry{builtin: true, exec: initContextvars}
 }
 
