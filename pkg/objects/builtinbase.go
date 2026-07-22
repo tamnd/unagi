@@ -155,6 +155,14 @@ func valueSubclassAttr(x *instanceObject, name string) (Object, bool) {
 			return nil, false
 		}
 	case *tupleObject:
+		if p.named != nil {
+			// A namedtuple subclass instance answers its field names and the
+			// namedtuple helpers off the tuple payload, so t.field, t._replace and
+			// t._asdict resolve before the plain tuple method surface.
+			if r, ok := namedInstanceAttr(x.cls, p, name); ok {
+				return r, true
+			}
+		}
 		if !tupleSubclassMethods[name] {
 			return nil, false
 		}
