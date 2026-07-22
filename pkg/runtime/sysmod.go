@@ -3,6 +3,7 @@ package runtime
 import (
 	"math"
 	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/tamnd/unagi/pkg/objects"
@@ -161,7 +162,46 @@ func initSys(m *objects.Module) error {
 	if err := set("_getframe", objects.NewFuncT("_getframe", -1, sysGetFrame)); err != nil {
 		return err
 	}
+	if err := set("builtin_module_names", sysBuiltinModuleNames()); err != nil {
+		return err
+	}
+	if err := set("getfilesystemencoding", objects.NewFunc("getfilesystemencoding", 0, sysGetFilesystemEncoding)); err != nil {
+		return err
+	}
+	if err := set("getfilesystemencodeerrors", objects.NewFunc("getfilesystemencodeerrors", 0, sysGetFilesystemEncodeErrors)); err != nil {
+		return err
+	}
 	return nil
+}
+
+// sysBuiltinModuleNames builds sys.builtin_module_names: the sorted tuple of
+// statically linked module names. Every Go-shimmed module is the analog of a
+// CPython C builtin, so the source is ShimmedModules(). Dotted names like
+// os.path are dropped since CPython lists only top-level modules there; os.py
+// only tests membership of posix, so an honest top-level set is enough.
+func sysBuiltinModuleNames() objects.Object {
+	names := ShimmedModules()
+	elts := make([]objects.Object, 0, len(names))
+	for _, n := range names {
+		if strings.Contains(n, ".") {
+			continue
+		}
+		elts = append(elts, objects.NewStr(n))
+	}
+	return objects.NewTuple(elts)
+}
+
+// sysGetFilesystemEncoding reports sys.getfilesystemencoding(). Since 3.7 the
+// filesystem encoding is always UTF-8, the value os.py's fsencode/fsdecode and
+// _fscodec build on.
+func sysGetFilesystemEncoding(args []objects.Object) (objects.Object, error) {
+	return objects.NewStr("utf-8"), nil
+}
+
+// sysGetFilesystemEncodeErrors reports sys.getfilesystemencodeerrors(): the
+// error handler paired with the filesystem encoding, surrogateescape on POSIX.
+func sysGetFilesystemEncodeErrors(args []objects.Object) (objects.Object, error) {
+	return objects.NewStr("surrogateescape"), nil
 }
 
 // sysGetFrame implements sys._getframe(depth=0): return the frame depth levels
