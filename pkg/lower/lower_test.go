@@ -361,19 +361,6 @@ func TestCompileErrors(t *testing.T) {
 			}},
 			"import * only allowed at module level",
 		},
-		{
-			"except matcher not a name",
-			&frontend.Module{Body: []frontend.Stmt{
-				&frontend.Try{
-					Body: []frontend.Stmt{&frontend.Pass{}},
-					Handlers: []*frontend.ExceptHandler{{
-						Type: &frontend.IntLit{Text: "1"},
-						Body: []frontend.Stmt{&frontend.Pass{}},
-					}},
-				},
-			}},
-			"except matcher must be an exception class name or a tuple of them",
-		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

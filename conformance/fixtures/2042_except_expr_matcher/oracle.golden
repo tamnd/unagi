@@ -1,0 +1,12 @@
+== exit: 1
+== stdout:
+attr matcher: disk
+tuple attr matcher: v
+subscript matcher: s
+== exception:
+TypeError: catching classes that do not inherit from BaseException is not allowed
+  main.py:26 <module>
+context:
+TypeError: t
+  main.py:25 <module>
+== stderr:
