@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"os"
 	"testing"
 
 	"github.com/tamnd/unagi/pkg/objects"
@@ -108,6 +109,23 @@ func TestPosixSkeleton(t *testing.T) {
 	}
 	if _, ok := objects.AsInt(call("geteuid")); !ok {
 		t.Error("geteuid should return int")
+	}
+
+	// putenv/unsetenv drive os.environ writes: set a key, read it back through
+	// getenv, then remove it. The key is unique to this test so it does not clash
+	// with the ambient environment, and both accept str and bytes.
+	key := "UNAGI_POSIX_TEST_KEY"
+	call("putenv", objects.NewStr(key), objects.NewBytes([]byte("v1")))
+	if got := os.Getenv(key); got != "v1" {
+		t.Errorf("after putenv, Getenv(%q) = %q, want v1", key, got)
+	}
+	call("unsetenv", objects.NewBytes([]byte(key)))
+	if _, present := os.LookupEnv(key); present {
+		t.Errorf("after unsetenv, %q still present", key)
+	}
+	// A key holding '=' is rejected the way CPython's putenv is.
+	if _, err := objects.Call(attr("putenv"), []objects.Object{objects.NewStr("A=B"), objects.NewStr("x")}); err == nil {
+		t.Error("putenv with '=' in key should raise")
 	}
 
 	// __all__ is the synthesized public surface os.py's _get_exports_list reads
