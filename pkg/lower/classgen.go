@@ -24,22 +24,37 @@ type methodEmit struct {
 // pairs with the same walk in classDef so the two agree on every name.
 func (e *emitter) emitClassMethods(c *frontend.ClassDef) ([]methodEmit, error) {
 	var out []methodEmit
+	// A nested class keys its method names off its qualified classOrd key so
+	// they stay unique against a like-named class elsewhere; a top-level class
+	// keys off its plain name.
+	key := e.classKey[c]
+	if key == "" {
+		key = c.Name
+	}
+	// A method's zero-argument super() reads the class through a package-level
+	// identifier. A top-level class is bound to its module variable, but a class
+	// nested in a class body has no module binding, so its build assigns a
+	// dedicated cell var that its methods read instead.
+	superCell := mangle(c.Name)
+	if e.isNestedClass(key) {
+		superCell = e.nestedCellName(key)
+	}
 	mi := 0
 	for _, st := range c.Body {
 		m, ok := st.(*frontend.FuncDef)
 		if !ok {
 			continue
 		}
-		declName := e.methodDefName(c.Name, m.Name, mi)
-		implName := e.methodImplName(c.Name, m.Name, mi)
-		decl, err := e.emitMethodDecl(m, declName, m.Name, c.Name+"."+m.Name, c.Name)
+		declName := e.methodDefName(key, m.Name, mi)
+		implName := e.methodImplName(key, m.Name, mi)
+		decl, err := e.emitMethodDecl(m, declName, m.Name, key+"."+m.Name, superCell)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, methodEmit{
 			decl:    decl,
 			impl:    e.implDeclAs(m, implName, declName),
-			doc:     fmt.Sprintf("%s is Python method %s.%s.", declName, c.Name, m.Name),
+			doc:     fmt.Sprintf("%s is Python method %s.%s.", declName, key, m.Name),
 			implDoc: fmt.Sprintf("%s adapts %s to the function object calling convention.", implName, declName),
 		})
 		mi++
@@ -67,7 +82,38 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 	// the type object. Decorators evaluate first, then the bases, then the
 	// body, matching CPython's order, so the base and body work runs inside
 	// the decorate helper.
-	build := func() (ast.Expr, error) {
+	build := func() (ast.Expr, error) { return f.classValue(s) }
+
+	if len(s.Decorators) == 0 {
+		obj, err := build()
+		if err != nil {
+			return err
+		}
+		f.add(set(ident(mangle(s.Name)), obj))
+		return nil
+	}
+	obj, err := f.decorate(s.Decorators, build)
+	if err != nil {
+		return err
+	}
+	f.add(set(ident(mangle(s.Name)), obj))
+	return nil
+}
+
+// classValue lowers one class statement to the runtime class build and returns
+// the class value expression, without binding it to a name: classDef binds a
+// top-level class to its module variable, while a class nested in a class body
+// binds through the enclosing builder. It emits the StartClass, body and Finish
+// statements into the current function, so a nested class's build runs inline in
+// source order inside its enclosing class body.
+func (f *fnCtx) classValue(s *frontend.ClassDef) (ast.Expr, error) {
+	// A nested class keys its emitted method names off the qualified classOrd
+	// key collectClasses registered; a top-level class keys off its plain name.
+	key := f.e.classKey[s]
+	if key == "" {
+		key = s.Name
+	}
+	{
 		// Every written base evaluates to its class value, object included: it
 		// resolves to the object type singleton, so its position in the base
 		// list still constrains the C3 order and an inconsistent order like
@@ -127,7 +173,7 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 			metaArg,
 			strLit(f.e.modName),
 			strLit(s.Name),
-			strLit(f.e.modName+"."+s.Name),
+			strLit(f.e.modName+"."+key),
 			intLit(strconv.Itoa(s.Span().Line)),
 			docExpr,
 			f.objSlice(baseArgs),
@@ -140,8 +186,9 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 		// behave the way CPython runs a class suite. The mode is scoped to this
 		// build, so method bodies and any nested lambda or comprehension lower
 		// without it and never see the class namespace.
+		prevBld := f.classBld
 		f.classBld = bld
-		defer func() { f.classBld = "" }()
+		defer func() { f.classBld = prevBld }()
 
 		// setName writes one method binding through the builder, the runtime
 		// STORE_NAME a class body performs. It spills the function object to a
@@ -165,10 +212,10 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 					return nil, err
 				}
 				methodObj := f.e.withDoc(callExpr(f.e.obj("NewFunctionT"),
-					strLit(s.Name+"."+st.Name),
+					strLit(key+"."+st.Name),
 					f.e.paramSpecLit(st.Params),
 					dflts,
-					ident(f.e.methodImplName(s.Name, st.Name, mi))), st.Body)
+					ident(f.e.methodImplName(key, st.Name, mi))), st.Body)
 				mi++
 				if len(st.Decorators) == 0 {
 					setName(st.Name, methodObj)
@@ -199,6 +246,21 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 				if err := f.stmt(st); err != nil {
 					return nil, err
 				}
+			case *frontend.ClassDef:
+				// A class nested in this body builds inline, in source order,
+				// and binds through the enclosing builder just like a method,
+				// so its name reads back as a class attribute afterwards. Its
+				// build runs with classBld pointed at its own namespace and
+				// restored to this one on return, so the setName below writes
+				// into the enclosing class.
+				if len(st.Decorators) != 0 {
+					return nil, f.e.errf(st.Span(), "a decorated class in a class body is not supported yet")
+				}
+				nested, err := f.classValue(st)
+				if err != nil {
+					return nil, err
+				}
+				setName(st.Name, nested)
 			default:
 				return nil, f.e.errf(st.Span(), "this statement is not supported in a class body yet")
 			}
@@ -208,23 +270,14 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 		// checked call spilled to a temp.
 		cls := f.tmpVar()
 		f.fallible(cls, sel(bld, "Finish"), strSliceLit(staticAttrs(s.Body)))
+		// A nested class has no module variable, so store the built class in its
+		// dedicated cell var too: a zero-argument super() in one of its methods
+		// reads the class through that identifier.
+		if f.e.isNestedClass(key) {
+			f.add(set(ident(f.e.nestedCellName(key)), ident(cls)))
+		}
 		return ident(cls), nil
 	}
-
-	if len(s.Decorators) == 0 {
-		obj, err := build()
-		if err != nil {
-			return err
-		}
-		f.add(set(ident(mangle(s.Name)), obj))
-		return nil
-	}
-	obj, err := f.decorate(s.Decorators, build)
-	if err != nil {
-		return err
-	}
-	f.add(set(ident(mangle(s.Name)), obj))
-	return nil
 }
 
 // staticAttrs collects the attribute names the class's functions assign on a

@@ -256,7 +256,7 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 	// identifiers CPython would after mangling.
 	frontend.MangleClassPrivates(mod)
 
-	e := &emitter{file: file, source: source, modName: modName, pkgMode: pkgMode, pkgInit: pkgMode && strings.HasSuffix(file, "__init__.py"), stars: stars, statics: statics, tracked: tracked, escWarns: mod.EscapeWarnings, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}, classOrd: map[string]int{}}
+	e := &emitter{file: file, source: source, modName: modName, pkgMode: pkgMode, pkgInit: pkgMode && strings.HasSuffix(file, "__init__.py"), stars: stars, statics: statics, tracked: tracked, escWarns: mod.EscapeWarnings, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}, classOrd: map[string]int{}, classKey: map[*frontend.ClassDef]string{}}
 
 	var body []frontend.Stmt
 	var defs []*frontend.FuncDef
@@ -266,59 +266,73 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 	// conditional definition), so their methods emit and their ordinals stay
 	// unique; def bodies are excluded since a class in a function is rejected
 	// at lowering.
-	var collectClasses func(list []frontend.Stmt) error
-	collectClasses = func(list []frontend.Stmt) error {
+	var collectClasses func(list []frontend.Stmt, prefix string) error
+	collectClasses = func(list []frontend.Stmt, prefix string) error {
 		for _, s := range list {
 			switch s := s.(type) {
 			case *frontend.ClassDef:
-				if _, dup := e.classOrd[s.Name]; dup {
-					return e.errf(s.Span(), "redefining class %q is not supported yet", s.Name)
+				// A nested class in a class body qualifies its key with the
+				// enclosing class name so its ordinal stays unique against a
+				// like-named class elsewhere, and its methods emit under that
+				// key without colliding.
+				key := s.Name
+				if prefix != "" {
+					key = prefix + "." + s.Name
 				}
-				e.classOrd[s.Name] = len(classes)
+				if _, dup := e.classOrd[key]; dup {
+					return e.errf(s.Span(), "redefining class %q is not supported yet", key)
+				}
+				e.classOrd[key] = len(classes)
+				e.classKey[s] = key
 				classes = append(classes, s)
-			case *frontend.If:
-				if err := collectClasses(s.Body); err != nil {
+				// Descend into the class body so a class nested in it collects
+				// too, qualified under this class's key.
+				if err := collectClasses(s.Body, key); err != nil {
 					return err
 				}
-				if err := collectClasses(s.Else); err != nil {
+			case *frontend.If:
+				if err := collectClasses(s.Body, prefix); err != nil {
+					return err
+				}
+				if err := collectClasses(s.Else, prefix); err != nil {
 					return err
 				}
 			case *frontend.While:
-				if err := collectClasses(s.Body); err != nil {
+				if err := collectClasses(s.Body, prefix); err != nil {
 					return err
 				}
-				if err := collectClasses(s.Else); err != nil {
+				if err := collectClasses(s.Else, prefix); err != nil {
 					return err
 				}
 			case *frontend.For:
-				if err := collectClasses(s.Body); err != nil {
+				if err := collectClasses(s.Body, prefix); err != nil {
 					return err
 				}
-				if err := collectClasses(s.Else); err != nil {
+				if err := collectClasses(s.Else, prefix); err != nil {
 					return err
 				}
 			case *frontend.With:
-				if err := collectClasses(s.Body); err != nil {
+				if err := collectClasses(s.Body, prefix); err != nil {
 					return err
 				}
 			case *frontend.Try:
-				if err := collectClasses(s.Body); err != nil {
+				if err := collectClasses(s.Body, prefix); err != nil {
 					return err
 				}
 				for _, h := range s.Handlers {
-					if err := collectClasses(h.Body); err != nil {
+					if err := collectClasses(h.Body, prefix); err != nil {
 						return err
 					}
 				}
-				if err := collectClasses(s.OrElse); err != nil {
+				if err := collectClasses(s.OrElse, prefix); err != nil {
 					return err
 				}
-				if err := collectClasses(s.Final); err != nil {
+				if err := collectClasses(s.Final, prefix); err != nil {
 					return err
 				}
 			case *frontend.Match:
 				for _, c := range s.Cases {
-					if err := collectClasses(c.Body); err != nil {
+					if err := collectClasses(c.Body, prefix); err != nil {
 						return err
 					}
 				}
@@ -326,7 +340,7 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 		}
 		return nil
 	}
-	if err := collectClasses(mod.Body); err != nil {
+	if err := collectClasses(mod.Body, ""); err != nil {
 		return nil, err
 	}
 	// Defs are collected through nested module-level blocks the same way
@@ -565,6 +579,23 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 		}
 		out.WriteString(")\n\n")
 	}
+	// A class nested in a class body has no module variable, so each gets a
+	// package-level cell holding its class object, written when its build runs
+	// and read by a zero-argument super() in its methods.
+	var nestedCells []string
+	for _, c := range classes {
+		if key := e.classKey[c]; e.isNestedClass(key) {
+			nestedCells = append(nestedCells, e.nestedCellName(key))
+		}
+	}
+	if len(nestedCells) > 0 {
+		sort.Strings(nestedCells)
+		out.WriteString("// __class__ cells for classes nested in a class body, written by each\n// nested class's build so a zero-argument super() in its methods resolves.\nvar (\n")
+		for _, n := range nestedCells {
+			fmt.Fprintf(&out, "\t%s objects.Object\n", n)
+		}
+		out.WriteString(")\n\n")
+	}
 	if len(e.tracked) > 0 {
 		// The typed shadow holds the last binding a static reader can trust; the
 		// version counter starts at 0, the unbound state the entry guard rejects,
@@ -696,9 +727,10 @@ type emitter struct {
 	globalDecl  map[string]bool // names some def declares global
 	moduleVars  map[string]bool // every module-scope variable, emitted at package level
 	slots       []string
-	classOrd    map[string]int           // top-level class name to its emission ordinal
-	finWarns    []finWarn                // PEP 765 finally-jump SyntaxWarnings, in discovery order
-	escWarns    []frontend.EscapeWarning // invalid backslash-escape SyntaxWarnings from the lexer
+	classOrd    map[string]int                // class key (qualified for nested classes) to its emission ordinal
+	classKey    map[*frontend.ClassDef]string // each collected class to its unique classOrd key
+	finWarns    []finWarn                     // PEP 765 finally-jump SyntaxWarnings, in discovery order
+	escWarns    []frontend.EscapeWarning      // invalid backslash-escape SyntaxWarnings from the lexer
 	usedObjects bool
 	usedTB      bool
 	usedGlobals bool // the body calls globals(), so main binds a __main__ module
@@ -1017,6 +1049,21 @@ func (e *emitter) methodDefName(className, methodName string, mi int) string {
 // slice-taking implementation its function object carries.
 func (e *emitter) methodImplName(className, methodName string, mi int) string {
 	return fmt.Sprintf("clsimpl%d_%d_%s", e.classOrd[className], mi, methodName)
+}
+
+// isNestedClass reports whether a classOrd key belongs to a class nested in a
+// class body. A nested class qualifies its key with the enclosing class name,
+// so the dot only a qualified key carries is the signal; a Python class name is
+// a plain identifier and never holds one.
+func (e *emitter) isNestedClass(key string) bool {
+	return strings.Contains(key, ".")
+}
+
+// nestedCellName is the package-level variable holding a nested class's object,
+// the __class__ cell its methods read for a zero-argument super(). The class
+// ordinal keeps it unique and away from the module-variable namespace.
+func (e *emitter) nestedCellName(key string) string {
+	return fmt.Sprintf("nestedcls%d", e.classOrd[key])
 }
 
 // slotName is the module-level variable holding one parameter default,
