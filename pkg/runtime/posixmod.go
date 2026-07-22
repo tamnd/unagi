@@ -143,6 +143,17 @@ func initPosix(m *objects.Module) error {
 		{"fstat", posixFstat},
 		{"access", posixAccess},
 		{"_exit", posixMExit},
+		{"open", posixOpen},
+		{"read", posixRead},
+		{"write", posixWrite},
+		{"close", posixClose},
+		{"lseek", posixLseek},
+		{"dup", posixDup},
+		{"dup2", posixDup2},
+		{"pipe", posixPipe},
+		{"ftruncate", posixFtruncate},
+		{"fsync", posixFsync},
+		{"isatty", posixIsatty},
 	}
 	for _, f := range fns {
 		if err := set(f.name, objects.NewFunc(f.name, -1, f.fn)); err != nil {

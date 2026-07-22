@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+write 11
+isatty False
+seek 6
+read b'world'
+tell 11
+rewind 0
+readall b'hello world'
+ateof b''
+fstat_size 11
+after_trunc b'hello'
+dup_distinct True
+dup2_target 15
+pipe_read b'pi'
+== exception:
+== stderr:
