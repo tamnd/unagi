@@ -1851,6 +1851,9 @@ func LoadAttr(o Object, name string) (Object, error) {
 		if x.kind == defaultDict && name == "default_factory" {
 			return dictDefaultFactory(x), nil
 		}
+		if v, ok := containerSpecialAttr(x, name); ok {
+			return v, nil
+		}
 		return nil, noAttr(x, name)
 	case *dequeObject:
 		// maxlen reads the bound as an int, or None for an unbounded deque; it is
@@ -1867,6 +1870,9 @@ func LoadAttr(o Object, name string) (Object, error) {
 		// calls the same as items.append(x); any other name is the plain miss.
 		if listMethodNames[name] {
 			return builtinMethodValue(x, name), nil
+		}
+		if v, ok := containerSpecialAttr(x, name); ok {
+			return v, nil
 		}
 		return nil, noAttr(x, name)
 	case *memoryviewObject:
@@ -2089,6 +2095,13 @@ func LoadAttr(o Object, name string) (Object, error) {
 		if name == "__new__" {
 			return objectNewBuiltin, nil
 		}
+	}
+	// A builtin container with no dedicated case above (str, bytes, tuple,
+	// range, set, frozenset) exposes its size, membership and subscript
+	// protocol methods as bound reads, so frozenset(kwlist).__contains__ hands
+	// back a callable rather than raising.
+	if v, ok := containerSpecialAttr(o, name); ok {
+		return v, nil
 	}
 	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", o.TypeName(), name)
 }

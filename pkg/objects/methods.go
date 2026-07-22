@@ -14,6 +14,14 @@ func CallMethod(o Object, name string, args []Object) (Object, error) {
 // and the rest) do not observe thread identity in this tier, so they keep the
 // t-less dispatch; t reaches the leaves that run user or thread-sensitive code.
 func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error) {
+	// A container protocol dunder called directly, obj.__len__() or
+	// d.__getitem__(k), reaches the operator the same as the bound read in
+	// LoadAttr does. The emitted x.m(args) call routes here rather than through
+	// LoadAttr, so the surface has to answer in both places; the guard fires
+	// only for the concrete builtin containers, never a user subclass.
+	if surface, ok := containerDunderSurface(o); ok && surface[name] {
+		return applyContainerSpecial(o, name, args)
+	}
 	switch x := o.(type) {
 	case *intObject, *boolObject:
 		return intMethod(o, name, args)

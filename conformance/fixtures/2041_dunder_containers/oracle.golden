@@ -1,0 +1,26 @@
+== exit: 0
+== stdout:
+iskeyword_for True
+iskeyword_xyz False
+issoftkeyword_match True
+issoftkeyword_for False
+bound_member True False
+list_len 3
+list_contains True False
+list_getitem 20
+list_after [11, 20]
+dict_len 2
+dict_contains True False
+dict_getitem 2
+dict_after [('y', 2), ('z', 3)]
+tuple 3 3 True
+str 3 a True
+bytes 2 121 True
+range 10 4 True
+set 3 True False
+frozenset 2 True
+stashed True False
+set_no_getitem AttributeError
+done
+== exception:
+== stderr:
