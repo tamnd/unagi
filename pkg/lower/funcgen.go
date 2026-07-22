@@ -359,14 +359,16 @@ func (e *emitter) emitFuncDecl(d *frontend.FuncDef, declName, coName, qual strin
 }
 
 // emitMethodDecl lowers a class method like a plain function but with the
-// super context wired in: the defining class is the __class__ cell and the
-// first parameter is self, so a zero-argument super() inside the body can
-// find both.
-func (e *emitter) emitMethodDecl(d *frontend.FuncDef, declName, coName, qual, className string) (*ast.FuncDecl, error) {
+// super context wired in: superCell is the package-level identifier holding the
+// defining class (the __class__ cell) and the first parameter is self, so a
+// zero-argument super() inside the body can find both. A top-level class passes
+// its module variable; a class nested in a class body passes the dedicated cell
+// var its build assigns, since it has no module binding of its own.
+func (e *emitter) emitMethodDecl(d *frontend.FuncDef, declName, coName, qual, superCell string) (*ast.FuncDecl, error) {
 	f := newFnCtx(e, true, coName)
 	f.qual = qual
 	if len(d.Params) > 0 {
-		f.superClass = mangle(className)
+		f.superClass = superCell
 		f.superSelf = mangle(d.Params[0].Name)
 	}
 	return e.fillFuncDecl(f, d, declName)
