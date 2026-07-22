@@ -25,10 +25,13 @@ import (
 // valid identifiers.
 //
 // The public collections module stays a Go builtin here (Counter and namedtuple
-// still live in Go, and it shares the same three type objects). Repointing it
-// onto the vendored collections/__init__.py is a later slice: the pure package's
-// OrderedDict and namedtuple lean on unbound builtin dunder methods
-// (dict.__setitem__, tuple.__new__), which the runtime does not expose yet.
+// still live in Go, and it shares the same three type objects). It cannot be
+// repointed onto the vendored collections/__init__.py under AOT: the pure
+// namedtuple builds its __new__ with eval on a runtime-built lambda string and
+// assembles the class with a three-argument type(), neither of which the
+// compiled world runs. What the harness actually needs from the package is
+// collections.abc, so initCollections aliases it to the _collections_abc module
+// the way the vendored package does, without the rest of the flip.
 
 var (
 	dequeType       objects.Object
@@ -177,7 +180,33 @@ func initCollections(m *objects.Module) error {
 		func(a []objects.Object) (objects.Object, error) {
 			return buildNamedTuple(a)
 		})
-	return objects.StoreAttr(m, "namedtuple", namedtuple)
+	if err := objects.StoreAttr(m, "namedtuple", namedtuple); err != nil {
+		return err
+	}
+
+	// collections.abc is the _collections_abc module, matching the vendored
+	// collections/__init__.py, which does _sys.modules['collections.abc'] =
+	// _collections_abc. Bind it as the abc attribute and register the dotted
+	// name in sys.modules, so import collections.abc resolves the submodule off
+	// the registry (importOne reads sys.modules before the module table) and
+	// from collections import abc reads the attribute. The one module object is
+	// shared, so collections.abc is _collections_abc holds. This is what lets
+	// traceback and the rest of the unittest import chain reach collections.abc
+	// while namedtuple still lives in Go: the pure package cannot run under AOT
+	// because its namedtuple builds __new__ through eval and a dynamic type().
+	//
+	// The alias is best effort: _collections_abc is a vendored floor module, so
+	// a context without the compiled floor (the Go unit tests) cannot import it.
+	// When it will not import, leave the alias off and let import collections.abc
+	// raise the ordinary ModuleNotFoundError, the behavior before this alias
+	// existed. In a real build the floor is present and the alias always installs.
+	if abcmod, err := ImportModule("_collections_abc"); err == nil {
+		modulesSet("collections.abc", abcmod)
+		if err := objects.StoreAttr(m, "abc", abcmod); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // bindTwo resolves a two-parameter constructor call where both parameters accept
