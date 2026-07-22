@@ -195,7 +195,7 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 				}
 			case *frontend.Assign, *frontend.AnnAssign, *frontend.AugAssign,
 				*frontend.If, *frontend.For, *frontend.While, *frontend.Try,
-				*frontend.With, *frontend.Pass:
+				*frontend.With, *frontend.Pass, *frontend.Del:
 				if err := f.stmt(st); err != nil {
 					return nil, err
 				}

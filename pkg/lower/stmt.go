@@ -522,6 +522,14 @@ func (f *fnCtx) delStmt(s *frontend.Del) error {
 	for _, t := range s.Targets {
 		switch t := t.(type) {
 		case *frontend.Name:
+			// A class body deletes through the namespace builder, the DELETE_NAME
+			// a class suite runs, so `del name` drops the class attribute and a
+			// missing name is the NameError the builder reports. textwrap and
+			// other stdlib modules del their scratch names at class scope.
+			if f.classBld != "" {
+				f.fallibleVoid(sel(f.classBld, "Delete"), strLit(t.Id))
+				continue
+			}
 			// del of a declared global unbinds the module variable with the
 			// NameError wording; everything else in a function is a local.
 			fn := "DelName"
