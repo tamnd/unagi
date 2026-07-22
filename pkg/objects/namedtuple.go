@@ -187,6 +187,79 @@ func namedTupleReplace(x *tupleObject, kwNames []string, kwVals []Object) (Objec
 	return &tupleObject{elts: elts, named: x.named}, nil
 }
 
+// newNamedInstance builds a namedtuple subclass instance carrying a fresh tuple
+// payload, the value _make and _replace return so a subclass keeps its own type
+// rather than collapsing to a bare namedtuple. It mirrors the ordinary value
+// subclass instance the constructor produces.
+func newNamedInstance(cls *classObject, elts []Object, nt *namedType) Object {
+	return &instanceObject{cls: cls, attrs: newAttrs(), builtinData: &tupleObject{elts: elts, named: nt}}
+}
+
+// namedInstanceAttr resolves a read on a namedtuple subclass instance: a field by
+// name, the class-level tuple helpers, or the _make/_replace/_asdict methods
+// bound to the payload. _make and _replace build a fresh subclass instance so the
+// result keeps cls, the way CPython's _tuple_new(cls, ...) does. ok is false for
+// any other name, so the tuple method surface and then AttributeError take over.
+func namedInstanceAttr(cls *classObject, p *tupleObject, name string) (Object, bool) {
+	nt := p.named
+	switch name {
+	case "_replace":
+		return NewFuncKw("_replace", func(pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+			if len(pos) != 0 {
+				return nil, Raise(TypeError, "_replace() takes no positional arguments")
+			}
+			r, err := namedTupleReplace(p, kwNames, kwVals)
+			if err != nil {
+				return nil, err
+			}
+			return newNamedInstance(cls, r.(*tupleObject).elts, nt), nil
+		}), true
+	case "_asdict":
+		return NewFunc("_asdict", 0, func([]Object) (Object, error) {
+			return namedTupleAsDict(p)
+		}), true
+	case "_make":
+		return namedMakeMethod(cls, nt), true
+	}
+	if v, err := namedTupleInstanceAttr(p, name); err == nil {
+		return v, true
+	}
+	return nil, false
+}
+
+// namedClassAttr resolves a class-level read on a namedtuple subclass: the field
+// tuple, the defaults, and the _make classmethod that builds a subclass instance.
+// ok is false for any other name so the class falls through to its ordinary
+// AttributeError.
+func namedClassAttr(cls *classObject, name string) (Object, bool) {
+	nt := cls.namedBase.nt
+	switch name {
+	case "_fields":
+		return namedFieldsTuple(nt), true
+	case "_field_defaults":
+		return nt.defaults, true
+	case "_make":
+		return namedMakeMethod(cls, nt), true
+	}
+	return nil, false
+}
+
+// namedMakeMethod builds the _make helper for a subclass: it reads an iterable of
+// field values and returns a subclass instance, the classmethod tokenize relies
+// on when it rebuilds a TokenInfo from a sequence.
+func namedMakeMethod(cls *classObject, nt *namedType) Object {
+	return NewFunc("_make", 1, func(a []Object) (Object, error) {
+		elts, err := iterItems(a[0])
+		if err != nil {
+			return nil, err
+		}
+		if len(elts) != len(nt.fields) {
+			return nil, Raise(TypeError, "Expected %d arguments, got %d", len(nt.fields), len(elts))
+		}
+		return newNamedInstance(cls, elts, nt), nil
+	})
+}
+
 // namedTupleAsDict returns the fields and values as an ordinary dict, matching
 // CPython 3.14 where _asdict is a plain dict.
 func namedTupleAsDict(x *tupleObject) (Object, error) {

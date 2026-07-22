@@ -192,6 +192,18 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 				case "dict":
 					inst.dictData = &dictObject{index: map[string]int{}}
 				case "int", "str", "tuple", "classmethod", "staticmethod", "property":
+					// A namedtuple subclass reaches super().__new__(cls, iterable)
+					// through the generated namedtuple __new__; it builds the tuple
+					// payload from the iterable, carrying the field metadata so the
+					// result stays a namedtuple value.
+					if cls.namedBase != nil {
+						v, err := Call(cls.namedBase.nt.makeFn, args[1:])
+						if err != nil {
+							return nil, true, err
+						}
+						inst.builtinData = v
+						break
+					}
 					// int.__new__(cls, value) or str.__new__(cls, value) reached
 					// through a user __new__ chain builds the immutable payload from
 					// the value argument the way the builtin __new__ sets it, so a

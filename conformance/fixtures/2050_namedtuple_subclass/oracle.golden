@@ -1,0 +1,26 @@
+== exit: 0
+== stdout:
+1 name (1, 0) (1, 4) name
+
+1 name name
+ 5 ('name', (1, 0))
+TokenInfo(type=2, string='x', start=(0, 0), end=(0, 1), line='x')
+NAME 1:name
+True
+True
+1 name name
+
+['int', 'str', 'tuple', 'tuple', 'str']
+True True TokenInfo
+TokenInfo(type=1, string='name', start=(1, 0), end=(1, 4), line='name\n')
+('type', 'string', 'start', 'end', 'line')
+{'type': 1, 'string': 'name', 'start': (1, 0), 'end': (1, 4), 'line': 'name\n'}
+TokenInfo(type=1, string='other', start=(1, 0), end=(1, 4), line='name\n') TokenInfo OTHER
+TokenInfo(type=9, string='z', start=(2, 0), end=(2, 1), line='z\n') TokenInfo
+('type', 'string', 'start', 'end', 'line')
+1 1
+Row(a=1, b=2, c=0)
+{'c': 0}
+kw 5:kw LabeledToken True
+== exception:
+== stderr:

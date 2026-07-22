@@ -113,6 +113,12 @@ type classObject struct {
 	// subclasses (int, str) can construct their payload through it, reusing the
 	// builtin's own conversion. It is nil for a dict base and a plain class.
 	builtinBaseFn *funcObject
+	// namedBase is set when the class derives from a collections.namedtuple
+	// result, the shape tokenize's TokenInfo takes. Such a class records
+	// builtinBase "tuple" so its instances are tuple-backed, and namedBase carries
+	// the field metadata and the builder so construction binds the fields and the
+	// _make/_replace/_fields helpers resolve. It is inherited like builtinBase.
+	namedBase *namedTupleType
 }
 
 func (*classObject) TypeName() string { return "type" }
@@ -211,6 +217,16 @@ func newClassCore(meta *classObject, name, qual string, bases []Object, names []
 			// The implicit object base contributes no user names.
 			continue
 		}
+		if nt, ok := b.(*namedTupleType); ok {
+			// A collections.namedtuple result is a tuple subclass, so a class that
+			// derives from it takes the tuple layout and records the field metadata
+			// in namedBase. Its instances are tuple-backed value subclasses whose
+			// payload carries the fields, so the tuple operators and the namedtuple
+			// field/helper reads both route to the payload.
+			c.builtinBase = "tuple"
+			c.namedBase = nt
+			continue
+		}
 		if name, ok := builtinBaseName(b); ok {
 			// A builtin type base like dict is not a classObject, so it never
 			// joins the MRO; it is recorded as the layout the instances take. A
@@ -237,6 +253,9 @@ func newClassCore(meta *classObject, name, qual string, bases []Object, names []
 			c.builtinBase = bc.builtinBase
 			if bc.builtinBaseFn != nil {
 				c.builtinBaseFn = bc.builtinBaseFn
+			}
+			if bc.namedBase != nil {
+				c.namedBase = bc.namedBase
 			}
 		}
 		c.bases = append(c.bases, bc)
@@ -1596,6 +1615,23 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 		return e, nil
 	}
 	inst := &instanceObject{cls: c, attrs: newAttrs()}
+	if c.namedBase != nil {
+		// A namedtuple subclass with no __new__ of its own builds its tuple payload
+		// through the namedtuple builder, which binds the fields positionally or by
+		// keyword and fills the defaults, so C(field=value) and C(*row) both work.
+		// The keywords are the fields, so an inherited __init__ ignores them.
+		v, err := CallKw(c.namedBase.build, pos, kwNames, kwVals)
+		if err != nil {
+			return nil, err
+		}
+		inst.builtinData = v
+		if init, ok := c.lookup("__init__"); ok {
+			if err := initSelf(init, inst, nil, nil, nil); err != nil {
+				return nil, err
+			}
+		}
+		return inst, nil
+	}
 	switch c.builtinBase {
 	case "dict":
 		inst.dictData = &dictObject{index: map[string]int{}}
@@ -1765,6 +1801,15 @@ func LoadAttr(o Object, name string) (Object, error) {
 		}
 		if v, ok := x.lookup(name); ok {
 			return classGet(x, v)
+		}
+		// A namedtuple subclass answers the class-level namedtuple helpers off its
+		// recorded field metadata, so TokenInfo._fields and TokenInfo._make resolve
+		// the way they do on the namedtuple base, with _make building a subclass
+		// instance rather than a bare namedtuple.
+		if x.namedBase != nil {
+			if v, ok := namedClassAttr(x, name); ok {
+				return v, nil
+			}
 		}
 		// A class with no __new__ of its own inherits object.__new__, so
 		// C.__new__ reads back the one canonical allocator.
