@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+islink_link True
+islink_target False
+readlink target.txt
+realpath_matches True
+realpath_abs True
+realpath_basename target.txt
+exists_via_link True
+broken_islink True
+broken_exists False
+== exception:
+== stderr:

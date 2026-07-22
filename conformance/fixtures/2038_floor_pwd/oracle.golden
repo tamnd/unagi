@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+type struct_passwd
+len 7
+pw_name root
+pw_uid 0
+pw_gid 0
+home_abs True
+is_tuple True
+index0 root
+index2 0
+byuid_name root
+byuid_home_matches True
+expand_abs True
+expand_changed True
+expand_matches_home True
+expand_unknown ~no_such_user_xyzzy
+getpwnam_missing_raises
+getpwuid_missing_raises
+== exception:
+== stderr:
