@@ -142,6 +142,7 @@ func initPosix(m *objects.Module) error {
 		{"lstat", posixLstat},
 		{"fstat", posixFstat},
 		{"access", posixAccess},
+		{"_exit", posixMExit},
 	}
 	for _, f := range fns {
 		if err := set(f.name, objects.NewFunc(f.name, -1, f.fn)); err != nil {
@@ -262,4 +263,20 @@ func posixListdir(args []objects.Object) (objects.Object, error) {
 		names[i] = objects.NewStr(e)
 	}
 	return objects.NewList(names), nil
+}
+
+// posixMExit is posix._exit: it ends the process now with the given status and
+// skips the interpreter teardown that a normal exit runs. It does not flush
+// buffered output or run cleanup, so a program that wants a line kept prints it
+// with flush=True first. os.py re-exports it as os._exit.
+func posixMExit(args []objects.Object) (objects.Object, error) {
+	if len(args) != 1 {
+		return nil, objects.Raise(objects.TypeError, "_exit() takes exactly one argument (%d given)", len(args))
+	}
+	code, ok := objects.AsInt(args[0])
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", args[0].TypeName())
+	}
+	os.Exit(int(code))
+	return objects.None, nil // unreachable
 }
