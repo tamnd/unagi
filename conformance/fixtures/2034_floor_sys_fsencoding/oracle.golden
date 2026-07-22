@@ -1,0 +1,7 @@
+== exit: 0
+== stdout:
+tuple True True
+True True
+utf-8 surrogateescape
+== exception:
+== stderr:
