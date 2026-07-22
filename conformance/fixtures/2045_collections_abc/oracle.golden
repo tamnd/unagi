@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+True
+Sequence
+Mapping
+True
+True
+True
+True
+True
+MutableSequence
+True
+False
+== exception:
+== stderr:
