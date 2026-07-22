@@ -1,0 +1,9 @@
+== exit: 0
+== stdout:
+1 3
+False
+60
+False
+NameError: name 'missing' is not defined
+== exception:
+== stderr:
