@@ -1187,6 +1187,11 @@ func instanceOfBuiltin(obj Object, name string) bool {
 		// so they report a distinct TypeName yet are instances of tuple.
 		_, ok := obj.(*tupleObject)
 		return ok
+	case "collections.OrderedDict":
+		// The OrderedDict type name carries its module so it reprs as a class the
+		// way CPython does, but an OrderedDict value reprs bare as OrderedDict({...})
+		// and so reports the bare TypeName. Bridge the two here.
+		return obj.TypeName() == "OrderedDict"
 	default:
 		return obj.TypeName() == name
 	}

@@ -551,6 +551,12 @@ var builtinTypeReprs = map[string]bool{
 	"bytes": true, "bytearray": true, "type": true, "slice": true,
 	"memoryview": true, "staticmethod": true, "classmethod": true,
 	"property": true, "super": true,
+	// The C container types collections imports from _collections. Their names
+	// carry the module the way CPython's tp_name does, so none of them collide
+	// with a bare builtin name, and each is a real type: isinstance, issubclass
+	// and abc registration all treat it as a class.
+	"collections.deque": true, "collections.defaultdict": true,
+	"collections.OrderedDict": true,
 }
 
 var builtinFuncReprs = map[string]bool{

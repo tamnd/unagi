@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+deque: [2, 3, 4] maxlen: 3
+deque class repr: <class 'collections.deque'>
+deque is a type: True
+deque instance: True
+deque self-subclass: True
+deque subclasses object: True
+type(d) is deque: True
+defaultdict: {'a': [1]} True
+ordereddict: [('b', 2), ('a', 1)] True
+ordereddict class repr: <class 'collections.OrderedDict'>
+proxy forwards: 5
+shared deque type: True
+counter still works: [('a', 2)]
+== exception:
+== stderr:
