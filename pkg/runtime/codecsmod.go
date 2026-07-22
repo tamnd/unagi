@@ -210,7 +210,7 @@ func ensureEncodings() error {
 // the stateless encode entry codecs.encode is bound to. It hands back the
 // encoded bytes, not the (bytes, length) pair the per-codec functions return.
 func codecEncode(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
-	obj, enc, _, err := codecApplyArgs("encode", pos, kwNames, kwVals)
+	obj, enc, errs, err := codecApplyArgs("encode", pos, kwNames, kwVals)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +218,7 @@ func codecEncode(pos []objects.Object, kwNames []string, kwVals []objects.Object
 	if !ok {
 		return nil, objects.Raise(objects.TypeError, "encode() argument 'obj' must be str, not %s", obj.TypeName())
 	}
-	b, err := objects.EncodeStr(s, enc)
+	b, err := objects.EncodeStr(s, enc, errs)
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +300,15 @@ func codecEncoder(enc string) func([]objects.Object, []string, []objects.Object)
 		if !ok {
 			return nil, objects.Raise(objects.TypeError, "argument must be str, not %s", pos[0].TypeName())
 		}
-		b, err := objects.EncodeStr(s, enc)
+		errs := "strict"
+		if len(pos) >= 2 && pos[1] != objects.None {
+			e, ok := objects.AsStr(pos[1])
+			if !ok {
+				return nil, objects.Raise(objects.TypeError, "errors must be str, not %s", pos[1].TypeName())
+			}
+			errs = e
+		}
+		b, err := objects.EncodeStr(s, enc, errs)
 		if err != nil {
 			return nil, err
 		}
