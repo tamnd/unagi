@@ -1,0 +1,33 @@
+== exit: 0
+== stdout:
+name posix
+sep /
+pathsep :
+path_is_posixpath True
+cwd_is_str True
+join a/b/c
+join_abs /b/c
+split ('/a/b', 'c.txt')
+splitext ('foo.tar', '.gz')
+basename c.txt
+dirname /a/b
+normpath a/c
+isabs_true True
+isabs_false False
+abspath_is_str True
+environ_type _Environ
+getenv_missing True
+getenv_default d
+fspath q
+fsencode b'q'
+fsdecode q
+stat_isdir True
+getsize_int True
+exists_dot True
+isdir_dot True
+isfile_dot False
+listdir_is_list True
+scandir_names_list True
+getpid_gt0 True
+== exception:
+== stderr:

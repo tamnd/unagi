@@ -160,6 +160,8 @@ func initPosix(m *objects.Module) error {
 		{"symlink", posixSymlink},
 		{"getuid", posixGetuid},
 		{"geteuid", posixGeteuid},
+		{"putenv", posixPutenv},
+		{"unsetenv", posixUnsetenv},
 	}
 	for _, f := range fns {
 		if err := set(f.name, objects.NewFunc(f.name, -1, f.fn)); err != nil {
@@ -405,4 +407,47 @@ func posixGeteuid(args []objects.Object) (objects.Object, error) {
 		return nil, objects.Raise(objects.TypeError, "geteuid() takes no arguments (%d given)", len(args))
 	}
 	return objects.NewInt(int64(syscall.Geteuid())), nil
+}
+
+// posixPutenv is posix.putenv(key, value): it sets an environment variable in
+// the process so child processes inherit it. os.py's _Environ.__setitem__ drives
+// it with the encoded (surrogateescape bytes) key and value, then updates its own
+// bytes dict; str arguments are accepted too. A key holding '=' is rejected the
+// way CPython does, since the C environ splits on it.
+func posixPutenv(args []objects.Object) (objects.Object, error) {
+	if len(args) != 2 {
+		return nil, objects.Raise(objects.TypeError, "putenv() takes exactly 2 arguments (%d given)", len(args))
+	}
+	key, ok := posixFsPath(args[0])
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "putenv() argument 1 must be str or bytes, not %s", args[0].TypeName())
+	}
+	val, ok := posixFsPath(args[1])
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "putenv() argument 2 must be str or bytes, not %s", args[1].TypeName())
+	}
+	if strings.ContainsRune(key, '=') {
+		return nil, objects.Raise(objects.ValueError, "illegal environment variable name")
+	}
+	if err := os.Setenv(key, val); err != nil {
+		return nil, posixStatErr(err)
+	}
+	return objects.None, nil
+}
+
+// posixUnsetenv is posix.unsetenv(key): it removes an environment variable from
+// the process. os.py's _Environ.__delitem__ drives it with the encoded key, then
+// deletes its own dict entry.
+func posixUnsetenv(args []objects.Object) (objects.Object, error) {
+	if len(args) != 1 {
+		return nil, objects.Raise(objects.TypeError, "unsetenv() takes exactly 1 argument (%d given)", len(args))
+	}
+	key, ok := posixFsPath(args[0])
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "unsetenv() argument 1 must be str or bytes, not %s", args[0].TypeName())
+	}
+	if err := os.Unsetenv(key); err != nil {
+		return nil, posixStatErr(err)
+	}
+	return objects.None, nil
 }
