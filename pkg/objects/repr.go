@@ -332,6 +332,8 @@ func reprCore(o Object, strict bool) (string, error) {
 		return fmt.Sprintf("<member '%s' of '%s' objects>", x.name, x.owner.name), nil
 	case *annotationsDescriptor:
 		return "<attribute '__annotations__' of 'type' objects>", nil
+	case *tupleGetterObject:
+		return tupleGetterRepr(x, strict)
 	case *Module:
 		return fmt.Sprintf("<module '%s' from '%s'>", x.name, x.file), nil
 	case *dictKeysObject:

@@ -1,6 +1,9 @@
 package objects
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // namedType is the field metadata shared by every instance of one
 // collections.namedtuple class. It is small and immutable once built, so all
@@ -8,8 +11,67 @@ import "strings"
 type namedType struct {
 	name     string
 	fields   []string
-	defaults *dictObject // _field_defaults: the trailing fields that carry a default
-	makeFn   Object      // the _make classmethod, built once and shared
+	defaults *dictObject          // _field_defaults: the trailing fields that carry a default
+	makeFn   Object               // the _make classmethod, built once and shared
+	getters  []*tupleGetterObject // one _tuplegetter per field, read off the class object
+}
+
+// tupleGetterObject is the descriptor a namedtuple installs for each field,
+// CPython's _collections._tuplegetter. Reading a field name off the class object
+// (NT.opname) hands back this descriptor rather than a value, and its __get__
+// pulls the field out of an instance by index. Its __doc__ starts as the
+// "Alias for field number N" line CPython generates and is writable, which is
+// how dis.py documents the _Instruction fields with `NT.field.__doc__ = "..."`.
+type tupleGetterObject struct {
+	index int
+	doc   Object
+}
+
+func (*tupleGetterObject) TypeName() string { return "_tuplegetter" }
+
+// tupleGetterAttr answers a read on the descriptor: its writable __doc__ and its
+// __get__, the descriptor hook that reads the field out of an instance.
+func tupleGetterAttr(g *tupleGetterObject, name string) (Object, error) {
+	switch name {
+	case "__doc__":
+		return g.doc, nil
+	case "__get__":
+		return NewFunc("__get__", -1, func(args []Object) (Object, error) {
+			if len(args) < 1 {
+				return nil, Raise(TypeError, "__get__() missing required argument")
+			}
+			// __get__(instance, owner=None): a None instance (a read off the class)
+			// returns the descriptor itself, matching the descriptor protocol.
+			if args[0] == None {
+				return g, nil
+			}
+			t, ok := args[0].(*tupleObject)
+			if !ok || g.index >= len(t.elts) {
+				return nil, Raise(TypeError, "descriptor for index %d is for a tuple", g.index)
+			}
+			return t.elts[g.index], nil
+		}), nil
+	}
+	return nil, Raise(AttributeError, "'_tuplegetter' object has no attribute '%s'", name)
+}
+
+// tupleGetterSet writes the descriptor's __doc__, the only attribute CPython
+// leaves writable on a _tuplegetter.
+func tupleGetterSet(g *tupleGetterObject, name string, val Object) error {
+	if name == "__doc__" {
+		g.doc = val
+		return nil
+	}
+	return Raise(AttributeError, "'_tuplegetter' object attribute '%s' is read-only", name)
+}
+
+// tupleGetterRepr spells _tuplegetter(index, doc), the C repr.
+func tupleGetterRepr(g *tupleGetterObject, strict bool) (string, error) {
+	d, err := reprCore(g.doc, strict)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("_tuplegetter(%d, %s)", g.index, d), nil
 }
 
 // namedTupleType is the class object namedtuple() returns: a callable that
@@ -57,6 +119,13 @@ func NewNamedTupleType(name string, fields []string, defaults []Object) (Object,
 			return &tupleObject{elts: append([]Object(nil), args...), named: nt}, nil
 		}).(*functionObject)
 
+	// One _tuplegetter per field, built once so a read off the class object hands
+	// back a stable descriptor whose __doc__ a later assignment can mutate.
+	nt.getters = make([]*tupleGetterObject, len(fields))
+	for i := range fields {
+		nt.getters[i] = &tupleGetterObject{index: i, doc: NewStr(fmt.Sprintf("Alias for field number %d", i))}
+	}
+
 	nt.makeFn = NewFunc("_make", 1, func(a []Object) (Object, error) {
 		elts, err := iterItems(a[0])
 		if err != nil {
@@ -83,6 +152,13 @@ func namedTupleTypeAttr(t *namedTupleType, name string) (Object, error) {
 		return t.nt.makeFn, nil
 	case "__name__", "__qualname__":
 		return NewStr(t.nt.name), nil
+	}
+	// A field name off the class object reads back its _tuplegetter descriptor,
+	// the way `NT.opname` does in CPython.
+	for i, f := range t.nt.fields {
+		if f == name {
+			return t.nt.getters[i], nil
+		}
 	}
 	return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", t.nt.name, name)
 }
