@@ -51,7 +51,7 @@ func (e *emitter) entryShimDecl(d *frontend.FuncDef, se StaticEntry) *ast.FuncDe
 			args[i+1] = ident(pnames[i])
 		}
 		return block(&ast.ReturnStmt{Results: []ast.Expr{
-			callExpr(ident(e.defName(d.Name)), args...),
+			callExpr(ident(e.defName(d)), args...),
 		}})
 	}
 
@@ -118,7 +118,7 @@ func (e *emitter) entryShimDecl(d *frontend.FuncDef, se StaticEntry) *ast.FuncDe
 	)
 
 	return &ast.FuncDecl{
-		Name: ident(e.entryName(d.Name)),
+		Name: ident(e.entryName(d)),
 		Type: &ast.FuncType{
 			Params:  fieldList(append([]*ast.Field{threadParam()}, pfields...)...),
 			Results: fieldList(field(e.obj("Object")), field(ident("error"))),
@@ -204,7 +204,7 @@ func (e *emitter) deoptHandlerDecl(d *frontend.FuncDef, se StaticEntry) *ast.Fun
 		// its boxed twin re-runs under the main thread; the static subtree is
 		// proven identity-free, so no identity is lost.
 		assign(token.DEFINE, []ast.Expr{ident("r"), ident("err")},
-			callExpr(ident(e.defName(d.Name)), append([]ast.Expr{mainThreadArg()}, reboxed...)...)),
+			callExpr(ident(e.defName(d)), append([]ast.Expr{mainThreadArg()}, reboxed...)...)),
 		&ast.IfStmt{
 			Cond: errNotNil(),
 			Body: block(&ast.ReturnStmt{Results: []ast.Expr{scalarZero(se.Ret), ident("err")}}),

@@ -256,7 +256,7 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 	// identifiers CPython would after mangling.
 	frontend.MangleClassPrivates(mod)
 
-	e := &emitter{file: file, source: source, modName: modName, pkgMode: pkgMode, pkgInit: pkgMode && strings.HasSuffix(file, "__init__.py"), stars: stars, statics: statics, tracked: tracked, escWarns: mod.EscapeWarnings, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}, classOrd: map[string]int{}, classKey: map[*frontend.ClassDef]string{}}
+	e := &emitter{file: file, source: source, modName: modName, pkgMode: pkgMode, pkgInit: pkgMode && strings.HasSuffix(file, "__init__.py"), stars: stars, statics: statics, tracked: tracked, escWarns: mod.EscapeWarnings, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, defUID: map[*frontend.FuncDef]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}, classOrd: map[string]int{}, classKey: map[*frontend.ClassDef]string{}}
 
 	var body []frontend.Stmt
 	var defs []*frontend.FuncDef
@@ -357,18 +357,31 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 			switch s := s.(type) {
 			case *frontend.FuncDef:
 				if _, dup := e.defs[s.Name]; dup {
-					// Redefinition is legal Python; the lowering hoists defs, so
-					// the second binding cannot take effect and we refuse it.
-					return e.errf(s.Span(), "redefining function %q is not supported yet", s.Name)
+					// Redefinition is legal Python, and the lowering hoists each def
+					// to its own package-level function. A name defined more than
+					// once is only sound when every definition is conditional, in
+					// mutually-exclusive branches, so at most one binds at runtime;
+					// the def statements assign the one shared module variable where
+					// each runs. A top-level definition combined with a redefinition
+					// would hoist two bindings that both claim to take effect, so
+					// that stays refused.
+					if !conditional || !conditionalDefs[s.Name] {
+						return e.errf(s.Span(), "redefining function %q is not supported yet", s.Name)
+					}
+				} else {
+					// The first definition of a name owns the canonical ordinal the
+					// name-keyed lookups fall back to, and records the FuncDef the
+					// call sites resolve for a plain, singly-defined function.
+					e.defOrd[s.Name] = len(defs)
+					e.defs[s.Name] = s
 				}
-				e.defOrd[s.Name] = len(defs)
+				e.defUID[s] = len(defs)
 				for _, p := range s.Params {
 					if p.Default != nil {
-						e.slots = append(e.slots, e.slotName(s.Name, p.Name))
+						e.slots = append(e.slots, e.slotName(s, p.Name))
 						e.usedObjects = true
 					}
 				}
-				e.defs[s.Name] = s
 				defs = append(defs, s)
 				if conditional {
 					conditionalDefs[s.Name] = true
@@ -568,7 +581,7 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 	if len(defs) > 0 {
 		out.WriteString("// Function objects, built when each def statement runs.\nvar (\n")
 		for _, d := range defs {
-			fmt.Fprintf(&out, "\t%s objects.Object\n", e.fnObjName(d.Name))
+			fmt.Fprintf(&out, "\t%s objects.Object\n", e.fnObjName(d))
 		}
 		out.WriteString(")\n\n")
 	}
@@ -637,14 +650,14 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 		return nil, err
 	}
 	for i, decl := range fnDecls {
-		fmt.Fprintf(&out, "// %s is Python def %s.\n", e.defName(defs[i].Name), defs[i].Name)
+		fmt.Fprintf(&out, "// %s is Python def %s.\n", e.defName(defs[i]), defs[i].Name)
 		if err := writeDecl(&out, decl); err != nil {
 			return nil, err
 		}
 		// The adapter lives at package level so it sees the def's Go
 		// function even when a rebound def name shadows it in pymain.
 		fmt.Fprintf(&out, "// %s adapts %s to the function object calling convention.\n",
-			e.implName(defs[i].Name), e.defName(defs[i].Name))
+			e.implName(defs[i]), e.defName(defs[i]))
 		if err := writeDecl(&out, e.implDecl(defs[i])); err != nil {
 			return nil, err
 		}
@@ -654,7 +667,7 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 		// result, falling back to the boxed form when they do not.
 		if se, ok := e.statics[defs[i].Name]; ok {
 			fmt.Fprintf(&out, "// %s enters the static form of %s, guarding the argument types.\n",
-				e.entryName(defs[i].Name), defs[i].Name)
+				e.entryName(defs[i]), defs[i].Name)
 			if err := writeDecl(&out, e.entryShimDecl(defs[i], se)); err != nil {
 				return nil, err
 			}
@@ -723,9 +736,10 @@ type emitter struct {
 
 	defs        map[string]*frontend.FuncDef
 	defOrd      map[string]int
-	rebound     map[string]bool // def names that are also module variables
-	globalDecl  map[string]bool // names some def declares global
-	moduleVars  map[string]bool // every module-scope variable, emitted at package level
+	defUID      map[*frontend.FuncDef]int // each collected def to its unique Go-identifier ordinal
+	rebound     map[string]bool           // def names that are also module variables
+	globalDecl  map[string]bool           // names some def declares global
+	moduleVars  map[string]bool           // every module-scope variable, emitted at package level
 	slots       []string
 	classOrd    map[string]int                // class key (qualified for nested classes) to its emission ordinal
 	classKey    map[*frontend.ClassDef]string // each collected class to its unique classOrd key
@@ -1066,53 +1080,63 @@ func (e *emitter) nestedCellName(key string) string {
 	return fmt.Sprintf("nestedcls%d", e.classOrd[key])
 }
 
+// defUIDOf is one def's unique ordinal, the number that keeps its Go
+// identifiers apart from every other def's. It is per FuncDef, not per name, so
+// a name defined more than once under mutually-exclusive conditional branches
+// gives each definition its own distinct Go functions while both bind the one
+// shared module variable.
+func (e *emitter) defUIDOf(d *frontend.FuncDef) int {
+	return e.defUID[d]
+}
+
 // slotName is the module-level variable holding one parameter default,
 // evaluated when the def statement runs. The def ordinal keeps names unique
 // without leaning on the mangled namespace.
-func (e *emitter) slotName(fname, pname string) string {
-	return fmt.Sprintf("dflt%d_%s", e.defOrd[fname], pname)
+func (e *emitter) slotName(d *frontend.FuncDef, pname string) string {
+	return fmt.Sprintf("dflt%d_%s", e.defUIDOf(d), pname)
 }
 
 // fnObjName is the module-level variable holding one def's function object,
 // built when the def statement runs.
-func (e *emitter) fnObjName(fname string) string {
-	return fmt.Sprintf("fn%d_%s", e.defOrd[fname], fname)
+func (e *emitter) fnObjName(d *frontend.FuncDef) string {
+	return fmt.Sprintf("fn%d_%s", e.defUIDOf(d), d.Name)
 }
 
 // implName is the package-level adapter turning one def's Go function into
 // the slice-taking implementation a function object carries.
-func (e *emitter) implName(fname string) string {
-	return fmt.Sprintf("impl%d_%s", e.defOrd[fname], fname)
+func (e *emitter) implName(d *frontend.FuncDef) string {
+	return fmt.Sprintf("impl%d_%s", e.defUIDOf(d), d.Name)
 }
 
 // defName is the Go function that carries one def's body. It has its own
 // namespace so a rebound def name, which also becomes a mangled module
 // variable, does not collide with the function implementing it.
-func (e *emitter) defName(fname string) string {
-	return fmt.Sprintf("def%d_%s", e.defOrd[fname], fname)
+func (e *emitter) defName(d *frontend.FuncDef) string {
+	return fmt.Sprintf("def%d_%s", e.defUIDOf(d), d.Name)
 }
 
 // entryName is the Go function of one def's static entry shim. It shares the
 // def's ordinal namespace so it never collides with the boxed form or the
 // function-object adapter.
-func (e *emitter) entryName(fname string) string {
-	return fmt.Sprintf("entry%d_%s", e.defOrd[fname], fname)
+func (e *emitter) entryName(d *frontend.FuncDef) string {
+	return fmt.Sprintf("entry%d_%s", e.defUIDOf(d), d.Name)
 }
 
 // callTarget is the Go function a direct positional call to a module-level def
 // enters. A def with a static entry shim routes through the shim so the call
-// reaches the static tier; every other def calls its boxed form directly.
-func (e *emitter) callTarget(fname string) string {
-	if _, ok := e.statics[fname]; ok {
-		return e.entryName(fname)
+// reaches the static tier; every other def calls its boxed form directly. Only
+// a plain top-level def reaches here, so its name resolves a single FuncDef.
+func (e *emitter) callTarget(d *frontend.FuncDef) string {
+	if _, ok := e.statics[d.Name]; ok {
+		return e.entryName(d)
 	}
-	return e.defName(fname)
+	return e.defName(d)
 }
 
 // implDecl builds one def's adapter: unpack the bound argument slice into
 // the def's Go parameters.
 func (e *emitter) implDecl(d *frontend.FuncDef) *ast.FuncDecl {
-	return e.implDeclAs(d, e.implName(d.Name), e.defName(d.Name))
+	return e.implDeclAs(d, e.implName(d), e.defName(d))
 }
 
 // implDeclAs builds the adapter that turns a Go function taking positional

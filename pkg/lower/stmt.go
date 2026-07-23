@@ -138,7 +138,10 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 		if f.inFunc {
 			return f.nestedDef(s)
 		}
-		if f.e.defs[s.Name] != s {
+		if _, ok := f.e.defUID[s]; !ok {
+			// A def statement whose FuncDef was never collected at module level
+			// has nowhere to bind; a nested function is handled above, so this is
+			// a shape the collector did not register.
 			return f.e.errf(s.Span(), "conditional module-level def is not supported yet")
 		}
 		// The def statement's runtime effects, in order: evaluate parameter
@@ -159,16 +162,16 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 				if err != nil {
 					return nil, err
 				}
-				f.add(set(ident(f.e.slotName(s.Name, p.Name)), v))
-				dflts[i] = ident(f.e.slotName(s.Name, p.Name))
+				f.add(set(ident(f.e.slotName(s, p.Name)), v))
+				dflts[i] = ident(f.e.slotName(s, p.Name))
 			}
 			var dfltsExpr ast.Expr = ident("nil")
 			if hasDflt {
 				dfltsExpr = f.objSlice(dflts)
 			}
-			f.add(set(ident(f.e.fnObjName(s.Name)),
-				f.e.withDoc(callExpr(f.e.obj("NewFunctionT"), strLit(s.Name), f.e.paramSpecLit(s.Params), dfltsExpr, ident(f.e.implName(s.Name))), s.Body)))
-			return ident(f.e.fnObjName(s.Name)), nil
+			f.add(set(ident(f.e.fnObjName(s)),
+				f.e.withDoc(callExpr(f.e.obj("NewFunctionT"), strLit(s.Name), f.e.paramSpecLit(s.Params), dfltsExpr, ident(f.e.implName(s))), s.Body)))
+			return ident(f.e.fnObjName(s)), nil
 		}
 		if len(s.Decorators) == 0 {
 			if _, err := build(); err != nil {
@@ -178,11 +181,11 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 			// by qualified name: register it so an unpickler resolves a global
 			// reference back to it. A decorated def is not registered — its name
 			// holds the decorator result, not this function.
-			f.add(exprStmt(callExpr(f.e.obj("RegisterPickleFunction"), ident(f.e.fnObjName(s.Name)))))
+			f.add(exprStmt(callExpr(f.e.obj("RegisterPickleFunction"), ident(f.e.fnObjName(s)))))
 			// A rebound def name is an ordinary variable; the def statement is
 			// the assignment that first binds it.
 			if f.e.rebound[s.Name] {
-				f.add(set(ident(mangle(s.Name)), ident(f.e.fnObjName(s.Name))))
+				f.add(set(ident(mangle(s.Name)), ident(f.e.fnObjName(s))))
 			}
 			return nil
 		}
