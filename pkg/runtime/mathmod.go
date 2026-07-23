@@ -112,6 +112,8 @@ func initMath(m *objects.Module) error {
 		{"log", mathLog},
 		{"atan2", mathAtan2},
 		{"copysign", mathCopysign},
+		{"nextafter", mathNextafter},
+		{"ulp", mathUlp},
 		{"fmod", mathFmod},
 		{"remainder", mathRemainder},
 		{"pow", mathPow},
@@ -252,6 +254,46 @@ func mathCopysign(args []objects.Object) (objects.Object, error) {
 		return nil, err
 	}
 	return objects.NewFloat(math.Copysign(x, y)), nil
+}
+
+// mathNextafter returns the next representable float after x towards y. It is an
+// exact IEEE operation, so the result is bit-identical to CPython.
+func mathNextafter(args []objects.Object) (objects.Object, error) {
+	if len(args) != 2 {
+		return nil, objects.Raise(objects.TypeError, "nextafter() takes exactly 2 positional arguments (%d given)", len(args))
+	}
+	x, err := mathToFloat(args[0])
+	if err != nil {
+		return nil, err
+	}
+	y, err := mathToFloat(args[1])
+	if err != nil {
+		return nil, err
+	}
+	return objects.NewFloat(math.Nextafter(x, y)), nil
+}
+
+// mathUlp returns the value of the least significant bit of x, following
+// CPython's m_ulp: nan and infinities pass through, and otherwise it is the gap
+// to the next float up, or down when x is the largest finite value.
+func mathUlp(args []objects.Object) (objects.Object, error) {
+	x, err := mathFloatArg(args, "ulp")
+	if err != nil {
+		return nil, err
+	}
+	if math.IsNaN(x) {
+		return objects.NewFloat(x), nil
+	}
+	x = math.Abs(x)
+	if math.IsInf(x, 0) {
+		return objects.NewFloat(x), nil
+	}
+	x2 := math.Nextafter(x, math.Inf(1))
+	if math.IsInf(x2, 0) {
+		x2 = math.Nextafter(x, math.Inf(-1))
+		return objects.NewFloat(x - x2), nil
+	}
+	return objects.NewFloat(x2 - x), nil
 }
 
 func mathFmod(args []objects.Object) (objects.Object, error) {
