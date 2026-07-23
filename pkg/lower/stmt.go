@@ -399,11 +399,14 @@ func (f *fnCtx) annAssign(s *frontend.AnnAssign) error {
 		if err != nil {
 			return err
 		}
-		return f.assignTo(s.Target, v)
+		if err := f.assignTo(s.Target, v); err != nil {
+			return err
+		}
+		return f.recordAnnotation(s)
 	}
 	switch t := s.Target.(type) {
 	case *frontend.Name:
-		return nil
+		return f.recordAnnotation(s)
 	case *frontend.Attribute:
 		x, err := f.expr(t.X)
 		if err != nil {
@@ -434,6 +437,31 @@ func (f *fnCtx) annAssign(s *frontend.AnnAssign) error {
 		f.add(set(ident("_"), idx))
 		return nil
 	}
+	return nil
+}
+
+// recordAnnotation stores a class-body variable annotation into the class
+// __annotations__ dict. It fires only inside a class body (f.classBld set) and
+// only for a simple Name target, the case CPython records; an annotation on an
+// attribute or subscript target names no class variable and is dropped. The
+// annotation expression is evaluated eagerly here, so `x: int` stores the int
+// type and `x: "Fwd"` stores the string, matching a body without
+// `from __future__ import annotations`.
+func (f *fnCtx) recordAnnotation(s *frontend.AnnAssign) error {
+	if f.classBld == "" {
+		return nil
+	}
+	if _, ok := s.Target.(*frontend.Name); !ok {
+		return nil
+	}
+	name := s.Target.(*frontend.Name).Id
+	v, err := f.expr(s.Annotation)
+	if err != nil {
+		return err
+	}
+	t := f.tmpVar()
+	f.add(define(ident(t), v))
+	f.fallibleVoid(sel(f.classBld, "Annotation"), strLit(name), ident(t))
 	return nil
 }
 
