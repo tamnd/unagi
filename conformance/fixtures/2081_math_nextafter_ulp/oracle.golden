@@ -1,0 +1,29 @@
+== exit: 0
+== stdout:
+1.0000000000000002
+0.9999999999999999
+1.0
+5e-324
+-5e-324
+5e-324
+1.7976931348623157e+308
+-1.7976931348623157e+308
+1.0000000000000002e+308
+True
+5.0
+2.220446049250313e-16
+4.440892098500626e-16
+5e-324
+2.220446049250313e-16
+1.99584030953472e+292
+inf
+inf
+True
+1.0000000000000002
+2.220446049250313e-16
+nextafter(1) -> TypeError: nextafter() takes exactly 2 positional arguments (1 given)
+ulp() -> TypeError: math.ulp() takes exactly one argument (0 given)
+nextafter(x,y) -> TypeError: must be real number, not str
+ulp(s) -> TypeError: must be real number, not str
+== exception:
+== stderr:
