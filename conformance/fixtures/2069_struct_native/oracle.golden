@@ -1,0 +1,30 @@
+== exit: 0
+== stdout:
+attrs ['Struct', '_clearcache', 'calcsize', 'error', 'iter_unpack', 'pack', 'pack_into', 'unpack', 'unpack_from']
+calcsize 14 14 0
+pack le 0100020000000000000000000c40
+pack be 000100000002400c000000000000
+unpack (1, 2, 3.5)
+signed ff0102 (-1, 258)
+wide feffffffffffffff0000000000000080
+net 0000ffff
+bool 01 (False,)
+half 003e (1.0,)
+floats 0000c03f0000000000000440
+s 68690000 (b'hi\x00\x00',)
+c b'abc'
+p 0461626364 (b'abcd',)
+Struct 4 !I 0000ffff (65535,)
+pack_into 0000050006000000 (5, 6)
+iter [(1,), (2,), (3,)]
+error is Exception True
+struct.error 'I' format requires 0 <= number <= 4294967295
+struct.error 'b' format requires -128 <= number <= 127
+struct.error pack expected 2 items for packing (got 1)
+struct.error unpack requires a buffer of 4 bytes
+struct.error bad char in struct format
+struct.error bad char in struct format
+struct.error unpack_from requires a buffer of at least 7 bytes for unpacking 2 bytes at offset 5 (actual buffer size is 2)
+struct.error iterative unpacking requires a buffer of a multiple of 2 bytes
+== exception:
+== stderr:
