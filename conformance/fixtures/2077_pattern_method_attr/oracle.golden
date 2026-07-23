@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+a[&]b[|]c[~]d
+('a_b_c_d', 3)
+x#y
+match True
+fullmatch True
+search True
+findall True
+finditer True
+sub True
+subn True
+split True
+False
+False
+['a.py', 'c.py']
+(?s:.*\.txt)\z
+function
+AE: 're.Pattern' object has no attribute 'nope'
+== exception:
+== stderr:
