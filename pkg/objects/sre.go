@@ -85,7 +85,31 @@ func patternAttr(p *patternObject, name string) (Object, error) {
 	case "groupindex":
 		return p.groupindex, nil
 	}
+	// The callable methods bind as attribute reads too, so
+	// re.compile(...).sub hands back a callable the way CPython's
+	// method-wrapper descriptors do. fnmatch opens with
+	// _re_setops_sub = re.compile(...).sub at import, and the stdlib reaches a
+	// pattern's methods by attribute the same way. The bound call routes to the
+	// same patternMethod dispatch the interpreter runs for p.sub(...), so the
+	// read and the call agree.
+	if patternMethodNames[name] {
+		recv := p
+		return &funcObject{
+			name:  name,
+			arity: -1,
+			fn: func(args []Object) (Object, error) {
+				return patternMethod(recv, name, args)
+			},
+		}, nil
+	}
 	return nil, Raise(AttributeError, "'re.Pattern' object has no attribute '%s'", name)
+}
+
+// patternMethodNames is the set of compiled-pattern methods patternMethod
+// dispatches, so patternAttr can bind any of them when read off an instance.
+var patternMethodNames = map[string]bool{
+	"match": true, "fullmatch": true, "search": true, "findall": true,
+	"finditer": true, "sub": true, "subn": true, "split": true,
 }
 
 // patternRepr spells re.compile('pattern'), the constructor call that would
