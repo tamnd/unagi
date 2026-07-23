@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+Alias
+Alias
+<class 'int'>
+()
+TypeAliasType
+True
+dict[str, int]
+Rec
+list[Rec]
+<class 'str'>
+== exception:
+== stderr:

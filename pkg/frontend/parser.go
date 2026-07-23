@@ -168,6 +168,9 @@ func (p *parser) parseStatement() []Stmt {
 	if t.kind == tName && t.text == "match" && p.looksLikeMatch() {
 		return []Stmt{p.parseMatch()}
 	}
+	if t.kind == tName && t.text == "type" && p.looksLikeTypeAlias() {
+		return []Stmt{p.parseTypeAlias()}
+	}
 	return p.parseSimpleLine()
 }
 
@@ -470,6 +473,40 @@ func (p *parser) addDelTargets(d *Del, e Expr) {
 // and the logical line must be a compound header ending in ':' at bracket
 // depth zero. That tells `match [1, 2]:` (a statement) from `match[1]` (a
 // subscript) and `match(x)` (a call) without full backtracking.
+// looksLikeTypeAlias reports a PEP 695 `type Name = value` statement head. type
+// is a soft keyword, so it only opens a type alias when it stands at statement
+// start followed by a name and then either `=` or a `[` type-parameter list;
+// anything else, `type(x)` or `type = 1`, keeps type as an ordinary name.
+func (p *parser) looksLikeTypeAlias() bool {
+	if p.peek().kind != tName {
+		return false
+	}
+	after := p.toks[p.i+2]
+	return after.kind == tOp && (after.text == "=" || after.text == "[")
+}
+
+// parseTypeAlias parses `type Name [type_params] = value`. The type-parameter
+// list is erased with skipTypeParams, so only the name and the value expression
+// remain; the value is a single expression, not a bare tuple, matching CPython's
+// type_alias grammar. It consumes the trailing newline the way a simple line
+// does, since it is a one-line statement.
+func (p *parser) parseTypeAlias() Stmt {
+	kw := p.advance() // the soft keyword type
+	nt := p.cur()
+	p.advance() // alias name, checked by looksLikeTypeAlias
+	p.skipTypeParams()
+	p.wantOp("=")
+	node := &TypeAlias{Pos_: kw.pos, Name: nt.text, Value: p.parseTest()}
+	switch p.cur().kind {
+	case tNewline:
+		p.advance()
+	case tEOF:
+	default:
+		p.errf(p.cur().pos, "invalid syntax")
+	}
+	return node
+}
+
 func (p *parser) looksLikeMatch() bool {
 	if !startsSubject(p.peek()) {
 		return false
