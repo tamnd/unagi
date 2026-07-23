@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+attrs ['Error', 'Incomplete', 'a2b_base64', 'a2b_hex', 'b2a_base64', 'b2a_hex', 'crc32', 'crc_hqx', 'hexlify', 'unhexlify']
+Error is ValueError True
+Incomplete True
+hexlify b'616263' b'00ff'
+hexlify sep b'6162-6364'
+unhexlify b'abc' b'\x00\xff'
+b2a b'aGVsbG8=\n' b'aGVsbG8='
+a2b b'hello'
+a2b strict b'hello'
+a2b junk b'hello'
+crc32 907060870 907060870
+crc_hqx 50018
+Error Odd-length string
+Error Non-hexadecimal digit found
+Error Incorrect padding
+Error Invalid base64-encoded string: number of data characters (1) cannot be 1 more than a multiple of 4
+Error Leading padding not allowed
+Error Only base64 data is allowed
+Error Excess data after padding
+== exception:
+== stderr:
