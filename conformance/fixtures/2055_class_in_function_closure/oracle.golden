@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+build.<locals>.Handler
+build.<locals>.Handler.visit
+h
+p:5
+p:z/p:z
+q:1
+p:1
+== exception:
+== stderr:

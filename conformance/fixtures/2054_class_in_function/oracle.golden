@@ -1,0 +1,9 @@
+== exit: 0
+== stdout:
+Dialect make.<locals>.Dialect __main__
+sniffed 3 x base
+base
+True True
+x y False
+== exception:
+== stderr:

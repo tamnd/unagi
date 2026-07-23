@@ -20,9 +20,56 @@ func (f *fnCtx) nestedDef(s *frontend.FuncDef) error {
 	if f.qual != "" {
 		qual = f.qual + ".<locals>." + s.Name
 	}
+	impl, err := f.nestedImpl(s, qual, "", "")
+	if err != nil {
+		return err
+	}
+
+	// build evaluates the defaults at def time in the enclosing scope, into
+	// temporaries the same shape a lambda uses, then the function object. A
+	// nested def has no module slot to hold them. Decorators evaluate first,
+	// so the build runs inside the decorate helper.
+	build := func() (ast.Expr, error) {
+		dfltsExpr, err := f.lambdaDefaults(s.Params)
+		if err != nil {
+			return nil, err
+		}
+		return f.e.withDoc(callExpr(f.e.obj("NewFunctionT"), strLit(qual), f.e.paramSpecLit(s.Params), dfltsExpr, impl), s.Body), nil
+	}
+
+	// The def statement binds the name in the enclosing scope; the enclosing
+	// context declared and checked the slot through collectLocalDefs.
+	if len(s.Decorators) == 0 {
+		obj, err := build()
+		if err != nil {
+			return err
+		}
+		f.add(set(ident(mangle(s.Name)), obj))
+		return nil
+	}
+	obj, err := f.decorate(s.Decorators, build)
+	if err != nil {
+		return err
+	}
+	f.add(set(ident(mangle(s.Name)), obj))
+	return nil
+}
+
+// nestedImpl builds the closure Go function literal a nested def or a
+// function-local class method carries: a fresh scope with outer set to the
+// enclosing context so a free-variable read late-binds through the captured
+// mangled variables, the parameter binds, generator or async framing, the
+// recursion guard, and the lowered body. qual is the __qualname__ the traceback
+// frames and function object report. superClass and superSelf are the Go
+// identifier of the defining class value (its __class__ cell) and the mangled
+// first parameter, set only for a method so a zero-argument super() resolves;
+// both empty leaves super() inert, the way a plain nested def wants it.
+func (f *fnCtx) nestedImpl(s *frontend.FuncDef, qual, superClass, superSelf string) (*ast.FuncLit, error) {
 	in := newFnCtx(f.e, true, s.Name)
 	in.outer = f
 	in.qual = qual
+	in.superClass = superClass
+	in.superSelf = superSelf
 	in.line = f.line
 	if p := s.Span(); p.Line > 0 {
 		in.line = p.Line
@@ -91,7 +138,7 @@ func (f *fnCtx) nestedDef(s *frontend.FuncDef) error {
 	in.markNonlocalDeletes(s.Body)
 	in.declPending(s.Body)
 	if err := in.stmts(s.Body); err != nil {
-		return err
+		return nil, err
 	}
 	in.add(&ast.ReturnStmt{Results: []ast.Expr{f.e.obj("None"), ident("nil")}})
 	if frame {
@@ -107,36 +154,7 @@ func (f *fnCtx) nestedDef(s *frontend.FuncDef) error {
 			ident("nil"),
 		}})
 	}
-	impl := &ast.FuncLit{Type: f.e.implType(), Body: in.pop()}
-
-	// build evaluates the defaults at def time in the enclosing scope, into
-	// temporaries the same shape a lambda uses, then the function object. A
-	// nested def has no module slot to hold them. Decorators evaluate first,
-	// so the build runs inside the decorate helper.
-	build := func() (ast.Expr, error) {
-		dfltsExpr, err := f.lambdaDefaults(s.Params)
-		if err != nil {
-			return nil, err
-		}
-		return f.e.withDoc(callExpr(f.e.obj("NewFunctionT"), strLit(qual), f.e.paramSpecLit(s.Params), dfltsExpr, impl), s.Body), nil
-	}
-
-	// The def statement binds the name in the enclosing scope; the enclosing
-	// context declared and checked the slot through collectLocalDefs.
-	if len(s.Decorators) == 0 {
-		obj, err := build()
-		if err != nil {
-			return err
-		}
-		f.add(set(ident(mangle(s.Name)), obj))
-		return nil
-	}
-	obj, err := f.decorate(s.Decorators, build)
-	if err != nil {
-		return err
-	}
-	f.add(set(ident(mangle(s.Name)), obj))
-	return nil
+	return &ast.FuncLit{Type: f.e.implType(), Body: in.pop()}, nil
 }
 
 // collectLocalDefs gathers the names nested defs bind in this body. A def

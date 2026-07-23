@@ -1,0 +1,9 @@
+== exit: 0
+== stdout:
+Reg.__init__.<locals>.KeyedRef
+7 k7
+1 2
+['hit', 'hit']
+True True
+== exception:
+== stderr:
