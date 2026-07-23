@@ -74,15 +74,22 @@ func (e *emitter) emitClassMethods(c *frontend.ClassDef) ([]methodEmit, error) {
 // mapping pre-seeds is readable as a class attribute afterwards but not from
 // the body itself, which resolves names at compile time.
 func (f *fnCtx) classDef(s *frontend.ClassDef) error {
-	if f.inFunc {
-		return f.e.errf(s.Span(), "class definition inside a function is not supported yet")
-	}
-
 	// build runs the class body top to bottom and folds the bound names into
 	// the type object. Decorators evaluate first, then the bases, then the
 	// body, matching CPython's order, so the base and body work runs inside
-	// the decorate helper.
-	build := func() (ast.Expr, error) { return f.classValue(s) }
+	// the decorate helper. A class defined inside a function takes the local
+	// path: its methods capture enclosing variables and its __class__ cell is a
+	// Go local, since a function-local class has no package binding.
+	build := func() (ast.Expr, error) {
+		if f.inFunc {
+			qual := s.Name
+			if f.qual != "" {
+				qual = f.qual + ".<locals>." + s.Name
+			}
+			return f.classValueLocal(s, qual)
+		}
+		return f.classValue(s)
+	}
 
 	if len(s.Decorators) == 0 {
 		obj, err := build()
@@ -278,6 +285,165 @@ func (f *fnCtx) classValue(s *frontend.ClassDef) (ast.Expr, error) {
 		}
 		return ident(cls), nil
 	}
+}
+
+// classValueLocal lowers a class defined inside a function body and returns its
+// value expression, without binding the name. It follows the same
+// StartClass/body/Finish shape classValue uses, with two differences a
+// function-local class forces. Its methods emit as inline closure literals, so
+// a method body captures the enclosing function's variables by reference the
+// way a nested def does, rather than as package-level functions that could not
+// reach a local. Its __class__ cell is a Go local the method literals capture,
+// since a function-local class has no module variable to hold it; a
+// zero-argument super() in a method reads that cell. qual is the CPython
+// __qualname__, enclosing.<locals>.Name for a class directly in a function.
+func (f *fnCtx) classValueLocal(s *frontend.ClassDef, qual string) (ast.Expr, error) {
+	// Every written base evaluates to its class value in source order, the same
+	// as a module-level class; a base is an ordinary expression in the enclosing
+	// function scope.
+	var baseArgs []ast.Expr
+	for _, b := range s.Bases {
+		bv, err := f.expr(b)
+		if err != nil {
+			return nil, err
+		}
+		baseArgs = append(baseArgs, bv)
+	}
+
+	// Class keyword arguments evaluate after the bases in source order, with a
+	// metaclass= argument pulled out to drive metaclass determination.
+	metaArg := ast.Expr(ident("nil"))
+	var kwNames []string
+	var kwVals []ast.Expr
+	for _, kw := range s.Keywords {
+		kv, err := f.expr(kw.Value)
+		if err != nil {
+			return nil, err
+		}
+		if kw.Name == "metaclass" {
+			metaArg = kv
+			continue
+		}
+		kwNames = append(kwNames, kw.Name)
+		kwVals = append(kwVals, kv)
+	}
+
+	// A leading docstring reaches StartClass so __doc__ lands right after the
+	// header members; the body walk below still discards the bare literal.
+	docExpr := ast.Expr(ident("nil"))
+	hasDoc := false
+	if len(s.Body) > 0 {
+		if es, ok := s.Body[0].(*frontend.ExprStmt); ok {
+			if sl, ok := es.X.(*frontend.StrLit); ok {
+				d, err := f.expr(sl)
+				if err != nil {
+					return nil, err
+				}
+				docExpr = d
+				hasDoc = true
+			}
+		}
+	}
+
+	bld := f.tmpVar()
+	f.fallible(bld, f.e.obj("StartClass"),
+		metaArg,
+		strLit(f.e.modName),
+		strLit(s.Name),
+		strLit(f.e.modName+"."+qual),
+		intLit(strconv.Itoa(s.Span().Line)),
+		docExpr,
+		f.objSlice(baseArgs),
+		strSliceLit(kwNames),
+		f.objSlice(kwVals))
+
+	// The __class__ cell is a Go local the method literals capture by reference;
+	// it is written with the built class after Finish, so a super() call, which
+	// only runs once a method is invoked, reads the finished class. The blank
+	// read keeps a class with no super-using method from tripping the unused
+	// variable check.
+	cell := f.tmpVar()
+	f.add(varDecl(cell, f.e.obj("Object")))
+	f.add(set(ident("_"), ident(cell)))
+
+	prevBld := f.classBld
+	f.classBld = bld
+	defer func() { f.classBld = prevBld }()
+
+	setName := func(name string, v ast.Expr) {
+		t := f.tmpVar()
+		f.add(define(ident(t), v))
+		f.fallibleVoid(sel(bld, "Set"), strLit(name), ident(t))
+	}
+	for i, st := range s.Body {
+		switch st := st.(type) {
+		case *frontend.FuncDef:
+			// The method's impl is a closure literal built with the class cell as
+			// its super class and its first parameter as self, so a zero-argument
+			// super() resolves and any free variable captures the enclosing
+			// function's binding. Defaults evaluate here in the class-body scope,
+			// the same left-to-right slot fill classValue uses.
+			mqual := qual + "." + st.Name
+			superClass, superSelf := "", ""
+			if len(st.Params) > 0 {
+				superClass, superSelf = cell, mangle(st.Params[0].Name)
+			}
+			impl, err := f.nestedImpl(st, mqual, superClass, superSelf)
+			if err != nil {
+				return nil, err
+			}
+			dflts, err := f.lambdaDefaults(st.Params)
+			if err != nil {
+				return nil, err
+			}
+			methodObj := f.e.withDoc(callExpr(f.e.obj("NewFunctionT"),
+				strLit(mqual),
+				f.e.paramSpecLit(st.Params),
+				dflts,
+				impl), st.Body)
+			if len(st.Decorators) == 0 {
+				setName(st.Name, methodObj)
+				break
+			}
+			obj, err := f.decorate(st.Decorators, func() (ast.Expr, error) { return methodObj, nil })
+			if err != nil {
+				return nil, err
+			}
+			setName(st.Name, obj)
+		case *frontend.ExprStmt:
+			if i == 0 && hasDoc {
+				break
+			}
+			if err := f.stmt(st); err != nil {
+				return nil, err
+			}
+		case *frontend.Assign, *frontend.AnnAssign, *frontend.AugAssign,
+			*frontend.If, *frontend.For, *frontend.While, *frontend.Try,
+			*frontend.With, *frontend.Pass, *frontend.Del:
+			if err := f.stmt(st); err != nil {
+				return nil, err
+			}
+		case *frontend.ClassDef:
+			// A class nested in this body builds inline and binds through the
+			// enclosing builder. Its qualname extends this one with a plain dot,
+			// not another <locals>: CPython only inserts <locals> when the parent
+			// scope is a function, and a class body is not one.
+			if len(st.Decorators) != 0 {
+				return nil, f.e.errf(st.Span(), "a decorated class in a class body is not supported yet")
+			}
+			nested, err := f.classValueLocal(st, qual+"."+st.Name)
+			if err != nil {
+				return nil, err
+			}
+			setName(st.Name, nested)
+		default:
+			return nil, f.e.errf(st.Span(), "this statement is not supported in a class body yet")
+		}
+	}
+	cls := f.tmpVar()
+	f.fallible(cls, sel(bld, "Finish"), strSliceLit(staticAttrs(s.Body)))
+	f.add(set(ident(cell), ident(cls)))
+	return ident(cls), nil
 }
 
 // staticAttrs collects the attribute names the class's functions assign on a
