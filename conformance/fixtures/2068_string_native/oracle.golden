@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+'literal only' [('literal only', None, None, None)]
+'a{0}b' [('a', '0', '', None), ('b', None, None, None)]
+'{name!r:>{width}}' [('', 'name', '>{width}', 'r')]
+'{{escaped}} {x}' [('{', None, None, None), ('escaped}', None, None, None), (' ', 'x', '', None)]
+'{}' [('', '', '', None)]
+'{0.attr[key]}' [('', '0.attr[key]', '', None)]
+stray: Single '}' encountered in format string
+'0' 0 []
+'name' 'name' []
+'obj.attr[key][0]' 'obj' [(True, 'attr'), (False, 'key'), (False, 0)]
+'name[complex key]' 'name' [(False, 'complex key')]
+digits 0123456789
+format a then  'b'
+template I likes it
+== exception:
+== stderr:
