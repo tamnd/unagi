@@ -18,6 +18,7 @@ var intMethodNames = map[string]bool{
 	"bit_length": true, "bit_count": true, "conjugate": true,
 	"as_integer_ratio": true, "is_integer": true,
 	"to_bytes": true, "from_bytes": true,
+	"__index__": true, "__int__": true, "__trunc__": true, "__float__": true,
 }
 
 // intMethod dispatches n.name(args) for an int or bool receiver.
@@ -58,6 +59,24 @@ func intMethod(o Object, name string, args []Object) (Object, error) {
 		return intToBytes(o, args, nil, nil)
 	case "from_bytes":
 		return intFromBytes(args, nil, nil)
+	case "__index__", "__int__":
+		// operator.index (and the pure datetime and calendar it backs) reaches
+		// int.__index__; a bool answers a plain int, so True.__index__() is 1.
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "expected 0 arguments, got %d", len(args))
+		}
+		return NewIntFromBig(new(big.Int).Set(b)), nil
+	case "__trunc__":
+		if err := intNoArgs(name, args); err != nil {
+			return nil, err
+		}
+		return NewIntFromBig(new(big.Int).Set(b)), nil
+	case "__float__":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "expected 0 arguments, got %d", len(args))
+		}
+		f, _ := new(big.Float).SetInt(b).Float64()
+		return NewFloat(f), nil
 	}
 	return nil, noAttr(o, name)
 }

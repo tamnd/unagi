@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+5 1 0
+5 0
+-3 7
+5.0 -2.0
+7 1
+2026-07-24 4 739821
+160
+2026-08-03
+True False
+(calendar.WEDNESDAY, 31) 4
+index: expected 0 arguments, got 1
+float: expected 0 arguments, got 1
+trunc: int.__trunc__() takes no arguments (1 given)
+== exception:
+== stderr:
