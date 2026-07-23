@@ -537,6 +537,10 @@ func collectAssigned(body []frontend.Stmt, out map[string]bool) {
 			for _, in := range frontend.FInterps(e.Parts) {
 				walkExpr(in.X)
 			}
+		case *frontend.TStr:
+			for _, in := range frontend.FInterps(e.Parts) {
+				walkExpr(in.X)
+			}
 		}
 	}
 	var walk func(list []frontend.Stmt)

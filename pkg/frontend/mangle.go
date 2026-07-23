@@ -231,6 +231,10 @@ func mangleExpr(e Expr, priv string) {
 		for _, fi := range FInterps(e.Parts) {
 			mangleExpr(fi.X, priv)
 		}
+	case *TStr:
+		for _, fi := range FInterps(e.Parts) {
+			mangleExpr(fi.X, priv)
+		}
 	}
 }
 

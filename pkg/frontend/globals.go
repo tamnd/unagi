@@ -332,6 +332,10 @@ func boundNames(body []Stmt, params []Param) map[string]bool {
 			for _, in := range FInterps(e.Parts) {
 				walrus(in.X)
 			}
+		case *TStr:
+			for _, in := range FInterps(e.Parts) {
+				walrus(in.X)
+			}
 		}
 	}
 
@@ -536,6 +540,10 @@ func (c *globalScope) use(e Expr) {
 		for _, in := range FInterps(e.Parts) {
 			c.use(in.X)
 		}
+	case *TStr:
+		for _, in := range FInterps(e.Parts) {
+			c.use(in.X)
+		}
 	}
 }
 
@@ -646,6 +654,10 @@ func (c *globalScope) bindOnly(e Expr) {
 	case *Yield:
 		c.bindOnly(e.Value)
 	case *FStr:
+		for _, in := range FInterps(e.Parts) {
+			c.bindOnly(in.X)
+		}
+	case *TStr:
 		for _, in := range FInterps(e.Parts) {
 			c.bindOnly(in.X)
 		}

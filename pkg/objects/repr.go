@@ -228,6 +228,10 @@ func reprCore(o Object, strict bool) (string, error) {
 		return genericAliasRepr(x)
 	case *typeAliasObject:
 		return x.name, nil
+	case *templateObject:
+		return templateRepr(x)
+	case *interpolationObject:
+		return interpolationRepr(x)
 	case *frameObject:
 		return frameRepr(x), nil
 	case *codeObject:

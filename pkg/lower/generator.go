@@ -138,6 +138,10 @@ func hasYield(body []frontend.Stmt) bool {
 			for _, in := range frontend.FInterps(e.Parts) {
 				walkExpr(in.X)
 			}
+		case *frontend.TStr:
+			for _, in := range frontend.FInterps(e.Parts) {
+				walkExpr(in.X)
+			}
 		}
 		// A Lambda or Comp starts a fresh scope; a yield inside one is that
 		// scope's, so the walk stops here.

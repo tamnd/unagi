@@ -391,6 +391,17 @@ func de(e Expr) string {
 			}
 		}
 		return "(" + strings.Join(parts, " ") + ")"
+	case *TStr:
+		parts := []string{"tstr"}
+		for _, part := range e.Parts {
+			switch part := part.(type) {
+			case *FText:
+				parts = append(parts, strconv.Quote(part.Text))
+			case *FInterp:
+				parts = append(parts, dinterp(part))
+			}
+		}
+		return "(" + strings.Join(parts, " ") + ")"
 	}
 	return "?expr"
 }
@@ -839,6 +850,11 @@ func TestParse(t *testing.T) {
 		{"fstring doubled braces fold", `f"a{{b}}c"`, `(expr "a{b}c")`},
 		{"fstring text and interps", `f"a{x}b{y}"`, `(expr (fstr "a" (interp x) "b" (interp y)))`},
 		{"fstring adjacent interps", `f"{x}{y}"`, `(expr (fstr (interp x) (interp y)))`},
+		{"tstring empty stays node", `t""`, `(expr (tstr))`},
+		{"tstring plain stays node", `t"plain"`, `(expr (tstr "plain"))`},
+		{"tstring text and interps", `t"a{x}b{y}"`, `(expr (tstr "a" (interp x) "b" (interp y)))`},
+		{"tstring conversion and spec", `t"{x!r:>4}"`, `(expr (tstr (interp x !r :">4")))`},
+		{"tstring adjacent literals concat", `t"a" t"{x}"`, `(expr (tstr "a" (interp x)))`},
 		{"fstring conversions", `f"{x!s}{x!r}{x!a}"`, "(expr (fstr (interp x !s) (interp x !r) (interp x !a)))"},
 		{"fstring bang eq is comparison", `f"{1!=2}"`, "(expr (fstr (interp (cmp 1 != 2))))"},
 		{"fstring spec", `f"{x:>5}"`, `(expr (fstr (interp x :">5")))`},

@@ -224,6 +224,10 @@ func uninstrumented(body []Stmt, mark func(string)) {
 			for _, in := range FInterps(e.Parts) {
 				walkExpr(in.X)
 			}
+		case *TStr:
+			for _, in := range FInterps(e.Parts) {
+				walkExpr(in.X)
+			}
 		}
 	}
 
