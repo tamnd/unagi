@@ -256,7 +256,7 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 	// identifiers CPython would after mangling.
 	frontend.MangleClassPrivates(mod)
 
-	e := &emitter{file: file, source: source, modName: modName, pkgMode: pkgMode, pkgInit: pkgMode && strings.HasSuffix(file, "__init__.py"), stars: stars, statics: statics, tracked: tracked, escWarns: mod.EscapeWarnings, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, defUID: map[*frontend.FuncDef]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}, classOrd: map[string]int{}, classKey: map[*frontend.ClassDef]string{}}
+	e := &emitter{file: file, source: source, modName: modName, pkgMode: pkgMode, pkgInit: pkgMode && strings.HasSuffix(file, "__init__.py"), stars: stars, statics: statics, tracked: tracked, escWarns: mod.EscapeWarnings, defs: map[string]*frontend.FuncDef{}, defOrd: map[string]int{}, defUID: map[*frontend.FuncDef]int{}, rebound: map[string]bool{}, globalDecl: map[string]bool{}, moduleVars: map[string]bool{}, classOrd: map[string]int{}, classKey: map[*frontend.ClassDef]string{}, classUID: map[*frontend.ClassDef]int{}}
 
 	var body []frontend.Stmt
 	var defs []*frontend.FuncDef
@@ -266,8 +266,9 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 	// conditional definition), so their methods emit and their ordinals stay
 	// unique; def bodies are excluded since a class in a function is rejected
 	// at lowering.
-	var collectClasses func(list []frontend.Stmt, prefix string) error
-	collectClasses = func(list []frontend.Stmt, prefix string) error {
+	conditionalClasses := map[string]bool{}
+	var collectClasses func(list []frontend.Stmt, prefix string, conditional bool) error
+	collectClasses = func(list []frontend.Stmt, prefix string, conditional bool) error {
 		for _, s := range list {
 			switch s := s.(type) {
 			case *frontend.ClassDef:
@@ -280,59 +281,73 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 					key = prefix + "." + s.Name
 				}
 				if _, dup := e.classOrd[key]; dup {
-					return e.errf(s.Span(), "redefining class %q is not supported yet", key)
+					// Like a redefined def, a class name bound more than once
+					// is only sound when every definition is conditional, in
+					// mutually-exclusive branches, so at most one binds at
+					// runtime into the one shared module variable. The first
+					// definition keeps the canonical key ordinal the emitted
+					// __qualname__ and nested lookups resolve; a plain top-level
+					// class combined with a redefinition stays refused.
+					if !conditional || !conditionalClasses[key] {
+						return e.errf(s.Span(), "redefining class %q is not supported yet", key)
+					}
+				} else {
+					e.classOrd[key] = len(classes)
 				}
-				e.classOrd[key] = len(classes)
+				e.classUID[s] = len(classes)
 				e.classKey[s] = key
 				classes = append(classes, s)
+				if conditional {
+					conditionalClasses[key] = true
+				}
 				// Descend into the class body so a class nested in it collects
 				// too, qualified under this class's key.
-				if err := collectClasses(s.Body, key); err != nil {
+				if err := collectClasses(s.Body, key, conditional); err != nil {
 					return err
 				}
 			case *frontend.If:
-				if err := collectClasses(s.Body, prefix); err != nil {
+				if err := collectClasses(s.Body, prefix, true); err != nil {
 					return err
 				}
-				if err := collectClasses(s.Else, prefix); err != nil {
+				if err := collectClasses(s.Else, prefix, true); err != nil {
 					return err
 				}
 			case *frontend.While:
-				if err := collectClasses(s.Body, prefix); err != nil {
+				if err := collectClasses(s.Body, prefix, true); err != nil {
 					return err
 				}
-				if err := collectClasses(s.Else, prefix); err != nil {
+				if err := collectClasses(s.Else, prefix, true); err != nil {
 					return err
 				}
 			case *frontend.For:
-				if err := collectClasses(s.Body, prefix); err != nil {
+				if err := collectClasses(s.Body, prefix, true); err != nil {
 					return err
 				}
-				if err := collectClasses(s.Else, prefix); err != nil {
+				if err := collectClasses(s.Else, prefix, true); err != nil {
 					return err
 				}
 			case *frontend.With:
-				if err := collectClasses(s.Body, prefix); err != nil {
+				if err := collectClasses(s.Body, prefix, true); err != nil {
 					return err
 				}
 			case *frontend.Try:
-				if err := collectClasses(s.Body, prefix); err != nil {
+				if err := collectClasses(s.Body, prefix, true); err != nil {
 					return err
 				}
 				for _, h := range s.Handlers {
-					if err := collectClasses(h.Body, prefix); err != nil {
+					if err := collectClasses(h.Body, prefix, true); err != nil {
 						return err
 					}
 				}
-				if err := collectClasses(s.OrElse, prefix); err != nil {
+				if err := collectClasses(s.OrElse, prefix, true); err != nil {
 					return err
 				}
-				if err := collectClasses(s.Final, prefix); err != nil {
+				if err := collectClasses(s.Final, prefix, true); err != nil {
 					return err
 				}
 			case *frontend.Match:
 				for _, c := range s.Cases {
-					if err := collectClasses(c.Body, prefix); err != nil {
+					if err := collectClasses(c.Body, prefix, true); err != nil {
 						return err
 					}
 				}
@@ -340,7 +355,7 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 		}
 		return nil
 	}
-	if err := collectClasses(mod.Body, ""); err != nil {
+	if err := collectClasses(mod.Body, "", false); err != nil {
 		return nil, err
 	}
 	// Defs are collected through nested module-level blocks the same way
@@ -598,7 +613,7 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 	var nestedCells []string
 	for _, c := range classes {
 		if key := e.classKey[c]; e.isNestedClass(key) {
-			nestedCells = append(nestedCells, e.nestedCellName(key))
+			nestedCells = append(nestedCells, e.nestedCellName(c))
 		}
 	}
 	if len(nestedCells) > 0 {
@@ -743,6 +758,7 @@ type emitter struct {
 	slots       []string
 	classOrd    map[string]int                // class key (qualified for nested classes) to its emission ordinal
 	classKey    map[*frontend.ClassDef]string // each collected class to its unique classOrd key
+	classUID    map[*frontend.ClassDef]int    // each collected class to its unique Go-identifier ordinal
 	finWarns    []finWarn                     // PEP 765 finally-jump SyntaxWarnings, in discovery order
 	escWarns    []frontend.EscapeWarning      // invalid backslash-escape SyntaxWarnings from the lexer
 	usedObjects bool
@@ -1054,15 +1070,16 @@ func (e *emitter) prependWarnings(pymain *ast.FuncDecl) {
 
 // methodDefName is the Go function carrying one method's body. The class and
 // method ordinals keep it unique across classes and away from the def and
-// module-variable namespaces.
-func (e *emitter) methodDefName(className, methodName string, mi int) string {
-	return fmt.Sprintf("clsdef%d_%d_%s", e.classOrd[className], mi, methodName)
+// module-variable namespaces. The class ordinal is per ClassDef, not per name,
+// so two conditional classes redefining one name still emit distinct methods.
+func (e *emitter) methodDefName(c *frontend.ClassDef, methodName string, mi int) string {
+	return fmt.Sprintf("clsdef%d_%d_%s", e.classUID[c], mi, methodName)
 }
 
 // methodImplName is the adapter that turns one method's Go function into the
 // slice-taking implementation its function object carries.
-func (e *emitter) methodImplName(className, methodName string, mi int) string {
-	return fmt.Sprintf("clsimpl%d_%d_%s", e.classOrd[className], mi, methodName)
+func (e *emitter) methodImplName(c *frontend.ClassDef, methodName string, mi int) string {
+	return fmt.Sprintf("clsimpl%d_%d_%s", e.classUID[c], mi, methodName)
 }
 
 // isNestedClass reports whether a classOrd key belongs to a class nested in a
@@ -1074,10 +1091,10 @@ func (e *emitter) isNestedClass(key string) bool {
 }
 
 // nestedCellName is the package-level variable holding a nested class's object,
-// the __class__ cell its methods read for a zero-argument super(). The class
-// ordinal keeps it unique and away from the module-variable namespace.
-func (e *emitter) nestedCellName(key string) string {
-	return fmt.Sprintf("nestedcls%d", e.classOrd[key])
+// the __class__ cell its methods read for a zero-argument super(). The per
+// ClassDef ordinal keeps it unique and away from the module-variable namespace.
+func (e *emitter) nestedCellName(c *frontend.ClassDef) string {
+	return fmt.Sprintf("nestedcls%d", e.classUID[c])
 }
 
 // defUIDOf is one def's unique ordinal, the number that keeps its Go
