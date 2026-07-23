@@ -37,7 +37,7 @@ func (e *emitter) emitClassMethods(c *frontend.ClassDef) ([]methodEmit, error) {
 	// dedicated cell var that its methods read instead.
 	superCell := mangle(c.Name)
 	if e.isNestedClass(key) {
-		superCell = e.nestedCellName(key)
+		superCell = e.nestedCellName(c)
 	}
 	mi := 0
 	for _, st := range c.Body {
@@ -45,8 +45,8 @@ func (e *emitter) emitClassMethods(c *frontend.ClassDef) ([]methodEmit, error) {
 		if !ok {
 			continue
 		}
-		declName := e.methodDefName(key, m.Name, mi)
-		implName := e.methodImplName(key, m.Name, mi)
+		declName := e.methodDefName(c, m.Name, mi)
+		implName := e.methodImplName(c, m.Name, mi)
 		decl, err := e.emitMethodDecl(m, declName, m.Name, key+"."+m.Name, superCell)
 		if err != nil {
 			return nil, err
@@ -222,7 +222,7 @@ func (f *fnCtx) classValue(s *frontend.ClassDef) (ast.Expr, error) {
 					strLit(key+"."+st.Name),
 					f.e.paramSpecLit(st.Params),
 					dflts,
-					ident(f.e.methodImplName(key, st.Name, mi))), st.Body)
+					ident(f.e.methodImplName(s, st.Name, mi))), st.Body)
 				mi++
 				if len(st.Decorators) == 0 {
 					setName(st.Name, methodObj)
@@ -281,7 +281,7 @@ func (f *fnCtx) classValue(s *frontend.ClassDef) (ast.Expr, error) {
 		// dedicated cell var too: a zero-argument super() in one of its methods
 		// reads the class through that identifier.
 		if f.e.isNestedClass(key) {
-			f.add(set(ident(f.e.nestedCellName(key)), ident(cls)))
+			f.add(set(ident(f.e.nestedCellName(s)), ident(cls)))
 		}
 		return ident(cls), nil
 	}

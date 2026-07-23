@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+on 1
+on
+primary primary
+primary:primary
+primary/7
+True True
+NameError True
+late
+== exception:
+== stderr:
