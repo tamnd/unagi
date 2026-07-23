@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+time.struct_time(tm_year=2026, tm_mon=7, tm_mday=24, tm_hour=13, tm_min=30, tm_sec=45, tm_wday=4, tm_yday=205, tm_isdst=0)
+9 2026 0 2026 7 0
+None None True
+[2026, 7, 24, 13, 30, 45, 4, 205, 0] (24, 13, 30)
+%Y-%m-%d %H:%M:%S -> 2026-07-24 13:30:45
+%a %A %b %B %p -> Fri Friday Jul July PM
+%y %C %I %j %w %u -> 26 20 01 205 5 5
+%U %W %V %G -> 29 29 30 2026
+%c -> Fri Jul 24 13:30:45 2026
+%x | %X -> 07/24/26 | 13:30:45
+100%% done on %e -> 100% done on 24
+UTC 0
+time.struct_time(tm_year=2026, tm_mon=7, tm_mday=24, tm_hour=13, tm_min=30, tm_sec=45, tm_wday=4, tm_yday=205, tm_isdst=0)
+2020-W53 00 00
+2025-W01 52 53
+2022-W52 01 00
+2026/07/24 (Fri)
+Wed Mar  4 09:05:07 2026
+(2026, 7, 24, 0, 0, 0, 4, 205, -1)
+short: time.struct_time() takes an at least 9-sequence (3-sequence given)
+long: time.struct_time() takes an at most 11-sequence (13-sequence given)
+== exception:
+== stderr:

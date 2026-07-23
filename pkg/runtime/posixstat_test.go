@@ -87,10 +87,15 @@ func TestStatResultRepr(t *testing.T) {
 	if !strings.HasPrefix(r, "os.stat_result(st_mode=") {
 		t.Fatalf("repr = %q", r)
 	}
-	for _, f := range []string{"st_ino=", "st_size=", "st_mtime=", "st_atime_ns="} {
+	for _, f := range []string{"st_ino=", "st_size=", "st_mtime="} {
 		if !strings.Contains(r, f) {
 			t.Fatalf("repr %q missing %q", r, f)
 		}
+	}
+	// CPython's structseq repr shows only the n_sequence_fields visible members,
+	// so the named-only nanosecond fields stay out of the repr.
+	if strings.Contains(r, "st_atime_ns=") {
+		t.Fatalf("repr %q should not list the named-only st_atime_ns", r)
 	}
 }
 

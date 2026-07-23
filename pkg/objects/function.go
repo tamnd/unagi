@@ -117,6 +117,8 @@ func CallKwT(t *Thread, f Object, pos []Object, kwNames []string, kwVals []Objec
 		return fn.bind(t, pos, kwNames, kwVals)
 	case *namedTupleType:
 		return fn.build.bind(t, pos, kwNames, kwVals)
+	case *StructSeqType:
+		return fn.construct(pos, kwNames, kwVals)
 	case *partialObject:
 		return partialCall(fn, pos, kwNames, kwVals)
 	case *lruCacheObject:
