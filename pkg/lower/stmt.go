@@ -94,6 +94,8 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 		return nil
 	case *frontend.Pass:
 		return nil
+	case *frontend.TypeAlias:
+		return f.typeAlias(s)
 	case *frontend.Global:
 		// The declaration itself does nothing at runtime; emitFunc collected
 		// the names up front and the name lowering routes them.

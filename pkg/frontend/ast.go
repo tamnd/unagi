@@ -264,6 +264,16 @@ type Pass struct {
 	Pos_ Pos
 }
 
+// TypeAlias is a PEP 695 `type Name = value` statement. Any type-parameter
+// list is erased at parse time, so only the alias name and its value survive;
+// the value is evaluated lazily, so it is retained as an expression rather than
+// evaluated here.
+type TypeAlias struct {
+	Pos_  Pos
+	Name  string
+	Value Expr
+}
+
 // Break is `break`.
 type Break struct {
 	Pos_ Pos
@@ -359,6 +369,7 @@ func (s *FuncDef) Span() Pos    { return s.Pos_ }
 func (s *ClassDef) Span() Pos   { return s.Pos_ }
 func (s *Return) Span() Pos     { return s.Pos_ }
 func (s *Pass) Span() Pos       { return s.Pos_ }
+func (s *TypeAlias) Span() Pos  { return s.Pos_ }
 func (s *Break) Span() Pos      { return s.Pos_ }
 func (s *Continue) Span() Pos   { return s.Pos_ }
 
@@ -383,6 +394,7 @@ func (*FuncDef) stmt()    {}
 func (*ClassDef) stmt()   {}
 func (*Return) stmt()     {}
 func (*Pass) stmt()       {}
+func (*TypeAlias) stmt()  {}
 func (*Break) stmt()      {}
 func (*Continue) stmt()   {}
 

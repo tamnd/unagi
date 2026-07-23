@@ -1860,6 +1860,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return cachedPropertyAttr(x, name)
 	case *genericAliasObject:
 		return genericAliasLoadAttr(x, name)
+	case *typeAliasObject:
+		return typeAliasLoadAttr(x, name)
 	case *frameObject:
 		return frameLoadAttr(x, name)
 	case *codeObject:

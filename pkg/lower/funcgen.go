@@ -563,6 +563,10 @@ func collectAssigned(body []frontend.Stmt, out map[string]bool) {
 				}
 				walkExpr(s.Target)
 				walkExpr(s.Value)
+			case *frontend.TypeAlias:
+				// A type alias binds its name in this scope; the value is a lazy
+				// lambda so a walrus in it binds there, not here.
+				out[s.Name] = true
 			case *frontend.Del:
 				for _, t := range s.Targets {
 					if n, ok := t.(*frontend.Name); ok {
