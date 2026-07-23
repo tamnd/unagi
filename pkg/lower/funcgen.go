@@ -72,6 +72,16 @@ type fnCtx struct {
 	// method body, a lambda, or a comprehension does not see the class scope,
 	// matching CPython where only the class body's own code reads that namespace.
 	classBld string
+	// classNode is the class whose body is lowering, set alongside classBld, so
+	// a method def reached inside a conditional or loop block in the body can
+	// name the package-level function emitClassMethods gave it.
+	classNode *frontend.ClassDef
+	// methodOrd maps each method def in the current class body to its ordinal in
+	// the pre-order method walk, the number emitClassMethods keyed its
+	// package-level function on. A method bound at the top of the body and one
+	// bound inside a conditional block both resolve their function through it, so
+	// the two walks agree even when a method sits inside control flow.
+	methodOrd map[*frontend.FuncDef]int
 	// classFall is set only while a class-body name read resolves its
 	// enclosing-scope fall-through. It marks an unresolved name for a runtime
 	// load rather than a compile error, since a class body raises NameError

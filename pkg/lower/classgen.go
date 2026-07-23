@@ -19,9 +19,54 @@ type methodEmit struct {
 	implDoc string
 }
 
+// classMethods returns the method defs of a class body in the pre-order the
+// method ordinals follow: a method at the top of the body, then a method inside
+// a conditional or loop block, descending compound statements but not a nested
+// def or class, which own their own scope. emitClassMethods and the class-body
+// binder walk it the same way, so a method guarded by a platform test binds
+// through the same package-level function whether it sits at the top of the body
+// or inside an if.
+func classMethods(body []frontend.Stmt) []*frontend.FuncDef {
+	var out []*frontend.FuncDef
+	var walk func(list []frontend.Stmt)
+	walk = func(list []frontend.Stmt) {
+		for _, st := range list {
+			switch st := st.(type) {
+			case *frontend.FuncDef:
+				out = append(out, st)
+			case *frontend.If:
+				walk(st.Body)
+				walk(st.Else)
+			case *frontend.For:
+				walk(st.Body)
+				walk(st.Else)
+			case *frontend.While:
+				walk(st.Body)
+				walk(st.Else)
+			case *frontend.With:
+				walk(st.Body)
+			case *frontend.Try:
+				walk(st.Body)
+				for _, h := range st.Handlers {
+					walk(h.Body)
+				}
+				walk(st.OrElse)
+				walk(st.Final)
+			case *frontend.Match:
+				for _, c := range st.Cases {
+					walk(c.Body)
+				}
+			}
+		}
+	}
+	walk(body)
+	return out
+}
+
 // emitClassMethods lowers each method in a class body to its body function
-// and adapter. The method index counts only the methods, in body order, and
-// pairs with the same walk in classDef so the two agree on every name.
+// and adapter. The method index follows the pre-order method walk, so a method
+// inside a conditional block gets its own function too and pairs with the same
+// walk the class-body binder uses.
 func (e *emitter) emitClassMethods(c *frontend.ClassDef) ([]methodEmit, error) {
 	var out []methodEmit
 	// A nested class keys its method names off its qualified classOrd key so
@@ -39,12 +84,7 @@ func (e *emitter) emitClassMethods(c *frontend.ClassDef) ([]methodEmit, error) {
 	if e.isNestedClass(key) {
 		superCell = e.nestedCellName(c)
 	}
-	mi := 0
-	for _, st := range c.Body {
-		m, ok := st.(*frontend.FuncDef)
-		if !ok {
-			continue
-		}
+	for mi, m := range classMethods(c.Body) {
 		declName := e.methodDefName(c, m.Name, mi)
 		implName := e.methodImplName(c, m.Name, mi)
 		decl, err := e.emitMethodDecl(m, declName, m.Name, key+"."+m.Name, superCell)
@@ -57,7 +97,6 @@ func (e *emitter) emitClassMethods(c *frontend.ClassDef) ([]methodEmit, error) {
 			doc:     fmt.Sprintf("%s is Python method %s.%s.", declName, key, m.Name),
 			implDoc: fmt.Sprintf("%s adapts %s to the function object calling convention.", implName, declName),
 		})
-		mi++
 	}
 	return out, nil
 }
@@ -194,49 +233,34 @@ func (f *fnCtx) classValue(s *frontend.ClassDef) (ast.Expr, error) {
 		// build, so method bodies and any nested lambda or comprehension lower
 		// without it and never see the class namespace.
 		prevBld := f.classBld
+		prevNode := f.classNode
+		prevOrd := f.methodOrd
 		f.classBld = bld
-		defer func() { f.classBld = prevBld }()
+		f.classNode = s
+		f.methodOrd = map[*frontend.FuncDef]int{}
+		for i, m := range classMethods(s.Body) {
+			f.methodOrd[m] = i
+		}
+		defer func() { f.classBld = prevBld; f.classNode = prevNode; f.methodOrd = prevOrd }()
 
-		// setName writes one method binding through the builder, the runtime
-		// STORE_NAME a class body performs. It spills the function object to a
-		// temp first so the Set call reads cleanly. A written-twice name keeps
-		// its last value, the plain dict overwrite a class body does.
+		// setName writes one binding through the builder, the runtime STORE_NAME a
+		// class body performs. It spills the value to a temp first so the Set call
+		// reads cleanly. A written-twice name keeps its last value, the plain dict
+		// overwrite a class body does.
 		setName := func(name string, v ast.Expr) {
 			t := f.tmpVar()
 			f.add(define(ident(t), v))
 			f.fallibleVoid(sel(bld, "Set"), strLit(name), ident(t))
 		}
-		mi := 0
 		for i, st := range s.Body {
 			switch st := st.(type) {
 			case *frontend.FuncDef:
-				// Defaults evaluate at class-definition time in the class body's
-				// scope, the same left-to-right slot fill a def or lambda uses;
-				// the values ride on the function object so a call fills a
-				// missing argument from them.
-				dflts, err := f.lambdaDefaults(st.Params)
-				if err != nil {
+				// A method at the top of the body binds through the same helper a
+				// method inside a conditional block uses, so the two agree on the
+				// package-level function and the namespace store.
+				if err := f.classMethodBind(st); err != nil {
 					return nil, err
 				}
-				methodObj := f.e.withDoc(callExpr(f.e.obj("NewFunctionT"),
-					strLit(key+"."+st.Name),
-					f.e.paramSpecLit(st.Params),
-					dflts,
-					ident(f.e.methodImplName(s, st.Name, mi))), st.Body)
-				mi++
-				if len(st.Decorators) == 0 {
-					setName(st.Name, methodObj)
-					break
-				}
-				// A decorated method builds its function object then hands it to
-				// the decorators, the same shape a decorated def uses. The
-				// decorators lower with the class namespace live, so @x.setter
-				// reads the property x this body bound earlier.
-				obj, err := f.decorate(st.Decorators, func() (ast.Expr, error) { return methodObj, nil })
-				if err != nil {
-					return nil, err
-				}
-				setName(st.Name, obj)
 			case *frontend.ExprStmt:
 				// The leading docstring already reached StartClass, so drop it
 				// rather than re-evaluate it. Any other expression statement,
@@ -285,6 +309,53 @@ func (f *fnCtx) classValue(s *frontend.ClassDef) (ast.Expr, error) {
 		}
 		return ident(cls), nil
 	}
+}
+
+// classMethodBind writes one method into the class namespace, the STORE_NAME a
+// def in a class body performs. It is the same bind whether the def sits at the
+// top of the body or inside a conditional or loop block, so a method guarded by
+// a platform test binds only when its branch runs. The method reads its
+// package-level function through the pre-order ordinal, the one emitClassMethods
+// keyed the function on. It runs against the class currently building, whose node
+// and builder are held on the context, so it works from the top-level walk and
+// from a statement lowered inside the body's control flow alike.
+func (f *fnCtx) classMethodBind(s *frontend.FuncDef) error {
+	c := f.classNode
+	key := f.e.classKey[c]
+	if key == "" {
+		key = c.Name
+	}
+	// Defaults evaluate at class-definition time in the class body's scope, the
+	// same left-to-right slot fill a def or lambda uses; the values ride on the
+	// function object so a call fills a missing argument from them.
+	dflts, err := f.lambdaDefaults(s.Params)
+	if err != nil {
+		return err
+	}
+	methodObj := f.e.withDoc(callExpr(f.e.obj("NewFunctionT"),
+		strLit(key+"."+s.Name),
+		f.e.paramSpecLit(s.Params),
+		dflts,
+		ident(f.e.methodImplName(c, s.Name, f.methodOrd[s]))), s.Body)
+	bind := func(v ast.Expr) {
+		t := f.tmpVar()
+		f.add(define(ident(t), v))
+		f.fallibleVoid(sel(f.classBld, "Set"), strLit(s.Name), ident(t))
+	}
+	if len(s.Decorators) == 0 {
+		bind(methodObj)
+		return nil
+	}
+	// A decorated method builds its function object then hands it to the
+	// decorators, the same shape a decorated def uses. The decorators lower with
+	// the class namespace live, so @x.setter reads the property x this body bound
+	// earlier.
+	obj, err := f.decorate(s.Decorators, func() (ast.Expr, error) { return methodObj, nil })
+	if err != nil {
+		return err
+	}
+	bind(obj)
+	return nil
 }
 
 // classValueLocal lowers a class defined inside a function body and returns its
