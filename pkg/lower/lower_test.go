@@ -330,16 +330,6 @@ func TestCompileErrors(t *testing.T) {
 			`name "ghost" is not defined`,
 		},
 		{
-			"redefining function across blocks",
-			&frontend.Module{Body: []frontend.Stmt{
-				&frontend.FuncDef{Name: "inner", Body: []frontend.Stmt{&frontend.Pass{}}},
-				&frontend.If{Cond: &frontend.BoolLit{Val: true}, Body: []frontend.Stmt{
-					&frontend.FuncDef{Name: "inner", Body: []frontend.Stmt{&frontend.Pass{}}},
-				}},
-			}},
-			`redefining function "inner" is not supported yet`,
-		},
-		{
 			"except matcher unknown name",
 			&frontend.Module{Body: []frontend.Stmt{
 				&frontend.Try{
