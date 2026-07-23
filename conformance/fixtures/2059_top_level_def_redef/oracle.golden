@@ -1,0 +1,9 @@
+== exit: 0
+== stdout:
+{'src': 'native', 'wrapped': True}
+conv
+hello sam
+one
+two
+== exception:
+== stderr:
