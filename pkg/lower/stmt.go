@@ -138,6 +138,13 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 		if f.inFunc {
 			return f.nestedDef(s)
 		}
+		if f.classBld != "" {
+			// A def reached while a class body lowers is a method, bound into the
+			// class namespace. The top of the body handles its methods directly, so
+			// this is a method inside the body's control flow, a platform-guarded
+			// method the block binds only when its branch runs.
+			return f.classMethodBind(s)
+		}
 		if _, ok := f.e.defUID[s]; !ok {
 			// A def statement whose FuncDef was never collected at module level
 			// has nowhere to bind; a nested function is handled above, so this is

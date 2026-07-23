@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+common:popen
+posix-handles
+posix-wait
+close:posix-handles
+True True
+win-send:3
+made
+made/run
+dog+animal
+== exception:
+== stderr:
