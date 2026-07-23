@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+AST mod expr_context Tuple
+Name x Load
+5 None
+('id', 'ctx')
+('value', 'kind')
+('body', 'type_ignores')
+('lineno', 'col_offset', 'end_lineno', 'end_col_offset')
+() ()
+True True
+True True
+True True
+True True
+Tuple 2 a b
+['Add', 'Sub', 'Mult', 'MatMult', 'Div', 'Mod', 'LShift', 'RShift', 'BitOr', 'BitXor', 'BitAnd', 'FloorDiv', 'Pow', 'Invert', 'UAdd', 'USub']
+['Lt', 'LtE', 'Eq', 'NotEq', 'Gt', 'GtE']
+1024 4096 8192 33792
+TypeError
+== exception:
+== stderr:
