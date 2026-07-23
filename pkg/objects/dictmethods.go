@@ -11,6 +11,22 @@ func builtinTypeClassmethod(typeName, name string) (Object, bool) {
 			return dictMethod(&dictObject{index: make(map[string]int)}, "fromkeys", args)
 		}), true
 	}
+	if typeName == "str" && name == "maketrans" {
+		return NewFunc("maketrans", -1, strMaketrans), true
+	}
+	if (typeName == "int" || typeName == "bool") && name == "from_bytes" {
+		return NewFuncKw("from_bytes", intFromBytes), true
+	}
+	if typeName == "bytes" || typeName == "bytearray" {
+		switch name {
+		case "maketrans":
+			return NewFunc("maketrans", -1, bytesMaketrans), true
+		case "fromhex":
+			return NewFunc("fromhex", -1, func(args []Object) (Object, error) {
+				return bytesFromhex(typeName, args)
+			}), true
+		}
+	}
 	return nil, false
 }
 

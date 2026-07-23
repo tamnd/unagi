@@ -213,6 +213,25 @@ func CallMethodKwT(t *Thread, o Object, name string, pos []Object, kwNames []str
 		return CallMethodT(t, o, name, pos)
 	}
 	switch x := o.(type) {
+	case *intObject, *boolObject:
+		switch name {
+		case "to_bytes":
+			return intToBytes(o, pos, kwNames, kwVals)
+		case "from_bytes":
+			return intFromBytes(pos, kwNames, kwVals)
+		}
+	case *strObject:
+		if name == "format" {
+			kw := make(map[string]Object, len(kwNames))
+			for i, kn := range kwNames {
+				kw[kn] = kwVals[i]
+			}
+			return strFormatKw(x.v, pos, kw)
+		}
+	case *bytesObject:
+		return bytesTranslateKw(o, "bytes", name, pos, kwNames, kwVals)
+	case *bytearrayObject:
+		return bytesTranslateKw(o, "bytearray", name, pos, kwNames, kwVals)
 	case *dictObject:
 		if x.kind == orderedDict {
 			return orderedMethodKw(x, name, pos, kwNames, kwVals)
@@ -263,6 +282,15 @@ func CallMethodKwT(t *Thread, o Object, name string, pos []Object, kwNames []str
 		return eventLoopMethodKw(x, name, pos, kwNames, kwVals)
 	case *contextObject:
 		return contextMethodKw(t, x, name, pos, kwNames, kwVals)
+	case *boundMethod, *functionObject, *funcObject, *namedTupleType, *lruCacheObject:
+		// A read-then-call the same way CallMethodT dispatches these, so a keyword
+		// call on a helper carried by a builtin works too: int.from_bytes(b, 'big',
+		// signed=True) reads from_bytes off the int type object and calls it.
+		v, err := LoadAttr(o, name)
+		if err != nil {
+			return nil, err
+		}
+		return CallKwT(t, v, pos, kwNames, kwVals)
 	case *Module:
 		v, err := moduleLoadAttr(x, name)
 		if err != nil {

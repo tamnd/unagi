@@ -1155,8 +1155,15 @@ type strFmtNumbering struct {
 }
 
 func strFormat(tmpl string, args []Object) (Object, error) {
+	return strFormatKw(tmpl, args, nil)
+}
+
+// strFormatKw renders a template with positional args and an optional map of
+// named fields, the keyword form '{name}'.format(name=value) takes. kw is nil
+// for a plain positional format, so the two callers share one renderer.
+func strFormatKw(tmpl string, args []Object, kw map[string]Object) (Object, error) {
 	var num strFmtNumbering
-	out, err := strFormatMarkup(tmpl, args, &num, 0)
+	out, err := strFormatMarkup(tmpl, args, kw, &num, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -1166,7 +1173,7 @@ func strFormat(tmpl string, args []Object) (Object, error) {
 // strFormatMarkup renders one template. depth guards nested format
 // specs: CPython allows a replacement field inside a spec once, then
 // raises. Probed on 3.14: "{0:{1:{2}}}".format("x", 5, 3).
-func strFormatMarkup(tmpl string, args []Object, num *strFmtNumbering, depth int) (string, error) {
+func strFormatMarkup(tmpl string, args []Object, kw map[string]Object, num *strFmtNumbering, depth int) (string, error) {
 	rs := []rune(tmpl)
 	var b strings.Builder
 	i, n := 0, len(rs)
@@ -1188,7 +1195,7 @@ func strFormatMarkup(tmpl string, args []Object, num *strFmtNumbering, depth int
 			if i+1 >= n {
 				return "", Raise(ValueError, "Single '{' encountered in format string")
 			}
-			rendered, next, err := strFormatField(rs, i+1, args, num, depth)
+			rendered, next, err := strFormatField(rs, i+1, args, kw, num, depth)
 			if err != nil {
 				return "", err
 			}
@@ -1206,7 +1213,7 @@ func strFormatMarkup(tmpl string, args []Object, num *strFmtNumbering, depth int
 // just past its '{'. It returns the rendered text and the index after
 // the closing '}'. The parse order and every error text mirror
 // CPython's unicode_format.h, all probed on 3.14.
-func strFormatField(rs []rune, i int, args []Object, num *strFmtNumbering, depth int) (string, int, error) {
+func strFormatField(rs []rune, i int, args []Object, kw map[string]Object, num *strFmtNumbering, depth int) (string, int, error) {
 	n := len(rs)
 	var name []rune
 	term := rune(0)
@@ -1282,7 +1289,7 @@ scan:
 		}
 	}
 
-	value, err := strFormatLookup(string(name), args, num)
+	value, err := strFormatLookup(string(name), args, kw, num)
 	if err != nil {
 		return "", 0, err
 	}
@@ -1305,7 +1312,7 @@ scan:
 		if depth >= 1 {
 			return "", 0, Raise(ValueError, "Max string recursion exceeded")
 		}
-		specStr, err = strFormatMarkup(specStr, args, num, depth+1)
+		specStr, err = strFormatMarkup(specStr, args, kw, num, depth+1)
 		if err != nil {
 			return "", 0, err
 		}
@@ -1324,7 +1331,7 @@ scan:
 // named field, which without kwargs is a KeyError on the part before
 // any '.' or '[' path. Probed on 3.14: "{a.b}".format() is
 // KeyError: 'a' and "{0.real}" style paths are out of scope here.
-func strFormatLookup(name string, args []Object, num *strFmtNumbering) (Object, error) {
+func strFormatLookup(name string, args []Object, kw map[string]Object, num *strFmtNumbering) (Object, error) {
 	base, path := name, ""
 	for k, r := range name {
 		if r == '.' || r == '[' {
@@ -1334,6 +1341,18 @@ func strFormatLookup(name string, args []Object, num *strFmtNumbering) (Object, 
 	}
 	var idx int
 	switch {
+	case base != "" && !strAllDigits(base):
+		// A named field reads from the keyword map; a miss is the KeyError
+		// CPython raises for an absent keyword. base64 reaches this with
+		// '{encoding}'.format(encoding='base32') at import.
+		v, ok := kw[base]
+		if !ok {
+			return nil, NewException(KeyError, []Object{NewStr(base)})
+		}
+		if path != "" {
+			return nil, Raise(ValueError, "unagi does not support attribute or index paths in format fields")
+		}
+		return v, nil
 	case base == "":
 		if num.manual {
 			return nil, Raise(ValueError,
@@ -1354,8 +1373,6 @@ func strFormatLookup(name string, args []Object, num *strFmtNumbering) (Object, 
 			return nil, Raise(ValueError, "Too many decimal digits in format string")
 		}
 		idx = v
-	default:
-		return nil, NewException(KeyError, []Object{NewStr(base)})
 	}
 	if idx >= len(args) {
 		return nil, Raise(IndexError, "Replacement index %d out of range for positional args tuple", idx)

@@ -1,0 +1,38 @@
+== exit: 0
+== stdout:
+{97: 120, 98: 121, 99: 122}
+{97: 120, 98: 121, 122: None}
+{97: 'X', 98: 'Y', 99: None}
+xyc
+bytes 256 45 95
+b'a-b_c'
+b'acef'
+b'Abdef'
+b'Hello'
+bytearray b'\x00\xff'
+16 4096
+-1 258
+258
+b'\x04\x00' b'\x00\x04'
+b'\xff\xff' b'\x05'
+b'\x00\x05'
+hi, world!
+a mid b
+b'SGVsbG8sIFdvcmxkISAxMjM=' True
+b'--8='
+b'JBSWY3DPFQQFO33SNRSCCIBRGIZQ====' b'48656C6C6F2C20576F726C642120313233'
+b'NM&qnZ!92JZ*pv8As{g_GX' b'87cURD_*#4DfTZ)+WrKp1B' b'nm=QNz.92jz/PV8aS@G{gx'
+True
+ValueError maketrans arguments must have same length
+ValueError the first two maketrans arguments must have equal length
+TypeError if you give only one argument to maketrans it must be a dict
+ValueError fromhex() arg must contain an even number of hexadecimal digits
+ValueError non-hexadecimal number found in fromhex() arg at position 1
+ValueError translation table must be 256 characters long
+TypeError cannot convert 'int' object to bytes
+ValueError byteorder must be either 'little' or 'big'
+OverflowError int too big to convert
+OverflowError can't convert negative int to unsigned
+OverflowError int too big to convert
+== exception:
+== stderr:
