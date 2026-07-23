@@ -88,6 +88,8 @@ func initMath(m *objects.Module) error {
 		fn   func(float64) float64
 	}{
 		{"fabs", math.Abs},
+		{"erf", math.Erf},
+		{"erfc", math.Erfc},
 		{"degrees", func(x float64) float64 { return x * (180 / math.Pi) }},
 		{"radians", func(x float64) float64 { return x * (math.Pi / 180) }},
 	}
@@ -114,6 +116,8 @@ func initMath(m *objects.Module) error {
 		{"remainder", mathRemainder},
 		{"pow", mathPow},
 		{"hypot", mathHypot},
+		{"gamma", mathGamma},
+		{"lgamma", mathLgamma},
 		{"floor", mathFloor},
 		{"ceil", mathCeil},
 		{"trunc", mathTrunc},
@@ -140,7 +144,7 @@ func initMath(m *objects.Module) error {
 // raising the TypeError CPython gives for a non-number.
 func mathFloatArg(args []objects.Object, name string) (float64, error) {
 	if len(args) != 1 {
-		return 0, objects.Raise(objects.TypeError, "%s() takes exactly one argument (%d given)", name, len(args))
+		return 0, objects.Raise(objects.TypeError, "math.%s() takes exactly one argument (%d given)", name, len(args))
 	}
 	return mathToFloat(args[0])
 }
@@ -321,6 +325,65 @@ func mathHypot(args []objects.Object) (objects.Object, error) {
 	return objects.NewFloat(math.Sqrt(sum)), nil
 }
 
+// mathGammaPole reports whether x sits on a pole of the gamma function, the zero
+// and the negative integers, where both gamma and lgamma are undefined. The
+// infinities are excluded so the caller can hand them to libm, which answers
+// them without a domain error the way CPython does.
+func mathGammaPole(x float64) bool {
+	return !math.IsInf(x, 0) && x <= 0 && x == math.Trunc(x)
+}
+
+// mathGammaDomain is the ValueError both gamma and lgamma raise where they are
+// undefined, quoting the argument through its float repr the way CPython 3.14
+// does, for the non-positive integers and for negative infinity.
+func mathGammaDomain(x float64) error {
+	return objects.Raise(objects.ValueError, "expected a noninteger or positive integer, got %s", pyFloatRepr(x))
+}
+
+// mathGamma is the gamma function, undefined at the non-positive integers and at
+// negative infinity where CPython raises a domain error, and a range error where
+// the result overflows from a finite argument. gamma(inf) is inf, which falls
+// out of libm returning inf; gamma(-inf) is NaN, caught as the domain case.
+func mathGamma(args []objects.Object) (objects.Object, error) {
+	x, err := mathFloatArg(args, "gamma")
+	if err != nil {
+		return nil, err
+	}
+	if mathGammaPole(x) {
+		return nil, mathGammaDomain(x)
+	}
+	r := math.Gamma(x)
+	if math.IsInf(r, 0) && !math.IsInf(x, 0) {
+		return nil, objects.Raise(objects.OverflowError, "math range error")
+	}
+	if math.IsNaN(r) && !math.IsNaN(x) {
+		return nil, mathGammaDomain(x)
+	}
+	return objects.NewFloat(r), nil
+}
+
+// mathLgamma is the natural log of the absolute value of gamma, undefined at the
+// same non-positive integers and a range error where it overflows from a finite
+// argument. Both infinities give inf, since gamma grows without bound in either
+// direction, so those are answered before the pole check.
+func mathLgamma(args []objects.Object) (objects.Object, error) {
+	x, err := mathFloatArg(args, "lgamma")
+	if err != nil {
+		return nil, err
+	}
+	if math.IsInf(x, 0) {
+		return objects.NewFloat(math.Inf(1)), nil
+	}
+	if mathGammaPole(x) {
+		return nil, mathGammaDomain(x)
+	}
+	r, _ := math.Lgamma(x)
+	if math.IsInf(r, 0) {
+		return nil, objects.Raise(objects.OverflowError, "math range error")
+	}
+	return objects.NewFloat(r), nil
+}
+
 // mathFloatToInt turns a float that names an integer into an exact int object,
 // raising CPython's errors for the infinite and NaN cases.
 func mathFloatToInt(f float64) (objects.Object, error) {
@@ -350,7 +413,7 @@ func mathTrunc(args []objects.Object) (objects.Object, error) {
 // straight back exact, and a float is rounded then converted exactly.
 func mathRound(args []objects.Object, name string, round func(float64) float64) (objects.Object, error) {
 	if len(args) != 1 {
-		return nil, objects.Raise(objects.TypeError, "%s() takes exactly one argument (%d given)", name, len(args))
+		return nil, objects.Raise(objects.TypeError, "math.%s() takes exactly one argument (%d given)", name, len(args))
 	}
 	if bi, ok := objects.AsBigInt(args[0]); ok {
 		return objects.NewIntFromBig(bi), nil
@@ -411,7 +474,7 @@ func mathLcm(args []objects.Object) (objects.Object, error) {
 
 func mathFactorial(args []objects.Object) (objects.Object, error) {
 	if len(args) != 1 {
-		return nil, objects.Raise(objects.TypeError, "factorial() takes exactly one argument (%d given)", len(args))
+		return nil, objects.Raise(objects.TypeError, "math.factorial() takes exactly one argument (%d given)", len(args))
 	}
 	n, ok := objects.AsBigInt(args[0])
 	if !ok {
@@ -425,7 +488,7 @@ func mathFactorial(args []objects.Object) (objects.Object, error) {
 
 func mathIsqrt(args []objects.Object) (objects.Object, error) {
 	if len(args) != 1 {
-		return nil, objects.Raise(objects.TypeError, "isqrt() takes exactly one argument (%d given)", len(args))
+		return nil, objects.Raise(objects.TypeError, "math.isqrt() takes exactly one argument (%d given)", len(args))
 	}
 	n, ok := objects.AsBigInt(args[0])
 	if !ok {
