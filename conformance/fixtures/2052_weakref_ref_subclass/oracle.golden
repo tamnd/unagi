@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+True
+hi
+1
+1
+True
+MyRef
+True
+True
+True
+copy
+5
+abc
+(1, 2)
+7
+ok
+== exception:
+== stderr:

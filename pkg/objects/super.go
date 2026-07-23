@@ -191,7 +191,7 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 				switch cls.builtinBase {
 				case "dict":
 					inst.dictData = &dictObject{index: map[string]int{}}
-				case "int", "str", "tuple", "classmethod", "staticmethod", "property":
+				case "int", "str", "tuple", "classmethod", "staticmethod", "property", "ref":
 					// A namedtuple subclass reaches super().__new__(cls, iterable)
 					// through the generated namedtuple __new__; it builds the tuple
 					// payload from the iterable, carrying the field metadata so the

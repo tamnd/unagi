@@ -767,6 +767,20 @@ func init() {
 			"__repr__":      NewFunc("__repr__", 1, builtinReprDunder),
 			"__reduce_ex__": objectDunders["__reduce_ex__"],
 		},
+		// weakref.ref carries __hash__ so WeakMethod can borrow it with
+		// `__hash__ = ref.__hash__` at class-body time, the one ref attribute
+		// weakref.py reads at import. __new__ builds a ref subclass instance from
+		// the referent and optional callback, the allocator a ref subclass inherits.
+		"ref": {
+			"__new__": NewFunc("__new__", -1, builtinNewDunder),
+			"__hash__": NewFunc("__hash__", 1, func(args []Object) (Object, error) {
+				h, err := PyHash(args[0])
+				if err != nil {
+					return nil, err
+				}
+				return NewInt(int64(h)), nil
+			}),
+		},
 	}
 
 	// The string dunders are instance-method wrappers: read off an instance they
@@ -1635,13 +1649,14 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 	switch c.builtinBase {
 	case "dict":
 		inst.dictData = &dictObject{index: map[string]int{}}
-	case "int", "str", "tuple", "classmethod", "staticmethod", "property":
+	case "int", "str", "tuple", "classmethod", "staticmethod", "property", "ref":
 		// A value subclass builds its immutable payload through the builtin base's
 		// own conversion, the way int.__new__ or str.__new__ sets the value from
 		// the constructor arguments before __init__ runs. classmethod, staticmethod
 		// and property build their wrapped-descriptor payload the same way, from the
-		// constructor arguments. The keyword arguments belong to a user __init__, so
-		// only the positional ones reach the value.
+		// constructor arguments. A ref subclass wraps the weakref the base ref(...)
+		// call builds from the referent and optional callback. The keyword arguments
+		// belong to a user __init__, so only the positional ones reach the value.
 		v, err := Call(c.builtinBaseFn, pos)
 		if err != nil {
 			return nil, err

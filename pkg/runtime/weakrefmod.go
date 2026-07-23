@@ -9,23 +9,79 @@ import (
 // build WeakSet, which abc uses for its class registries, so ref has to exist
 // before abc imports at all. There is no pure-Python fallback for it.
 //
-// This slice provides ref, the weak reference constructor, and proxy, the
-// transparent forwarding reference. The runtime has no weak semantics of its
-// own, so a ref holds its referent directly and never goes dead; that is
-// faithful for the abc registry, which only needs a ref to hash and compare by
-// its referent so a set of refs dedups by identity. The rest of the weakref
-// surface (WeakValueDictionary support, getweakrefcount) is a later slice, added
-// when a module in the floor names it.
+// ref is the weak reference constructor and a real type: weakref.py subclasses
+// it as WeakMethod and reads ref.__hash__ off it at import, so ref answers the
+// type dunders and construction routes a ref subclass through it. The runtime
+// has no weak semantics of its own, so a ref holds its referent directly and
+// never goes dead; that is faithful for the abc registry, which only needs a ref
+// to hash and compare by its referent so a set of refs dedups by identity.
+//
+// weakref.py itself imports the whole _weakref surface at once, so the rest is
+// present too: proxy, the transparent forwarding reference; getweakrefcount and
+// getweakrefs, the referent-introspection helpers; _remove_dead_weakref, the
+// dict-cleanup hook a dead ref's callback fires; and the ReferenceType, ProxyType
+// and CallableProxyType type objects the module re-exports. Nothing is collected
+// early in this tier, so no ref ever dies and the count is always one; the
+// helpers are faithful for that and are not otherwise exercised by the floor.
 
 func init() {
 	moduleTable["_weakref"] = &moduleEntry{builtin: true, exec: initWeakref}
 }
 
 func initWeakref(m *objects.Module) error {
-	if err := objects.StoreAttr(m, "ref", objects.NewFunc("ref", -1, weakrefRef)); err != nil {
-		return err
+	ref := objects.NewFunc("ref", -1, weakrefRef)
+	binds := []struct {
+		name string
+		val  objects.Object
+	}{
+		{"ref", ref},
+		// ReferenceType is ref itself, the way CPython aliases the type object.
+		{"ReferenceType", ref},
+		{"proxy", objects.NewFunc("proxy", -1, weakrefProxy)},
+		{"getweakrefcount", objects.NewFunc("getweakrefcount", 1, weakrefGetCount)},
+		{"getweakrefs", objects.NewFunc("getweakrefs", 1, weakrefGetRefs)},
+		{"_remove_dead_weakref", objects.NewFunc("_remove_dead_weakref", 2, weakrefRemoveDead)},
+		// The two proxy type objects the module re-exports. ProxyTypes pairs them
+		// for the isinstance checks WeakValueDictionary makes; a proxy is the plain
+		// referent in this tier, so neither type ever actually matches.
+		{"ProxyType", objects.TypeSingleton("weakproxy")},
+		{"CallableProxyType", objects.TypeSingleton("weakcallableproxy")},
 	}
-	return objects.StoreAttr(m, "proxy", objects.NewFunc("proxy", -1, weakrefProxy))
+	for _, b := range binds {
+		if err := objects.StoreAttr(m, b.name, b.val); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// weakrefGetCount implements _weakref.getweakrefcount(object): the number of
+// weak references and proxies to object. Nothing is collected early in this tier,
+// so this reports one for any referenceable object and zero for one that carries
+// no weak support, matching the count a single live ref would give.
+func weakrefGetCount(args []objects.Object) (objects.Object, error) {
+	if _, err := objects.NewWeakref(args[0], nil); err != nil {
+		return objects.NewInt(0), nil
+	}
+	return objects.NewInt(1), nil
+}
+
+// weakrefGetRefs implements _weakref.getweakrefs(object): the list of weak
+// references to object. The runtime tracks no live-ref table, so it hands back a
+// single fresh ref for a referenceable object and an empty list otherwise.
+func weakrefGetRefs(args []objects.Object) (objects.Object, error) {
+	wr, err := objects.NewWeakref(args[0], nil)
+	if err != nil {
+		return objects.NewList(nil), nil
+	}
+	return objects.NewList([]objects.Object{wr}), nil
+}
+
+// weakrefRemoveDead implements _weakref._remove_dead_weakref(dict, key): atomically
+// delete key from dict if the weak reference stored there has died. No ref dies in
+// this tier, so there is never a dead entry to remove and this is a no-op.
+func weakrefRemoveDead(args []objects.Object) (objects.Object, error) {
+	return objects.None, nil
 }
 
 // weakrefProxy implements _weakref.proxy(object[, callback]): a proxy is a

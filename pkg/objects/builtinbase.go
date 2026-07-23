@@ -21,6 +21,11 @@ func builtinBaseName(b Object) (string, bool) {
 		switch f.name {
 		case "dict", "int", "str", "tuple", "classmethod", "staticmethod", "property":
 			return f.name, true
+		case "ref":
+			// weakref.ref is exposed as the builtin `ref`; weakref.py subclasses it
+			// as WeakMethod. A subclass instance wraps a weakref payload built by the
+			// base ref(...) call, so construction routes through builtinBaseFn.
+			return "ref", true
 		case "local":
 			// threading.local is exposed as the builtin `local`; a subclass takes
 			// the per-thread attribute layout rather than the ordinary instance
