@@ -60,6 +60,11 @@ func initTime(m *objects.Module) error {
 		{"process_time_ns", relNS},
 		{"sleep", timeSleep},
 		{"strftime", timeStrftime},
+		{"gmtime", timeGmtime},
+		{"localtime", timeLocaltime},
+		{"mktime", timeMktime},
+		{"asctime", timeAsctime},
+		{"ctime", timeCtime},
 	}
 	for _, f := range funcs {
 		if err := set(f.name, objects.NewFunc(f.name, -1, f.fn)); err != nil {
