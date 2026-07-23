@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+has_arg 82 True
+has_const 82 True
+has_name 61 True
+has_jump 68 True
+has_free 62 True
+has_local 3 True
+has_exc 263 True
+is_valid 3 True
+is_valid 12345 False
+intrinsic1 head ['INTRINSIC_1_INVALID', 'INTRINSIC_PRINT', 'INTRINSIC_IMPORT_STAR']
+intrinsic2 ['INTRINSIC_2_INVALID', 'INTRINSIC_PREP_RERAISE_STAR', 'INTRINSIC_TYPEVAR_WITH_BOUND', 'INTRINSIC_TYPEVAR_WITH_CONSTRAINTS', 'INTRINSIC_SET_FUNCTION_TYPE_PARAMS', 'INTRINSIC_SET_TYPEPARAM_DEFAULT']
+special ['__enter__', '__exit__', '__aenter__', '__aexit__']
+nb_ops head [('NB_ADD', '+'), ('NB_AND', '&')]
+nb_ops tail ('NB_SUBSCR', '[]')
+opcode hasarg 101
+opcode hasconst [82]
+opcode hasname 14
+opcode hasjump 16
+opcode LOAD_CONST 82
+== exception:
+== stderr:
