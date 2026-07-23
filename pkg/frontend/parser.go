@@ -446,7 +446,7 @@ func (p *parser) addDelTargets(d *Del, e Expr) {
 		}
 	case *Starred:
 		p.errf(e.Span(), "cannot delete starred")
-	case *FStr:
+	case *FStr, *TStr:
 		p.errf(e.Span(), "cannot delete f-string expression")
 	case *IntLit, *FloatLit, *ImagLit, *StrLit:
 		p.errf(e.Span(), "cannot delete literal")
@@ -572,7 +572,7 @@ func (p *parser) checkAssignTarget(e Expr) {
 		p.checkTargetElts(e.Elts)
 	case *Attribute:
 		// obj.attr = value is a valid target; the lowering stores through it.
-	case *FStr:
+	case *FStr, *TStr:
 		p.errf(e.Span(), "cannot assign to f-string expression")
 	case *IntLit, *FloatLit, *ImagLit, *StrLit:
 		p.errf(e.Span(), "cannot assign to literal")
@@ -623,7 +623,7 @@ func (p *parser) checkAugTarget(e Expr) {
 		p.errf(e.Span(), "'list' is an illegal expression for augmented assignment")
 	case *SetLit:
 		p.errf(e.Span(), "'set display' is an illegal expression for augmented assignment")
-	case *FStr:
+	case *FStr, *TStr:
 		p.errf(e.Span(), "'f-string expression' is an illegal expression for augmented assignment")
 	default:
 		p.errf(e.Span(), "illegal expression for augmented assignment")
@@ -1346,7 +1346,7 @@ func (p *parser) parseNamedTest() Expr {
 		p.errf(e.Span(), "cannot use assignment expressions with dict literal")
 	case *SetLit:
 		p.errf(e.Span(), "cannot use assignment expressions with set display")
-	case *FStr:
+	case *FStr, *TStr:
 		p.errf(e.Span(), "cannot use assignment expressions with f-string expression")
 	case *IntLit, *FloatLit, *ImagLit, *StrLit:
 		p.errf(e.Span(), "cannot use assignment expressions with literal")
@@ -1840,13 +1840,22 @@ func (p *parser) parseStrings() Expr {
 		}
 		parts = append(parts, &FText{Text: s})
 	}
+	sawT, sawNonT := false, false
 	for {
 		switch p.cur().kind {
 		case tString:
+			sawNonT = true
 			text(p.advance().text)
 			continue
 		case tFStrStart:
-			p.advance()
+			st := p.advance()
+			// The start token carries the prefix, so a t in it marks a t-string;
+			// a plain or f-string has none. No quote character is a t.
+			if strings.ContainsAny(st.text, "tT") {
+				sawT = true
+			} else {
+				sawNonT = true
+			}
 			for p.cur().kind != tFStrEnd {
 				if p.cur().kind == tFStrMid {
 					text(p.advance().text)
@@ -1859,8 +1868,16 @@ func (p *parser) parseStrings() Expr {
 		}
 		break
 	}
+	if sawT && (sawNonT || p.cur().kind == tBytes) {
+		p.errf(start.pos, "cannot mix t-string literals with string or bytes literals")
+	}
 	if p.cur().kind == tBytes {
 		p.errf(p.cur().pos, "cannot mix bytes and nonbytes literals")
+	}
+	// A t-string is always its own node, even with no interpolations, since an
+	// empty t"" is a Template with one empty string part rather than a str.
+	if sawT {
+		return &TStr{Pos_: start.pos, Parts: parts}
 	}
 	interp := false
 	for _, part := range parts {
@@ -1904,6 +1921,11 @@ func (p *parser) parseFInterp() *FInterp {
 	x := p.parseStarTestlist()
 	p.rejectStarred(x)
 	in.X = x
+	if p.cur().kind == tFStrExpr {
+		// Present only for a t-string field: the verbatim expression source the
+		// lexer captured, which the Interpolation reports as its expression.
+		in.Expr = p.advance().text
+	}
 	if p.cur().kind == tFStrEq {
 		in.Eq = p.advance().text
 	}
@@ -2185,6 +2207,10 @@ func walkNamed(e Expr, fn func(*NamedExpr)) {
 		}
 		walkNamed(e.Body, fn)
 	case *FStr:
+		for _, in := range FInterps(e.Parts) {
+			walkNamed(in.X, fn)
+		}
+	case *TStr:
 		for _, in := range FInterps(e.Parts) {
 			walkNamed(in.X, fn)
 		}

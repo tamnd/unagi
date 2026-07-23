@@ -475,6 +475,10 @@ func awaitInExpr(e frontend.Expr) bool {
 			for _, in := range frontend.FInterps(e.Parts) {
 				walk(in.X)
 			}
+		case *frontend.TStr:
+			for _, in := range frontend.FInterps(e.Parts) {
+				walk(in.X)
+			}
 		}
 		// A Lambda or Comp starts a fresh scope; an await inside one is that
 		// scope's, so the walk stops here.

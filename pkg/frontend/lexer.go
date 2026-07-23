@@ -32,6 +32,7 @@ const (
 	tFStrClose // '}' closing an interpolation
 	tFStrEq    // verbatim text of a self-documenting '=' field
 	tFStrConv  // conversion character after '!'
+	tFStrExpr  // verbatim source of a t-string interpolation expression
 )
 
 func (k tokKind) String() string {
@@ -74,6 +75,8 @@ func (k tokKind) String() string {
 		return "FSTRING_EQ"
 	case tFStrConv:
 		return "FSTRING_CONV"
+	case tFStrExpr:
+		return "TSTRING_EXPR"
 	}
 	return "UNKNOWN"
 }
@@ -402,7 +405,14 @@ func (lx *lexer) lexName(pos Pos) {
 		low := strings.ToLower(name)
 		switch {
 		case strings.Contains(low, "t"):
-			lx.err(pos, "t-strings are not supported yet")
+			// A t-string (PEP 750) pairs only with the raw prefix; bt, ft and ut
+			// are not valid, matching CPython. It shares the f-string lexer,
+			// which reads the t from the prefix to switch on template mode.
+			if strings.ContainsAny(low, "bfu") {
+				lx.err(pos, "%q is not a valid string prefix", name)
+			}
+			lx.lexFString(pos, name)
+			return
 		case strings.Contains(low, "f"):
 			// PEP 701 allows an f-string inside an interpolation, at any depth
 			// and reusing the same quote. The bracket-depth floor stack (fbase)
@@ -913,6 +923,7 @@ func (lx *lexer) closeBracket(pos Pos, c byte) {
 // nested brackets, and newlines all behave like they do outside an f-string.
 func (lx *lexer) lexFString(pos Pos, prefix string) {
 	raw := strings.ContainsAny(prefix, "rR")
+	tstring := strings.ContainsAny(prefix, "tT")
 	q := lx.ch()
 	lx.adv()
 	triple := false
@@ -976,7 +987,7 @@ func (lx *lexer) lexFString(pos Pos, prefix string) {
 				continue
 			}
 			flush()
-			lx.lexFInterp(q, triple, raw)
+			lx.lexFInterp(q, triple, raw, tstring)
 			warned = false
 		case '}':
 			if lx.ch2() == '}' {
@@ -1024,15 +1035,26 @@ func (lx *lexer) lexFString(pos Pos, prefix string) {
 // bracket level '}' closes the field, ':' starts the format spec, '!' takes
 // a conversion, and a lone '=' captures the self-documenting text; anything
 // deeper belongs to the expression and goes through lexToken.
-func (lx *lexer) lexFInterp(q byte, triple bool, raw bool) {
+func (lx *lexer) lexFInterp(q byte, triple bool, raw bool, tstring bool) {
 	openPos := lx.pos()
 	lx.adv() // {
 	lx.emitAt(openPos, tFStrOpen, "{")
 	base := len(lx.brackets)
 	lx.fbase = append(lx.fbase, base)
 	exprStart := lx.off
+	exprPos := lx.pos()
 	startToks := len(lx.toks)
 	empty := func() bool { return len(lx.toks) == startToks }
+	// A t-string records the verbatim expression source so the Interpolation
+	// can report it. CPython keeps any leading whitespace but trims the trailing
+	// run up to the field terminator, so emitExpr trims only the right side.
+	emitExpr := func(end int) {
+		if !tstring {
+			return
+		}
+		text := strings.TrimRight(string(lx.src[exprStart:end]), " \t\f\r\n")
+		lx.emitAt(exprPos, tFStrExpr, text)
+	}
 	for {
 		c := lx.ch()
 		atBase := len(lx.brackets) == base
@@ -1051,12 +1073,14 @@ func (lx *lexer) lexFInterp(q byte, triple bool, raw bool) {
 			if empty() {
 				lx.err(lx.pos(), "f-string: valid expression required before '}'")
 			}
+			emitExpr(lx.off)
 			lx.closeFInterp()
 			return
 		case atBase && c == ':':
 			if empty() {
 				lx.err(lx.pos(), "f-string: valid expression required before ':'")
 			}
+			emitExpr(lx.off)
 			lx.adv()
 			lx.lexFSpec(openPos, q, triple, raw)
 			lx.closeFInterp()
@@ -1065,6 +1089,7 @@ func (lx *lexer) lexFInterp(q byte, triple bool, raw bool) {
 			if empty() {
 				lx.err(lx.pos(), "f-string: valid expression required before '!'")
 			}
+			emitExpr(lx.off)
 			lx.lexFConv(openPos)
 			lx.finishFInterp(openPos, q, triple, raw)
 			return
@@ -1078,6 +1103,7 @@ func (lx *lexer) lexFInterp(q byte, triple bool, raw bool) {
 			if empty() {
 				lx.err(lx.pos(), "f-string: valid expression required before '='")
 			}
+			emitExpr(lx.off)
 			eqPos := lx.pos()
 			lx.adv() // =
 			lx.skipFSpace()
@@ -1209,7 +1235,10 @@ func (lx *lexer) lexFSpec(openPos Pos, q byte, triple bool, raw bool) {
 		case c == '{':
 			lx.emitAt(pos, tFStrMid, sb.String())
 			sb.Reset()
-			lx.lexFInterp(q, triple, raw)
+			// A field nested in a format spec is evaluated into the spec string,
+			// not surfaced as its own interpolation, so it needs no expression
+			// text capture even inside a t-string.
+			lx.lexFInterp(q, triple, raw, false)
 			pos = lx.pos()
 			warned = false
 		case c == 0 && triple:

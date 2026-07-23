@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+Template
+('a', 'b', 'c')
+(3, 7)
+3 '1 + 2' None ''
+7 '7' 'r' '>4'
+['a', Interpolation(3, '1 + 2', None, ''), 'b', Interpolation(7, '7', 'r', '>4'), 'c']
+Template(strings=('a', 'b', 'c'), interpolations=(Interpolation(3, '1 + 2', None, ''), Interpolation(7, '7', 'r', '>4')))
+('',) () ()
+True
+[1, 2] s
+('', '') '6'
+('', '', '') (1, 2)
+('x', 'y') (42,)
+== exception:
+== stderr:

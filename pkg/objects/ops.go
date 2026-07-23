@@ -1576,6 +1576,8 @@ func Iter(o Object) (Iterator, error) {
 		return &sliceIter{elts: x.elts}, nil
 	case *tupleObject:
 		return &sliceIter{elts: x.elts}, nil
+	case *templateObject:
+		return &sliceIter{elts: x.templateIter()}, nil
 	case *dictObject:
 		return &sliceIter{elts: x.keySlice()}, nil
 	case *setObject:

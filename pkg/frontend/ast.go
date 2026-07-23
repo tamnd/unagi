@@ -707,6 +707,17 @@ type FStr struct {
 	Parts []FPart
 }
 
+// TStr is a t-string (PEP 750): the same interleaved text and interpolation
+// parts as an f-string, but it evaluates to a string.templatelib.Template
+// rather than a formatted str. It is kept as its own node even when it has no
+// interpolations, since an empty t"" is a Template with one empty string part,
+// not a str. Adjacent t-string literals are merged into one TStr; mixing a
+// t-string with a plain or f-string literal is a SyntaxError caught in parsing.
+type TStr struct {
+	Pos_  Pos
+	Parts []FPart
+}
+
 // FPart is one piece of an f-string: FText or FInterp.
 type FPart interface {
 	fpart()
@@ -732,6 +743,11 @@ type FInterp struct {
 	Spec    []FPart
 	HasSpec bool
 	Eq      string
+	// Expr is the verbatim source text of the interpolated expression, with
+	// trailing whitespace trimmed the way CPython records it. It is set only for
+	// a t-string interpolation, which surfaces it as Interpolation.expression;
+	// an f-string leaves it empty.
+	Expr string
 }
 
 func (*FText) fpart()   {}
@@ -784,6 +800,7 @@ func (e *Starred) Span() Pos     { return e.Pos_ }
 func (e *Await) Span() Pos       { return e.Pos_ }
 func (e *Lambda) Span() Pos      { return e.Pos_ }
 func (e *FStr) Span() Pos        { return e.Pos_ }
+func (e *TStr) Span() Pos        { return e.Pos_ }
 
 func (*Name) expr()        {}
 func (*IntLit) expr()      {}
@@ -813,6 +830,7 @@ func (*Starred) expr()     {}
 func (*Await) expr()       {}
 func (*Lambda) expr()      {}
 func (*FStr) expr()        {}
+func (*TStr) expr()        {}
 
 // --- patterns ---
 
