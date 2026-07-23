@@ -1,0 +1,29 @@
+== exit: 0
+== stdout:
+2.0
+3.0
+10.0
+-2.0
+0.5
+0.0
+-0.0
+1.0
+inf
+-inf
+True
+1.0
+2.0
+1024.0
+0.25
+0.0009765625
+0.0
+inf
+True
+1.0
+8.0
+exp2(1024) -> OverflowError: math range error
+cbrt(x) -> TypeError: must be real number, not str
+exp2() -> TypeError: math.exp2() takes exactly one argument (0 given)
+cbrt(1,2) -> TypeError: math.cbrt() takes exactly one argument (2 given)
+== exception:
+== stderr:

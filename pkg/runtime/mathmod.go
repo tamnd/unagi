@@ -53,6 +53,7 @@ func initMath(m *objects.Module) error {
 	ones := []one{
 		{"sqrt", math.Sqrt, false, domNonneg},
 		{"exp", math.Exp, true, domGeneric},
+		{"exp2", math.Exp2, true, domGeneric},
 		{"expm1", math.Expm1, true, domGeneric},
 		{"log2", math.Log2, false, domPositive},
 		{"log10", math.Log10, false, domPositive},
@@ -88,6 +89,7 @@ func initMath(m *objects.Module) error {
 		fn   func(float64) float64
 	}{
 		{"fabs", math.Abs},
+		{"cbrt", math.Cbrt},
 		{"erf", math.Erf},
 		{"erfc", math.Erfc},
 		{"degrees", func(x float64) float64 { return x * (180 / math.Pi) }},
