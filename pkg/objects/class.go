@@ -119,6 +119,12 @@ type classObject struct {
 	// the field metadata and the builder so construction binds the fields and the
 	// _make/_replace/_fields helpers resolve. It is inherited like builtinBase.
 	namedBase *namedTupleType
+	// annotations holds the class __annotations__ mapping, the dict its body
+	// accumulated for its PEP 526 variable annotations. It lives here rather than
+	// in dict so C.__annotations__ reads it while `'__annotations__' in C.__dict__`
+	// stays false, the PEP 649 shape 3.14 reports. It is lazily created as an empty
+	// dict on first read of a class that declared none.
+	annotations Object
 }
 
 func (*classObject) TypeName() string { return "type" }
@@ -206,6 +212,14 @@ func NewClass(name, qual string, bases []Object, names []string, vals []Object, 
 func newClassCore(meta *classObject, name, qual string, bases []Object, names []string, vals []Object, kwNames []string, kwVals []Object) (Object, error) {
 	c := &classObject{name: name, qual: qual, dict: make(map[string]Object, len(names)), meta: meta}
 	for i, n := range names {
+		// __annotations__ lives in a dedicated field, not the class dict, so a
+		// class reads C.__annotations__ while `'__annotations__' in C.__dict__`
+		// stays false the way 3.14 reports under PEP 649. A class body that
+		// accumulated annotations passes them through here under this name.
+		if n == "__annotations__" {
+			c.annotations = vals[i]
+			continue
+		}
 		if _, seen := c.dict[n]; !seen {
 			c.order = append(c.order, n)
 		}
@@ -1034,6 +1048,11 @@ func builtinTypeDictProxy(x *funcObject) Object {
 			_ = d.set(NewStr("__hash__"), builtinHashDunder)
 		}
 	}
+	// The `type` metatype alone carries the __annotations__ getset descriptor;
+	// annotationlib reads `type.__dict__["__annotations__"].__get__` at import.
+	if x.name == "type" {
+		_ = d.set(NewStr("__annotations__"), typeAnnotationsDescriptor)
+	}
 	return &mappingProxyObject{d: d}
 }
 
@@ -1843,7 +1862,22 @@ func LoadAttr(o Object, name string) (Object, error) {
 		if name == "__doc__" {
 			return None, nil
 		}
+		// Every class carries __annotations__: the dict its body accumulated, or a
+		// fresh empty one for a class that declared none, the way CPython's type
+		// object answers rather than raising. A class that did accumulate one bound
+		// it in the class dict, so x.lookup above already returned it.
+		if name == "__annotations__" {
+			return classAnnotations(x), nil
+		}
 		return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
+	case *annotationsDescriptor:
+		// annotationlib binds `type.__dict__["__annotations__"].__get__` once and
+		// calls it to read a class's annotations, so the descriptor answers that
+		// one attribute with the reader and nothing else.
+		if name == "__get__" {
+			return NewFunc("__get__", -1, annotationsDescriptorGet), nil
+		}
+		return nil, Raise(AttributeError, "'getset_descriptor' object has no attribute '%s'", name)
 	case *staticmethodObject:
 		if name == "__func__" || name == "__wrapped__" {
 			return x.fn, nil

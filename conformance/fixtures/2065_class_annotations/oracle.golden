@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+ann {'x': <class 'int'>, 'y': <class 'str'>, 'z': 'Forward'}
+value bound hi
+in dict False
+memoized True
+x not bound
+empty {}
+empty is dict True
+empty in dict False
+descr <attribute '__annotations__' of 'type' objects>
+get C {'x': <class 'int'>, 'y': <class 'str'>, 'z': 'Forward'}
+get Empty {}
+static type AttributeError
+annotationlib annotationlib
+== exception:
+== stderr:

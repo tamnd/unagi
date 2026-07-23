@@ -159,6 +159,29 @@ func (b *ClassBuilder) Set(name string, v Object) error {
 	return SetItem(b.ns, NewStr(name), v)
 }
 
+// Annotation records one class-body variable annotation into the __annotations__
+// mapping the class namespace carries, creating that dict on the first annotated
+// name. The value is the annotation evaluated eagerly at class-body execution,
+// the way a body without `from __future__ import annotations` stores it. The dict
+// lives in the namespace, so it folds into the class dict at Finish and reads back
+// through both C.__annotations__ and C.__dict__['__annotations__'].
+func (b *ClassBuilder) Annotation(name string, v Object) error {
+	ann, found, err := b.Load("__annotations__")
+	if err != nil {
+		return err
+	}
+	if !found {
+		ann, err = NewDict(nil, nil)
+		if err != nil {
+			return err
+		}
+		if err := b.Set("__annotations__", ann); err != nil {
+			return err
+		}
+	}
+	return SetItem(ann, NewStr(name), v)
+}
+
 // Load reads a name the class body may have bound in the namespace. ok is
 // false when the namespace holds no such key, the class body's cue to fall
 // through to the enclosing module and builtin scopes, matching the LOAD_NAME
