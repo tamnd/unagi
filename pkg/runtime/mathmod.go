@@ -141,7 +141,38 @@ func initMath(m *objects.Module) error {
 			return err
 		}
 	}
+	// prod carries the keyword-only start, so it takes the keyword-aware form.
+	if err := set("prod", objects.NewFuncKw("prod", mathProd)); err != nil {
+		return err
+	}
 	return nil
+}
+
+// mathProd implements math.prod(iterable, /, start=1): the product of start and
+// every element of the iterable. start is keyword-only and defaults to 1, so an
+// empty iterable returns start unchanged.
+func mathProd(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if len(pos) != 1 {
+		return nil, objects.Raise(objects.TypeError, "prod() takes exactly 1 positional argument (%d given)", len(pos))
+	}
+	var acc objects.Object = objects.NewInt(1)
+	for i, k := range kwNames {
+		if k != "start" {
+			return nil, objects.Raise(objects.TypeError, "prod() got an unexpected keyword argument '%s'", k)
+		}
+		acc = kwVals[i]
+	}
+	items, err := materialize(pos[0])
+	if err != nil {
+		return nil, err
+	}
+	for _, it := range items {
+		acc, err = objects.Mul(acc, it)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return acc, nil
 }
 
 // mathFloatArg pulls the single real-number argument the float routines take,
