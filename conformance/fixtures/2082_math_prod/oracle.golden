@@ -1,0 +1,20 @@
+== exit: 0
+== stdout:
+24
+30
+120
+1
+7
+60
+5
+12.0
+12.0
+576
+1
+0
+prod(5) -> TypeError: 'int' object is not iterable
+prod() -> TypeError: prod() takes exactly 1 positional argument (0 given)
+prod(x,bad=1) -> TypeError: prod() got an unexpected keyword argument 'bad'
+prod(x,2) -> TypeError: prod() takes exactly 1 positional argument (2 given)
+== exception:
+== stderr:
