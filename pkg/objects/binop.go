@@ -195,6 +195,16 @@ func isProperSubclass(sub, super *classObject) bool {
 	return false
 }
 
+// DivmodDunder runs the __divmod__/__rdivmod__ protocol for a pair the builtin
+// divmod path could not handle. divmod is not an infix operator, so it has no
+// entry in opDunders, but CPython dispatches it through the same binary_op1
+// slots; this lets the runtime divmod builtin fall back to a type like timedelta
+// that defines __divmod__. ok is false when neither operand participates, so the
+// caller raises its own unsupported-operand message.
+func DivmodDunder(a, b Object) (Object, bool, error) {
+	return binaryDunder("__divmod__", "__rdivmod__", a, b)
+}
+
 // MatMul implements the @ operator. No builtin type defines matrix
 // multiplication, so it goes straight to the dunder protocol and otherwise
 // raises the unsupported-operand TypeError.
