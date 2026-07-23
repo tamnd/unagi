@@ -702,6 +702,7 @@ func init() {
 			}
 			return nil, objects.Raise(objects.TypeError, "pow() takes at most 3 arguments (%d given)", len(args))
 		}),
+		"id":       exactlyOne("id", func(o objects.Object) (objects.Object, error) { return objects.IDOf(o), nil }),
 		"bin":      exactlyOne("bin", Bin),
 		"oct":      exactlyOne("oct", Oct),
 		"hex":      exactlyOne("hex", Hex),

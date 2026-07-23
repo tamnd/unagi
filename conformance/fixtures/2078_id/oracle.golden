@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+int
+True
+True
+True True
+False
+True
+True
+True
+True
+True True
+TE: id() takes exactly one argument (0 given)
+TE: id() takes exactly one argument (2 given)
+== exception:
+== stderr:
