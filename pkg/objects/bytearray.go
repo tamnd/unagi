@@ -52,6 +52,17 @@ func asBytesLike(o Object) ([]byte, bool) {
 // callers outside this package like the io.BytesIO constructor.
 func AsBytesLike(o Object) ([]byte, bool) { return asBytesLike(o) }
 
+// AsMutableBytes returns the live backing slice of a bytearray, for a caller
+// that writes into it in place like struct.pack_into. Only a bytearray is
+// writable; a read-only bytes value returns false. The slice length is fixed,
+// so a caller must bounds-check before writing.
+func AsMutableBytes(o Object) ([]byte, bool) {
+	if x, ok := o.(*bytearrayObject); ok {
+		return x.v, true
+	}
+	return nil, false
+}
+
 // byteFromObj coerces an object to a single byte, raising rangeMsg when an
 // integer is out of range(0, 256) and the CPython not-an-integer TypeError
 // for a non-integer. rangeMsg differs between the bytes constructor ("bytes
