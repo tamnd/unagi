@@ -105,7 +105,7 @@ func Sum(args []objects.Object) (objects.Object, error) {
 	default:
 		return nil, objects.Raise(objects.TypeError, "sum() takes at most 2 arguments (%d given)", len(args))
 	}
-	acc := objects.NewInt(0)
+	var acc objects.Object = objects.NewInt(0)
 	if len(args) == 2 {
 		if _, ok := objects.AsStr(args[1]); ok {
 			// Probed: sum() can't sum strings [use ''.join(seq) instead],
@@ -118,13 +118,78 @@ func Sum(args []objects.Object) (objects.Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, it := range items {
-		acc, err = objects.Add(acc, it)
+	// Add generically until the running total is an exact float. From that
+	// point CPython 3.12 switches to Neumaier compensated summation so a run of
+	// floats and small ints sums accurately.
+	i := 0
+	for i < len(items) {
+		if _, ok := sumExactFloat(acc); ok {
+			break
+		}
+		acc, err = objects.Add(acc, items[i])
 		if err != nil {
 			return nil, err
 		}
+		i++
+	}
+	if i == len(items) {
+		return acc, nil
+	}
+	f, _ := sumExactFloat(acc)
+	c := 0.0
+	for i < len(items) {
+		x, ok := sumFloatTerm(items[i])
+		if !ok {
+			break
+		}
+		// Improved Kahan-Babuska summation by Neumaier.
+		t := f + x
+		if math.Abs(f) >= math.Abs(x) {
+			c += (f - t) + x
+		} else {
+			c += (x - t) + f
+		}
+		f = t
+		i++
+	}
+	// Add the compensation, but never let it turn an infinite or overflowed sum
+	// into a nan.
+	if c != 0 && !math.IsInf(c, 0) && !math.IsNaN(c) {
+		f += c
+	}
+	acc = objects.NewFloat(f)
+	// An item the compensated path could not fold, a non-float non-int, finishes
+	// through plain addition the way CPython falls through to its slow path.
+	for i < len(items) {
+		acc, err = objects.Add(acc, items[i])
+		if err != nil {
+			return nil, err
+		}
+		i++
 	}
 	return acc, nil
+}
+
+// sumExactFloat reports whether o is an exact float, the trigger CPython's sum
+// uses to enter its compensated path, and returns its value.
+func sumExactFloat(o objects.Object) (float64, bool) {
+	if o.TypeName() != "float" {
+		return 0, false
+	}
+	return objects.AsFloat(o)
+}
+
+// sumFloatTerm returns the value the compensated path folds in: an exact float,
+// or an int or bool that fits the C long CPython converts to a double. A larger
+// int falls back to plain addition.
+func sumFloatTerm(o objects.Object) (float64, bool) {
+	if f, ok := sumExactFloat(o); ok {
+		return f, true
+	}
+	if bi, ok := objects.AsBigInt(o); ok && bi.IsInt64() {
+		return float64(bi.Int64()), true
+	}
+	return 0, false
 }
 
 // Round implements round(x) and round(x, ndigits) with CPython's

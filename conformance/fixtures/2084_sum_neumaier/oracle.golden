@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+1.0
+1.0
+6.5
+2.0
+1.0
+2.0
+1
+5050
+inf
+inf
+True
+0
+5.0
+bad -> TypeError
+== exception:
+== stderr:
