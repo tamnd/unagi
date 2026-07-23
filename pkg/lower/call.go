@@ -14,7 +14,7 @@ var builtinNames = map[string]bool{
 	"int": true, "float": true, "bool": true, "complex": true, "abs": true,
 	"min": true, "max": true, "sum": true, "round": true, "divmod": true,
 	"pow": true, "bin": true, "oct": true, "hex": true, "ord": true,
-	"chr": true, "hash": true, "sorted": true, "reversed": true, "enumerate": true,
+	"chr": true, "hash": true, "id": true, "sorted": true, "reversed": true, "enumerate": true,
 	"zip": true, "list": true, "tuple": true, "dict": true, "set": true,
 	"frozenset": true, "format": true, "next": true,
 	"bytes": true, "bytearray": true,
@@ -218,6 +218,12 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		// __import__ has no positional fast path; it takes fromlist and level
 		// keywords, so it resolves to its runtime object and calls through the
 		// dynamic path where the keyword binder handles them.
+		return f.dynCall(e)
+	}
+	if name == "id" {
+		// id() reads the object's address through its registered builtin, which
+		// owns the one-argument check, so it needs no dedicated fast path; the
+		// name resolves to that object as a value.
 		return f.dynCall(e)
 	}
 	for _, a := range e.Args {

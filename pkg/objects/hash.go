@@ -452,3 +452,14 @@ func pyHashPointer(o Object) int64 {
 	}
 	return r
 }
+
+// IDOf backs the id builtin: the object's address as a non-negative integer,
+// unique and stable for the object's lifetime, so id(a) == id(b) exactly when
+// a is b. Every object is a pointer-backed interface, so the address is the
+// identity the is operator already compares. The value differs between runs, as
+// CPython's addresses do, and the small-int and singleton caches make id(1),
+// id(None) and id(True) stable within a run the way CPython's interning does.
+func IDOf(o Object) Object {
+	addr := uint64(reflect.ValueOf(o).Pointer())
+	return NewIntFromBig(new(big.Int).SetUint64(addr))
+}
