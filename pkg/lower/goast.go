@@ -190,7 +190,7 @@ func (e *emitter) mainGlobalsDecl(moduleVars, plainDefs []string) *ast.FuncDecl 
 		body = append(body, exprStmt(callExpr(sel("m", "Bind"), strLit(n), addr(mangle(n)))))
 	}
 	for _, n := range plainDefs {
-		body = append(body, exprStmt(callExpr(sel("m", "Bind"), strLit(n), addr(e.fnObjName(n)))))
+		body = append(body, exprStmt(callExpr(sel("m", "Bind"), strLit(n), addr(e.fnObjName(e.defs[n])))))
 	}
 	body = append(body,
 		define(ident("err"), callExpr(ident("pymain"), mainThreadArg())),

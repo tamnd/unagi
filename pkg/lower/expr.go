@@ -138,9 +138,11 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 			f.fallible(tmp, sel("runtime", "LoadName"), ident(mangle(e.Id)), strLit(e.Id))
 			return ident(tmp), nil
 		}
-		if _, isDef := f.e.defs[e.Id]; isDef {
-			// A def name nothing rebinds keeps its static binding.
-			return ident(f.e.fnObjName(e.Id)), nil
+		if d, isDef := f.e.defs[e.Id]; isDef {
+			// A def name nothing rebinds keeps its static binding. Only a plain,
+			// singly-defined name reaches here; a redefined name is a module
+			// variable handled above, so d is the sole FuncDef.
+			return ident(f.e.fnObjName(d)), nil
 		}
 		if e.Id == "__name__" {
 			// __name__ folds to the compile-time module name; an assignment to

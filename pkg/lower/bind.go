@@ -121,7 +121,7 @@ func (f *fnCtx) userCall(d *frontend.FuncDef, e *frontend.Call) (ast.Expr, error
 			return nil, err
 		}
 		tmp := f.tmpVar()
-		f.fallible(tmp, ident(f.e.callTarget(d.Name)), append([]ast.Expr{threadArg()}, args...)...)
+		f.fallible(tmp, ident(f.e.callTarget(d)), append([]ast.Expr{threadArg()}, args...)...)
 		return ident(tmp), nil
 	}
 
@@ -206,7 +206,7 @@ func (f *fnCtx) userCall(d *frontend.FuncDef, e *frontend.Call) (ast.Expr, error
 
 	for i := range slot {
 		if slot[i] == nil {
-			slot[i] = ident(f.e.slotName(d.Name, sig.named[i].Name))
+			slot[i] = ident(f.e.slotName(d, sig.named[i].Name))
 		}
 	}
 
@@ -233,7 +233,7 @@ func (f *fnCtx) userCall(d *frontend.FuncDef, e *frontend.Call) (ast.Expr, error
 	}
 
 	tmp := f.tmpVar()
-	f.fallible(tmp, ident(f.e.defName(d.Name)), append([]ast.Expr{threadArg()}, finalArgs...)...)
+	f.fallible(tmp, ident(f.e.defName(d)), append([]ast.Expr{threadArg()}, finalArgs...)...)
 	return ident(tmp), nil
 }
 

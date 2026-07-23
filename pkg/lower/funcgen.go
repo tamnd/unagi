@@ -263,7 +263,7 @@ func (e *emitter) emitMain(body []frontend.Stmt) (*ast.FuncDecl, error) {
 }
 
 func (e *emitter) emitFunc(d *frontend.FuncDef) (*ast.FuncDecl, error) {
-	return e.emitFuncDecl(d, e.defName(d.Name), d.Name, d.Name)
+	return e.emitFuncDecl(d, e.defName(d), d.Name, d.Name)
 }
 
 // docstringOf returns the function docstring, the value of a leading bare string
