@@ -17,6 +17,7 @@ import (
 var intMethodNames = map[string]bool{
 	"bit_length": true, "bit_count": true, "conjugate": true,
 	"as_integer_ratio": true, "is_integer": true,
+	"to_bytes": true, "from_bytes": true,
 }
 
 // intMethod dispatches n.name(args) for an int or bool receiver.
@@ -53,6 +54,10 @@ func intMethod(o Object, name string, args []Object) (Object, error) {
 			return nil, err
 		}
 		return True, nil
+	case "to_bytes":
+		return intToBytes(o, args, nil, nil)
+	case "from_bytes":
+		return intFromBytes(args, nil, nil)
 	}
 	return nil, noAttr(o, name)
 }
@@ -78,6 +83,15 @@ func intLoadAttr(o Object, name string) (Object, error) {
 		return NewInt(1), nil
 	case "imag":
 		return NewInt(0), nil
+	}
+	switch name {
+	case "to_bytes":
+		recv := o
+		return NewFuncKw("to_bytes", func(pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+			return intToBytes(recv, pos, kwNames, kwVals)
+		}), nil
+	case "from_bytes":
+		return NewFuncKw("from_bytes", intFromBytes), nil
 	}
 	if intMethodNames[name] {
 		method := name
