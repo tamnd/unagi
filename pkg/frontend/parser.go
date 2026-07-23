@@ -822,6 +822,7 @@ func (p *parser) parseDef() Stmt {
 		p.errf(nt.pos, "expected function name")
 	}
 	p.advance()
+	p.skipTypeParams()
 	p.wantOp("(")
 	params := p.parseParams(")")
 	p.wantOp(")")
@@ -872,6 +873,7 @@ func (p *parser) parseClass() Stmt {
 	}
 	p.advance()
 	node := &ClassDef{Pos_: t.pos, Name: nt.text}
+	p.skipTypeParams()
 	if p.eatOp("(") {
 		for !p.isOp(")") {
 			// A `NAME =` opens a keyword argument (metaclass or an
@@ -891,6 +893,38 @@ func (p *parser) parseClass() Stmt {
 	}
 	node.Body = p.parseSuite()
 	return node
+}
+
+// skipTypeParams consumes a PEP 695 type-parameter list written after a def or
+// class name, `[T, *Ts, **P]` with each parameter optionally carrying a `: bound`
+// and a `= default` (PEP 696). unagi erases types at the boxed tier, so the
+// parameters are parsed for their syntax and discarded; a later typed tier can
+// retain them. A name with no following `[` has no type parameters and this is a
+// no-op.
+func (p *parser) skipTypeParams() {
+	if !p.eatOp("[") {
+		return
+	}
+	for !p.isOp("]") {
+		if !p.eatOp("*") {
+			p.eatOp("**")
+		}
+		nt := p.cur()
+		if nt.kind != tName {
+			p.errf(nt.pos, "expected type parameter name")
+		}
+		p.advance()
+		if p.eatOp(":") {
+			p.parseTest()
+		}
+		if p.eatOp("=") {
+			p.parseTest()
+		}
+		if !p.eatOp(",") {
+			break
+		}
+	}
+	p.wantOp("]")
 }
 
 // parseParams parses a parameter list up to the end token, ")" for def and
