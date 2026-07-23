@@ -1,0 +1,33 @@
+== exit: 0
+== stdout:
+10.0
+0.25
+-5.0
+1e+16
+10.0
+7.0
+True
+True
+inf
+True
+True
+False
+True
+True
+False
+True
+False
+False
+False
+fma(0,inf,1) -> ValueError: invalid operation in fma
+fma(inf,0,1) -> ValueError: invalid operation in fma
+fma overflow -> OverflowError: overflow in fma
+fma(x) -> TypeError: must be real number, not str
+fma(2,3) -> TypeError: fma expected 3 arguments, got 2
+isclose negtol -> ValueError: tolerances must be non-negative
+isclose negabs -> ValueError: tolerances must be non-negative
+isclose 1 arg -> TypeError: isclose() missing required argument 'b' (pos 2)
+isclose 3 pos -> TypeError: isclose() takes exactly 2 positional arguments (3 given)
+isclose badkw -> TypeError: isclose() got an unexpected keyword argument 'foo'
+== exception:
+== stderr:

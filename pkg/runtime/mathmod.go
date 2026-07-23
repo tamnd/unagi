@@ -120,6 +120,7 @@ func initMath(m *objects.Module) error {
 		{"remainder", mathRemainder},
 		{"pow", mathPow},
 		{"hypot", mathHypot},
+		{"fma", mathFma},
 		{"fsum", mathFsum},
 		{"gamma", mathGamma},
 		{"lgamma", mathLgamma},
@@ -146,6 +147,10 @@ func initMath(m *objects.Module) error {
 	}
 	// prod carries the keyword-only start, so it takes the keyword-aware form.
 	if err := set("prod", objects.NewFuncKw("prod", mathProd)); err != nil {
+		return err
+	}
+	// isclose carries the keyword-only rel_tol and abs_tol tolerances.
+	if err := set("isclose", objects.NewFuncKw("isclose", mathIsclose)); err != nil {
 		return err
 	}
 	return nil
@@ -176,6 +181,59 @@ func mathProd(pos []objects.Object, kwNames []string, kwVals []objects.Object) (
 		}
 	}
 	return acc, nil
+}
+
+// mathIsclose implements math.isclose(a, b, *, rel_tol=1e-09, abs_tol=0.0),
+// CPython's tolerance comparison. rel_tol and abs_tol are keyword-only and must
+// be non-negative. Exactly equal values, including two matching infinities, are
+// close; a lone infinity or any nan never is; otherwise the gap must fall within
+// the relative tolerance scaled by the larger magnitude or the absolute
+// tolerance.
+func mathIsclose(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if len(pos) < 2 {
+		name, at := "a", 1
+		if len(pos) == 1 {
+			name, at = "b", 2
+		}
+		return nil, objects.Raise(objects.TypeError, "isclose() missing required argument '%s' (pos %d)", name, at)
+	}
+	if len(pos) > 2 {
+		return nil, objects.Raise(objects.TypeError, "isclose() takes exactly 2 positional arguments (%d given)", len(pos))
+	}
+	a, err := mathToFloat(pos[0])
+	if err != nil {
+		return nil, err
+	}
+	b, err := mathToFloat(pos[1])
+	if err != nil {
+		return nil, err
+	}
+	relTol, absTol := 1e-9, 0.0
+	for i, k := range kwNames {
+		switch k {
+		case "rel_tol":
+			relTol, err = mathToFloat(kwVals[i])
+		case "abs_tol":
+			absTol, err = mathToFloat(kwVals[i])
+		default:
+			return nil, objects.Raise(objects.TypeError, "isclose() got an unexpected keyword argument '%s'", k)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	if relTol < 0 || absTol < 0 {
+		return nil, objects.Raise(objects.ValueError, "tolerances must be non-negative")
+	}
+	if a == b {
+		return objects.NewBool(true), nil
+	}
+	if math.IsInf(a, 0) || math.IsInf(b, 0) {
+		return objects.NewBool(false), nil
+	}
+	diff := math.Abs(b - a)
+	within := diff <= math.Abs(relTol*b) || diff <= math.Abs(relTol*a) || diff <= absTol
+	return objects.NewBool(within), nil
 }
 
 // mathFloatArg pulls the single real-number argument the float routines take,
@@ -401,6 +459,41 @@ func mathHypot(args []objects.Object) (objects.Object, error) {
 		sum += v * v
 	}
 	return objects.NewFloat(math.Sqrt(sum)), nil
+}
+
+// mathFma implements math.fma(x, y, z): x*y + z computed with a single rounding,
+// the IEEE fused multiply-add. Go's math.FMA is that same operation, so the
+// result is bit-identical to CPython. It carries CPython's special-value
+// handling: a nan result from finite, non-nan inputs is the invalid operation
+// ValueError, while a nan that came from a nan input passes through, and an
+// infinite result from finite inputs is an OverflowError.
+func mathFma(args []objects.Object) (objects.Object, error) {
+	if len(args) != 3 {
+		return nil, objects.Raise(objects.TypeError, "fma expected 3 arguments, got %d", len(args))
+	}
+	x, err := mathToFloat(args[0])
+	if err != nil {
+		return nil, err
+	}
+	y, err := mathToFloat(args[1])
+	if err != nil {
+		return nil, err
+	}
+	z, err := mathToFloat(args[2])
+	if err != nil {
+		return nil, err
+	}
+	r := math.FMA(x, y, z)
+	if math.IsNaN(r) {
+		if !math.IsNaN(x) && !math.IsNaN(y) && !math.IsNaN(z) {
+			return nil, objects.Raise(objects.ValueError, "invalid operation in fma")
+		}
+		return objects.NewFloat(r), nil
+	}
+	if math.IsInf(r, 0) && !math.IsInf(x, 0) && !math.IsInf(y, 0) && !math.IsInf(z, 0) {
+		return nil, objects.Raise(objects.OverflowError, "overflow in fma")
+	}
+	return objects.NewFloat(r), nil
 }
 
 // mathFsum returns an accurate floating-point sum of the values in an iterable,
