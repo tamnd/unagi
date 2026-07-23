@@ -45,6 +45,65 @@ func (t *StructSeqType) NewStructSeq(seq, named []Object) Object {
 	return &tupleObject{elts: seq, sseq: &structSeqBinding{typ: t, vals: named}}
 }
 
+// construct builds an instance from a Python call, structseq's __new__: one
+// sequence argument (an optional mapping for named-only fields is not supported
+// here, the callers that need it pass every value positionally). The sequence
+// carries at least nSeq and at most len(fields) items; the first nSeq are the
+// visible tuple, and any named-only field the sequence omits reads as None. This
+// is what makes time.struct_time((y, m, d, ...)) build the value _pydatetime
+// hands to strftime.
+func (t *StructSeqType) construct(pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	if len(kwNames) != 0 {
+		return nil, Raise(TypeError, "%s() takes no keyword arguments", t.reprName)
+	}
+	if len(pos) != 1 {
+		return nil, Raise(TypeError, "%s() takes at most 2 arguments (%d given)", t.reprName, len(pos))
+	}
+	items, err := IterToSlice(pos[0])
+	if err != nil {
+		return nil, err
+	}
+	nFields := len(t.fields)
+	if len(items) < t.nSeq {
+		return nil, Raise(TypeError, "%s() takes an at least %d-sequence (%d-sequence given)", t.reprName, t.nSeq, len(items))
+	}
+	if len(items) > nFields {
+		return nil, Raise(TypeError, "%s() takes an at most %d-sequence (%d-sequence given)", t.reprName, nFields, len(items))
+	}
+	vals := make([]Object, nFields)
+	for i := range vals {
+		if i < len(items) {
+			vals[i] = items[i]
+		} else {
+			vals[i] = None
+		}
+	}
+	seq := make([]Object, t.nSeq)
+	copy(seq, vals[:t.nSeq])
+	return t.NewStructSeq(seq, vals), nil
+}
+
+// IterToSlice drains any iterable into a slice, the shared read a structseq
+// constructor and time.strftime both use to accept a tuple, list or struct_time.
+func IterToSlice(o Object) ([]Object, error) {
+	it, err := Iter(o)
+	if err != nil {
+		return nil, err
+	}
+	var out []Object
+	for {
+		v, ok, err := it.Next()
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			break
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
 // structSeqTypeAttr resolves an attribute read on the class object: the name
 // and the structseq field-count descriptors.
 func structSeqTypeAttr(t *StructSeqType, name string) (Object, error) {
@@ -81,14 +140,17 @@ func structSeqInstanceAttr(x *tupleObject, name string) (Object, error) {
 	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", b.typ.name, name)
 }
 
-// structSeqRepr spells reprName(field=value, ...) over every named field,
-// matching CPython's structseq repr.
+// structSeqRepr spells reprName(field=value, ...) over the visible sequence
+// fields, matching CPython's structseq repr. The named-only fields past nSeq
+// (os.stat_result's st_atime_ns, time.struct_time's tm_zone) carry values but
+// CPython leaves them out of the repr, so the loop stops at nSeq.
 func structSeqRepr(x *tupleObject, strict bool) (string, error) {
 	b := x.sseq
 	var s strings.Builder
 	s.WriteString(b.typ.reprName)
 	s.WriteByte('(')
-	for i, f := range b.typ.fields {
+	for i := 0; i < b.typ.nSeq; i++ {
+		f := b.typ.fields[i]
 		if i > 0 {
 			s.WriteString(", ")
 		}

@@ -612,6 +612,9 @@ func CallT(t *Thread, f Object, args []Object) (Object, error) {
 	if nt, ok := f.(*namedTupleType); ok {
 		return nt.build.bind(t, args, nil, nil)
 	}
+	if ss, ok := f.(*StructSeqType); ok {
+		return ss.construct(args, nil, nil)
+	}
 	if m, ok := f.(*boundMethod); ok {
 		return m.fn.bind(t, append([]Object{m.self}, args...), nil, nil)
 	}
