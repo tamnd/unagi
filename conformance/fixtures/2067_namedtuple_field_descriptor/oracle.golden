@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+type _tuplegetter
+repr _tuplegetter(0, 'Alias for field number 0')
+doc default Alias for field number 0
+doc set Human readable name for operation
+other field untouched Alias for field number 1
+get from instance 11
+field via attribute 11
+dis dis
+has Instruction True
+== exception:
+== stderr:

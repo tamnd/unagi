@@ -2168,6 +2168,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
 	case *namedTupleType:
 		return namedTupleTypeAttr(x, name)
+	case *tupleGetterObject:
+		return tupleGetterAttr(x, name)
 	case *StructSeqType:
 		return structSeqTypeAttr(x, name)
 	case *partialObject:
@@ -2238,6 +2240,8 @@ func StoreAttr(o Object, name string, val Object) error {
 		}
 	case *threadObject:
 		return threadStoreAttr(x, name, val)
+	case *tupleGetterObject:
+		return tupleGetterSet(x, name, val)
 	case *localObject:
 		// See LoadAttr: a t-less write lands on the main thread's private store;
 		// the emitted code carries the real thread via StoreAttrT.
