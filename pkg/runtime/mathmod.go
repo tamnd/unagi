@@ -123,6 +123,8 @@ func initMath(m *objects.Module) error {
 		{"trunc", mathTrunc},
 		{"gcd", mathGcd},
 		{"lcm", mathLcm},
+		{"comb", mathComb},
+		{"perm", mathPerm},
 		{"factorial", mathFactorial},
 		{"isqrt", mathIsqrt},
 		{"isnan", mathIsnan},
@@ -470,6 +472,97 @@ func mathLcm(args []objects.Object) (objects.Object, error) {
 		l.Mul(l, new(big.Int).Abs(n))
 	}
 	return objects.NewIntFromBig(l), nil
+}
+
+// mathIndexArg pulls an integer argument the combinatorial routines require,
+// raising CPython's TypeError for a value that is not an integer.
+func mathIndexArg(o objects.Object) (*big.Int, error) {
+	bi, ok := objects.AsBigInt(o)
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", o.TypeName())
+	}
+	return bi, nil
+}
+
+// mathComb is the number of ways to choose k items from n without repetition and
+// without order, n! / (k! (n-k)!). It is zero when k exceeds n and an exact big
+// integer otherwise, computed through the multiplicative recurrence so no large
+// factorial is ever built.
+func mathComb(args []objects.Object) (objects.Object, error) {
+	if len(args) != 2 {
+		return nil, objects.Raise(objects.TypeError, "comb expected 2 arguments, got %d", len(args))
+	}
+	n, err := mathIndexArg(args[0])
+	if err != nil {
+		return nil, err
+	}
+	k, err := mathIndexArg(args[1])
+	if err != nil {
+		return nil, err
+	}
+	if n.Sign() < 0 {
+		return nil, objects.Raise(objects.ValueError, "n must be a non-negative integer")
+	}
+	if k.Sign() < 0 {
+		return nil, objects.Raise(objects.ValueError, "k must be a non-negative integer")
+	}
+	if k.Cmp(n) > 0 {
+		return objects.NewInt(0), nil
+	}
+	// Choosing k or n-k gives the same count, so take the smaller run of factors.
+	nMinusK := new(big.Int).Sub(n, k)
+	if nMinusK.Cmp(k) < 0 {
+		k = nMinusK
+	}
+	steps := k.Int64()
+	result := big.NewInt(1)
+	for i := int64(0); i < steps; i++ {
+		result.Mul(result, new(big.Int).Sub(n, big.NewInt(i)))
+		result.Div(result, big.NewInt(i+1))
+	}
+	return objects.NewIntFromBig(result), nil
+}
+
+// mathPerm is the number of ways to arrange k items from n in order,
+// n! / (n-k)!. With k omitted it is n!, which is where a negative n reports the
+// factorial domain error the way CPython does; with k given a negative n or k
+// reports the argument error instead, and k above n is zero.
+func mathPerm(args []objects.Object) (objects.Object, error) {
+	if len(args) == 0 {
+		return nil, objects.Raise(objects.TypeError, "perm expected at least 1 argument, got 0")
+	}
+	if len(args) > 2 {
+		return nil, objects.Raise(objects.TypeError, "perm expected at most 2 arguments, got %d", len(args))
+	}
+	n, err := mathIndexArg(args[0])
+	if err != nil {
+		return nil, err
+	}
+	if len(args) == 1 || args[1] == objects.None {
+		if n.Sign() < 0 {
+			return nil, objects.Raise(objects.ValueError, "factorial() not defined for negative values")
+		}
+		return objects.NewIntFromBig(new(big.Int).MulRange(1, n.Int64())), nil
+	}
+	k, err := mathIndexArg(args[1])
+	if err != nil {
+		return nil, err
+	}
+	if n.Sign() < 0 {
+		return nil, objects.Raise(objects.ValueError, "n must be a non-negative integer")
+	}
+	if k.Sign() < 0 {
+		return nil, objects.Raise(objects.ValueError, "k must be a non-negative integer")
+	}
+	if k.Cmp(n) > 0 {
+		return objects.NewInt(0), nil
+	}
+	steps := k.Int64()
+	result := big.NewInt(1)
+	for i := int64(0); i < steps; i++ {
+		result.Mul(result, new(big.Int).Sub(n, big.NewInt(i)))
+	}
+	return objects.NewIntFromBig(result), nil
 }
 
 func mathFactorial(args []objects.Object) (objects.Object, error) {

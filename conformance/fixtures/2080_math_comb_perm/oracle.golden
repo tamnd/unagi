@@ -1,0 +1,20 @@
+== exit: 0
+== stdout:
+120 2598960 1 1 0 1 499500
+720 120 1 0 1 997002000 120
+1 1
+comb(-1,2) -> ValueError: n must be a non-negative integer
+comb(5,-1) -> ValueError: k must be a non-negative integer
+perm(-1) -> ValueError: factorial() not defined for negative values
+perm(5,-2) -> ValueError: k must be a non-negative integer
+perm(-1,2) -> ValueError: n must be a non-negative integer
+comb(5,1.0) -> TypeError: 'float' object cannot be interpreted as an integer
+comb(1.0,1) -> TypeError: 'float' object cannot be interpreted as an integer
+perm(5,1.0) -> TypeError: 'float' object cannot be interpreted as an integer
+perm(1.0) -> TypeError: 'float' object cannot be interpreted as an integer
+comb(5) -> TypeError: comb expected 2 arguments, got 1
+perm() -> TypeError: perm expected at least 1 argument, got 0
+comb(1,2,3) -> TypeError: comb expected 2 arguments, got 3
+perm(1,2,3) -> TypeError: perm expected at most 2 arguments, got 3
+== exception:
+== stderr:
