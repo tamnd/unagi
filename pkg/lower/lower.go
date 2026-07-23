@@ -366,6 +366,7 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 	// checked module variable. Def bodies are not descended into; a nested
 	// function is a separate scope handled at lowering.
 	conditionalDefs := map[string]bool{}
+	redefinedDefs := map[string]bool{}
 	var collectDefs func(list []frontend.Stmt, conditional bool) error
 	collectDefs = func(list []frontend.Stmt, conditional bool) error {
 		for _, s := range list {
@@ -373,16 +374,15 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 			case *frontend.FuncDef:
 				if _, dup := e.defs[s.Name]; dup {
 					// Redefinition is legal Python, and the lowering hoists each def
-					// to its own package-level function. A name defined more than
-					// once is only sound when every definition is conditional, in
-					// mutually-exclusive branches, so at most one binds at runtime;
-					// the def statements assign the one shared module variable where
-					// each runs. A top-level definition combined with a redefinition
-					// would hoist two bindings that both claim to take effect, so
-					// that stays refused.
-					if !conditional || !conditionalDefs[s.Name] {
-						return e.errf(s.Span(), "redefining function %q is not supported yet", s.Name)
-					}
+					// to its own package-level function. A redefined name cannot keep
+					// the static call fast path, which resolves one function for the
+					// name and cannot see a later def replace it; instead the name
+					// becomes a checked module variable, so every def statement
+					// assigns it where it runs and a read observes the last one to
+					// take effect. This covers the guarded fallback the stdlib floor
+					// leans on, where a try/except ImportError defines a name and a
+					// later top-level def wraps it, and a plain double definition too.
+					redefinedDefs[s.Name] = true
 				} else {
 					// The first definition of a name owns the canonical ordinal the
 					// name-keyed lookups fall back to, and records the FuncDef the
@@ -512,6 +512,12 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 	// or without that raises NameError instead of resolving a function that was
 	// never defined on this path.
 	for n := range conditionalDefs {
+		e.moduleVars[n] = true
+	}
+	// A redefined name resolves dynamically for the same reason a decorated one
+	// does: more than one def claims it, so a call must read the variable to see
+	// which binding is current rather than the static fast path's single answer.
+	for n := range redefinedDefs {
 		e.moduleVars[n] = true
 	}
 	// In a module package every def is a module variable: an importer can
