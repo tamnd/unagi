@@ -273,7 +273,8 @@ func (f *fnCtx) classValue(s *frontend.ClassDef) (ast.Expr, error) {
 				}
 			case *frontend.Assign, *frontend.AnnAssign, *frontend.AugAssign,
 				*frontend.If, *frontend.For, *frontend.While, *frontend.Try,
-				*frontend.With, *frontend.Pass, *frontend.Del:
+				*frontend.With, *frontend.Pass, *frontend.Del,
+				*frontend.Import, *frontend.ImportFrom:
 				if err := f.stmt(st); err != nil {
 					return nil, err
 				}
@@ -490,7 +491,8 @@ func (f *fnCtx) classValueLocal(s *frontend.ClassDef, qual string) (ast.Expr, er
 			}
 		case *frontend.Assign, *frontend.AnnAssign, *frontend.AugAssign,
 			*frontend.If, *frontend.For, *frontend.While, *frontend.Try,
-			*frontend.With, *frontend.Pass, *frontend.Del:
+			*frontend.With, *frontend.Pass, *frontend.Del,
+			*frontend.Import, *frontend.ImportFrom:
 			if err := f.stmt(st); err != nil {
 				return nil, err
 			}

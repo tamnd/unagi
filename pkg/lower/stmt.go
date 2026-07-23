@@ -231,9 +231,20 @@ func (f *fnCtx) importStmt(s *frontend.Import) error {
 		}
 		tmp := f.tmpVar()
 		f.fallible(tmp, sel("runtime", entry), strLit(a.Name))
-		f.add(set(ident(mangle(a.Bound())), ident(tmp)))
+		f.bindImport(a.Bound(), ident(tmp))
 	}
 	return nil
+}
+
+// bindImport binds an imported name, into the class namespace through the
+// builder when an import statement runs inside a class body, CPython's
+// STORE_NAME, otherwise into a module or local Go variable.
+func (f *fnCtx) bindImport(name string, v ast.Expr) {
+	if f.classBld != "" {
+		f.fallibleVoid(sel(f.classBld, "Set"), strLit(name), v)
+		return
+	}
+	f.add(set(ident(mangle(name)), v))
 }
 
 // importFrom lowers `from m import x, y as z`: import the module, then read
@@ -261,7 +272,7 @@ func (f *fnCtx) importFrom(s *frontend.ImportFrom) error {
 	for _, a := range s.Names {
 		tmp := f.tmpVar()
 		f.fallible(tmp, sel("runtime", "ImportFrom"), strLit(module), strLit(a.Name))
-		f.add(set(ident(mangle(a.Bound())), ident(tmp)))
+		f.bindImport(a.Bound(), ident(tmp))
 	}
 	return nil
 }
