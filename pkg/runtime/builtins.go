@@ -281,9 +281,15 @@ func roundFloat(f float64, nd int64) (objects.Object, error) {
 // the same floor semantics as the // and % operators.
 func DivMod(a, b objects.Object) (objects.Object, error) {
 	if _, ok := objects.AsFloat(a); !ok {
+		if res, handled, err := objects.DivmodDunder(a, b); handled || err != nil {
+			return res, err
+		}
 		return nil, divmodUnsupported(a, b)
 	}
 	if _, ok := objects.AsFloat(b); !ok {
+		if res, handled, err := objects.DivmodDunder(a, b); handled || err != nil {
+			return res, err
+		}
 		return nil, divmodUnsupported(a, b)
 	}
 	q, err := objects.FloorDiv(a, b)
