@@ -65,6 +65,7 @@ func initTime(m *objects.Module) error {
 		{"mktime", timeMktime},
 		{"asctime", timeAsctime},
 		{"ctime", timeCtime},
+		{"strptime", timeStrptime},
 	}
 	for _, f := range funcs {
 		if err := set(f.name, objects.NewFunc(f.name, -1, f.fn)); err != nil {
@@ -75,6 +76,17 @@ func initTime(m *objects.Module) error {
 	// hands back to strftime; the type object is callable so the module exposes
 	// it directly.
 	if err := set("struct_time", timeStructTimeType); err != nil {
+		return err
+	}
+	// _STRUCT_TM_ITEMS is the count of struct_time fields (nine sequence plus
+	// tm_zone and tm_gmtoff), which _strptime slices a parse result down to
+	// before building a struct_time.
+	if err := set("_STRUCT_TM_ITEMS", objects.NewInt(11)); err != nil {
+		return err
+	}
+	// The zone attributes _strptime reads at import, and general programs read
+	// for the host offset.
+	if err := timeZoneAttrs(m); err != nil {
 		return err
 	}
 	return nil

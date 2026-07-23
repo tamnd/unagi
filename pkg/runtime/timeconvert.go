@@ -121,6 +121,63 @@ func structTimeFromGoTime(t time.Time, zone string, offset, dst int) objects.Obj
 	return timeStructTimeType.NewStructSeq(seq, vals)
 }
 
+// timeStrptime is time.strptime(string[, format]): parse a time string into a
+// struct_time. The C module delegates to _strptime._strptime_time, a pure-Python
+// parser the floor already carries, so this reads that function and calls it
+// rather than reimplementing the parse. _strptime reads time.tzname and
+// time.daylight at import, which timeZoneAttrs supplies.
+func timeStrptime(args []objects.Object) (objects.Object, error) {
+	if len(args) < 1 || len(args) > 2 {
+		return nil, objects.Raise(objects.TypeError, "strptime() takes at least 1 argument (%d given)", len(args))
+	}
+	fn, err := ImportFrom("_strptime", "_strptime_time")
+	if err != nil {
+		return nil, err
+	}
+	return objects.Call(fn, args)
+}
+
+// timeZoneAttrs sets the module-level zone attributes _strptime and general
+// programs read: tzname is the (standard, daylight) name pair, timezone and
+// altzone are the seconds west of UTC for each, and daylight flags whether the
+// host zone observes a summer offset. The values come from the host zone, so
+// they are host dependent, but they steer only %Z parsing and the zone display,
+// not the calendar fields a plain strptime or strftime produces.
+func timeZoneAttrs(m *objects.Module) error {
+	year := time.Now().Year()
+	jan := time.Date(year, 1, 1, 0, 0, 0, 0, time.Local)
+	jul := time.Date(year, 7, 1, 0, 0, 0, 0, time.Local)
+	janName, janOff := jan.Zone()
+	julName, julOff := jul.Zone()
+	stdName, stdOff := janName, janOff
+	dstName, dstOff := janName, janOff
+	if jan.IsDST() { // southern hemisphere: January is the summer offset
+		stdName, stdOff = julName, julOff
+		dstName, dstOff = janName, janOff
+	} else if jul.IsDST() {
+		dstName, dstOff = julName, julOff
+	}
+	daylight := 0
+	if janOff != julOff {
+		daylight = 1
+	}
+	attrs := []struct {
+		name string
+		v    objects.Object
+	}{
+		{"timezone", objects.NewInt(int64(-stdOff))},
+		{"altzone", objects.NewInt(int64(-dstOff))},
+		{"daylight", objects.NewInt(int64(daylight))},
+		{"tzname", objects.NewTuple([]objects.Object{objects.NewStr(stdName), objects.NewStr(dstName)})},
+	}
+	for _, a := range attrs {
+		if err := objects.StoreAttr(m, a.name, a.v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // timeSecsArg reads the optional timestamp shared by gmtime, localtime and
 // ctime: absent or None means the current time, and a non-number raises the
 // CPython TypeError. The fractional part is dropped, since struct_time carries
