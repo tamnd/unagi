@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+1.0
+1.0
+1.0000000000000002e+16
+2.0
+0.0
+42.0
+55.0
+2.283333333333333
+inf
+-inf
+True
+inf-inf -> ValueError: -inf + inf in fsum
+overflow -> OverflowError: intermediate overflow in fsum
+bad elem -> TypeError: must be real number, not str
+no args -> TypeError: math.fsum() takes exactly one argument (0 given)
+== exception:
+== stderr:

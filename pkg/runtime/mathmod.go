@@ -118,6 +118,7 @@ func initMath(m *objects.Module) error {
 		{"remainder", mathRemainder},
 		{"pow", mathPow},
 		{"hypot", mathHypot},
+		{"fsum", mathFsum},
 		{"gamma", mathGamma},
 		{"lgamma", mathLgamma},
 		{"floor", mathFloor},
@@ -398,6 +399,100 @@ func mathHypot(args []objects.Object) (objects.Object, error) {
 		sum += v * v
 	}
 	return objects.NewFloat(math.Sqrt(sum)), nil
+}
+
+// mathFsum returns an accurate floating-point sum of the values in an iterable,
+// a direct port of CPython's math_fsum. It keeps a list of nonoverlapping
+// partial sums (the Shewchuk algorithm), so no intermediate rounding error
+// accumulates, and it carries CPython's special-value handling: an infinite or
+// nan input is summed separately, an intermediate overflow from finite inputs is
+// an OverflowError, and mixing +inf with -inf is a ValueError.
+func mathFsum(args []objects.Object) (objects.Object, error) {
+	if len(args) != 1 {
+		return nil, objects.Raise(objects.TypeError, "math.fsum() takes exactly one argument (%d given)", len(args))
+	}
+	items, err := materialize(args[0])
+	if err != nil {
+		return nil, err
+	}
+	var partials []float64
+	var specialSum, infSum float64
+	for _, item := range items {
+		x, err := mathToFloat(item)
+		if err != nil {
+			return nil, err
+		}
+		xsave := x
+		i := 0
+		for _, y := range partials {
+			if math.Abs(x) < math.Abs(y) {
+				x, y = y, x
+			}
+			hi := x + y
+			yr := hi - x
+			lo := y - yr
+			if lo != 0.0 {
+				partials[i] = lo
+				i++
+			}
+			x = hi
+		}
+		partials = partials[:i]
+		if x != 0.0 {
+			if math.IsInf(x, 0) || math.IsNaN(x) {
+				// A nonfinite x is either an intermediate overflow from
+				// finite summands, which is an error, or a nonfinite
+				// summand, which is set aside in the special sum.
+				if !math.IsInf(xsave, 0) && !math.IsNaN(xsave) {
+					return nil, objects.Raise(objects.OverflowError, "intermediate overflow in fsum")
+				}
+				if math.IsInf(xsave, 0) {
+					infSum += xsave
+				}
+				specialSum += xsave
+				partials = partials[:0]
+			} else {
+				partials = append(partials, x)
+			}
+		}
+	}
+	if specialSum != 0.0 {
+		if math.IsNaN(infSum) {
+			return nil, objects.Raise(objects.ValueError, "-inf + inf in fsum")
+		}
+		return objects.NewFloat(specialSum), nil
+	}
+	hi := 0.0
+	n := len(partials)
+	if n > 0 {
+		n--
+		hi = partials[n]
+		// Sum the partials from the top, stopping when the running sum first
+		// becomes inexact so hi holds the correctly rounded total.
+		var lo float64
+		for n > 0 {
+			x := hi
+			n--
+			y := partials[n]
+			hi = x + y
+			yr := hi - x
+			lo = y - yr
+			if lo != 0.0 {
+				break
+			}
+		}
+		// Make half-even rounding work across multiple partials so a case like
+		// sum([1e-16, 1, 1e16]) rounds the same as CPython.
+		if n > 0 && ((lo < 0.0 && partials[n-1] < 0.0) || (lo > 0.0 && partials[n-1] > 0.0)) {
+			y := lo * 2.0
+			x := hi + y
+			yr := x - hi
+			if y == yr {
+				hi = x
+			}
+		}
+	}
+	return objects.NewFloat(hi), nil
 }
 
 // mathGammaPole reports whether x sits on a pole of the gamma function, the zero
