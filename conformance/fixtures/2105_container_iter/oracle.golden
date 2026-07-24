@@ -1,0 +1,24 @@
+== exit: 0
+== stdout:
+list_iterator [1, 2]
+tuple_iterator [1, 2]
+dict_keyiterator ['a', 'b']
+set_iterator [1, 2]
+set_iterator [1]
+str_ascii_iterator ['a', 'b', 'c']
+str_iterator ['c', 'a', 'f', 'é']
+bytes_iterator [97, 98]
+bytearray_iterator [120, 121]
+range_iterator [0, 1]
+arrayiterator [7, 8]
+a
+['b']
+[10, 20]
+['x', 'y']
+5432
+['host', 'port']
+host localhost
+port 5432
+True
+== exception:
+== stderr:
