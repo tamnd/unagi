@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"crypto/rand"
 	"os"
 	"runtime"
 	"strings"
@@ -162,6 +163,7 @@ func initPosix(m *objects.Module) error {
 		{"geteuid", posixGeteuid},
 		{"putenv", posixPutenv},
 		{"unsetenv", posixUnsetenv},
+		{"urandom", posixUrandom},
 	}
 	for _, f := range fns {
 		if err := set(f.name, objects.NewFunc(f.name, -1, f.fn)); err != nil {
@@ -221,6 +223,28 @@ func posixGetcwdb(args []objects.Object) (objects.Object, error) {
 		return nil, objects.Raise("OSError", "%s", err.Error())
 	}
 	return objects.NewBytes([]byte(wd)), nil
+}
+
+// posixUrandom is os.urandom(size): it returns size cryptographically random
+// bytes straight from the operating system's entropy source, the same one
+// CPython draws from, so the output is not reproducible and callers seed nothing.
+// A negative size is a ValueError and a non-integer a TypeError, matching CPython.
+func posixUrandom(args []objects.Object) (objects.Object, error) {
+	if len(args) != 1 {
+		return nil, objects.Raise(objects.TypeError, "urandom() takes exactly one argument (%d given)", len(args))
+	}
+	n, ok := objects.AsInt(args[0])
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", args[0].TypeName())
+	}
+	if n < 0 {
+		return nil, objects.Raise(objects.ValueError, "negative argument not allowed")
+	}
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return nil, objects.Raise("OSError", "%s", err.Error())
+	}
+	return objects.NewBytes(buf), nil
 }
 
 func posixGetpid(args []objects.Object) (objects.Object, error) {
