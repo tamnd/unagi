@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+True
+True
+True True
+True
+True
+b'TAIL'
+50 True
+True
+caught zlib.error
+== exception:
+== stderr:

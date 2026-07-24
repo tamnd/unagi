@@ -160,6 +160,10 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		return hashMethod(x, name, args)
 	case *hmacObject:
 		return hmacObjMethod(x, name, args)
+	case *zlibCompressObject:
+		return zlibCompressMethod(x, name, args)
+	case *zlibDecompressObject:
+		return zlibDecompressMethod(x, name, args)
 	case *boundMethod, *functionObject, *funcObject, *namedTupleType, *lruCacheObject:
 		// A function or bound method has no method surface of its own, so
 		// obj.attr(args) reads the attribute and calls it, the way CPython does
