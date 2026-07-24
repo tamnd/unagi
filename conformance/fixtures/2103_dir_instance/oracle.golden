@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+True True True True
+True True True
+False
+True
+True
+['bar', 'foo', 'inst', 'x']
+1 1
+['apple', 'apple', 'mango', 'zebra']
+['get', 'getfloat', 'getint']
+arity: dir expected at most 1 argument, got 2
+== exception:
+== stderr:
