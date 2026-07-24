@@ -1,0 +1,41 @@
+== exit: 0
+== stdout:
+real -> 3.5
+imag -> 0.0
+conjugate -> 3.5
+numerator -> AttributeError: 'float' object has no attribute 'numerator'
+is_integer 3.0 -> True
+is_integer 3.5 -> False
+is_integer inf -> False
+is_integer arg -> TypeError: float.is_integer() takes no arguments (1 given)
+air 0.25 -> (1, 4)
+air 3.0 -> (3, 1)
+air -0.5 -> (-1, 2)
+air 0.1 -> (3602879701896397, 36028797018963968)
+air inf -> OverflowError: cannot convert Infinity to integer ratio
+air nan -> ValueError: cannot convert NaN to integer ratio
+air arg -> TypeError: float.as_integer_ratio() takes no arguments (1 given)
+hex 3.5 -> 0x1.c000000000000p+1
+hex 1.0 -> 0x1.0000000000000p+0
+hex 0.0 -> 0x0.0p+0
+hex -0.0 -> -0x0.0p+0
+hex 0.1 -> 0x1.999999999999ap-4
+hex inf -> inf
+hex nan -> nan
+hex arg -> TypeError: float.hex() takes no arguments (1 given)
+trunc 3.7 -> 3
+trunc -3.7 -> -3
+floor -3.2 -> -4
+ceil -3.2 -> -3
+int 3.7 -> 3
+int 1e30 -> 1000000000000000019884624838656
+int inf -> OverflowError: cannot convert float infinity to integer
+floor nan -> ValueError: cannot convert float NaN to integer
+float 3.7 -> 3.7
+frac int 5/6
+frac 0.25 1/4
+frac 0.1 3602879701896397/36028797018963968
+gettext hello world
+hash_info 64 2305843009213693951 314159 0 1000003 siphash13 64 128 0
+== exception:
+== stderr:

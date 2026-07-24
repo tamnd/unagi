@@ -1795,6 +1795,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return instanceLoadAttr(x, name)
 	case *intObject, *boolObject:
 		return intLoadAttr(o, name)
+	case *floatObject:
+		return floatLoadAttr(o, name)
 	case *unionObject:
 		return unionLoadAttr(x, name)
 	case *Module:
