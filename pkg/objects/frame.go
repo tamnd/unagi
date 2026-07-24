@@ -34,6 +34,15 @@ type codeObject struct {
 	name      string
 	qualname  string
 	firstline int
+	// The argument-count and name fields are filled when a function hands back
+	// its __code__; a frame's code object leaves them zero and nil, which reads
+	// back as co_argcount 0 and co_varnames (), an accepted divergence since a
+	// frame never exposes them.
+	argcount int
+	posonly  int
+	kwonly   int
+	flags    int
+	varnames []string
 }
 
 func (*codeObject) TypeName() string { return "code" }
@@ -132,7 +141,19 @@ func codeLoadAttr(c *codeObject, name string) (Object, error) {
 	case "co_firstlineno":
 		return NewInt(int64(c.firstline)), nil
 	case "co_flags":
-		return NewInt(0), nil
+		return NewInt(int64(c.flags)), nil
+	case "co_argcount":
+		return NewInt(int64(c.argcount)), nil
+	case "co_posonlyargcount":
+		return NewInt(int64(c.posonly)), nil
+	case "co_kwonlyargcount":
+		return NewInt(int64(c.kwonly)), nil
+	case "co_varnames":
+		names := make([]Object, len(c.varnames))
+		for i, n := range c.varnames {
+			names[i] = NewStr(n)
+		}
+		return NewTuple(names), nil
 	}
 	return nil, Raise(AttributeError, "'code' object has no attribute '%s'", name)
 }

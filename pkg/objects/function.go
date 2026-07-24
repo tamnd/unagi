@@ -84,6 +84,60 @@ func funcName(qual string) string {
 	return qual
 }
 
+// functionCode builds the code object a function hands back as __code__. unagi
+// keeps no bytecode, so co_code and the constant and name pools are out of
+// scope, and the source location a function does not carry (co_filename,
+// co_firstlineno) reads as "" and 0. The argument shape is faithful: the counts
+// and co_varnames come straight from the declared parameters, and co_flags
+// carries the standard OPTIMIZED|NEWLOCALS bits plus VARARGS/VARKEYWORDS when
+// the signature has *args or **kwargs, matching CPython for these fields.
+func functionCode(fn *functionObject) *codeObject {
+	const coOptimized, coNewlocals, coVarargs, coVarkeywords = 0x01, 0x02, 0x04, 0x08
+	flags := coOptimized | coNewlocals
+	var posonly, argcount, kwonly int
+	var plain, kwonlyNames []string
+	var starName, starStarName string
+	for _, p := range fn.params {
+		switch p.Kind {
+		case ParamPosOnly:
+			posonly++
+			argcount++
+			plain = append(plain, p.Name)
+		case ParamPlain:
+			argcount++
+			plain = append(plain, p.Name)
+		case ParamKwOnly:
+			kwonly++
+			kwonlyNames = append(kwonlyNames, p.Name)
+		case ParamStar:
+			flags |= coVarargs
+			starName = p.Name
+		case ParamStarStar:
+			flags |= coVarkeywords
+			starStarName = p.Name
+		}
+	}
+	// co_varnames lists the plain args, then the keyword-only args, then the
+	// *args and **kwargs names, the order CPython builds.
+	varnames := append([]string{}, plain...)
+	varnames = append(varnames, kwonlyNames...)
+	if starName != "" {
+		varnames = append(varnames, starName)
+	}
+	if starStarName != "" {
+		varnames = append(varnames, starStarName)
+	}
+	return &codeObject{
+		name:     funcName(fn.qual),
+		qualname: fn.qual,
+		argcount: argcount,
+		posonly:  posonly,
+		kwonly:   kwonly,
+		flags:    flags,
+		varnames: varnames,
+	}
+}
+
 // NewFunction builds a function object. defaults must be nil or aligned
 // one to one with params. It carries the thread-state-less impl the native
 // module functions use; a compiled Python def uses NewFunctionT instead so the

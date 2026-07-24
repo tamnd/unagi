@@ -66,6 +66,8 @@ func functionLoadAttr(fn *functionObject, name string) (Object, error) {
 			return a.module, nil
 		}
 		return NewStr("__main__"), nil
+	case "__code__":
+		return functionCode(fn), nil
 	case "__annotations__":
 		return funcAnnotations(fn), nil
 	case "__dict__":

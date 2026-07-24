@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+code
+full full
+4 2 2
+15
+('a', 'b', 'c', 'd', 'e', 'f', 'args', 'kw')
+2 3 ('x', 'y')
+method C.method 2
+<lambda> 2 ('p', 'q')
+7 11
+importlib
+True
+== exception:
+== stderr:
