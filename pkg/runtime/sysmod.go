@@ -98,6 +98,42 @@ func sysHashInfo() objects.Object {
 	return sysHashInfoType.NewStructSeq(seq, seq)
 }
 
+// sysFloatInfoType is the structseq class behind sys.float_info, the limits of
+// the C double every Python float rides on. All eleven fields are the visible
+// sequence CPython 3.14 exposes, no named-only extras.
+var sysFloatInfoType = objects.NewStructSeqType(
+	"float_info", "sys.float_info",
+	[]string{
+		"max", "max_exp", "max_10_exp",
+		"min", "min_exp", "min_10_exp",
+		"dig", "mant_dig", "epsilon", "radix", "rounds",
+	},
+	11, 0,
+)
+
+// sysFloatInfo builds sys.float_info. The values are the IEEE 754 binary64
+// limits from float.h, identical on every host that uses a 64-bit double, so the
+// fixtures stay platform-stable. statistics reads mant_dig at import to size its
+// exact-sum accumulator. max, min and epsilon come from exact hex-float literals
+// so they carry CPython's repr to the last digit; rounds is 1 for the standard
+// round-to-nearest FLT_ROUNDS.
+func sysFloatInfo() objects.Object {
+	seq := []objects.Object{
+		objects.NewFloat(math.MaxFloat64),
+		objects.NewInt(1024),
+		objects.NewInt(308),
+		objects.NewFloat(0x1p-1022),
+		objects.NewInt(-1021),
+		objects.NewInt(-307),
+		objects.NewInt(15),
+		objects.NewInt(53),
+		objects.NewFloat(0x1p-52),
+		objects.NewInt(2),
+		objects.NewInt(1),
+	}
+	return sysFloatInfoType.NewStructSeq(seq, seq)
+}
+
 // sysFlags builds the sys.flags value. A compiled program runs none of the
 // interpreter command-line switches these report, so they carry CPython's
 // default startup values, hardcoded rather than read from a live interpreter
@@ -220,6 +256,7 @@ func initSys(m *objects.Module) error {
 		{"platform", objects.NewStr(sysPlatform())},
 		{"flags", sysFlags()},
 		{"hash_info", sysHashInfo()},
+		{"float_info", sysFloatInfo()},
 		{"warnoptions", objects.NewList(nil)},
 		// A compiled program has no Python installation tree, so the install
 		// prefixes are empty. They are equal to each other, which is how a program
