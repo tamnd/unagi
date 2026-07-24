@@ -164,6 +164,42 @@ func initCollections(m *objects.Module) error {
 		return err
 	}
 
+	// ChainMap(*maps): groups the mappings into one updatable view where a lookup
+	// walks them front to back and every write lands on the first. With no
+	// arguments it holds a single empty dict. It takes no keywords, so the star
+	// parameter collects every positional mapping into the maps list.
+	chainMap := objects.NewFunction("ChainMap",
+		[]objects.Param{
+			{Name: "maps", Kind: objects.ParamStar},
+		},
+		[]objects.Object{nil},
+		func(a []objects.Object) (objects.Object, error) {
+			maps, err := materialize(a[0])
+			if err != nil {
+				return nil, err
+			}
+			return objects.NewChainMap(maps)
+		})
+	// fromkeys(iterable, value=None, /) is a classmethod, reached both as
+	// ChainMap.fromkeys(...) on the constructor and as cm.fromkeys(...) on an
+	// instance. The instance path runs through chainMapMethod; bind the same
+	// behavior as an attribute of the constructor object for the class path.
+	chainMapFromKeys := objects.NewFunction("fromkeys",
+		[]objects.Param{
+			{Name: "iterable", Kind: objects.ParamPosOnly},
+			{Name: "value", Kind: objects.ParamPosOnly},
+		},
+		[]objects.Object{nil, objects.None},
+		func(a []objects.Object) (objects.Object, error) {
+			return objects.ChainMapFromKeys(a[0], a[1])
+		})
+	if err := objects.StoreAttr(chainMap, "fromkeys", chainMapFromKeys); err != nil {
+		return err
+	}
+	if err := objects.StoreAttr(m, "ChainMap", chainMap); err != nil {
+		return err
+	}
+
 	// namedtuple(typename, field_names, *, rename=False, defaults=None,
 	// module=None): a factory that returns a tuple subclass whose fields are
 	// reachable by name. The parsing, validation, rename handling and default

@@ -366,6 +366,8 @@ func DelItem(o, key Object) error {
 		return nil
 	case *dequeObject:
 		return dequeDelItem(x, key)
+	case *chainMapObject:
+		return chainMapDelItem(x, key)
 	case *arrayObject:
 		return arrayDelItem(x, key)
 	case *dictObject:

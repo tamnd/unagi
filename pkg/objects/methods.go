@@ -150,6 +150,8 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		return memoryviewMethod(x, name, args)
 	case *dequeObject:
 		return dequeMethod(x, name, args)
+	case *chainMapObject:
+		return chainMapMethod(x, name, args)
 	case *arrayObject:
 		return arrayMethod(x, name, args)
 	case *csvWriter:
@@ -246,6 +248,8 @@ func CallMethodKwT(t *Thread, o Object, name string, pos []Object, kwNames []str
 		if x.kind == orderedDict {
 			return orderedMethodKw(x, name, pos, kwNames, kwVals)
 		}
+	case *chainMapObject:
+		return chainMapMethodKw(x, name, pos, kwNames, kwVals)
 	case *tupleObject:
 		if x.named != nil && name == "_replace" && len(pos) == 0 {
 			return namedTupleReplace(x, kwNames, kwVals)

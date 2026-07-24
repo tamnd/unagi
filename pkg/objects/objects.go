@@ -717,6 +717,15 @@ func IsDict(o Object) bool {
 	return ok
 }
 
+// IsChainMap reports whether o is a collections.ChainMap, so a mapping copy
+// such as dict(cm) reads it by keys through the item protocol rather than
+// mistaking it for an iterable of pairs. CPython's dict constructor branches the
+// same way on the keys() method a ChainMap carries.
+func IsChainMap(o Object) bool {
+	_, ok := o.(*chainMapObject)
+	return ok
+}
+
 // IsDictBackedInstance reports whether o is an instance of a dict subclass with
 // an allocated mapping store, so dict(o) and other mapping copies treat it as a
 // mapping to read by keys rather than an iterable of pairs, the way CPython

@@ -1972,6 +1972,21 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return None, nil
 		}
 		return nil, noAttr(x, name)
+	case *chainMapObject:
+		// maps is the live list of underlying mappings, the one mutable data
+		// attribute; parents is a computed property, a ChainMap of every map but
+		// the first. Any method name binds as a callable so cm.get reads back the
+		// same as cm.get(...); everything else is the plain attribute miss.
+		switch name {
+		case "maps":
+			return x.maps, nil
+		case "parents":
+			return chainMapParents(x)
+		}
+		if chainMapMethodNames[name] {
+			return builtinMethodValue(x, name), nil
+		}
+		return nil, noAttr(x, name)
 	case *arrayObject:
 		return arrayLoadAttr(x, name)
 	case *csvReader:
@@ -2270,6 +2285,14 @@ func StoreAttr(o Object, name string, val Object) error {
 				return Raise(TypeError, "default_factory must be callable or None")
 			}
 			x.factory = val
+			return nil
+		}
+	case *chainMapObject:
+		// cm.maps is reassignable: some code swaps the whole list of mappings.
+		// The attribute is a plain public list in CPython, so store whatever object
+		// is handed over and let the later maps operations read it back.
+		if name == "maps" {
+			x.maps = val
 			return nil
 		}
 	}

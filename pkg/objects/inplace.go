@@ -201,6 +201,15 @@ func iterAll(o Object) ([]Object, error) {
 // operand or a non-set right operand declines so the binary op rebinds (a new
 // frozenset) or raises the augmented unsupported-operand error.
 func inplaceUnion(a, b Object) (Object, bool, error) {
+	// ChainMap |= updates the first map in place from other and returns the same
+	// ChainMap, so an alias sees the change. __ior__ does self.maps[0].update(
+	// other), which takes a mapping or an iterable of pairs like dict.update.
+	if c, ok := a.(*chainMapObject); ok {
+		if err := chainMapUpdate(c, b, nil, nil); err != nil {
+			return nil, true, err
+		}
+		return c, true, nil
+	}
 	// dict |= merges in place like dict.update, taking a mapping or an iterable
 	// of pairs, which is wider than the binary dict | that needs two dicts.
 	if d, ok := a.(*dictObject); ok {
