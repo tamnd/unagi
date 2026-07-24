@@ -403,6 +403,9 @@ func DelItem(o, key Object) error {
 			}
 			return nil
 		}
+		if l, ok := listBacked(x); ok {
+			return DelItem(l, key)
+		}
 	}
 	// Probed on 3.14: del (1, 2)[0] -> TypeError: 'tuple' object doesn't
 	// support item deletion. Note "doesn't"; slices say "does not".

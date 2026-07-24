@@ -146,6 +146,10 @@ type instanceObject struct {
 	// self[key] and the inherited dict methods read and write. It is nil for an
 	// ordinary instance whose class has no dict base.
 	dictData *dictObject
+	// listData is the sequence payload of a list subclass instance, the storage
+	// self[i], the inherited list methods and the sequence operators read and
+	// write. It is nil for an instance whose class has no list base.
+	listData *listObject
 	// builtinData is the immutable payload of a value subclass instance: the
 	// intObject an int subclass wraps or the strObject a str subclass wraps, set
 	// once at construction. It is nil for an instance whose class has no such
@@ -1753,6 +1757,8 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 	switch c.builtinBase {
 	case "dict":
 		inst.dictData = &dictObject{index: map[string]int{}}
+	case "list":
+		inst.listData = &listObject{}
 	case "int", "str", "tuple", "classmethod", "staticmethod", "property", "ref":
 		// A value subclass builds its immutable payload through the builtin base's
 		// own conversion, the way int.__new__ or str.__new__ sets the value from
@@ -1784,6 +1790,14 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 			// A dict subclass with no __init__ override inherits dict.__init__,
 			// which seeds the store from the constructor arguments.
 			if err := dictInit(inst.dictData, pos, kwNames, kwVals); err != nil {
+				return nil, err
+			}
+			return inst, nil
+		}
+		if inst.listData != nil {
+			// A list subclass with no __init__ override inherits list.__init__,
+			// which fills the store from the optional iterable argument.
+			if err := listInit(inst.listData, pos, kwNames, kwVals); err != nil {
 				return nil, err
 			}
 			return inst, nil

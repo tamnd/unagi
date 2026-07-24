@@ -390,6 +390,11 @@ func reprCore(o Object, strict bool) (string, error) {
 			if d, ok := dictBacked(x); ok {
 				return dictBodyRepr(d, strict)
 			}
+			// A list subclass inherits list.__repr__, printing as its bracketed
+			// element body with no class name, the same as CPython.
+			if l, ok := listBacked(x); ok {
+				return reprCore(l, strict)
+			}
 			// A value subclass with no __repr__ override reprs as its payload, so
 			// an int subclass member prints as its int value.
 			if v, ok := builtinUnwrap(x); ok {

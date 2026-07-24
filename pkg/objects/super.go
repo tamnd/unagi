@@ -205,6 +205,11 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 				switch cls.builtinBase {
 				case "dict":
 					inst.dictData = &dictObject{index: map[string]int{}}
+				case "list":
+					// list.__new__ ignores its arguments and returns an empty list;
+					// the fill happens in list.__init__, so super().__new__(cls,
+					// iterable) leaves the payload empty for __init__ to populate.
+					inst.listData = &listObject{}
 				case "int", "str", "tuple", "classmethod", "staticmethod", "property", "ref":
 					// A namedtuple subclass reaches super().__new__(cls, iterable)
 					// through the generated namedtuple __new__; it builds the tuple
