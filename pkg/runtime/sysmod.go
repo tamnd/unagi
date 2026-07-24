@@ -65,6 +65,38 @@ var sysFlagsType = objects.NewStructSeqType(
 	18, 0,
 )
 
+// sysHashInfoType is the structseq class behind sys.hash_info, the parameters of
+// the numeric hash. All nine fields are the visible sequence CPython 3.14
+// exposes; there are no named-only extras.
+var sysHashInfoType = objects.NewStructSeqType(
+	"sys.hash_info", "sys.hash_info",
+	[]string{
+		"width", "modulus", "inf", "nan", "imag",
+		"algorithm", "hash_bits", "seed_bits", "cutoff",
+	},
+	9, 0,
+)
+
+// sysHashInfo builds sys.hash_info. The values are the ones CPython's pyhash.c
+// fixes for a 64-bit build with the default siphash13 string algorithm, identical
+// on every 64-bit host so the fixtures stay platform-stable. modulus is the
+// Mersenne prime 2**61-1 that the numeric __hash__ of int, float and Fraction
+// reduce against, which is why fractions needs this attribute to import.
+func sysHashInfo() objects.Object {
+	seq := []objects.Object{
+		objects.NewInt(64),
+		objects.NewInt((1 << 61) - 1),
+		objects.NewInt(314159),
+		objects.NewInt(0),
+		objects.NewInt(1000003),
+		objects.NewStr("siphash13"),
+		objects.NewInt(64),
+		objects.NewInt(128),
+		objects.NewInt(0),
+	}
+	return sysHashInfoType.NewStructSeq(seq, seq)
+}
+
 // sysFlags builds the sys.flags value. A compiled program runs none of the
 // interpreter command-line switches these report, so they carry CPython's
 // default startup values, hardcoded rather than read from a live interpreter
@@ -179,7 +211,17 @@ func initSys(m *objects.Module) error {
 		{"byteorder", objects.NewStr("little")},
 		{"platform", objects.NewStr(sysPlatform())},
 		{"flags", sysFlags()},
+		{"hash_info", sysHashInfo()},
 		{"warnoptions", objects.NewList(nil)},
+		// A compiled program has no Python installation tree, so the install
+		// prefixes are empty. They are equal to each other, which is how a program
+		// tells it is not running inside a virtual environment. Modules that build
+		// a default path from them, such as gettext joining a locale directory onto
+		// base_prefix, just get a relative path that does not resolve.
+		{"prefix", objects.NewStr("")},
+		{"exec_prefix", objects.NewStr("")},
+		{"base_prefix", objects.NewStr("")},
+		{"base_exec_prefix", objects.NewStr("")},
 	}
 	for _, a := range attrs {
 		if err := set(a.name, a.val); err != nil {
