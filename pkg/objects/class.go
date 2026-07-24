@@ -126,6 +126,20 @@ type classObject struct {
 	// stays false, the PEP 649 shape 3.14 reports. It is lazily created as an empty
 	// dict on first read of a class that declared none.
 	annotations Object
+	// annotate carries the class body's annotations as unevaluated thunks, PEP
+	// 649's deferred __annotate__. The class body no longer evaluates an
+	// annotation as it runs, so a forward reference or a name imported only under
+	// `if TYPE_CHECKING` never raises at class-definition time; the thunks run on
+	// the first C.__annotations__ read and memoize into annotations. It is nil for
+	// a class that declared no annotations or once its annotations are realized.
+	annotate []classAnn
+}
+
+// classAnn is one deferred class-body annotation: the annotated name and the
+// thunk that evaluates its annotation expression in the defining scope.
+type classAnn struct {
+	name  string
+	thunk func() (Object, error)
 }
 
 func (*classObject) TypeName() string { return "type" }
@@ -1973,7 +1987,7 @@ func LoadAttr(o Object, name string) (Object, error) {
 		// object answers rather than raising. A class that did accumulate one bound
 		// it in the class dict, so x.lookup above already returned it.
 		if name == "__annotations__" {
-			return classAnnotations(x), nil
+			return classAnnotations(x)
 		}
 		return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
 	case *annotationsDescriptor:

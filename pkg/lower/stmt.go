@@ -440,13 +440,15 @@ func (f *fnCtx) annAssign(s *frontend.AnnAssign) error {
 	return nil
 }
 
-// recordAnnotation stores a class-body variable annotation into the class
-// __annotations__ dict. It fires only inside a class body (f.classBld set) and
-// only for a simple Name target, the case CPython records; an annotation on an
-// attribute or subscript target names no class variable and is dropped. The
-// annotation expression is evaluated eagerly here, so `x: int` stores the int
-// type and `x: "Fwd"` stores the string, matching a body without
-// `from __future__ import annotations`.
+// recordAnnotation registers a class-body variable annotation as a deferred
+// thunk on the class builder, PEP 649's __annotate__. It fires only inside a
+// class body (f.classBld set) and only for a simple Name target, the case
+// CPython records; an annotation on an attribute or subscript target names no
+// class variable and is dropped. The annotation expression is not evaluated
+// here: the class body hands the builder a closure it only runs on the first
+// C.__annotations__ read, so `x: int` and `x: "Fwd"` and a name imported only
+// under `if TYPE_CHECKING` all cost nothing at class-definition time and any
+// unresolved name raises on access instead.
 func (f *fnCtx) recordAnnotation(s *frontend.AnnAssign) error {
 	if f.classBld == "" {
 		return nil
@@ -455,14 +457,42 @@ func (f *fnCtx) recordAnnotation(s *frontend.AnnAssign) error {
 		return nil
 	}
 	name := s.Target.(*frontend.Name).Id
-	v, err := f.expr(s.Annotation)
+	thunk, err := f.annThunk(s.Annotation)
 	if err != nil {
 		return err
 	}
-	t := f.tmpVar()
-	f.add(define(ident(t), v))
-	f.fallibleVoid(sel(f.classBld, "Annotation"), strLit(name), ident(t))
+	f.add(exprStmt(callExpr(sel(f.classBld, "AnnotationLazy"), strLit(name), thunk)))
 	return nil
+}
+
+// annThunk lowers an annotation expression into a `func() (objects.Object,
+// error)` closure the class builder stores unevaluated. The body runs in a
+// function scope with no class namespace, so a name resolves against the module
+// globals and builtins the enclosing class body sees, and an unresolved one
+// defers to a runtime NameError raised only when the thunk runs. The closure
+// captures the enclosing Go variables by reference, so a name bound at module
+// scope reads its current value when C.__annotations__ is first accessed.
+func (f *fnCtx) annThunk(ann frontend.Expr) (ast.Expr, error) {
+	savedInFunc, savedClosure, savedBld := f.inFunc, f.closure, f.classBld
+	f.inFunc = true
+	f.closure = 0
+	f.classBld = ""
+	defer func() { f.inFunc, f.closure, f.classBld = savedInFunc, savedClosure, savedBld }()
+	f.push()
+	v, err := f.expr(ann)
+	if err != nil {
+		f.pop()
+		return nil, err
+	}
+	f.add(&ast.ReturnStmt{Results: []ast.Expr{v, ident("nil")}})
+	body := f.pop()
+	return &ast.FuncLit{
+		Type: &ast.FuncType{
+			Params:  &ast.FieldList{},
+			Results: fieldList(field(f.e.obj("Object")), field(ident("error"))),
+		},
+		Body: body,
+	}, nil
 }
 
 func (f *fnCtx) assignTo(target frontend.Expr, v ast.Expr) error {
