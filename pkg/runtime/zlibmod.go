@@ -40,6 +40,7 @@ func initZlib(m *objects.Module) error {
 		return err
 	}
 	zlibErrorClass = errCls
+	objects.SetZlibError(errCls)
 	if err := objects.StoreAttr(m, "error", errCls); err != nil {
 		return err
 	}
@@ -96,6 +97,8 @@ func initZlib(m *objects.Module) error {
 	}{
 		{"compress", zlibCompress},
 		{"decompress", zlibDecompress},
+		{"compressobj", zlibCompressObj},
+		{"decompressobj", zlibDecompressObj},
 		{"crc32", zlibCrc32},
 		{"adler32", zlibAdler32},
 	}
@@ -225,6 +228,44 @@ func zlibDecompress(pos []objects.Object, kwNames []string, kwVals []objects.Obj
 		return nil, zlibError(err.Error())
 	}
 	return objects.NewBytes(out), nil
+}
+
+// zlibCompressObj is zlib.compressobj(level=-1, method=DEFLATED, wbits=15,
+// memLevel=8, strategy=0): it opens a streaming compressor over the framing wbits
+// selects. method, memLevel, and strategy are accepted for the CPython signature
+// but do not change Go's DEFLATE, which has no tunable memory level or strategy.
+func zlibCompressObj(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	vals, err := bindArgs("compressobj", []string{"level", "method", "wbits", "memLevel", "strategy"}, pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	level, err := zlibIntArg("compressobj", "level", vals["level"], -1)
+	if err != nil {
+		return nil, err
+	}
+	wbits, err := zlibIntArg("compressobj", "wbits", vals["wbits"], 15)
+	if err != nil {
+		return nil, err
+	}
+	if level < -1 || level > 9 {
+		return nil, zlibError("Bad compression level")
+	}
+	return objects.NewZlibCompress(level, wbits)
+}
+
+// zlibDecompressObj is zlib.decompressobj(wbits=15): it opens a streaming
+// decompressor reading the framing wbits selects, the object gzip.decompress
+// feeds a whole member into to read back the stream, its end, and the trailer.
+func zlibDecompressObj(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	vals, err := bindArgs("decompressobj", []string{"wbits", "zdict"}, pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	wbits, err := zlibIntArg("decompressobj", "wbits", vals["wbits"], 15)
+	if err != nil {
+		return nil, err
+	}
+	return objects.NewZlibDecompress(wbits), nil
 }
 
 // zlibReader picks the inflate reader the wbits value asks for: the 9..15 range

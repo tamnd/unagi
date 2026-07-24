@@ -254,6 +254,10 @@ func reprCore(o Object, strict bool) (string, error) {
 		return "<" + x.algo.name + " " + x.TypeName() + " object>", nil
 	case *hmacObject:
 		return "<_hashlib.HMAC object>", nil
+	case *zlibCompressObject:
+		return "<zlib.Compress object>", nil
+	case *zlibDecompressObject:
+		return "<zlib.Decompress object>", nil
 	case *tupleObject:
 		if x.named != nil {
 			return namedTupleRepr(x, strict)
