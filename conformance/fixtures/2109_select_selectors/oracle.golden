@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+True [] []
+[] [] []
+True
+payload
+1
+True
+True
+payload
+0
+SelectorKey(fileobj, fd, events, data)
+('fileobj', 'fd', 'events', 'data')
+== exception:
+== stderr:

@@ -81,6 +81,7 @@ func tupleGetterRepr(g *tupleGetterObject, strict bool) (string, error) {
 type namedTupleType struct {
 	nt    *namedType
 	build *functionObject
+	doc   Object
 }
 
 func (*namedTupleType) TypeName() string { return "type" }
@@ -137,7 +138,14 @@ func NewNamedTupleType(name string, fields []string, defaults []Object) (Object,
 		return &tupleObject{elts: elts, named: nt}, nil
 	})
 
-	return &namedTupleType{nt: nt, build: build}, nil
+	// namedtuple seeds the class __doc__ to `Typename(field1, field2, ...)`, a
+	// writable attribute a caller can replace (selectors does, spelling out the
+	// SelectorKey fields), so keep it on the type object.
+	return &namedTupleType{
+		nt:    nt,
+		build: build,
+		doc:   NewStr(name + "(" + strings.Join(fields, ", ") + ")"),
+	}, nil
 }
 
 // namedTupleTypeAttr resolves an attribute read on the class object: the field
@@ -152,6 +160,8 @@ func namedTupleTypeAttr(t *namedTupleType, name string) (Object, error) {
 		return t.nt.makeFn, nil
 	case "__name__", "__qualname__":
 		return NewStr(t.nt.name), nil
+	case "__doc__":
+		return t.doc, nil
 	}
 	// A field name off the class object reads back its _tuplegetter descriptor,
 	// the way `NT.opname` does in CPython.
