@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+3.5
+3
+-2
+1.5 7
+9.0 9
+1
+float-no-int: float() argument must be a string or a real number, not 'HasInt'
+badfloat: BadFloat.__float__ returned non-float (type str)
+badint: __int__ returned non-int (type str)
+badindex-float: __index__ returned non-int (type str)
+badindex-int: __index__ returned non-int (type str)
+2.5
+2.5
+3.0
+== exception:
+== stderr:

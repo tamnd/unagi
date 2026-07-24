@@ -263,6 +263,9 @@ func IntOf(o objects.Object) (objects.Object, error) {
 		b, _ := new(big.Float).SetFloat64(t).Int(nil)
 		return objects.NewIntFromBig(b), nil
 	}
+	if res, ok, err := objects.IntFromDunder(o); ok {
+		return res, err
+	}
 	return nil, objects.Raise(objects.TypeError,
 		"int() argument must be a string, a bytes-like object or a real number, not '%s'", o.TypeName())
 }
@@ -351,6 +354,9 @@ func FloatOf(o objects.Object) (objects.Object, error) {
 	}
 	if f, ok := objects.AsFloat(o); ok {
 		return objects.NewFloat(f), nil
+	}
+	if res, ok, err := objects.FloatFromDunder(o); ok {
+		return res, err
 	}
 	return nil, objects.Raise(objects.TypeError,
 		"float() argument must be a string or a real number, not '%s'", o.TypeName())
