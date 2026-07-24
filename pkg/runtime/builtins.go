@@ -54,10 +54,11 @@ func MaxKw(args []objects.Object, key, dflt objects.Object) (objects.Object, err
 
 // minMax keeps the first winner: a candidate only displaces the current
 // best when it compares strictly less (or greater), so min(True, 1) is
-// True and min(1, True) is 1, exactly as probed on 3.14. Probed order for
-// the keyword forms: an empty iterable returns the default before the key
-// is checked, and a non-None key fails the callable check on non-empty
-// input because M1 has no function values.
+// True and min(1, True) is 1, exactly as probed on 3.14. A non-None key is
+// called once per item and the comparison runs on those keys while the item
+// itself is returned, the decorate-compare-undecorate CPython runs. Probed
+// order for the keyword forms: an empty iterable returns the default before
+// the key is checked.
 func minMax(args []objects.Object, name string, op objects.CmpOp, key, dflt objects.Object) (objects.Object, error) {
 	if len(args) == 0 {
 		// Probed: min() -> TypeError: min expected at least 1 argument, got 0.
@@ -78,17 +79,35 @@ func minMax(args []objects.Object, name string, op objects.CmpOp, key, dflt obje
 			return nil, objects.Raise(objects.ValueError, "%s() iterable argument is empty", name)
 		}
 	}
-	if key != objects.None {
+	useKey := key != objects.None
+	if useKey && !objects.Callable(key) {
 		return nil, objects.Raise(objects.TypeError, "'%s' object is not callable", key.TypeName())
 	}
 	best := items[0]
+	bestKey := best
+	if useKey {
+		var err error
+		bestKey, err = objects.Call(key, []objects.Object{best})
+		if err != nil {
+			return nil, err
+		}
+	}
 	for _, it := range items[1:] {
-		r, err := objects.Compare(op, it, best)
+		itKey := it
+		if useKey {
+			var err error
+			itKey, err = objects.Call(key, []objects.Object{it})
+			if err != nil {
+				return nil, err
+			}
+		}
+		r, err := objects.Compare(op, itKey, bestKey)
 		if err != nil {
 			return nil, err
 		}
 		if objects.Truth(r) {
 			best = it
+			bestKey = itKey
 		}
 	}
 	return best, nil

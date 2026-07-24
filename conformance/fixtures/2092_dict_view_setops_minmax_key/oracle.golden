@@ -1,0 +1,28 @@
+== exit: 0
+== stdout:
+keys-sub-list ['b', 'c']
+keys-sub-set ['b', 'c']
+keys-and ['a']
+keys-or ['a', 'b', 'c', 'z']
+keys-xor ['b', 'c', 'z']
+keys-sub-dict []
+set-sub-keys ['z']
+list-sub-keys ['z']
+type set
+frozen-sub-keys ['z'] set
+items-sub [('b', 2), ('c', 3)]
+items-and [('a', 1)]
+values TypeError
+non-iter TypeError
+max-key ('a', 3)
+min-key ('b', 1)
+max-len ccc
+min-abs 2
+max-tie (1, 'a')
+max-default none
+dictwriter 'a,b\r\n1,2\r\n3,4\r\n'
+extra-key True
+sniff-delim ';'
+has-header True
+== exception:
+== stderr:
