@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+getset_descriptor getset_descriptor
+<attribute '__mro__' of 'type' objects>
+<attribute '__dict__' of 'type' objects>
+(<class '__main__.B'>, <class '__main__.A'>, <class 'object'>)
+(<class 'int'>, <class 'object'>)
+mappingproxy
+True
+inspect dataclasses
+True True False
+== exception:
+== stderr:
