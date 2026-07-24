@@ -99,6 +99,7 @@ func initZlib(m *objects.Module) error {
 		{"decompress", zlibDecompress},
 		{"compressobj", zlibCompressObj},
 		{"decompressobj", zlibDecompressObj},
+		{"_ZlibDecompressor", zlibDecompressor},
 		{"crc32", zlibCrc32},
 		{"adler32", zlibAdler32},
 	}
@@ -266,6 +267,22 @@ func zlibDecompressObj(pos []objects.Object, kwNames []string, kwVals []objects.
 		return nil, err
 	}
 	return objects.NewZlibDecompress(wbits), nil
+}
+
+// zlibDecompressor is zlib._ZlibDecompressor(wbits=15, zdict=b”): the private
+// class GzipFile reads through compression._common._streams.DecompressReader. It
+// exposes decompress(data, max_length), eof, needs_input, and unused_data so the
+// reader can walk one gzip member at a time.
+func zlibDecompressor(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	vals, err := bindArgs("_ZlibDecompressor", []string{"wbits", "zdict"}, pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	wbits, err := zlibIntArg("_ZlibDecompressor", "wbits", vals["wbits"], 15)
+	if err != nil {
+		return nil, err
+	}
+	return objects.NewZlibDecompressor(wbits), nil
 }
 
 // zlibReader picks the inflate reader the wbits value asks for: the 9..15 range

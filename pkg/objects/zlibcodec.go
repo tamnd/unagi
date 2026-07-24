@@ -135,21 +135,31 @@ const (
 // bytes.Reader that flate consumes one byte at a time and stops precisely at the
 // stream's end marker, leaving the trailing bytes in place.
 type zlibDecompressObject struct {
-	wbits    int
-	input    []byte
-	out      []byte
-	returned int
-	eof      bool
-	unused   []byte
+	wbits     int
+	name      string
+	input     []byte
+	out       []byte
+	returned  int
+	streamEnd bool
+	eof       bool
+	needsIn   bool
+	unused    []byte
 }
 
-func (d *zlibDecompressObject) TypeName() string { return "zlib.Decompress" }
+func (d *zlibDecompressObject) TypeName() string { return d.name }
 
 // NewZlibDecompress builds a Decompress object reading the framing wbits selects,
 // mirroring the one-shot decompress: the positive range is zlib framing, the
 // negative range is raw DEFLATE, and the high ranges are gzip and autodetect.
 func NewZlibDecompress(wbits int) Object {
-	return &zlibDecompressObject{wbits: wbits}
+	return &zlibDecompressObject{wbits: wbits, name: "zlib.Decompress", needsIn: true}
+}
+
+// NewZlibDecompressor builds the private _ZlibDecompressor GzipFile reads through.
+// It shares the Decompress machinery but exposes needs_input and no flush, matching
+// the C class DecompressReader drives one member at a time.
+func NewZlibDecompressor(wbits int) Object {
+	return &zlibDecompressObject{wbits: wbits, name: "zlib._ZlibDecompressor", needsIn: true}
 }
 
 // zlibInflate inflates the whole buffer, returning the output, the trailing
@@ -223,31 +233,46 @@ func zlibDecompressMethod(d *zlibDecompressObject, name string, args []Object) (
 			maxLength = int(m)
 		}
 		d.input = append(d.input, data...)
-		out, unused, eof, err := zlibInflate(d.wbits, d.input)
+		out, unused, end, err := zlibInflate(d.wbits, d.input)
 		if err != nil {
 			return nil, zlibCodecError(err.Error())
 		}
 		d.out = out
-		d.eof = eof
-		if eof {
-			d.unused = unused
-		} else {
-			d.unused = nil
-		}
+		d.streamEnd = end
 		avail := d.out[d.returned:]
 		if maxLength > 0 && len(avail) > maxLength {
 			avail = avail[:maxLength]
 		}
 		d.returned += len(avail)
+		d.updateFlags(unused)
 		return NewBytes(append([]byte(nil), avail...)), nil
 	case "flush":
 		// flush returns whatever decoded output has not been handed back yet; the
 		// optional length hint only sizes a buffer, so it is accepted and ignored.
 		avail := d.out[d.returned:]
 		d.returned = len(d.out)
+		_, unused, _, _ := zlibInflate(d.wbits, d.input)
+		d.updateFlags(unused)
 		return NewBytes(append([]byte(nil), avail...)), nil
 	}
 	return nil, noAttr(d, name)
+}
+
+// updateFlags sets eof, needs_input, and unused_data from the drain position. eof
+// holds only once the stream ended and every decoded byte has been handed back,
+// so a length-limited call that ended the stream but still owes output keeps eof
+// false until the pending bytes drain; this is what lets GzipFile read the trailer
+// at the right moment instead of losing the tail of a member. unused_data is the
+// bytes past the stream end and only surfaces once eof holds.
+func (d *zlibDecompressObject) updateFlags(unused []byte) {
+	drained := d.returned == len(d.out)
+	d.eof = d.streamEnd && drained
+	d.needsIn = !d.streamEnd && drained
+	if d.eof {
+		d.unused = unused
+	} else {
+		d.unused = nil
+	}
 }
 
 // zlibCodecError raises the module's zlib.error carrying msg, falling back to a
@@ -284,6 +309,8 @@ func zlibDecompressLoadAttr(d *zlibDecompressObject, name string) (Object, error
 		return NewBytes(nil), nil
 	case "eof":
 		return NewBool(d.eof), nil
+	case "needs_input":
+		return NewBool(d.needsIn), nil
 	}
 	if zlibDecompressMethodNames[name] {
 		return builtinMethodValue(d, name), nil
