@@ -2497,6 +2497,72 @@ func instanceSpecial(x *instanceObject, name string, args ...Object) (res Object
 	return res, true, err
 }
 
+// FloatFromDunder implements the instance fallback of float(o): a user object
+// with __float__ converts through it, else one with __index__ converts through
+// that. ok is false when o is not a user instance or defines neither, so the
+// caller keeps its own "not a real number" TypeError. A __float__ must return a
+// float and a __index__ an int, echoing CPython's own return-type messages.
+func FloatFromDunder(o Object) (Object, bool, error) {
+	x, isInst := o.(*instanceObject)
+	if !isInst {
+		return nil, false, nil
+	}
+	if _, has := x.cls.lookup("__float__"); has {
+		r, _, err := instanceSpecial(x, "__float__")
+		if err != nil {
+			return nil, true, err
+		}
+		if !instanceOfBuiltin(r, "float") {
+			return nil, true, Raise(TypeError,
+				"%s.__float__ returned non-float (type %s)", o.TypeName(), r.TypeName())
+		}
+		f, _ := AsFloat(r)
+		return NewFloat(f), true, nil
+	}
+	if _, has := x.cls.lookup("__index__"); has {
+		r, _, err := instanceSpecial(x, "__index__")
+		if err != nil {
+			return nil, true, err
+		}
+		if !instanceOfBuiltin(r, "int") {
+			return nil, true, Raise(TypeError,
+				"__index__ returned non-int (type %s)", r.TypeName())
+		}
+		f, _ := AsFloat(r)
+		return NewFloat(f), true, nil
+	}
+	return nil, false, nil
+}
+
+// IntFromDunder implements the instance fallback of int(o): __int__ wins when
+// present, else __index__, each of which must return an int. ok is false when o
+// is not a user instance or defines neither, leaving the caller's own TypeError.
+func IntFromDunder(o Object) (Object, bool, error) {
+	x, isInst := o.(*instanceObject)
+	if !isInst {
+		return nil, false, nil
+	}
+	for _, name := range []string{"__int__", "__index__"} {
+		if _, has := x.cls.lookup(name); !has {
+			continue
+		}
+		r, _, err := instanceSpecial(x, name)
+		if err != nil {
+			return nil, true, err
+		}
+		if !instanceOfBuiltin(r, "int") {
+			return nil, true, Raise(TypeError,
+				"%s returned non-int (type %s)", name, r.TypeName())
+		}
+		if b, ok := AsBigInt(r); ok && IsBigInt(r) {
+			return NewIntFromBig(b), true, nil
+		}
+		i, _ := AsIntValue(r)
+		return NewInt(i), true, nil
+	}
+	return nil, false, nil
+}
+
 // instanceLookupBound resolves a special method on the instance's type and binds
 // self through the descriptor protocol without calling it, so a caller that has
 // keyword arguments can forward them to the bound callable's own binder. defined
