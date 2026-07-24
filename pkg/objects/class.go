@@ -1972,6 +1972,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return None, nil
 		}
 		return nil, noAttr(x, name)
+	case *arrayObject:
+		return arrayLoadAttr(x, name)
 	case *listObject:
 		// A list method read binds as a callable, so items.append reads back and
 		// calls the same as items.append(x); any other name is the plain miss.
