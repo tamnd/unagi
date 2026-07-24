@@ -96,6 +96,13 @@ func superLoadAttr(s *superObject, name string) (Object, error) {
 			return &boundMethod{fn: fn, self: s.obj}, nil
 		case *classmethodObject:
 			return classmethodBind(fn.fn, s.objCls), nil
+		case *funcObject:
+			// A Go-built class (such as _io._IOBase or _random.Random) carries its
+			// methods as self-bound funcObjects, so super().method read off such a
+			// base binds the instance the way instanceGet does for a direct read.
+			if fn.selfBound {
+				return bindBuiltinSelf(fn, s.obj), nil
+			}
 		}
 		return v, nil
 	}
@@ -130,6 +137,13 @@ func superCallMethodT(t *Thread, s *superObject, name string, args []Object) (Ob
 			return fn.bind(t, append([]Object{s.obj}, args...), nil, nil)
 		case *classmethodObject:
 			return CallT(t, classmethodBind(fn.fn, s.objCls), args)
+		case *funcObject:
+			// A self-bound native method reached through super() (super().seed(a) on
+			// a _random.Random subclass) still needs the instance prepended, the
+			// binding the default CallT below would skip.
+			if fn.selfBound {
+				return CallT(t, fn, append([]Object{s.obj}, args...))
+			}
 		}
 		return CallT(t, v, args)
 	}
@@ -319,6 +333,12 @@ func superCallMethodKwT(t *Thread, s *superObject, name string, pos []Object, kw
 			return fn.bind(t, append([]Object{s.obj}, pos...), kwNames, kwVals)
 		case *classmethodObject:
 			return CallKwT(t, classmethodBind(fn.fn, s.objCls), pos, kwNames, kwVals)
+		case *funcObject:
+			// The keyword-aware twin of the self-bound native dispatch above, so a
+			// super().method(**kw) into a Go-built base binds the instance too.
+			if fn.selfBound {
+				return CallKwT(t, fn, append([]Object{s.obj}, pos...), kwNames, kwVals)
+			}
 		}
 		return CallKwT(t, v, pos, kwNames, kwVals)
 	}
