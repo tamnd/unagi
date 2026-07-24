@@ -242,6 +242,12 @@ func reprCore(o Object, strict bool) (string, error) {
 		return dequeRepr(x, strict)
 	case *arrayObject:
 		return arrayRepr(x, strict)
+	case *csvReader:
+		return "<_csv.reader object>", nil
+	case *csvWriter:
+		return "<_csv.writer object>", nil
+	case *csvDialect:
+		return "<_csv.Dialect object>", nil
 	case *tupleObject:
 		if x.named != nil {
 			return namedTupleRepr(x, strict)

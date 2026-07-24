@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+min 'a,"b,c","d""e",1,2.5\r\n'
+all '"a","b,c","d""e","1","2.5"\r\n'
+nn '"a","b,c","d""e",1,2.5\r\n'
+none 'a,b\\,c,d\\"e,1,2.5\r\n'
+esc 'he said \\"hi\\"\r\n'
+read [['a', 'b', 'c'], ['1', 'x,y', '3'], ['line1\nline2', 'p', 'q']]
+skip [['a', 'b', 'c']]
+nnread [[1.0, 2.0, 3.0]]
+dialects ['excel', 'excel-tab', 'unix']
+pipe [['a', 'b', 'c']]
+has-pipe True
+no-pipe False
+fsl 131072 131072
+dictread [{'name': 'alice', 'age': '30'}, {'name': 'bob', 'age': '25'}]
+rt [['x', 'y'], ['1', '2']]
+bad-delim TypeError: "delimiter" must be a unicode character, not a string of length 2
+no-escape Error: need to escape, but no escapechar set
+== exception:
+== stderr:
