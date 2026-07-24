@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+2 1 True 0
+[('a', 1), ('b', 2), ('x', 10)]
+[('a', 1), ('b', 2), ('y', 9)]
+[('a', 1), ('b', 2), ('z', 3)]
+?
+{'p': 0, 'q': 0}
+[1, 2, 3, 4] [0, 1, 2, 3] [1, 2, 3, 1, 2, 3] [1, 2, 3, 1, 2, 3]
+[9, 1, 2, 3, 5] 6 [1, 2] 6
+True True 2 1
+Hello world xHello HelloHello HelloHello
+hello HELLO HeLLo
+True True el 5
+Hello! 43
+UserDict UserList UserString
+== exception:
+== stderr:
