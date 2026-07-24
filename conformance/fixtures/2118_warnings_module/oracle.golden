@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+True
+True True
+module
+True True
+1 DeprecationWarning public path
+1 UserWarning native path
+== exception:
+== stderr:
