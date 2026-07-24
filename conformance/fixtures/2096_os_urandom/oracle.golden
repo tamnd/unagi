@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+bytes 16
+0 1 255
+True
+True
+ValueError negative argument not allowed
+TypeError 'str' object cannot be interpreted as an integer
+TypeError float 'float' object cannot be interpreted as an integer
+True
+== exception:
+== stderr:
