@@ -1958,6 +1958,14 @@ func LoadAttr(o Object, name string) (Object, error) {
 		if x.kind == defaultDict && name == "default_factory" {
 			return dictDefaultFactory(x), nil
 		}
+		// A dict method read binds as a callable, so d.get reads back and calls
+		// the same as d.get(...). Counter and OrderedDict each add their own names
+		// on top of the shared dict surface.
+		if dictMethodNames[name] ||
+			(x.kind == counterDict && counterExtraMethodNames[name]) ||
+			(x.kind == orderedDict && orderedExtraMethodNames[name]) {
+			return builtinMethodValue(x, name), nil
+		}
 		if v, ok := containerSpecialAttr(x, name); ok {
 			return v, nil
 		}
@@ -2223,6 +2231,35 @@ func LoadAttr(o Object, name string) (Object, error) {
 		}
 		if x.sseq != nil {
 			return structSeqInstanceAttr(x, name)
+		}
+		// A plain tuple reads back its count and index methods as callables; the
+		// membership and subscript protocol still falls through to the shared
+		// container handling below.
+		if tupleMethodNames[name] {
+			return builtinMethodValue(x, name), nil
+		}
+	case *strObject:
+		// A method read binds as a callable, "ab".upper reads back and calls the
+		// same as "ab".upper(); anything else drops to the shared container
+		// handling below, so "ab".__len__ still resolves.
+		if strMethodNames[name] {
+			return builtinMethodValue(x, name), nil
+		}
+	case *bytesObject:
+		if bytesMethodNames[name] {
+			return builtinMethodValue(x, name), nil
+		}
+	case *bytearrayObject:
+		if bytearrayMethodNames[name] {
+			return builtinMethodValue(x, name), nil
+		}
+	case *setObject:
+		if setMethodNames[name] {
+			return builtinMethodValue(x, name), nil
+		}
+	case *frozensetObject:
+		if frozensetMethodNames[name] {
+			return builtinMethodValue(x, name), nil
 		}
 	case *noneObject:
 		// NoneType inherits object.__new__, so None.__new__ resolves to the
