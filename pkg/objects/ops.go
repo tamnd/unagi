@@ -271,6 +271,9 @@ func Sub(a, b Object) (Object, error) {
 	if x, ok := a.(*dictObject); ok && x.kind == counterDict {
 		return counterSub(a, b)
 	}
+	if isDictSetView(a) || isDictSetView(b) {
+		return dictViewSetOp(a, b, setOpDiff)
+	}
 	if ac, ok := asSetCore(a); ok {
 		bc, ok2 := asSetCore(b)
 		if !ok2 {
@@ -589,6 +592,9 @@ func BitOr(a, b Object) (Object, error) {
 		}
 		return dictOr(da, db)
 	}
+	if isDictSetView(a) || isDictSetView(b) {
+		return dictViewSetOp(a, b, setOpUnion)
+	}
 	if ac, ok := asSetCore(a); ok {
 		bc, ok2 := asSetCore(b)
 		if !ok2 {
@@ -620,6 +626,9 @@ func BitOr(a, b Object) (Object, error) {
 // BitXor implements the ^ operator: int bitwise xor, set symmetric
 // difference. bool ^ bool stays bool like |.
 func BitXor(a, b Object) (Object, error) {
+	if isDictSetView(a) || isDictSetView(b) {
+		return dictViewSetOp(a, b, setOpSymDiff)
+	}
 	if ac, ok := asSetCore(a); ok {
 		bc, ok2 := asSetCore(b)
 		if !ok2 {
@@ -650,6 +659,9 @@ func BitAnd(a, b Object) (Object, error) {
 		if y, ok := b.(*dictObject); ok && y.kind == counterDict {
 			return counterAnd(a, b)
 		}
+	}
+	if isDictSetView(a) || isDictSetView(b) {
+		return dictViewSetOp(a, b, setOpInter)
 	}
 	if ac, ok := asSetCore(a); ok {
 		bc, ok2 := asSetCore(b)

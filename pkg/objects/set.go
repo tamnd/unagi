@@ -203,6 +203,111 @@ func symDiffInto(dst, a, b *setCore) {
 	diffInto(dst, b, a)
 }
 
+// isDictSetView reports whether o is one of the set-like dict views. The
+// keys and items views implement the set protocol on 3.14, so they take
+// part in -, &, | and ^; the values view does not and is left out.
+func isDictSetView(o Object) bool {
+	switch o.(type) {
+	case *dictKeysObject, *dictItemsObject:
+		return true
+	}
+	return false
+}
+
+// setLikeCore returns a set core for any operand that behaves as a set for
+// the binary set operators: a real set or frozenset, or a keys or items
+// view. Building a view core hashes its elements, so an items view over an
+// unhashable value fails here with the set-element wording.
+func setLikeCore(o Object) (*setCore, bool, error) {
+	if c, ok := asSetCore(o); ok {
+		return c, true, nil
+	}
+	switch v := o.(type) {
+	case *dictKeysObject:
+		c := newSetCore(len(v.d.entries))
+		for _, e := range v.d.entries {
+			if err := c.addElt(e.key); err != nil {
+				return nil, false, err
+			}
+		}
+		return &c, true, nil
+	case *dictItemsObject:
+		c := newSetCore(len(v.d.entries))
+		for _, e := range v.d.entries {
+			if err := c.addElt(NewTuple([]Object{e.key, e.val})); err != nil {
+				return nil, false, err
+			}
+		}
+		return &c, true, nil
+	}
+	return nil, false, nil
+}
+
+// operandToCore reads one operand of a view set operator as a set core. A
+// set-like operand keeps its elements; anything else is drained as a plain
+// iterable, since a view relaxes both sides of the operator to any iterable
+// through its forward and reflected forms. A non-iterable is reported by
+// Iter as usual.
+func operandToCore(o Object) (*setCore, error) {
+	if c, ok, err := setLikeCore(o); err != nil {
+		return nil, err
+	} else if ok {
+		return c, nil
+	}
+	items, err := iterAll(o)
+	if err != nil {
+		return nil, err
+	}
+	c := newSetCore(len(items))
+	for _, it := range items {
+		if err := c.addElt(it); err != nil {
+			return nil, err
+		}
+	}
+	return &c, nil
+}
+
+// setOpKind names the four set algebra operators dispatched through
+// dictViewSetOp.
+type setOpKind int
+
+const (
+	setOpDiff setOpKind = iota
+	setOpUnion
+	setOpInter
+	setOpSymDiff
+)
+
+// dictViewSetOp runs a set operator where at least one operand is a keys or
+// items view. A view implements the set operators through its own forward
+// and reflected forms, so whenever a view takes part the other operand may
+// be any iterable and the result is always a plain set, never a frozenset,
+// even when the other operand is one. Both operands read as set cores and
+// the operator runs left minus right, matching how the view resolves the
+// reflected call as other minus self.
+func dictViewSetOp(a, b Object, kind setOpKind) (Object, error) {
+	ac, err := operandToCore(a)
+	if err != nil {
+		return nil, err
+	}
+	bc, err := operandToCore(b)
+	if err != nil {
+		return nil, err
+	}
+	out := &setObject{newSetCore(0)}
+	switch kind {
+	case setOpDiff:
+		diffInto(&out.setCore, ac, bc)
+	case setOpUnion:
+		unionInto(&out.setCore, ac, bc)
+	case setOpInter:
+		intersectInto(&out.setCore, ac, bc)
+	case setOpSymDiff:
+		symDiffInto(&out.setCore, ac, bc)
+	}
+	return out, nil
+}
+
 // coreEquals implements == between a set core and any object. A set and
 // a frozenset with the same elements are equal; probed on 3.14.
 func coreEquals(c *setCore, b Object) bool {
