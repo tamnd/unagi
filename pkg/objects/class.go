@@ -782,6 +782,39 @@ func init() {
 			"__repr__":      NewFunc("__repr__", 1, builtinReprDunder),
 			"__reduce_ex__": objectDunders["__reduce_ex__"],
 		},
+		// The container types expose __repr__ off the type object so pprint can key
+		// its dispatch table on it (pprint.py `_dispatch[dict.__repr__] = ...` and a
+		// print-time `_dispatch.get(type(object).__repr__)`). The entry is a stable
+		// per-type builtin, so the registration object and the lookup object are the
+		// same and the dispatch hits. Each reprs the underlying value, matching the
+		// type's own wrapper_descriptor rather than object's inherited __repr__.
+		"list": {
+			"__repr__": NewFunc("__repr__", 1, builtinReprDunder),
+		},
+		"dict": {
+			"__repr__": NewFunc("__repr__", 1, builtinReprDunder),
+		},
+		"set": {
+			"__repr__": NewFunc("__repr__", 1, builtinReprDunder),
+		},
+		"frozenset": {
+			"__repr__": NewFunc("__repr__", 1, builtinReprDunder),
+		},
+		"bytes": {
+			"__repr__": NewFunc("__repr__", 1, builtinReprDunder),
+		},
+		"bytearray": {
+			"__repr__": NewFunc("__repr__", 1, builtinReprDunder),
+		},
+		"collections.deque": {
+			"__repr__": NewFunc("__repr__", 1, builtinReprDunder),
+		},
+		"collections.defaultdict": {
+			"__repr__": NewFunc("__repr__", 1, builtinReprDunder),
+		},
+		"collections.OrderedDict": {
+			"__repr__": NewFunc("__repr__", 1, builtinReprDunder),
+		},
 		// weakref.ref carries __hash__ so WeakMethod can borrow it with
 		// `__hash__ = ref.__hash__` at class-body time, the one ref attribute
 		// weakref.py reads at import. __new__ builds a ref subclass instance from
@@ -853,6 +886,22 @@ func unwrapForDunder(o Object) Object {
 		return v
 	}
 	return o
+}
+
+// typeObjectReprDunders caches one __repr__ builtin per constructor-less type
+// name so a type object's __repr__ has stable identity, the way pprint's
+// dispatch table needs it.
+var typeObjectReprDunders = map[string]*funcObject{}
+
+// typeObjectReprDunder returns the stable __repr__ builtin for a constructor-less
+// type object, reprs of the underlying value, matching the type's own wrapper.
+func typeObjectReprDunder(name string) Object {
+	if f, ok := typeObjectReprDunders[name]; ok {
+		return f
+	}
+	f := NewFunc("__repr__", 1, builtinReprDunder).(*funcObject)
+	typeObjectReprDunders[name] = f
+	return f
 }
 
 // builtinReprDunder is int.__repr__ and str.__repr__: the type's own repr of the
@@ -2245,6 +2294,12 @@ func LoadAttr(o Object, name string) (Object, error) {
 		case "__dict__":
 			d := &dictObject{index: map[string]int{}}
 			return &mappingProxyObject{d: d}, nil
+		case "__repr__":
+			// pprint keys its dispatch on the type object's __repr__, both for
+			// mappingproxy and types.SimpleNamespace, so it has to resolve to a
+			// stable per-type builtin: the registration object and the print-time
+			// `type(object).__repr__` lookup are then the same and the dispatch hits.
+			return typeObjectReprDunder(x.name), nil
 		}
 		return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
 	case *namedTupleType:

@@ -129,6 +129,14 @@ func initCollectionsAccel(m *objects.Module) error {
 // container type objects with _collections and adds Counter and namedtuple,
 // which the runtime still owns in Go until the module is repointed onto the
 // vendored pure-Python package.
+// collectionsReprDunder builds a fresh __repr__ builtin that reprs its single
+// argument, one per call so each type gets a distinct dispatch key.
+func collectionsReprDunder() objects.Object {
+	return objects.NewFunc("__repr__", 1, func(a []objects.Object) (objects.Object, error) {
+		return objects.NewStr(objects.Repr(a[0])), nil
+	})
+}
+
 func initCollections(m *objects.Module) error {
 	if err := initCollectionsAccel(m); err != nil {
 		return err
@@ -160,6 +168,14 @@ func initCollections(m *objects.Module) error {
 			}
 			return c, nil
 		})
+	// Counter and ChainMap are built here as constructor functions rather than
+	// type objects, so they carry their __repr__ as an attribute the way pprint
+	// keys its dispatch: `_dispatch[Counter.__repr__] = ...`. Each type needs a
+	// distinct __repr__ object, since pprint maps each to a different handler and
+	// a shared one would collide in the dispatch dict. Each reprs the argument.
+	if err := objects.StoreAttr(counter, "__repr__", collectionsReprDunder()); err != nil {
+		return err
+	}
 	if err := objects.StoreAttr(m, "Counter", counter); err != nil {
 		return err
 	}
@@ -194,6 +210,9 @@ func initCollections(m *objects.Module) error {
 			return objects.ChainMapFromKeys(a[0], a[1])
 		})
 	if err := objects.StoreAttr(chainMap, "fromkeys", chainMapFromKeys); err != nil {
+		return err
+	}
+	if err := objects.StoreAttr(chainMap, "__repr__", collectionsReprDunder()); err != nil {
 		return err
 	}
 	if err := objects.StoreAttr(m, "ChainMap", chainMap); err != nil {
