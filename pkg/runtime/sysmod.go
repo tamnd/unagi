@@ -337,6 +337,27 @@ func initSys(m *objects.Module) error {
 	if err := set("getfilesystemencodeerrors", objects.NewFunc("getfilesystemencodeerrors", 0, sysGetFilesystemEncodeErrors)); err != nil {
 		return err
 	}
+	stdout, stderr, stdin, err := buildSysStreams()
+	if err != nil {
+		return err
+	}
+	for _, s := range []struct {
+		name string
+		v    objects.Object
+	}{
+		{"stdout", stdout},
+		{"stderr", stderr},
+		{"stdin", stdin},
+		// The __stdxxx__ aliases hold the original streams so code that redirects
+		// sys.stdout can restore it, matching CPython.
+		{"__stdout__", stdout},
+		{"__stderr__", stderr},
+		{"__stdin__", stdin},
+	} {
+		if err := set(s.name, s.v); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

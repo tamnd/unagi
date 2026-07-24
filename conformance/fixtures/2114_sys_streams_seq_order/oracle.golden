@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+hello world
+abc
+<stdout> w utf-8 strict
+True False False
+1 2 0
+True False
+True True
+count: True
+
+[(Key(1), Key('x')), (Key(1), Key('y')), (Key(2), Key('a')), (Key(2), Key('z'))]
+True
+True
+[[Key(1)], [Key(2)], [Key(3)]]
+== exception:
+== stderr:

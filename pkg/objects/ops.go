@@ -1059,8 +1059,24 @@ func seqOrder(op CmpOp, a, b []Object) (bool, error) {
 		n = len(b)
 	}
 	for i := 0; i < n; i++ {
-		if !equals(a[i], b[i]) {
-			return order(op, a[i], b[i])
+		// The elements compare through the full protocol, so a user instance in a
+		// tuple or list orders by its own __eq__ and __lt__ the way CPython's
+		// sequence comparison runs PyObject_RichCompare on each pair. Two builtins
+		// still settle on the fast identity and ordering paths inside Compare.
+		eq, err := Compare(OpEq, a[i], b[i])
+		if err != nil {
+			return false, err
+		}
+		same, err := TruthOf(eq)
+		if err != nil {
+			return false, err
+		}
+		if !same {
+			res, err := Compare(op, a[i], b[i])
+			if err != nil {
+				return false, err
+			}
+			return TruthOf(res)
 		}
 	}
 	return applyOrder(op, cmpI(int64(len(a)), int64(len(b)))), nil
