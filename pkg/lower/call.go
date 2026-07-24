@@ -21,7 +21,7 @@ var builtinNames = map[string]bool{
 	"isinstance": true, "issubclass": true,
 	"getattr": true, "hasattr": true, "setattr": true, "delattr": true,
 	"any": true, "all": true, "callable": true, "ascii": true,
-	"iter": true, "map": true, "filter": true, "vars": true,
+	"iter": true, "map": true, "filter": true, "vars": true, "dir": true,
 	"type": true, "object": true, "slice": true, "memoryview": true,
 	"globals": true, "__import__": true,
 }
@@ -544,6 +544,10 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		// arguments" messages stay catchable, like getattr above.
 		fn := map[string]string{"iter": "Iter", "map": "Map", "filter": "Filter"}[name]
 		return f.runtimeSliceCall(fn, e)
+	case "dir":
+		// dir() checks its own argument count in the runtime helper so the
+		// no-argument and too-many-argument TypeErrors stay catchable.
+		return f.runtimeSliceCall("Dir", e)
 	case "type":
 		// type() checks its own 1-or-3 argument count in the runtime helper so
 		// the arity TypeError stays catchable and the three-argument form can

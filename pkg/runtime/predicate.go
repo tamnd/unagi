@@ -29,6 +29,36 @@ func Vars(o objects.Object) (objects.Object, error) {
 	return objects.InstanceDict(o)
 }
 
+// Dir implements dir(o): the sorted list of the object's attribute names. A
+// user object with __dir__ decides the list; a plain instance reports its own
+// attributes, every name across its type's MRO, and the object base set. The
+// no-argument dir() would read the caller's locals, which the boxed tier does
+// not model, so it raises rather than answer wrongly. Arity and the
+// not-yet-enumerable cases raise catchable TypeErrors like the other builtins.
+func Dir(args []objects.Object) (objects.Object, error) {
+	if len(args) == 0 {
+		return nil, objects.Raise(objects.TypeError,
+			"dir() with no arguments is not supported")
+	}
+	if len(args) != 1 {
+		return nil, objects.Raise(objects.TypeError,
+			"dir expected at most 1 argument, got %d", len(args))
+	}
+	names, ok, err := objects.DirNames(args[0])
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, objects.Raise(objects.TypeError,
+			"dir() of a '%s' object is not supported yet", args[0].TypeName())
+	}
+	elems := make([]objects.Object, len(names))
+	for i, n := range names {
+		elems[i] = objects.NewStr(n)
+	}
+	return objects.NewList(elems), nil
+}
+
 // Globals implements the globals() builtin: the module namespace as a dict.
 // unagi keeps module globals in live Go variables rather than one dict object,
 // so the result is seeded with the names bound when the call runs. Reading,

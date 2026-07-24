@@ -2,6 +2,7 @@ package objects
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -2561,6 +2562,102 @@ func IntFromDunder(o Object) (Object, bool, error) {
 		return NewInt(i), true, nil
 	}
 	return nil, false, nil
+}
+
+// objectBaseDirNames is the name set object contributes to dir() of any
+// instance, the attributes every object carries through its type's object root.
+// dir() walks type(obj).__mro__ and object sits at the tail of every chain, so
+// these appear for a plain class with no bases; the list is object's own on
+// 3.14. __qualname__ is deliberately absent: it lives in a class namespace but
+// dir() of an instance does not surface it.
+var objectBaseDirNames = []string{
+	"__class__", "__delattr__", "__dict__", "__dir__", "__doc__", "__eq__",
+	"__firstlineno__", "__format__", "__ge__", "__getattribute__", "__getstate__",
+	"__gt__", "__hash__", "__init__", "__init_subclass__", "__le__", "__lt__",
+	"__module__", "__ne__", "__new__", "__reduce__", "__reduce_ex__", "__repr__",
+	"__setattr__", "__sizeof__", "__static_attributes__", "__str__",
+	"__subclasshook__", "__weakref__",
+}
+
+// DirNames implements dir(o) for a user instance. A class that defines __dir__
+// anywhere in its MRO decides the whole list; otherwise the names are the
+// default object.__dir__ gathers: the instance's own attributes, every name
+// defined across its type's MRO, and the object base set, sorted and
+// de-duplicated. ok is false when o is not an instance dir() enumerates here, so
+// the caller raises its own "not supported" error.
+func DirNames(o Object) ([]string, bool, error) {
+	inst, isInst := o.(*instanceObject)
+	if !isInst {
+		return nil, false, nil
+	}
+	if _, has := inst.cls.lookup("__dir__"); has {
+		res, _, err := instanceSpecial(inst, "__dir__")
+		if err != nil {
+			return nil, true, err
+		}
+		names, err := dirFromResult(res)
+		return names, true, err
+	}
+	set := map[string]bool{}
+	for _, n := range objectBaseDirNames {
+		set[n] = true
+	}
+	for _, c := range inst.cls.mro {
+		for _, n := range c.order {
+			// __qualname__ is the one class-namespace name dir() of an instance
+			// omits; every other bound name, method or class variable, is shown.
+			if n == "__qualname__" {
+				continue
+			}
+			set[n] = true
+		}
+	}
+	if inst.attrs != nil {
+		for _, k := range inst.attrs.keySlice() {
+			if s, ok := AsStr(k); ok {
+				set[s] = true
+			}
+		}
+	}
+	for n := range inst.slots {
+		set[n] = true
+	}
+	names := make([]string, 0, len(set))
+	for n := range set {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names, true, nil
+}
+
+// dirFromResult turns the value a user __dir__ returned into the sorted string
+// list dir() reports. dir() sorts the sequence but does not de-duplicate it, so
+// a __dir__ that repeats a name repeats it in the output. CPython requires the
+// items to be strings and raises a TypeError naming the offending type
+// otherwise.
+func dirFromResult(res Object) ([]string, error) {
+	it, err := Iter(res)
+	if err != nil {
+		return nil, Raise(TypeError, "__dir__() must return an iterable, not %s", res.TypeName())
+	}
+	var names []string
+	for {
+		item, ok, err := it.Next()
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			break
+		}
+		s, ok := AsStr(item)
+		if !ok {
+			return nil, Raise(TypeError,
+				"attribute name must be string, not '%s'", item.TypeName())
+		}
+		names = append(names, s)
+	}
+	sort.Strings(names)
+	return names, nil
 }
 
 // instanceLookupBound resolves a special method on the instance's type and binds
