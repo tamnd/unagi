@@ -173,6 +173,36 @@ func sysGetRecursionLimit(args []objects.Object) (objects.Object, error) {
 	return objects.NewInt(int64(RecursionLimit())), nil
 }
 
+// sysAudit is sys.audit(event, *args): it raises an auditing event to every
+// installed hook. No hooks run in this tier, so with nothing listening it is a
+// no-op that returns None, which is exactly what CPython does when no hook is
+// registered. The stdlib sprinkles sys.audit through tempfile, os and others,
+// so it has to exist for those to run. The event name is required and must be a
+// str, matching CPython's own check.
+func sysAudit(args []objects.Object) (objects.Object, error) {
+	if len(args) < 1 {
+		return nil, objects.Raise(objects.TypeError, "audit() missing 1 required positional argument: 'event'")
+	}
+	if _, ok := objects.AsStr(args[0]); !ok {
+		return nil, objects.Raise(objects.TypeError, "expected str for argument 'event', not %s", args[0].TypeName())
+	}
+	return objects.None, nil
+}
+
+// sysAddAuditHook is sys.addaudithook(hook): it registers a callable to receive
+// auditing events. This tier raises no events, so the hook would never fire;
+// the call still checks the argument is callable the way CPython does and then
+// keeps nothing, since there is nothing to deliver to it.
+func sysAddAuditHook(args []objects.Object) (objects.Object, error) {
+	if len(args) != 1 {
+		return nil, objects.Raise(objects.TypeError, "addaudithook() takes exactly one argument (%d given)", len(args))
+	}
+	if !objects.Callable(args[0]) {
+		return nil, objects.Raise(objects.TypeError, "expected callable, not %s", args[0].TypeName())
+	}
+	return objects.None, nil
+}
+
 // sysSetRecursionLimit implements sys.setrecursionlimit(n): set the process-wide
 // recursion limit. The argument must read as an integer, a non-integer is the
 // TypeError CPython raises coercing it, and a limit below one is the ValueError.
@@ -290,6 +320,12 @@ func initSys(m *objects.Module) error {
 		return err
 	}
 	if err := set("_getframe", objects.NewFuncT("_getframe", -1, sysGetFrame)); err != nil {
+		return err
+	}
+	if err := set("audit", objects.NewFunc("audit", -1, sysAudit)); err != nil {
+		return err
+	}
+	if err := set("addaudithook", objects.NewFunc("addaudithook", 1, sysAddAuditHook)); err != nil {
 		return err
 	}
 	if err := set("builtin_module_names", sysBuiltinModuleNames()); err != nil {

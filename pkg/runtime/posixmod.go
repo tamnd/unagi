@@ -164,6 +164,11 @@ func initPosix(m *objects.Module) error {
 		{"putenv", posixPutenv},
 		{"unsetenv", posixUnsetenv},
 		{"urandom", posixUrandom},
+		{"unlink", posixUnlink},
+		{"remove", posixUnlink},
+		{"mkdir", posixMkdir},
+		{"rmdir", posixRmdir},
+		{"rename", posixRename},
 	}
 	for _, f := range fns {
 		if err := set(f.name, objects.NewFunc(f.name, -1, f.fn)); err != nil {
@@ -402,6 +407,91 @@ func posixSymlink(args []objects.Object) (objects.Object, error) {
 		return nil, objects.Raise(objects.TypeError, "symlink: dst should be string or bytes, not %s", args[1].TypeName())
 	}
 	if err := syscall.Symlink(src, dst); err != nil {
+		return nil, posixStatErr(err)
+	}
+	return objects.None, nil
+}
+
+// posixUnlink is posix.unlink(path), re-exported as os.unlink and os.remove: it
+// removes a single file. It goes straight to the unlink syscall the way CPython
+// does rather than os.Remove, which would also clear an empty directory, so a
+// directory raises the host's native errno (EISDIR on Linux, EPERM on macOS)
+// exactly as CPython's unlink reports it. A symlink is removed as the link.
+// tempfile binds it as a default argument, so it has to exist for the module to
+// import.
+func posixUnlink(args []objects.Object) (objects.Object, error) {
+	if len(args) != 1 {
+		return nil, objects.Raise(objects.TypeError, "unlink() takes exactly 1 argument (%d given)", len(args))
+	}
+	path, ok := posixFsPath(args[0])
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "unlink: path should be string or bytes, not %s", args[0].TypeName())
+	}
+	if err := syscall.Unlink(path); err != nil {
+		return nil, posixStatErr(err)
+	}
+	return objects.None, nil
+}
+
+// posixMkdir is posix.mkdir(path, mode=0o777): it creates one directory. The
+// mode is masked by the process umask exactly as the C mkdir does, so the bits
+// that survive match CPython. It creates only the final component, so a missing
+// parent is a FileNotFoundError, not a silent makedirs.
+func posixMkdir(args []objects.Object) (objects.Object, error) {
+	if len(args) < 1 || len(args) > 2 {
+		return nil, objects.Raise(objects.TypeError, "mkdir() takes at most 2 arguments (%d given)", len(args))
+	}
+	path, ok := posixFsPath(args[0])
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "mkdir: path should be string or bytes, not %s", args[0].TypeName())
+	}
+	mode := int64(0o777)
+	if len(args) == 2 && args[1] != objects.None {
+		m, ok := objects.AsInt(args[1])
+		if !ok {
+			return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", args[1].TypeName())
+		}
+		mode = m
+	}
+	if err := os.Mkdir(path, os.FileMode(mode)); err != nil {
+		return nil, posixStatErr(err)
+	}
+	return objects.None, nil
+}
+
+// posixRmdir is posix.rmdir(path): it removes one empty directory. It goes
+// straight to the rmdir syscall rather than os.Remove so a non-directory or a
+// non-empty directory raises the way CPython does instead of unlinking a file.
+func posixRmdir(args []objects.Object) (objects.Object, error) {
+	if len(args) != 1 {
+		return nil, objects.Raise(objects.TypeError, "rmdir() takes exactly 1 argument (%d given)", len(args))
+	}
+	path, ok := posixFsPath(args[0])
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "rmdir: path should be string or bytes, not %s", args[0].TypeName())
+	}
+	if err := syscall.Rmdir(path); err != nil {
+		return nil, posixStatErr(err)
+	}
+	return objects.None, nil
+}
+
+// posixRename is posix.rename(src, dst): it renames a file or directory,
+// replacing dst if it already exists, the same overwrite contract as the C
+// rename and CPython on POSIX.
+func posixRename(args []objects.Object) (objects.Object, error) {
+	if len(args) != 2 {
+		return nil, objects.Raise(objects.TypeError, "rename() takes exactly 2 arguments (%d given)", len(args))
+	}
+	src, ok := posixFsPath(args[0])
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "rename: src should be string or bytes, not %s", args[0].TypeName())
+	}
+	dst, ok := posixFsPath(args[1])
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "rename: dst should be string or bytes, not %s", args[1].TypeName())
+	}
+	if err := os.Rename(src, dst); err != nil {
 		return nil, posixStatErr(err)
 	}
 	return objects.None, nil

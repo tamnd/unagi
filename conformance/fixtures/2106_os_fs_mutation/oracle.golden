@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+True
+True 11
+hello unagi
+False True
+False
+False
+False
+3
+False
+str
+True
+== exception:
+== stderr:
