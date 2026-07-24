@@ -1980,6 +1980,10 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return csvWriterLoadAttr(x, name)
 	case *csvDialect:
 		return csvDialectAttr(x, name)
+	case *hashObject:
+		return hashLoadAttr(x, name)
+	case *hmacObject:
+		return hmacLoadAttr(x, name)
 	case *listObject:
 		// A list method read binds as a callable, so items.append reads back and
 		// calls the same as items.append(x); any other name is the plain miss.

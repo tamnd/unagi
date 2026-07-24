@@ -278,6 +278,11 @@ func mvBytesLike(o Object) ([]byte, bool) {
 	return nil, false
 }
 
+// AsBufferBytes returns the bytes behind any bytes-like object, a bytes,
+// bytearray or memoryview, for callers outside the package that consume the
+// buffer protocol such as the _hashlib constructors.
+func AsBufferBytes(o Object) ([]byte, bool) { return mvBytesLike(o) }
+
 // mvDelItem rejects element deletion: a read-only view reports read-only memory,
 // a writable one reports that memoryview does not support deletion, both probed.
 func mvDelItem(m *memoryviewObject) error {
