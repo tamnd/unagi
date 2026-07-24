@@ -49,7 +49,7 @@ func buildIOFileIO() (objects.Object, error) {
 		ioMethod("fileno", 1, ioFileIOFileno),
 		ioMethod("isatty", 1, ioFileIOIsatty),
 		ioMethod("close", 1, ioFileIOClose),
-		objects.NewProperty(objects.NewFunc("name", 1, ioFileIONameProp), nil, nil),
+		objects.NewProperty(objects.NewFunc("name", 1, ioFileIONameProp), objects.NewFunc("name", 2, ioFileIONameSet), nil),
 		objects.NewProperty(objects.NewFunc("mode", 1, ioFileIOModeProp), nil, nil),
 		objects.NewProperty(objects.NewFunc("closefd", 1, ioFileIOClosefdProp), nil, nil),
 	}
@@ -538,6 +538,17 @@ func ioFileIONameProp(args []objects.Object) (objects.Object, error) {
 		return objects.None, nil
 	}
 	return v, nil
+}
+
+// ioFileIONameSet backs raw.name = value. CPython keeps FileIO.name in the
+// instance dict, so it is writable, and tempfile.NamedTemporaryFile overwrites
+// it with the temp file's path. The value is stored where the getter and the
+// repr both read it.
+func ioFileIONameSet(args []objects.Object) (objects.Object, error) {
+	if err := objects.StoreAttr(args[0], "_name", args[1]); err != nil {
+		return nil, err
+	}
+	return objects.None, nil
 }
 
 // ioFileIOModeProp reports the canonical binary mode string, matching CPython's

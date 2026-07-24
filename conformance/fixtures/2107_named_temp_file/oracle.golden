@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+'custom-name'
+str
+True
+True
+True
+b'payload'
+False
+== exception:
+== stderr:
