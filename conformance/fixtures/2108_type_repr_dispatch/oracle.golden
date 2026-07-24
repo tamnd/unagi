@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+True
+True
+True
+True
+True
+{'a': 1}
+[1, 2, 3]
+(1, 2)
+{7}
+b'hi'
+True
+True
+True
+True
+True
+5
+dict
+counter
+missing
+== exception:
+== stderr:
