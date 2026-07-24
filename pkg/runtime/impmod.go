@@ -79,16 +79,12 @@ func impExtensionSuffixes(args []objects.Object) (objects.Object, error) {
 
 // impIsBuiltin reports whether a name is a builtin module, the way CPython's
 // _imp.is_builtin returns 1 for a name the interpreter can create from its
-// builtin table. It answers for the native modules unagi registers plus
-// _warnings, which _bootstrap._setup requires even though unagi runs the public
-// warnings module on its pure fallback rather than a native _warnings.
+// builtin table. It answers for the native modules unagi registers, which now
+// include _warnings (the shim _bootstrap._setup loads by name).
 func impIsBuiltin(args []objects.Object) (objects.Object, error) {
 	name, ok := objects.AsStr(args[0])
 	if !ok {
 		return objects.NewInt(0), nil
-	}
-	if name == "_warnings" {
-		return objects.NewInt(1), nil
 	}
 	if ent, ok := moduleTable[name]; ok && ent.builtin {
 		return objects.NewInt(1), nil
@@ -107,9 +103,8 @@ func impIsFrozen(args []objects.Object) (objects.Object, error) {
 // impCreateBuiltin materializes a builtin module for the given ModuleSpec. It
 // bridges to runtime.ImportModule so a name unagi implements natively resolves
 // to its real module object, which is what _bootstrap._setup wants when it pulls
-// in _thread and _weakref. A name with no native module (such as _warnings)
-// falls back to a bare module so setup still completes, matching how the code
-// that consumes it runs on a pure fallback.
+// in _thread, _warnings, and _weakref. A name with no native module falls back
+// to a bare module so setup still completes.
 func impCreateBuiltin(args []objects.Object) (objects.Object, error) {
 	nameObj, err := objects.LoadAttr(args[0], "name")
 	if err != nil {
