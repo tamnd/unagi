@@ -2405,6 +2405,14 @@ func StoreAttr(o Object, name string, val Object) error {
 		}
 	case *threadObject:
 		return threadStoreAttr(x, name, val)
+	case *namedTupleType:
+		// The class __doc__ is writable: namedtuple sets a default and code such as
+		// selectors replaces it with a fuller description. Other attributes on the
+		// type object stay read-only.
+		if name == "__doc__" {
+			x.doc = val
+			return nil
+		}
 	case *tupleGetterObject:
 		return tupleGetterSet(x, name, val)
 	case *localObject:
