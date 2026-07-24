@@ -35,6 +35,20 @@ func Truth(o Object) bool {
 		return len(x.elts) > 0
 	case *dictObject:
 		return len(x.entries) > 0
+	case *chainMapObject:
+		// __bool__ is any(self.maps): truthy when at least one underlying mapping
+		// is non-empty, so an empty ChainMap and one holding only empty maps are
+		// both false.
+		elems, err := x.elems()
+		if err != nil {
+			return true
+		}
+		for _, m := range elems {
+			if Truth(m) {
+				return true
+			}
+		}
+		return false
 	case *setObject:
 		return len(x.elts) > 0
 	case *frozensetObject:
@@ -580,6 +594,17 @@ func Pow(a, b Object) (Object, error) {
 // (PEP 584). Probed on 3.14: True | False is bool True, but mixing bool with
 // int gives int; d1 | d2 needs both operands to be dicts.
 func BitOr(a, b Object) (Object, error) {
+	// A ChainMap on either side merges as a Mapping. cm | other copies cm and
+	// updates the copy's first map from other, giving a new ChainMap; other | cm
+	// is the reflected form, which flattens to a plain dict of other then every
+	// map of cm folded on top, wrapped in a fresh single-map ChainMap. Both need
+	// a mapping right operand, else the operation is unsupported.
+	if x, ok := a.(*chainMapObject); ok {
+		return chainMapOr(x, b)
+	}
+	if y, ok := b.(*chainMapObject); ok {
+		return chainMapROr(y, a)
+	}
 	if x, ok := a.(*dictObject); ok && x.kind == counterDict {
 		if y, ok := b.(*dictObject); ok && y.kind == counterDict {
 			return counterOr(a, b)
@@ -805,6 +830,17 @@ func equals(a, b Object) bool {
 	// One side numeric, the other not: unequal, never an error.
 	if isNumeric(a) != isNumeric(b) {
 		return false
+	}
+	// A ChainMap compares as a Mapping on either side. Mapping.__eq__ is
+	// isinstance(other, Mapping) and dict(self) == dict(other), so ChainMap({'a':
+	// 1}) == {'a': 1} and the reflected dict == chainmap both hold; the plain
+	// dict switch below only compares dict against dict, so the ChainMap side has
+	// to be caught first.
+	if x, ok := a.(*chainMapObject); ok {
+		return chainMapEquals(x, b)
+	}
+	if y, ok := b.(*chainMapObject); ok {
+		return chainMapEquals(y, a)
 	}
 	switch x := a.(type) {
 	case *noneObject:
@@ -1067,6 +1103,12 @@ func Contains(container, item Object) (Object, error) {
 		}
 		_, ok := x.index[k]
 		return NewBool(ok), nil
+	case *chainMapObject:
+		ok, err := chainMapContains(x, item)
+		if err != nil {
+			return nil, err
+		}
+		return NewBool(ok), nil
 	case *mappingProxyObject:
 		return Contains(x.d, item)
 	case *setObject:
@@ -1286,6 +1328,8 @@ func GetItem(o, key Object) (Object, error) {
 		return x.elts[j], nil
 	case *dictObject:
 		return dictSubscript(x, key)
+	case *chainMapObject:
+		return chainMapGetItem(x, key)
 	case *mappingProxyObject:
 		return dictSubscript(x.d, key)
 	case *matchObject:
@@ -1403,6 +1447,8 @@ func SetItem(o, key, val Object) error {
 		return nil
 	case *dictObject:
 		return x.set(key, val)
+	case *chainMapObject:
+		return chainMapSetItem(x, key, val)
 	case *instanceObject:
 		_, defined, err := instanceSpecial(x, "__setitem__", key, val)
 		if err != nil {
@@ -1439,6 +1485,15 @@ func Len(o Object) (int, error) {
 		return len(x.elts), nil
 	case *dictObject:
 		return len(x.entries), nil
+	case *chainMapObject:
+		// len is the number of unique keys across every mapping, the count
+		// len(set().union(*self.maps)) gives, so a key shared by two maps counts
+		// once.
+		keys, err := x.chainMapOrderedKeys()
+		if err != nil {
+			return 0, err
+		}
+		return len(keys), nil
 	case *setObject:
 		return len(x.elts), nil
 	case *frozensetObject:
