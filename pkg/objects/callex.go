@@ -185,6 +185,41 @@ func ExcNoKeywords(className string, pos []Object, kw Object) ([]Object, error) 
 	return pos, nil
 }
 
+// importErrorKw names the two keyword arguments the ImportError family accepts,
+// name and path, which it stores as instance attributes that otherwise default
+// to None. Every other builtin exception takes no keyword arguments at all.
+var importErrorKw = map[string]bool{"name": true, "path": true}
+
+// NewExceptionKw constructs a builtin exception from positional arguments and a
+// merged keyword dict, the ExceptionClass(args, kw=v) path. Most builtin
+// exceptions take no keywords and raise the takes-no-keyword TypeError for any;
+// the ImportError family accepts name and path and stores them as instance
+// attributes, which importlib's bootstrap reads back off the raised error. An
+// empty keyword dict (a **{} that merged nothing) constructs the same as the
+// no-keyword path. className is spelled bare, matching the type's own errors.
+func NewExceptionKw(className string, pos []Object, kw Object) (Object, error) {
+	names, vals, err := kwSplit(kw)
+	if err != nil {
+		return nil, err
+	}
+	if len(names) == 0 {
+		return NewException(className, pos), nil
+	}
+	if !Matches(className, "ImportError") {
+		return nil, Raise(TypeError, "%s() takes no keyword arguments", className)
+	}
+	e := NewException(className, pos)
+	for i, n := range names {
+		if !importErrorKw[n] {
+			return nil, Raise(TypeError, "%s() got an unexpected keyword argument '%s'", className, n)
+		}
+		if _, err := excStoreAttr(e, n, vals[i]); err != nil {
+			return nil, err
+		}
+	}
+	return e, nil
+}
+
 // kwSplit turns the accumulated dict into the binder's parallel slices.
 // The str check on keys lives here because CPython performs it when the
 // call happens, after the lone-star conversion.
