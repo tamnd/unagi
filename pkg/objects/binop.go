@@ -121,38 +121,41 @@ func valueSubclassBinary(op string, a, b Object) (Object, bool, error) {
 // slot. It reports ok=false (letting the caller raise) when neither method
 // exists or both return NotImplemented, and threads through any raised error.
 func binaryDunder(forward, reflected string, a, b Object) (Object, bool, error) {
-	lfn := instDunderFn(a, forward)
-	rfn := instDunderFn(b, reflected)
-	// Skip the reflected call when it resolves to the same function the left
-	// operand would use, which covers same-type operands and shared
-	// inheritance the way CPython nulls a duplicated slot.
-	if rfn != nil && rfn == instDunderFn(a, reflected) {
-		rfn = nil
+	lInst, lraw := instDunderRaw(a, forward)
+	rInst, rraw := instDunderRaw(b, reflected)
+	// Skip the reflected call when it resolves to the same slot the left operand
+	// would use, which covers same-type operands and shared inheritance the way
+	// CPython nulls a duplicated slot.
+	if rraw != nil {
+		if _, araw := instDunderRaw(a, reflected); araw == rraw {
+			rraw = nil
+		}
 	}
-	if lfn == nil && rfn == nil {
+	if lraw == nil && rraw == nil {
 		return nil, false, nil
 	}
 	reflectedFirst := false
-	if lfn != nil && rfn != nil {
+	if lraw != nil && rraw != nil {
 		if isProperSubclass(b.(*instanceObject).cls, a.(*instanceObject).cls) {
 			reflectedFirst = true
 		}
 	}
 	calls := [2]struct {
-		fn      *functionObject
-		recv, x Object
+		inst   *instanceObject
+		raw, x Object
+		name   string
 	}{
-		{lfn, a, b},
-		{rfn, b, a},
+		{lInst, lraw, b, forward},
+		{rInst, rraw, a, reflected},
 	}
 	if reflectedFirst {
 		calls[0], calls[1] = calls[1], calls[0]
 	}
 	for _, c := range calls {
-		if c.fn == nil {
+		if c.raw == nil {
 			continue
 		}
-		res, err := c.fn.bind(mainThread, []Object{c.recv, c.x}, nil, nil)
+		res, err := callInstDunder(c.inst, c.name, c.raw, c.x)
 		if err != nil {
 			return nil, true, err
 		}
@@ -163,21 +166,57 @@ func binaryDunder(forward, reflected string, a, b Object) (Object, bool, error) 
 	return nil, false, nil
 }
 
-// instDunderFn returns the plain function a user instance would call for the
-// named dunder, or nil when o is not a user instance, the name is absent, or it
-// resolves to something other than a plain function. Non-function dunders need
-// the descriptor call path and stay a later refinement.
-func instDunderFn(o Object, name string) *functionObject {
+// instDunderRaw returns the user instance and the raw class-slot value it would
+// resolve for the named dunder, both nil when o is not a user instance or the
+// slot is absent. The value is the pre-descriptor slot, so a caller can compare
+// two operands' slots for identity before binding, then bind through
+// callInstDunder to invoke it. Unlike a *functionObject-only lookup this honors
+// a Go-native *funcObject method (from NewMethod) or any descriptor, so an
+// operator dunder written in Go on a NewClass class fires like a compiled one.
+func instDunderRaw(o Object, name string) (*instanceObject, Object) {
 	inst, ok := o.(*instanceObject)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	v, ok := inst.cls.lookup(name)
 	if !ok {
-		return nil
+		return nil, nil
 	}
-	fn, _ := v.(*functionObject)
-	return fn
+	return inst, v
+}
+
+// callInstDunder binds the raw slot value through the ordinary instance-get
+// protocol and calls it with the single operand x, so a compiled function, a
+// self-bound builtin method, or a user descriptor each dispatches the same way.
+func callInstDunder(inst *instanceObject, name string, raw, x Object) (Object, error) {
+	bound, err := instanceGet(inst, name, raw)
+	if err != nil {
+		return nil, err
+	}
+	return Call(bound, []Object{x})
+}
+
+// reflectedDunder tries only the right operand's reflected dunder, for a builtin
+// left operand whose own fast path declined a user-instance right operand. It
+// stands in for the second half of CPython's binary_op1: list.__add__ returns
+// NotImplemented for a non-list so a UserList __radd__ runs, where this runtime's
+// builtin concat and repeat would otherwise raise their type-specific TypeError
+// first. ok is false when b is not a user instance defining the slot or it
+// returns NotImplemented, so the caller keeps its own message for a truly
+// unsupported operand.
+func reflectedDunder(reflected string, a, b Object) (Object, bool, error) {
+	inst, raw := instDunderRaw(b, reflected)
+	if raw == nil {
+		return nil, false, nil
+	}
+	res, err := callInstDunder(inst, reflected, raw, a)
+	if err != nil {
+		return nil, true, err
+	}
+	if res == NotImplemented {
+		return nil, false, nil
+	}
+	return res, true, nil
 }
 
 // isProperSubclass reports whether sub is a strict subclass of super, walking

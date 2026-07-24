@@ -185,6 +185,17 @@ var floorDynamicCore = map[string][]string{
 	"encodings": {"utf_8", "ascii", "latin_1"},
 }
 
+// shimmedFloorDeps lists floor modules a Go-shimmed module reaches only through
+// a runtime ImportModule the static import graph cannot see. The collections
+// shim builds UserDict, UserList and UserString over the abstract bases in
+// _collections_abc (and aliases collections.abc to it), so that module is
+// compiled in whenever collections is imported, even though collections itself
+// is a Go shim the walk would otherwise stop at. The names are absolute, not
+// submodules of the key.
+var shimmedFloorDeps = map[string][]string{
+	"collections": {"_collections_abc"},
+}
+
 // collectModules compiles every module the program can import: the static
 // import graph from the entry module, each dotted name resolved next to the
 // entry file or in the embedded stdlib floor, package directories through
@@ -294,6 +305,23 @@ func collectModules(pyPath string, entry *frontend.Module) ([]pymod, map[string]
 					prefix = seg
 				} else {
 					prefix = prefix + "." + seg
+				}
+				// A Go-shimmed module the walk stops at may still need floor
+				// modules compiled in that it only reaches through a runtime
+				// import, so pull those in when its name shows up here.
+				for _, dep := range shimmedFloorDeps[prefix] {
+					if seen[dep] {
+						continue
+					}
+					depFile, depPkg, depNs, depFloor, ok := resolveModule(dir, floorFS, shimmed, dep)
+					if !ok {
+						continue
+					}
+					seen[dep] = true
+					seenPkg[dep] = depPkg
+					if err := compile(dep, depFile, depPkg, depNs, depFloor); err != nil {
+						return err
+					}
 				}
 				if seen[prefix] {
 					if !seenPkg[prefix] {

@@ -260,6 +260,12 @@ func initCollections(m *objects.Module) error {
 		if err := objects.StoreAttr(m, "abc", abcmod); err != nil {
 			return err
 		}
+		// UserDict, UserList and UserString ride on the abstract bases the abc
+		// module carries, so they build only when it is present. Without the floor
+		// they are left off, the same as the abc alias.
+		if err := buildUserClasses(m, abcmod); err != nil {
+			return err
+		}
 	}
 	return nil
 }

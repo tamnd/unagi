@@ -213,6 +213,9 @@ func Add(a, b Object) (Object, error) {
 		if y, ok := AsStr(b); ok {
 			return NewStr(x.v + y), nil
 		}
+		if res, ok, err := reflectedDunder("__radd__", a, b); ok || err != nil {
+			return res, err
+		}
 		return nil, Raise(TypeError, "can only concatenate str (not %q) to str", b.TypeName())
 	case *bytesObject:
 		// A bytes or bytearray right operand concatenates; the result keeps
@@ -222,6 +225,9 @@ func Add(a, b Object) (Object, error) {
 			out = append(out, x.v...)
 			out = append(out, yv...)
 			return NewBytes(out), nil
+		}
+		if res, ok, err := reflectedDunder("__radd__", a, b); ok || err != nil {
+			return res, err
 		}
 		// Probed on 3.14: b"a" + "b" -> TypeError: can't concat str to bytes.
 		return nil, Raise(TypeError, "can't concat %s to bytes", b.TypeName())
@@ -233,6 +239,9 @@ func Add(a, b Object) (Object, error) {
 			out = append(out, yv...)
 			return NewByteArray(out), nil
 		}
+		if res, ok, err := reflectedDunder("__radd__", a, b); ok || err != nil {
+			return res, err
+		}
 		return nil, Raise(TypeError, "can't concat %s to bytearray", b.TypeName())
 	case *listObject:
 		if y, ok := b.(*listObject); ok {
@@ -241,6 +250,9 @@ func Add(a, b Object) (Object, error) {
 			out = append(out, y.elts...)
 			return NewList(out), nil
 		}
+		if res, ok, err := reflectedDunder("__radd__", a, b); ok || err != nil {
+			return res, err
+		}
 		return nil, Raise(TypeError, "can only concatenate list (not %q) to list", b.TypeName())
 	case *tupleObject:
 		if y, ok := b.(*tupleObject); ok {
@@ -248,6 +260,9 @@ func Add(a, b Object) (Object, error) {
 			out = append(out, x.elts...)
 			out = append(out, y.elts...)
 			return NewTuple(out), nil
+		}
+		if res, ok, err := reflectedDunder("__radd__", a, b); ok || err != nil {
+			return res, err
 		}
 		return nil, Raise(TypeError, "can only concatenate tuple (not %q) to tuple", b.TypeName())
 	case *arrayObject:
@@ -374,6 +389,9 @@ func Mul(a, b Object) (Object, error) {
 		if IsBigInt(b) {
 			return nil, Raise(OverflowError, "cannot fit 'int' into an index-sized integer")
 		}
+		if res, ok, err := reflectedDunder("__rmul__", a, b); ok || err != nil {
+			return res, err
+		}
 		return nil, Raise(TypeError, "can't multiply sequence by non-int of type '%s'", b.TypeName())
 	}
 	if isSequence(b) {
@@ -382,6 +400,11 @@ func Mul(a, b Object) (Object, error) {
 		}
 		if IsBigInt(a) {
 			return nil, Raise(OverflowError, "cannot fit 'int' into an index-sized integer")
+		}
+		// A user-instance left operand gets its forward __mul__ before the builtin
+		// sequence on the right refuses the non-int multiplier.
+		if res, ok, err := reflectedDunder("__mul__", b, a); ok || err != nil {
+			return res, err
 		}
 		return nil, Raise(TypeError, "can't multiply sequence by non-int of type '%s'", a.TypeName())
 	}
