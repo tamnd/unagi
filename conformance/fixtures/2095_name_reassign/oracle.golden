@@ -1,0 +1,8 @@
+== exit: 0
+== stdout:
+before: __main__
+after: decimal
+who: decimal
+final: renamed
+== exception:
+== stderr:
