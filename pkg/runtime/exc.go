@@ -165,6 +165,14 @@ func NewExc(class string, args []objects.Object) objects.Object {
 	return objects.NewException(class, args)
 }
 
+// NewExcKw constructs an exception from positional args and a merged keyword
+// dict, the ExceptionClass(args, kw=v) expression. Most builtin exceptions take
+// no keywords, but the ImportError family accepts name and path; objects handles
+// the storing and the rejection. An empty keyword dict constructs plainly.
+func NewExcKw(class string, args []objects.Object, kw objects.Object) (objects.Object, error) {
+	return objects.NewExceptionKw(class, args, kw)
+}
+
 // NewExcGroup constructs an ExceptionGroup or BaseExceptionGroup, the
 // one exception constructor that can itself raise: the message and the
 // sub-exception sequence validate eagerly.

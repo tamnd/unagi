@@ -262,10 +262,17 @@ func (f *fnCtx) excClassStarNew(c string, e *frontend.Call) (ast.Expr, error) {
 		f.fallible(t, f.e.obj("StarArgsFor"), strLit(c+"()"), star)
 		argsExpr = ident(t)
 	}
-	if kw != nil {
+	// A group class takes no keywords, so it keeps the strict rejection; every
+	// other exception routes its keywords through NewExcKw, which stores the
+	// ImportError family's name and path and rejects the rest.
+	if kw != nil && objects.IsExcGroupClass(c) {
 		v := f.tmpVar()
 		f.fallible(v, f.e.obj("ExcNoKeywords"), strLit(c), argsExpr, kw)
 		argsExpr = ident(v)
+	} else if kw != nil {
+		tmp := f.tmpVar()
+		f.fallible(tmp, sel("runtime", "NewExcKw"), strLit(c), argsExpr, kw)
+		return ident(tmp), nil
 	}
 	if objects.IsExcGroupClass(c) {
 		tmp := f.tmpVar()

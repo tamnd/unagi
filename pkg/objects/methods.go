@@ -394,6 +394,18 @@ func excLoadAttr(e *Exception, name string) (Object, error) {
 			}
 			return None, nil
 		}
+	case "name", "path":
+		// The ImportError family exposes name and path as instance attributes
+		// that default to None, so importlib reads them off a raised error whether
+		// or not the constructor was given them. A stored value (set from the
+		// keyword) wins; the default fills in otherwise. Every other exception
+		// falls through to the AttributeError below.
+		if Matches(e.Kind, "ImportError") {
+			if v, ok := e.Dict[name]; ok {
+				return v, nil
+			}
+			return None, nil
+		}
 	case "code":
 		// SystemExit carries a code slot alongside args: no argument reads
 		// None, one reads that argument, and several read the args tuple. Only

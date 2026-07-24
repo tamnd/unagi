@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+('boom',) foo /tmp/foo.py
+('plain',) None None
+() None None
+('gone',) mod None True
+pkg.sub /x
+ValueError() takes no keyword arguments
+ImportError() got an unexpected keyword argument 'bogus'
+== exception:
+== stderr:
