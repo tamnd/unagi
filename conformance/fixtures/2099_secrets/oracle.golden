@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+bytes 16
+True
+str 32 True
+str True
+True
+True
+True
+True False
+True False
+SystemRandom
+True
+True
+True
+randbelow(0): Upper bound must be positive.
+== exception:
+== stderr:
