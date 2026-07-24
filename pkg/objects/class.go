@@ -984,6 +984,41 @@ func builtinTypeElem(name string, x *funcObject) (Object, bool) {
 	return nil, false
 }
 
+// builtinUnboundMethod resolves T.method off a builtin type as the unbound
+// method CPython hands back: calling it takes the instance as the first
+// argument, so T.method(x, ...) dispatches the same as x.method(...). The first
+// argument must be a T, with bool counting as an int, matching the descriptor's
+// needs-an-argument and doesn't-apply TypeErrors.
+func builtinUnboundMethod(typeName, name string) Object {
+	guard := func(args []Object) error {
+		if len(args) == 0 {
+			return Raise(TypeError, "unbound method %s.%s() needs an argument", typeName, name)
+		}
+		if !instanceOfBuiltin(args[0], typeName) {
+			return Raise(TypeError,
+				"descriptor '%s' for '%s' objects doesn't apply to a '%s' object",
+				name, typeName, args[0].TypeName())
+		}
+		return nil
+	}
+	return &funcObject{
+		name:  name,
+		arity: -1,
+		fn: func(args []Object) (Object, error) {
+			if err := guard(args); err != nil {
+				return nil, err
+			}
+			return CallMethod(args[0], name, args[1:])
+		},
+		kwfn: func(pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+			if err := guard(pos); err != nil {
+				return nil, err
+			}
+			return CallMethodKw(pos[0], name, pos[1:], kwNames, kwVals)
+		},
+	}
+}
+
 // builtinTypeIntrospect answers the type-object attributes a builtin type
 // constructor carries: __mro__ is the linearization tuple, __bases__ the direct
 // bases, __base__ the primary base, and __qualname__ the type name.
@@ -2177,6 +2212,14 @@ func LoadAttr(o Object, name string) (Object, error) {
 			}
 			if v, ok := builtinTypeIntrospect(x, name); ok {
 				return v, nil
+			}
+			// A plain method read off the type is the unbound method: int.bit_length
+			// then int.bit_length(5) dispatches the same as (5).bit_length(). Dunders
+			// are left to the descriptor handling above, so only the public names
+			// resolve here.
+			if names, ok := builtinTypeMethodNames[x.name]; ok && names[name] &&
+				!strings.HasPrefix(name, "__") {
+				return builtinUnboundMethod(x.name, name), nil
 			}
 		}
 	case *typeObject:

@@ -1,0 +1,26 @@
+== exit: 0
+== stdout:
+3
+8
+10 0
+AB
+['a', 'b', 'c']
+bonono
+dead
+0102
+3
+2
+3
+1 -1
+[1, 2, 3]
+[2, 3]
+1
+True False
+{'a': 0, 'b': 0}
+256
+noarg: unbound method int.bit_length() needs an argument
+wrongtype: descriptor 'upper' for 'str' objects doesn't apply to a 'int' object
+True False
+True
+== exception:
+== stderr:
