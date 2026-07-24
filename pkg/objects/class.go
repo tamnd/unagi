@@ -1141,6 +1141,11 @@ func builtinTypeDictProxy(x *funcObject) Object {
 	// annotationlib reads `type.__dict__["__annotations__"].__get__` at import.
 	if x.name == "type" {
 		_ = d.set(NewStr("__annotations__"), typeAnnotationsDescriptor)
+		// inspect reads `type.__dict__['__mro__'].__get__` and
+		// `type.__dict__['__dict__'].__get__` to fetch a class's linearization and
+		// namespace without a metaclass __getattribute__ getting in the way.
+		_ = d.set(NewStr("__mro__"), typeMroDescriptor)
+		_ = d.set(NewStr("__dict__"), typeDictDescriptor)
 	}
 	return &mappingProxyObject{d: d}
 }
@@ -1977,6 +1982,14 @@ func LoadAttr(o Object, name string) (Object, error) {
 		// one attribute with the reader and nothing else.
 		if name == "__get__" {
 			return NewFunc("__get__", -1, annotationsDescriptorGet), nil
+		}
+		return nil, Raise(AttributeError, "'getset_descriptor' object has no attribute '%s'", name)
+	case *typeSlotDescriptor:
+		// inspect binds `type.__dict__['__mro__'].__get__` and the __dict__ one
+		// once and calls them to read a class slot, so the descriptor answers that
+		// one attribute with the reader and nothing else.
+		if name == "__get__" {
+			return NewFunc("__get__", -1, x.get), nil
 		}
 		return nil, Raise(AttributeError, "'getset_descriptor' object has no attribute '%s'", name)
 	case *staticmethodObject:
