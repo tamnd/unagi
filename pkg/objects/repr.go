@@ -248,6 +248,10 @@ func reprCore(o Object, strict bool) (string, error) {
 		return "<_csv.writer object>", nil
 	case *csvDialect:
 		return "<_csv.Dialect object>", nil
+	case *hashObject:
+		return "<" + x.algo.name + " " + x.TypeName() + " object>", nil
+	case *hmacObject:
+		return "<_hashlib.HMAC object>", nil
 	case *tupleObject:
 		if x.named != nil {
 			return namedTupleRepr(x, strict)
