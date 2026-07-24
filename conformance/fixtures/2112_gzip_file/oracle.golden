@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+True False
+True True False
+5 False
+True True
+b'TAIL'
+True
+True
+True
+== exception:
+== stderr:

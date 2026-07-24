@@ -257,7 +257,7 @@ func reprCore(o Object, strict bool) (string, error) {
 	case *zlibCompressObject:
 		return "<zlib.Compress object>", nil
 	case *zlibDecompressObject:
-		return "<zlib.Decompress object>", nil
+		return "<" + x.name + " object>", nil
 	case *tupleObject:
 		if x.named != nil {
 			return namedTupleRepr(x, strict)
