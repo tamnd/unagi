@@ -557,6 +557,9 @@ var builtinTypeReprs = map[string]bool{
 	// and abc registration all treat it as a class.
 	"collections.deque": true, "collections.defaultdict": true,
 	"collections.OrderedDict": true,
+	// array.array is a real type: its name carries the module the way CPython's
+	// tp_name does, so type() reprs it as a class and isinstance treats it as one.
+	"array.array": true,
 	// weakref.ref is a real type: weakref.py subclasses it as WeakMethod and reads
 	// ref.__hash__ off it at import, so it answers the type dunders and the
 	// introspection attributes rather than the plain function repr.

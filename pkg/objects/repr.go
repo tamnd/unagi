@@ -240,6 +240,8 @@ func reprCore(o Object, strict bool) (string, error) {
 		return reprSeqCore(x.elts, "[", "]", strict)
 	case *dequeObject:
 		return dequeRepr(x, strict)
+	case *arrayObject:
+		return arrayRepr(x, strict)
 	case *tupleObject:
 		if x.named != nil {
 			return namedTupleRepr(x, strict)

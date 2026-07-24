@@ -94,6 +94,18 @@ func inplaceConcat(a, b Object) (Object, bool, error) {
 		ba.mu.Unlock()
 		return ba, true, nil
 	}
+	// array += extends in place with another array of the same typecode, and a
+	// non-array right operand raises the extend-with-array TypeError rather than
+	// falling back to binary concatenation.
+	if arr, ok := a.(*arrayObject); ok {
+		if _, ok := b.(*arrayObject); !ok {
+			return nil, true, Raise(TypeError, "can only extend array with array (not \"%s\")", b.TypeName())
+		}
+		if err := arrayExtend(arr, b); err != nil {
+			return nil, true, err
+		}
+		return arr, true, nil
+	}
 	lst, ok := a.(*listObject)
 	if !ok {
 		return nil, false, nil
@@ -128,6 +140,23 @@ func inplaceRepeat(a, b Object) (Object, bool, error) {
 		}
 		ba.mu.Unlock()
 		return ba, true, nil
+	}
+	// array *= n repeats in place; a non-int count declines so the binary Mul
+	// raises the same non-int message array * n would.
+	if arr, ok := a.(*arrayObject); ok {
+		n, ok := AsInt(b)
+		if !ok {
+			return nil, false, nil
+		}
+		if n <= 0 {
+			arr.elts = arr.elts[:0]
+			return arr, true, nil
+		}
+		base := append([]Object(nil), arr.elts...)
+		for i := int64(1); i < n; i++ {
+			arr.elts = append(arr.elts, base...)
+		}
+		return arr, true, nil
 	}
 	lst, ok := a.(*listObject)
 	if !ok {

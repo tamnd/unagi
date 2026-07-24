@@ -42,6 +42,8 @@ func containerDunderSurface(o Object) (map[string]bool, bool) {
 	switch x := o.(type) {
 	case *listObject:
 		return subscriptMutDunders, true
+	case *arrayObject:
+		return subscriptMutDunders, true
 	case *dictObject:
 		return subscriptMutDunders, true
 	case *bytearrayObject:

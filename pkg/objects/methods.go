@@ -150,6 +150,8 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		return memoryviewMethod(x, name, args)
 	case *dequeObject:
 		return dequeMethod(x, name, args)
+	case *arrayObject:
+		return arrayMethod(x, name, args)
 	case *boundMethod, *functionObject, *funcObject, *namedTupleType, *lruCacheObject:
 		// A function or bound method has no method surface of its own, so
 		// obj.attr(args) reads the attribute and calls it, the way CPython does

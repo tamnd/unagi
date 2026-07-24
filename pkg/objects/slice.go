@@ -134,6 +134,12 @@ func GetSlice(o, lo, hi, step Object) (Object, error) {
 			return nil, err
 		}
 		return NewTuple(pickSlice(x.elts, start, st, n)), nil
+	case *arrayObject:
+		start, st, n, err := sliceIndices(lo, hi, step, len(x.elts))
+		if err != nil {
+			return nil, err
+		}
+		return &arrayObject{code: x.code, elts: pickSlice(x.elts, start, st, n)}, nil
 	case *strObject:
 		runes := []rune(x.v)
 		start, st, n, err := sliceIndices(lo, hi, step, len(runes))
@@ -360,6 +366,8 @@ func DelItem(o, key Object) error {
 		return nil
 	case *dequeObject:
 		return dequeDelItem(x, key)
+	case *arrayObject:
+		return arrayDelItem(x, key)
 	case *dictObject:
 		_, found, err := x.delete(key)
 		if err != nil {

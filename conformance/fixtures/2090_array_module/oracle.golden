@@ -1,0 +1,49 @@
+== exit: 0
+== stdout:
+typecodes bBuwhHiIlLqQfd
+b b 1 [1, 2, 3] array('b', [1, 2, 3])
+B B 1 [1, 2, 3] array('B', [1, 2, 3])
+h h 2 [1, 2, 3] array('h', [1, 2, 3])
+H H 2 [1, 2, 3] array('H', [1, 2, 3])
+i i 4 [1, 2, 3] array('i', [1, 2, 3])
+I I 4 [1, 2, 3] array('I', [1, 2, 3])
+l l 8 [1, 2, 3] array('l', [1, 2, 3])
+L L 8 [1, 2, 3] array('L', [1, 2, 3])
+q q 8 [1, 2, 3] array('q', [1, 2, 3])
+Q Q 8 [1, 2, 3] array('Q', [1, 2, 3])
+f f 4 [1.0, 2.0, 3.0] array('f', [1.0, 2.0, 3.0])
+d d 8 [1.0, 2.0, 3.0] array('d', [1.0, 2.0, 3.0])
+index 10 40
+slice [20, 30]
+setitem [10, 99, 30, 40]
+delitem [99, 30, 40]
+grow [-1, 99, 30, 40, 7, 8, 9] 7
+pop 9 -1 [99, 30, 40, 7, 8]
+remove [30, 40, 7, 8] idx 3 count 1
+reverse [8, 7, 40, 30]
+iter [8, 7, 40, 30] in True False
+eq True
+eq-cross True
+neq False
+concat [1, 2, 3]
+repeat [1, 2, 1, 2]
+iadd [1, 2, 9]
+imul [1, 2, 9, 1, 2, 9]
+imul0 []
+double [1.5, 2.5] 8 array('d', [1.5, 2.5])
+unicode hi array('u', 'hi')
+fromunicode hi!
+bytes-roundtrip [1, 2, 3]
+byteswap [256, 1]
+empty-repr array('i')
+bool False True
+overflow OverflowError: signed char is greater than maximum
+bad-typecode ValueError: bad typecode (must be b, B, u, w, h, H, i, I, l, L, q, Q, f or d)
+str-init TypeError: cannot use a str to initialize an array with typecode 'i'
+index-range IndexError: array index out of range
+unhashable TypeError: unhashable type: 'array.array'
+pop-empty IndexError: pop from empty array
+not-in ValueError: array.index(x): x not in array
+frombytes-size ValueError: bytes length not a multiple of item size
+== exception:
+== stderr:

@@ -29,6 +29,8 @@ func Truth(o Object) bool {
 		return len(x.elts) > 0
 	case *dequeObject:
 		return len(x.elts) > 0
+	case *arrayObject:
+		return len(x.elts) > 0
 	case *tupleObject:
 		return len(x.elts) > 0
 	case *dictObject:
@@ -234,6 +236,8 @@ func Add(a, b Object) (Object, error) {
 			return NewTuple(out), nil
 		}
 		return nil, Raise(TypeError, "can only concatenate tuple (not %q) to tuple", b.TypeName())
+	case *arrayObject:
+		return arrayConcat(x, b)
 	case *dictObject:
 		if x.kind == counterDict {
 			return counterAdd(a, b)
@@ -300,7 +304,7 @@ func Sub(a, b Object) (Object, error) {
 
 func isSequence(o Object) bool {
 	switch o.(type) {
-	case *strObject, *bytesObject, *bytearrayObject, *listObject, *tupleObject:
+	case *strObject, *bytesObject, *bytearrayObject, *listObject, *tupleObject, *arrayObject:
 		return true
 	}
 	return false
@@ -338,6 +342,8 @@ func repeatSeq(seq Object, n int64) Object {
 			out = append(out, x.elts...)
 		}
 		return NewTuple(out)
+	case *arrayObject:
+		return arrayRepeat(x, n)
 	}
 	return nil
 }
@@ -812,6 +818,9 @@ func equals(a, b Object) bool {
 	case *dequeObject:
 		y, ok := b.(*dequeObject)
 		return ok && dequeEquals(x, y)
+	case *arrayObject:
+		y, ok := b.(*arrayObject)
+		return ok && arrayEquals(x, y)
 	case *tupleObject:
 		y, ok := b.(*tupleObject)
 		return ok && seqEquals(x.elts, y.elts)
@@ -955,6 +964,10 @@ func order(op CmpOp, a, b Object) (bool, error) {
 		if y, ok2 := b.(*dequeObject); ok2 {
 			return seqOrder(op, x.elts, y.elts)
 		}
+	} else if x, ok := a.(*arrayObject); ok {
+		if y, ok2 := b.(*arrayObject); ok2 {
+			return seqOrder(op, x.elts, y.elts)
+		}
 	} else if x, ok := a.(*tupleObject); ok {
 		if y, ok2 := b.(*tupleObject); ok2 {
 			return seqOrder(op, x.elts, y.elts)
@@ -1030,6 +1043,8 @@ func Contains(container, item Object) (Object, error) {
 	case *listObject:
 		return seqContains(x.elts, item), nil
 	case *dequeObject:
+		return seqContains(x.elts, item), nil
+	case *arrayObject:
 		return seqContains(x.elts, item), nil
 	case *tupleObject:
 		return seqContains(x.elts, item), nil
@@ -1172,7 +1187,7 @@ func GetItem(o, key Object) (Object, error) {
 	// start:stop:step notation does, so xs[slice(1, 4)] matches xs[1:4].
 	if sl, ok := key.(*sliceObject); ok {
 		switch o.(type) {
-		case *listObject, *tupleObject, *strObject, *bytesObject, *bytearrayObject, *memoryviewObject, *rangeObject:
+		case *listObject, *tupleObject, *strObject, *bytesObject, *bytearrayObject, *memoryviewObject, *rangeObject, *arrayObject:
 			return GetSlice(o, sl.start, sl.stop, sl.step)
 		}
 	}
@@ -1242,6 +1257,8 @@ func GetItem(o, key Object) (Object, error) {
 		return x.elts[j], nil
 	case *dequeObject:
 		return dequeGetItem(x, key)
+	case *arrayObject:
+		return arrayGetItem(x, key)
 	case *tupleObject:
 		i, ok := seqIndexKey(key)
 		if !ok {
@@ -1350,6 +1367,8 @@ func SetItem(o, key, val Object) error {
 		return nil
 	case *dequeObject:
 		return dequeSetItem(x, key, val)
+	case *arrayObject:
+		return arraySetItem(x, key, val)
 	case *bytearrayObject:
 		i, ok := seqIndexKey(key)
 		if !ok {
@@ -1401,6 +1420,8 @@ func Len(o Object) (int, error) {
 	case *listObject:
 		return len(x.elts), nil
 	case *dequeObject:
+		return len(x.elts), nil
+	case *arrayObject:
 		return len(x.elts), nil
 	case *tupleObject:
 		return len(x.elts), nil
