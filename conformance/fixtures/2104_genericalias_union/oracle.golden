@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+dict[str, str] | None
+(dict[str, str], <class 'NoneType'>)
+list[int] | str | None
+None | dict[int, int]
+int | None | list[str]
+tuple[int, ...] | bytes
+(tuple[int, ...], <class 'bytes'>)
+None
+== exception:
+== stderr:

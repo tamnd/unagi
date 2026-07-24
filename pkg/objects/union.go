@@ -28,6 +28,11 @@ func asUnionMember(o Object) (Object, bool) {
 		return t, true
 	case *typeObject:
 		return t, true
+	case *genericAliasObject:
+		// A parameterized generic like dict[str, str] stands for itself in a
+		// union, so dict[str, str] | None keeps the alias in __args__ and reprs it
+		// the way CPython does.
+		return t, true
 	case *funcObject:
 		if builtinTypeReprs[t.name] {
 			return t, true
@@ -167,6 +172,12 @@ func unionMemberRepr(m Object) string {
 		return t.name
 	case *classObject:
 		return t.qual
+	case *genericAliasObject:
+		// CPython renders a union member with _type_repr, so an alias member shows
+		// as dict[str, str], not its type name.
+		if s, err := genericAliasRepr(t); err == nil {
+			return s
+		}
 	}
 	return m.TypeName()
 }
