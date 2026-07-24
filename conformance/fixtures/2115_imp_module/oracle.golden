@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+magic 168627755
+chbp default
+is_frozen sys False
+is_frozen nope False
+is_builtin sys 1
+is_builtin missing 0
+suffixes is list True
+suffixes has .so True
+acquire None
+release None
+lock_held False
+source_hash is bytes True
+source_hash len 8
+create_builtin _thread _thread
+has allocate_lock True
+== exception:
+== stderr:
