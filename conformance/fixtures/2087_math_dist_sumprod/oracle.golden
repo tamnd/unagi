@@ -1,0 +1,27 @@
+== exit: 0
+== stdout:
+5.0
+7.0
+3.0
+5.0
+0.0
+0.0
+5.0
+inf
+True
+32
+500000000000000000000
+0
+10
+1.5
+inf
+True
+nan
+dist mismatch -> ValueError: both points must have the same number of dimensions
+dist 1 arg -> TypeError: dist expected 2 arguments, got 1
+dist scalar -> TypeError: 'int' object is not iterable
+sumprod mismatch -> ValueError: Inputs are not the same length
+sumprod 1 arg -> TypeError: sumprod expected 2 arguments, got 1
+sumprod scalar -> TypeError: 'int' object is not iterable
+== exception:
+== stderr:

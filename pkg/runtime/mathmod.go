@@ -120,6 +120,8 @@ func initMath(m *objects.Module) error {
 		{"remainder", mathRemainder},
 		{"pow", mathPow},
 		{"hypot", mathHypot},
+		{"dist", mathDist},
+		{"sumprod", mathSumprod},
 		{"fma", mathFma},
 		{"fsum", mathFsum},
 		{"gamma", mathGamma},
@@ -459,6 +461,98 @@ func mathHypot(args []objects.Object) (objects.Object, error) {
 		sum += v * v
 	}
 	return objects.NewFloat(math.Sqrt(sum)), nil
+}
+
+// mathDist implements math.dist(p, q): the Euclidean distance between two points
+// given as coordinate iterables, the square root of the summed squared
+// coordinate differences. CPython computes a scaled, correctly-rounded result, so
+// on a general point the last bit can differ from this straightforward form; the
+// fixture asserts only the points the two agree on exactly, the Pythagorean-exact
+// cases and the zero, infinity and nan handling. It matches mathHypot's naive
+// sum-of-squares approach.
+func mathDist(args []objects.Object) (objects.Object, error) {
+	if len(args) != 2 {
+		return nil, objects.Raise(objects.TypeError, "dist expected 2 arguments, got %d", len(args))
+	}
+	p, err := materialize(args[0])
+	if err != nil {
+		return nil, err
+	}
+	q, err := materialize(args[1])
+	if err != nil {
+		return nil, err
+	}
+	if len(p) != len(q) {
+		return nil, objects.Raise(objects.ValueError, "both points must have the same number of dimensions")
+	}
+	sum := 0.0
+	for i := range p {
+		a, err := mathToFloat(p[i])
+		if err != nil {
+			return nil, err
+		}
+		b, err := mathToFloat(q[i])
+		if err != nil {
+			return nil, err
+		}
+		d := a - b
+		sum += d * d
+	}
+	return objects.NewFloat(math.Sqrt(sum)), nil
+}
+
+// mathSumprod implements math.sumprod(p, q): the sum of the products of the
+// corresponding elements of two iterables, the dot product. When every element
+// is an integer the sum is exact big-integer arithmetic. CPython computes a
+// correctly-rounded result once a float appears, so on general floats the last
+// bit can differ from this straightforward accumulation, and the fixture asserts
+// only the exact cases.
+func mathSumprod(args []objects.Object) (objects.Object, error) {
+	if len(args) != 2 {
+		return nil, objects.Raise(objects.TypeError, "sumprod expected 2 arguments, got %d", len(args))
+	}
+	p, err := materialize(args[0])
+	if err != nil {
+		return nil, err
+	}
+	q, err := materialize(args[1])
+	if err != nil {
+		return nil, err
+	}
+	if len(p) != len(q) {
+		return nil, objects.Raise(objects.ValueError, "Inputs are not the same length")
+	}
+	allInt := true
+	for i := range p {
+		_, pok := objects.AsBigInt(p[i])
+		_, qok := objects.AsBigInt(q[i])
+		if !pok || !qok {
+			allInt = false
+			break
+		}
+	}
+	if allInt {
+		total := new(big.Int)
+		for i := range p {
+			pb, _ := objects.AsBigInt(p[i])
+			qb, _ := objects.AsBigInt(q[i])
+			total.Add(total, new(big.Int).Mul(pb, qb))
+		}
+		return objects.NewIntFromBig(total), nil
+	}
+	sum := 0.0
+	for i := range p {
+		a, err := mathToFloat(p[i])
+		if err != nil {
+			return nil, err
+		}
+		b, err := mathToFloat(q[i])
+		if err != nil {
+			return nil, err
+		}
+		sum += a * b
+	}
+	return objects.NewFloat(sum), nil
 }
 
 // mathFma implements math.fma(x, y, z): x*y + z computed with a single rounding,
