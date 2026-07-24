@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"fmt"
 	"math"
 	"runtime"
 	"strings"
@@ -205,6 +206,13 @@ func initSys(m *objects.Module) error {
 		val  objects.Object
 	}{
 		{"version_info", versionInfo},
+		// sys.version is the human-readable banner. A compiled program is not a
+		// live interpreter, so the build fields carry a fixed unagi tag rather than
+		// a real build date. It is shaped the way platform's CPython parser expects,
+		// "<version> (<buildno>, <builddate>, <buildtime>) [<compiler>]", so
+		// platform.python_version reads 3.14.6 back off it while the build and
+		// compiler fields, which are host-specific in real CPython, stay a constant.
+		{"version", objects.NewStr(fmt.Sprintf("%d.%d.%d (unagi, Jan 01 2026, 00:00:00) [unagi]", pyMajor, pyMinor, pyMicro))},
 		{"hexversion", objects.NewInt(hex)},
 		{"maxsize", objects.NewInt(math.MaxInt64)},
 		{"maxunicode", objects.NewInt(0x10FFFF)},
@@ -222,6 +230,10 @@ func initSys(m *objects.Module) error {
 		{"exec_prefix", objects.NewStr("")},
 		{"base_prefix", objects.NewStr("")},
 		{"base_exec_prefix", objects.NewStr("")},
+		// A compiled program is not launched through a Python interpreter, so there
+		// is no executable path to report. platform reads it to guess the build, and
+		// with it empty falls through to the values it derives from sys itself.
+		{"executable", objects.NewStr("")},
 	}
 	for _, a := range attrs {
 		if err := set(a.name, a.val); err != nil {
