@@ -93,3 +93,16 @@ var orderedExtraMethodNames = map[string]bool{
 var tupleMethodNames = map[string]bool{
 	"count": true, "index": true,
 }
+
+// builtinTypeMethodNames maps a builtin type name to its instance-method set, so
+// a method read off the type (int.bit_length, str.upper) resolves to the unbound
+// method the same names bind on an instance. bool shares int's methods, being a
+// subtype. The classmethod and staticmethod forms (dict.fromkeys, int.from_bytes)
+// resolve ahead of this through builtinTypeClassmethod, so only the plain
+// instance descriptors land here.
+var builtinTypeMethodNames = map[string]map[string]bool{
+	"int": intMethodNames, "bool": intMethodNames, "float": floatMethodNames,
+	"str": strMethodNames, "bytes": bytesMethodNames, "bytearray": bytearrayMethodNames,
+	"list": listMethodNames, "tuple": tupleMethodNames,
+	"set": setMethodNames, "frozenset": frozensetMethodNames, "dict": dictMethodNames,
+}
