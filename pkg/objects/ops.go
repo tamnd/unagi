@@ -108,6 +108,9 @@ func TruthOf(o Object) (bool, error) {
 	if d, ok := dictBacked(x); ok {
 		return len(d.entries) != 0, nil
 	}
+	if l, ok := listBacked(x); ok {
+		return len(l.elts) != 0, nil
+	}
 	if v, ok := builtinUnwrap(x); ok {
 		// A value subclass with neither __bool__ nor __len__ is truthy exactly
 		// when its payload is, so an int subclass member of value 0 is falsy.
@@ -244,7 +247,7 @@ func Add(a, b Object) (Object, error) {
 		}
 		return nil, Raise(TypeError, "can't concat %s to bytearray", b.TypeName())
 	case *listObject:
-		if y, ok := b.(*listObject); ok {
+		if y, ok := listPayload(b); ok {
 			out := make([]Object, 0, len(x.elts)+len(y.elts))
 			out = append(out, x.elts...)
 			out = append(out, y.elts...)
@@ -290,6 +293,11 @@ func Add(a, b Object) (Object, error) {
 		if r, ok, err := complexArith('+', a, b); ok || err != nil {
 			return r, err
 		}
+	}
+	// A list subclass instance concatenates as its base list when it does not
+	// override __add__, giving a plain list the way list.__add__ does.
+	if res, ok, err := listInstanceAdd(a, b); ok || err != nil {
+		return res, err
 	}
 	return binFallback("+", a, b)
 }
@@ -426,6 +434,11 @@ func Mul(a, b Object) (Object, error) {
 		if r, ok, err := complexArith('*', a, b); ok || err != nil {
 			return r, err
 		}
+	}
+	// A list subclass instance repeats as its base list when it does not override
+	// the matching dunder, on either side of the operator.
+	if res, ok, err := listInstanceMul(a, b); ok || err != nil {
+		return res, err
 	}
 	return binFallback("*", a, b)
 }
@@ -1206,6 +1219,9 @@ func Contains(container, item Object) (Object, error) {
 			}
 			return NewBool(found), nil
 		}
+		if l, ok := listBacked(x); ok {
+			return Contains(l, item)
+		}
 		if v, ok := builtinUnwrap(x); ok {
 			return Contains(v, item)
 		}
@@ -1425,6 +1441,9 @@ func GetItem(o, key Object) (Object, error) {
 		if d, ok := dictBacked(x); ok {
 			return d.get(key)
 		}
+		if l, ok := listBacked(x); ok {
+			return GetItem(l, key)
+		}
 		if v, ok := builtinUnwrap(x); ok {
 			return GetItem(v, key)
 		}
@@ -1498,6 +1517,9 @@ func SetItem(o, key, val Object) error {
 		}
 		if d, ok := dictBacked(x); ok {
 			return d.set(key, val)
+		}
+		if l, ok := listBacked(x); ok {
+			return SetItem(l, key, val)
 		}
 	}
 	return Raise(TypeError, "'%s' object does not support item assignment", o.TypeName())
@@ -1573,6 +1595,9 @@ func Len(o Object) (int, error) {
 		}
 		if d, ok := dictBacked(x); ok {
 			return len(d.entries), nil
+		}
+		if l, ok := listBacked(x); ok {
+			return len(l.elts), nil
 		}
 		if v, ok := builtinUnwrap(x); ok {
 			return Len(v)
@@ -1744,6 +1769,9 @@ func Iter(o Object) (Iterator, error) {
 			if _, ok := x.cls.lookup("__getitem__"); !ok {
 				if d, backed := dictBacked(x); backed {
 					return &sliceIter{elts: d.keySlice()}, nil
+				}
+				if l, backed := listBacked(x); backed {
+					return Iter(l)
 				}
 				if v, ok := builtinUnwrap(x); ok {
 					return Iter(v)

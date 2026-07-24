@@ -19,7 +19,7 @@ package objects
 func builtinBaseName(b Object) (string, bool) {
 	if f, ok := b.(*funcObject); ok {
 		switch f.name {
-		case "dict", "int", "str", "tuple", "classmethod", "staticmethod", "property":
+		case "dict", "list", "int", "str", "tuple", "classmethod", "staticmethod", "property":
 			return f.name, true
 		case "ref":
 			// weakref.ref is exposed as the builtin `ref`; weakref.py subclasses it
@@ -275,6 +275,9 @@ func builtinBaseCall(self Object, name string, pos []Object, kwNames []string, k
 	if !ok {
 		return nil, false, nil
 	}
+	if _, backed := listBacked(inst); backed {
+		return listBaseCall(self, name, pos, kwNames, kwVals)
+	}
 	d, backed := dictBacked(inst)
 	if !backed {
 		return nil, false, nil
@@ -353,6 +356,9 @@ func builtinBaseAttr(self Object, name string) (Object, bool) {
 	inst, ok := self.(*instanceObject)
 	if !ok {
 		return nil, false
+	}
+	if _, backed := listBacked(inst); backed {
+		return listBaseAttr(self, name)
 	}
 	if _, backed := dictBacked(inst); !backed {
 		return nil, false

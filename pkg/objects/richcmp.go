@@ -97,6 +97,21 @@ func richSlot(x Object, op CmpOp, other Object) (res Object, ok bool, err error)
 		}
 		return r, true, nil
 	}
+	// A list subclass with no comparison override compares as its payload, so it
+	// equals and orders against lists and other list subclasses element by
+	// element. The other operand unwraps too when it is a list subclass, leaving
+	// two lists for the sequence comparison path.
+	if lst, ok := listBacked(inst); ok {
+		ov := other
+		if ol, ok := listPayload(other); ok {
+			ov = ol
+		}
+		r, err := Compare(op, lst, ov)
+		if err != nil {
+			return nil, false, err
+		}
+		return r, true, nil
+	}
 	if op == OpNe {
 		// object.__ne__ negates __eq__ unless __eq__ itself declines.
 		eq, hasEq, err := instanceSpecial(inst, "__eq__", other)

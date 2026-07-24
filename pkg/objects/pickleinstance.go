@@ -51,7 +51,8 @@ func pickleClassQualname(c *classObject) string {
 func pickleDefaultReducible(o *instanceObject) bool {
 	c := o.cls
 	return c.builtinBase == "" && !c.hasSlots &&
-		o.slots == nil && o.dictData == nil && o.builtinData == nil && o.localData == nil &&
+		o.slots == nil && o.dictData == nil && o.builtinData == nil &&
+		o.listData == nil && o.localData == nil &&
 		!isExcClass(c)
 }
 

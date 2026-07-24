@@ -106,7 +106,15 @@ func inplaceConcat(a, b Object) (Object, bool, error) {
 		}
 		return arr, true, nil
 	}
+	// A list subclass instance extends its payload in place and returns the same
+	// instance, so l += iterable keeps the subclass type and aliases see it grow.
 	lst, ok := a.(*listObject)
+	self := a
+	if !ok {
+		if l, backed := listBackedObj(a); backed {
+			lst, ok = l, true
+		}
+	}
 	if !ok {
 		return nil, false, nil
 	}
@@ -117,7 +125,7 @@ func inplaceConcat(a, b Object) (Object, bool, error) {
 		return nil, true, err
 	}
 	lst.elts = append(lst.elts, items...)
-	return lst, true, nil
+	return self, true, nil
 }
 
 // inplaceRepeat handles list *= n in place. A non-int right operand or a big
@@ -158,7 +166,15 @@ func inplaceRepeat(a, b Object) (Object, bool, error) {
 		}
 		return arr, true, nil
 	}
+	// A list subclass instance repeats its payload in place and returns the same
+	// instance, so l *= n keeps the subclass type and aliases see the change.
 	lst, ok := a.(*listObject)
+	self := a
+	if !ok {
+		if l, backed := listBackedObj(a); backed {
+			lst, ok = l, true
+		}
+	}
 	if !ok {
 		return nil, false, nil
 	}
@@ -168,13 +184,13 @@ func inplaceRepeat(a, b Object) (Object, bool, error) {
 	}
 	if n <= 0 {
 		lst.elts = lst.elts[:0]
-		return lst, true, nil
+		return self, true, nil
 	}
 	base := append([]Object(nil), lst.elts...)
 	for i := int64(1); i < n; i++ {
 		lst.elts = append(lst.elts, base...)
 	}
-	return lst, true, nil
+	return self, true, nil
 }
 
 // iterAll drains an iterable into a slice, surfacing any iteration error.
