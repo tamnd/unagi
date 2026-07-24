@@ -258,6 +258,15 @@ func (e *emitter) emitMain(body []frontend.Stmt) (*ast.FuncDecl, error) {
 	}
 	f.declPending(body)
 	f.frameGuard(1)
+	// A module that assigns __name__, as _pydecimal does for pickling, turns it
+	// into an ordinary module variable, so a read before that assignment would
+	// see the unbound zero value. CPython pre-populates __name__ with the module
+	// name, so seed it here before the body runs. Only a module that assigns
+	// __name__ reaches this, so the seed cannot change a module that just reads
+	// the folded constant.
+	if f.locals["__name__"] {
+		f.add(set(ident(mangle("__name__")), callExpr(f.e.obj("NewStr"), strLit(f.e.modName))))
+	}
 	if err := f.stmts(body); err != nil {
 		return nil, err
 	}
