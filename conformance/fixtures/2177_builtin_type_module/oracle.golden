@@ -1,0 +1,20 @@
+== exit: 0
+== stdout:
+int builtins int
+str builtins str
+tuple builtins tuple
+list builtins list
+dict builtins dict
+float builtins float
+bool builtins bool
+bytes builtins bytes
+complex builtins complex
+set builtins set
+frozenset builtins frozenset
+object builtins object
+type builtins type
+builtins builtins
+__main__
+abc
+== exception:
+== stderr:

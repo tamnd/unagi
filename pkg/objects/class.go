@@ -2342,6 +2342,13 @@ func LoadAttr(o Object, name string) (Object, error) {
 		if name == "__annotations__" {
 			return classAnnotations(x)
 		}
+		// A builtin-provided class (object, type, the exception roots) carries no
+		// __module__ in its dict, so it reads back "builtins". A user or
+		// vendored-module class always has __module__ seeded at creation, so
+		// x.lookup above already answered and only the builtin roots reach here.
+		if name == "__module__" {
+			return NewStr("builtins"), nil
+		}
 		return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
 	case *annotationsDescriptor:
 		// annotationlib binds `type.__dict__["__annotations__"].__get__` once and
@@ -2661,6 +2668,13 @@ func LoadAttr(o Object, name string) (Object, error) {
 		// __name__/__qualname__, so type(5).__name__ and len.__name__ read back.
 		if name == "__name__" || name == "__qualname__" {
 			return NewStr(x.name), nil
+		}
+		// A builtin type constructor lives in the builtins module, so
+		// tuple.__module__ and int.__module__ read back "builtins", the way typing.py
+		// tests `origin.__module__ == 'builtins'`. A native-module callable carries
+		// its own module elsewhere, so this is scoped to the true builtins.
+		if name == "__module__" && builtinTypeReprs[x.name] {
+			return NewStr("builtins"), nil
 		}
 		// A builtin may attach its own attributes, such as chain.from_iterable.
 		if v, ok := x.attrs[name]; ok {
