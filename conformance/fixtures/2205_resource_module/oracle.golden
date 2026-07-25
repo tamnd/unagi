@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+constants ok
+error is OSError: True
+len: 16
+ru_utime float: True
+ru_stime float: True
+ru_maxrss int: True
+ru_nvcsw int: True
+index==attr: True True True
+rlimit ints: True True
+rlimit round-trip ok
+pagesize positive: True
+done
+== exception:
+== stderr:
