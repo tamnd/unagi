@@ -65,6 +65,17 @@ func materialize(o objects.Object) ([]objects.Object, error) {
 // last inserted first.
 func Reversed(o objects.Object) (objects.Object, error) {
 	var name string
+	// A user class drives reversed() through __reversed__ or the
+	// __len__+__getitem__ old-style sequence fallback before the builtin cases.
+	switch mode, result, elems, err := objects.ReversedInstance(o); mode {
+	case objects.ReversedResult:
+		return result, err
+	case objects.ReversedElems:
+		if err != nil {
+			return nil, err
+		}
+		return &iterObject{name: "reversed", elts: elems}, nil
+	}
 	if objects.IsDict(o) {
 		// A dict and its subclasses (defaultdict) reverse over their keys.
 		name = "dict_reversekeyiterator"
