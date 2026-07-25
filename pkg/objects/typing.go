@@ -117,11 +117,25 @@ func newTypeVar(t *Thread, pos []Object, kwNames []string, kwVals []Object) (Obj
 	return tv, nil
 }
 
+// The TypeVar, ParamSpec, and TypeVarTuple constructors are cached as singletons
+// so IsInstance can recognize them by identity. typing.py runs
+// `isinstance(x, (TypeVar, ParamSpec))` against these callables, so IsInstance
+// treats each as the type of its own instances even though they are constructor
+// functions in this tier rather than real types.
+var (
+	typeVarConstructor      Object
+	paramSpecConstructor    Object
+	typeVarTupleConstructor Object
+)
+
 // NewTypeVarConstructor returns the callable bound as _typing.TypeVar. It is a
 // keyword-aware, thread-threaded function so it can read the constraints as
 // varargs, the options as keywords, and the caller's module for __module__.
 func NewTypeVarConstructor() Object {
-	return NewFuncKwT("TypeVar", newTypeVar)
+	if typeVarConstructor == nil {
+		typeVarConstructor = NewFuncKwT("TypeVar", newTypeVar)
+	}
+	return typeVarConstructor
 }
 
 // typeVarRepr renders a TypeVar as its variance sigil followed by the name.
@@ -224,7 +238,10 @@ func (*paramSpecKwargsObject) TypeName() string { return "ParamSpecKwargs" }
 
 // NewParamSpecConstructor returns the callable bound as _typing.ParamSpec.
 func NewParamSpecConstructor() Object {
-	return NewFuncKwT("ParamSpec", newParamSpec)
+	if paramSpecConstructor == nil {
+		paramSpecConstructor = NewFuncKwT("ParamSpec", newParamSpec)
+	}
+	return paramSpecConstructor
 }
 
 // NewParamSpecArgsConstructor and NewParamSpecKwargsConstructor return the
@@ -386,7 +403,10 @@ func (*typeVarTupleObject) TypeName() string { return "TypeVarTuple" }
 
 // NewTypeVarTupleConstructor returns the callable bound as _typing.TypeVarTuple.
 func NewTypeVarTupleConstructor() Object {
-	return NewFuncKwT("TypeVarTuple", newTypeVarTuple)
+	if typeVarTupleConstructor == nil {
+		typeVarTupleConstructor = NewFuncKwT("TypeVarTuple", newTypeVarTuple)
+	}
+	return typeVarTupleConstructor
 }
 
 // newTypeVarTuple builds a TypeVarTuple from TypeVarTuple(name, *,

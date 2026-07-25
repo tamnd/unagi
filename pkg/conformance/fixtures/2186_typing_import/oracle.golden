@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+(~T,) __main__.Box[int] <class '__main__.Box'> (<class 'int'>,)
+(~K, ~V) __main__.Pair[int, str]
+(__main__.Box[int],) True ()
+int | None int | str True
+typing.List[int] typing.Dict[str, int] typing.Callable[[int, str], bool] typing.Tuple[int, ...]
+True False
+{'x': <class 'int'>, 'y': <class 'str'>, 'return': <class 'bool'>}
+== exception:
+== stderr:

@@ -487,6 +487,7 @@ func typeNewCore(meta *classObject, nameArg, basesArg, nsArg Object) (Object, er
 		return nil, Raise(TypeError, "type.__new__() argument 3 must be dict, not %s", nsArg.TypeName())
 	}
 	module := "__main__"
+	qualname := name.v
 	var names []string
 	var vals []Object
 	for _, e := range ns.entries {
@@ -501,10 +502,21 @@ func typeNewCore(meta *classObject, nameArg, basesArg, nsArg Object) (Object, er
 				module = m.v
 			}
 		}
+		if key.v == "__qualname__" {
+			// type.__new__ consumes __qualname__ from the namespace: it sets the
+			// class qualname and does not leave the key in the class __dict__, so
+			// __qualname__ never surfaces as a data member. typing's Protocol
+			// machinery scans a class __dict__ for non-method members and would
+			// otherwise flag this leaked key.
+			if q, ok := e.val.(*strObject); ok {
+				qualname = q.v
+			}
+			continue
+		}
 		names = append(names, key.v)
 		vals = append(vals, e.val)
 	}
-	return newClassCore(meta, name.v, module+"."+name.v, bases.elts, names, vals, nil, nil)
+	return newClassCore(meta, name.v, module+"."+qualname, bases.elts, names, vals, nil, nil)
 }
 
 // runInitSubclass fires the nearest base's __init_subclass__ on the new class,
@@ -524,12 +536,23 @@ func (c *classObject) runInitSubclass(kwNames []string, kwVals []Object) error {
 		if !ok {
 			continue
 		}
-		fn, ok := v.(*functionObject)
-		if !ok {
-			return Raise(TypeError, "__init_subclass__ must be a plain function in this tier")
+		if fn, ok := v.(*functionObject); ok {
+			_, err := fn.bind(mainThread, []Object{c}, kwNames, kwVals)
+			return err
 		}
-		_, err := fn.bind(mainThread, []Object{c}, kwNames, kwVals)
-		return err
+		// A builtin base can carry a native __init_subclass__, such as the Generic
+		// hook that collects a subclass's type parameters. It is an implicit
+		// classmethod, so binding prepends the subclass and the class keyword
+		// arguments follow, the same shape a Python hook receives.
+		if cm, ok := v.(*classmethodObject); ok {
+			_, err := CallKw(cm.fn, []Object{c}, kwNames, kwVals)
+			return err
+		}
+		if _, ok := v.(*funcObject); ok {
+			_, err := CallKw(v, []Object{c}, kwNames, kwVals)
+			return err
+		}
+		return Raise(TypeError, "__init_subclass__ must be a plain function in this tier")
 	}
 	if len(kwNames) > 0 {
 		return Raise(TypeError, "%s.__init_subclass__() takes no keyword arguments", c.name)
@@ -1836,6 +1859,22 @@ func IsInstance(obj, cls Object) (Object, error) {
 			return True, nil
 		}
 		return False, nil
+	}
+	// The _typing type-parameter constructors stand in for their own instance
+	// types: isinstance(x, TypeVar) is true exactly when x is a TypeVar, and the
+	// same for ParamSpec and TypeVarTuple. typing.py relies on this in
+	// _is_typevar_like, so the constructors count as valid arg 2 types.
+	if typeVarConstructor != nil && cls == typeVarConstructor {
+		_, ok := obj.(*typeVarObject)
+		return NewBool(ok), nil
+	}
+	if paramSpecConstructor != nil && cls == paramSpecConstructor {
+		_, ok := obj.(*paramSpecObject)
+		return NewBool(ok), nil
+	}
+	if typeVarTupleConstructor != nil && cls == typeVarTupleConstructor {
+		_, ok := obj.(*typeVarTupleObject)
+		return NewBool(ok), nil
 	}
 	return nil, Raise(TypeError, "isinstance() arg 2 must be a type, a tuple of types, or a union")
 }
