@@ -37,6 +37,16 @@ type ClassBuilder struct {
 // __name__, which qual carries as its leading segment; kwNames and kwVals
 // are the remaining class keywords, which __prepare__ receives too.
 func StartClass(meta Object, module, name, qual string, firstLine int, doc Object, bases []Object, kwNames []string, kwVals []Object) (*ClassBuilder, error) {
+	// PEP 560: resolve any subscripted generic base (Mapping[str, str]) to the
+	// real type its __mro_entries__ names before metaclass determination and the
+	// namespace prepare, both of which read the bases. The original tuple becomes
+	// __orig_bases__ when a base was replaced, the way __build_class__ records it.
+	origBases := bases
+	resolved, rebased, err := resolveMroEntries(bases)
+	if err != nil {
+		return nil, err
+	}
+	bases = resolved
 	// An explicit metaclass that is a class, type-derived or plain, joins the
 	// most-derived determination against the bases' metaclasses; anything else
 	// is taken as-is, the isinstance(meta, type) split __build_class__ makes.
@@ -51,7 +61,6 @@ func StartClass(meta Object, module, name, qual string, firstLine int, doc Objec
 	}
 	var winner *classObject
 	var ns Object
-	var err error
 	if callable != nil {
 		ns, err = prepareCallable(callable, name, bases, kwNames, kwVals)
 	} else {
@@ -76,6 +85,14 @@ func StartClass(meta Object, module, name, qual string, firstLine int, doc Objec
 	}
 	if doc != nil {
 		if err := b.Set("__doc__", doc); err != nil {
+			return nil, err
+		}
+	}
+	// A class whose bases were rewritten by __mro_entries__ keeps the original
+	// tuple as __orig_bases__, so typing.get_original_bases and the Generic
+	// machinery can recover the parameterized bases the source wrote.
+	if rebased {
+		if err := b.Set("__orig_bases__", NewTuple(origBases)); err != nil {
 			return nil, err
 		}
 	}

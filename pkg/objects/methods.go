@@ -164,13 +164,15 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		return zlibCompressMethod(x, name, args)
 	case *zlibDecompressObject:
 		return zlibDecompressMethod(x, name, args)
-	case *boundMethod, *functionObject, *funcObject, *namedTupleType, *lruCacheObject:
+	case *boundMethod, *functionObject, *funcObject, *namedTupleType, *lruCacheObject, *genericAliasObject:
 		// A function or bound method has no method surface of its own, so
 		// obj.attr(args) reads the attribute and calls it, the way CPython does
 		// for b.__func__(self) or a builtin that carries a helper such as
 		// chain.from_iterable. The namedtuple class object is the same case:
 		// Point._make(it) reads _make off the type and calls it. The lru_cache
-		// wrapper follows suit for sq.cache_info() and sq.cache_clear().
+		// wrapper follows suit for sq.cache_info() and sq.cache_clear(). A
+		// GenericAlias answers ga.__mro_entries__(bases) the same way, reading the
+		// method its LoadAttr exposes and calling it.
 		v, err := LoadAttr(o, name)
 		if err != nil {
 			return nil, err

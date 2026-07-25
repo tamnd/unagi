@@ -321,6 +321,56 @@ func newClassCore(meta *classObject, name, qual string, bases []Object, names []
 	return c, nil
 }
 
+// resolveMroEntries applies PEP 560 to a class statement's explicit bases: a
+// base that is not a type but carries __mro_entries__, such as the
+// types.GenericAlias `Mapping[str, str]`, is replaced by the tuple that method
+// returns (its origin), so the class derives from a real type. The unchanged
+// bases pass through untouched. changed reports whether any base was replaced,
+// the cue to record the original tuple as __orig_bases__. The original tuple is
+// what __mro_entries__ receives, matching __build_class__.
+func resolveMroEntries(bases []Object) (resolved []Object, changed bool, err error) {
+	orig := NewTuple(append([]Object(nil), bases...))
+	for _, b := range bases {
+		entries, ok, err := mroEntriesOf(b, orig)
+		if err != nil {
+			return nil, false, err
+		}
+		if !ok {
+			resolved = append(resolved, b)
+			continue
+		}
+		changed = true
+		resolved = append(resolved, entries...)
+	}
+	if !changed {
+		return bases, false, nil
+	}
+	return resolved, true, nil
+}
+
+// mroEntriesOf calls a base's __mro_entries__ if it has one, returning the tuple
+// of replacement bases. A base without the method, the ordinary case of a type,
+// reports ok false and is kept as itself. The result must be a tuple, the shape
+// __build_class__ requires.
+func mroEntriesOf(b Object, origBases Object) ([]Object, bool, error) {
+	fn, err := LoadAttr(b, "__mro_entries__")
+	if err != nil {
+		if e, ok := err.(*Exception); ok && e.Kind == AttributeError {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	res, err := Call(fn, []Object{origBases})
+	if err != nil {
+		return nil, false, err
+	}
+	t, ok := res.(*tupleObject)
+	if !ok {
+		return nil, false, Raise(TypeError, "__mro_entries__ must return a tuple")
+	}
+	return append([]Object(nil), t.elts...), true, nil
+}
+
 // asBaseClass resolves a base expression to the class object it names. A user
 // class is itself; the `type` builtin, however it was spelled, resolves to the
 // type metatype so `class Meta(type)` derives a metaclass.
