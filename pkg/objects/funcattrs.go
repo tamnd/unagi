@@ -68,6 +68,10 @@ func functionLoadAttr(fn *functionObject, name string) (Object, error) {
 		return NewStr("__main__"), nil
 	case "__code__":
 		return functionCode(fn), nil
+	case "__defaults__":
+		return functionDefaults(fn), nil
+	case "__kwdefaults__":
+		return functionKwDefaults(fn), nil
 	case "__annotations__":
 		return funcAnnotations(fn), nil
 	case "__dict__":
@@ -98,6 +102,48 @@ func functionLoadAttr(fn *functionObject, name string) (Object, error) {
 		}
 	}
 	return nil, Raise(AttributeError, "'function' object has no attribute '%s'", name)
+}
+
+// functionDefaults builds the __defaults__ tuple: the default values of the
+// trailing positional parameters in declaration order, or None when the
+// function carries no positional defaults. Python keeps the defaulted tail
+// contiguous, so collecting the non-nil defaults of the positional-only and
+// plain parameters yields exactly the tuple inspect.signature pairs back onto
+// the last parameters.
+func functionDefaults(fn *functionObject) Object {
+	var vals []Object
+	for i, p := range fn.params {
+		if p.Kind != ParamPosOnly && p.Kind != ParamPlain {
+			continue
+		}
+		if d := fn.dflt(i); d != nil {
+			vals = append(vals, d)
+		}
+	}
+	if len(vals) == 0 {
+		return None
+	}
+	return NewTuple(vals)
+}
+
+// functionKwDefaults builds the __kwdefaults__ dict mapping each keyword-only
+// parameter that carries a default to its value, or None when there are no
+// keyword-only defaults, the shape inspect.signature reads for the * tail. The
+// keys are strings so the dict set cannot fail.
+func functionKwDefaults(fn *functionObject) Object {
+	d := newAttrs()
+	for i, p := range fn.params {
+		if p.Kind != ParamKwOnly {
+			continue
+		}
+		if v := fn.dflt(i); v != nil {
+			_ = d.set(NewStr(p.Name), v)
+		}
+	}
+	if len(d.entries) == 0 {
+		return None
+	}
+	return d
 }
 
 // functionStoreAttr writes fn.name = val. The five slots enforce their types the
