@@ -9,8 +9,33 @@ import (
 // functools package; the runtime owns those C-backed pieces directly under the
 // functools import name. This slice lands reduce and partial.
 
+// partialType is the functools.partial constructor. It is a package-level
+// singleton so BuiltinFn resolves it and type(p) is functools.partial holds by
+// identity, the way array.array and collections.deque register their type.
+var partialType objects.Object
+
 func init() {
 	moduleTable["functools"] = &moduleEntry{builtin: true, exec: initFunctools}
+
+	// partial(func, /, *args, **keywords): freeze leading positionals and
+	// keywords of func. func is positional-only, so the first positional is the
+	// callable and the rest are frozen; the star and starstar parameters give the
+	// impl the raw positionals and keyword dict, which keeps the no-argument and
+	// not-callable errors matching CPython. The name carries the module so it
+	// reprs as a class and inspect.signature's isinstance(obj, partial) treats it
+	// as a type.
+	partialType = objects.NewFuncKw("functools.partial",
+		func(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+			if len(pos) == 0 {
+				return nil, objects.Raise(objects.TypeError, "type 'partial' takes at least one argument")
+			}
+			fn := pos[0]
+			if !objects.Callable(fn) {
+				return nil, objects.Raise(objects.TypeError, "the first argument must be callable")
+			}
+			return objects.NewPartial(fn, pos[1:], kwNames, kwVals), nil
+		})
+	builtins["functools.partial"] = partialType
 }
 
 func initFunctools(m *objects.Module) error {
@@ -60,36 +85,9 @@ func initFunctools(m *objects.Module) error {
 		return err
 	}
 
-	// partial(func, /, *args, **keywords): freeze leading positionals and
-	// keywords of func. func is positional-only, so the first positional is the
-	// callable and the rest are frozen; the star and starstar parameters give the
-	// impl the raw positionals and keyword dict, which keeps the no-argument and
-	// not-callable errors matching CPython.
-	partial := objects.NewFunction("partial",
-		[]objects.Param{
-			{Name: "args", Kind: objects.ParamStar},
-			{Name: "keywords", Kind: objects.ParamStarStar},
-		},
-		[]objects.Object{nil, nil},
-		func(a []objects.Object) (objects.Object, error) {
-			pos, err := materialize(a[0])
-			if err != nil {
-				return nil, err
-			}
-			if len(pos) == 0 {
-				return nil, objects.Raise(objects.TypeError, "type 'partial' takes at least one argument")
-			}
-			fn := pos[0]
-			if !objects.Callable(fn) {
-				return nil, objects.Raise(objects.TypeError, "the first argument must be callable")
-			}
-			names, vals, err := kwPairs(a[1])
-			if err != nil {
-				return nil, err
-			}
-			return objects.NewPartial(fn, pos[1:], names, vals), nil
-		})
-	if err := set("partial", partial); err != nil {
+	// partial is the package-level constructor built in init, so the module
+	// attribute and BuiltinFn share identity and type(p) is functools.partial.
+	if err := set("partial", partialType); err != nil {
 		return err
 	}
 
@@ -239,26 +237,4 @@ func lruMaxsize(v objects.Object) (int, error) {
 		n = 0
 	}
 	return int(n), nil
-}
-
-// kwPairs reads a keyword dict captured by a **keywords parameter into parallel
-// name and value slices in insertion order, the form NewPartial stores.
-func kwPairs(kwargs objects.Object) ([]string, []objects.Object, error) {
-	if kwargs == nil || kwargs == objects.None {
-		return nil, nil, nil
-	}
-	keys, err := materialize(kwargs)
-	if err != nil {
-		return nil, nil, err
-	}
-	names := make([]string, len(keys))
-	vals := make([]objects.Object, len(keys))
-	for i, k := range keys {
-		names[i] = objects.Str(k)
-		vals[i], err = objects.GetItem(kwargs, k)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-	return names, vals, nil
 }

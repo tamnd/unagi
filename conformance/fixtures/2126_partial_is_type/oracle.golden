@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+13
+True
+True
+True
+True
+False
+True
+True
+True (1,) [('c', 10)]
+noarg
+notcallable
+== exception:
+== stderr:

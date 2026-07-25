@@ -564,6 +564,10 @@ var builtinTypeReprs = map[string]bool{
 	// ref.__hash__ off it at import, so it answers the type dunders and the
 	// introspection attributes rather than the plain function repr.
 	"ref": true,
+	// functools.partial is a real type: inspect.signature branches on
+	// isinstance(obj, functools.partial), so it has to answer as a class and its
+	// name carries the module the way CPython's tp_name does.
+	"functools.partial": true,
 }
 
 var builtinFuncReprs = map[string]bool{
