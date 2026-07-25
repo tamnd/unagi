@@ -43,6 +43,12 @@ func PyHash(o Object) (int64, error) {
 		}
 		return pyHashSmall(x.v), nil
 	case *floatObject:
+		if math.IsNaN(x.v) {
+			// A nan hashes by object identity on 3.14, so two distinct nan
+			// objects get distinct hashes instead of all colliding on 0 and
+			// can coexist as separate dict keys or set elements.
+			return pyHashPointer(o), nil
+		}
 		return pyHashFloat(x.v), nil
 	case *complexObject:
 		return pyHashComplex(x.re, x.im), nil

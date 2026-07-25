@@ -87,6 +87,12 @@ func hashKey(o Object) (string, error) {
 		return "i" + intDecimalLoose(x), nil
 	case *floatObject:
 		v := x.v
+		if math.IsNaN(v) {
+			// nan keys by object identity on 3.14: distinct nan objects occupy
+			// distinct slots, and the same nan finds its own slot, matching the
+			// identity hash PyHash gives it.
+			return "n" + strconv.FormatInt(pyHashPointer(o), 16), nil
+		}
 		if v == math.Trunc(v) && v >= math.MinInt64 && v < 9223372036854775808.0 {
 			return "i" + strconv.FormatInt(int64(v), 10), nil
 		}
