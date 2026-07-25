@@ -19,3 +19,10 @@ func fdDup2(fd, fd2 int) error {
 	}
 	return syscall.Dup3(fd, fd2, 0)
 }
+
+// pipeCloexec creates a pipe whose two fds are close-on-exec, matching the
+// non-inheritable fds CPython's os.pipe returns. Linux sets the flag atomically
+// with pipe2, so no ForkLock dance is needed.
+func pipeCloexec(fds *[2]int) error {
+	return syscall.Pipe2(fds[:], syscall.O_CLOEXEC)
+}

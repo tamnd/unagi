@@ -97,7 +97,10 @@ func posixWrite(args []objects.Object) (objects.Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, ok := objects.AsBytesLike(args[1])
+	// os.write takes any object with a buffer, so a memoryview (which
+	// subprocess._communicate slices its input into) is written directly rather
+	// than being rejected as not bytes.
+	data, ok := objects.AsBufferBytes(args[1])
 	if !ok {
 		return nil, objects.Raise(objects.TypeError, "a bytes-like object is required, not '%s'", args[1].TypeName())
 	}
@@ -191,13 +194,17 @@ func posixDup2(args []objects.Object) (objects.Object, error) {
 	return objects.NewInt(int64(fd2)), nil
 }
 
-// posixPipe creates a pipe and returns its (read_fd, write_fd) pair.
+// posixPipe creates a pipe and returns its (read_fd, write_fd) pair. Both fds
+// are close-on-exec, so they are not inherited across an exec unless a caller
+// clears the flag with os.set_inheritable, matching CPython's os.pipe (which has
+// returned non-inheritable fds since 3.4). subprocess relies on this to detect a
+// successful exec by the errpipe closing.
 func posixPipe(args []objects.Object) (objects.Object, error) {
 	if len(args) != 0 {
 		return nil, objects.Raise(objects.TypeError, "pipe() takes no arguments (%d given)", len(args))
 	}
 	var fds [2]int
-	if serr := syscall.Pipe(fds[:]); serr != nil {
+	if serr := pipeCloexec(&fds); serr != nil {
 		return nil, posixStatErr(serr)
 	}
 	return objects.NewTuple([]objects.Object{

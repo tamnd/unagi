@@ -484,6 +484,7 @@ func initSys(m *objects.Module) error {
 		{"setprofile", 1, sysSetProfile},
 		{"getprofile", 0, sysGetProfile},
 		{"call_tracing", 2, sysCallTracing},
+		{"exception", 0, sysException},
 	} {
 		if err := set(f.name, objects.NewFunc(f.name, f.arity, f.fn)); err != nil {
 			return err
@@ -582,6 +583,21 @@ func sysIntern(args []objects.Object) (objects.Object, error) {
 
 // sysGetDefaultEncoding reports sys.getdefaultencoding(): utf-8, the value
 // CPython 3 fixes it at. codecs and io read it to pick a default text codec.
+// sysException is sys.exception(): the exception instance currently being
+// handled, or None outside an except block. It is the value half of exc_info(),
+// which contextlib.ExitStack.__exit__ reads to tell whether it is unwinding an
+// exception. It reads the same handled-exception stack bare `raise` and implicit
+// context chaining use.
+func sysException(args []objects.Object) (objects.Object, error) {
+	if len(args) != 0 {
+		return nil, objects.Raise(objects.TypeError, "exception() takes no arguments (%d given)", len(args))
+	}
+	if e := objects.CurrentHandled(); e != nil {
+		return e, nil
+	}
+	return objects.None, nil
+}
+
 func sysGetDefaultEncoding(args []objects.Object) (objects.Object, error) {
 	return objects.NewStr("utf-8"), nil
 }

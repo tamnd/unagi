@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+rc 3
+cat 'piped\n'
+out 'xy'
+called 1
+fnf FileNotFoundError
+sort 'a\nb\nc\n' 0
+== exception:
+== stderr:
