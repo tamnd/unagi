@@ -420,6 +420,13 @@ func Pow3(base, exp, mod objects.Object) (objects.Object, error) {
 	eb, eok := objects.AsBigInt(exp)
 	mb, mok := objects.AsBigInt(mod)
 	if !bok || !eok || !mok {
+		// A user numeric drives 3-arg pow through the ternary __pow__/__rpow__
+		// slot protocol, base.__pow__(exp, mod) then exp.__rpow__(base, mod).
+		if res, ok, err := objects.PowDunder(base, exp, mod); err != nil {
+			return nil, err
+		} else if ok {
+			return res, nil
+		}
 		// Probed: a float anywhere gives the integers-only message, while
 		// types with no pow slot at all list all three type names.
 		if base.TypeName() == "float" || exp.TypeName() == "float" || mod.TypeName() == "float" {

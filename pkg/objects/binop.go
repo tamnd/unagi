@@ -166,6 +166,60 @@ func binaryDunder(forward, reflected string, a, b Object) (Object, bool, error) 
 	return nil, false, nil
 }
 
+// PowDunder runs the ternary pow(base, exp, mod) slot protocol for a triple the
+// integers-only Pow3 fast path declined, calling base.__pow__(exp, mod) and
+// exp.__rpow__(base, mod). It mirrors binaryDunder with the modulus threaded
+// into every call: the reflected slot is nulled when it duplicates the left
+// slot, and it runs reflected-first when exp's class is a proper subclass of
+// base's. ok is false when neither base nor exp is a user instance defining its
+// slot, or both return NotImplemented, leaving Pow3's own error.
+func PowDunder(base, exp, mod Object) (Object, bool, error) {
+	lInst, lraw := instDunderRaw(base, "__pow__")
+	rInst, rraw := instDunderRaw(exp, "__rpow__")
+	if rraw != nil {
+		if _, araw := instDunderRaw(base, "__rpow__"); araw == rraw {
+			rraw = nil
+		}
+	}
+	if lraw == nil && rraw == nil {
+		return nil, false, nil
+	}
+	reflectedFirst := false
+	if lraw != nil && rraw != nil {
+		if isProperSubclass(exp.(*instanceObject).cls, base.(*instanceObject).cls) {
+			reflectedFirst = true
+		}
+	}
+	calls := [2]struct {
+		inst   *instanceObject
+		raw, x Object
+		name   string
+	}{
+		{lInst, lraw, exp, "__pow__"},
+		{rInst, rraw, base, "__rpow__"},
+	}
+	if reflectedFirst {
+		calls[0], calls[1] = calls[1], calls[0]
+	}
+	for _, c := range calls {
+		if c.raw == nil {
+			continue
+		}
+		bound, err := instanceGet(c.inst, c.name, c.raw)
+		if err != nil {
+			return nil, true, err
+		}
+		res, err := Call(bound, []Object{c.x, mod})
+		if err != nil {
+			return nil, true, err
+		}
+		if res != NotImplemented {
+			return res, true, nil
+		}
+	}
+	return nil, false, nil
+}
+
 // instDunderRaw returns the user instance and the raw class-slot value it would
 // resolve for the named dunder, both nil when o is not a user instance or the
 // slot is absent. The value is the pre-descriptor slot, so a caller can compare
