@@ -545,6 +545,20 @@ func (f *fnCtx) builtinCall(name string, e *frontend.Call) (ast.Expr, error) {
 		fn := map[string]string{"iter": "Iter", "map": "Map", "filter": "Filter"}[name]
 		return f.runtimeSliceCall(fn, e)
 	case "dir":
+		// dir() with no arguments lists the current namespace. At module scope
+		// that namespace is the module's own, reached through thisModule the way
+		// globals() reads it, so `dir()` in a module body (as stdlib modules use
+		// to build __all__) lists the module names. dir(x) and the no-argument
+		// form inside a function keep the runtime helper, which lists x or raises
+		// the unsupported-no-args error, since a function's locals are Go values
+		// this compile does not carry in a namespace.
+		if argc == 0 && !f.inFunc && f.classBld == "" {
+			f.e.usedGlobals = true
+			f.e.usedObjects = true
+			tmp := f.tmpVar()
+			f.fallible(tmp, sel("runtime", "Dir"), f.objSlice([]ast.Expr{ident("thisModule")}))
+			return ident(tmp), nil
+		}
 		// dir() checks its own argument count in the runtime helper so the
 		// no-argument and too-many-argument TypeErrors stay catchable.
 		return f.runtimeSliceCall("Dir", e)
