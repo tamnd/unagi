@@ -194,6 +194,8 @@ func descriptorSubclassAttr(x *instanceObject, name string) (Object, bool) {
 		return slotOrNone(p.fset), true
 	case "fdel":
 		return slotOrNone(p.fdel), true
+	case "__get__", "__set__", "__delete__":
+		return propertyProtocolMethod(p, name), true
 	}
 	return nil, false
 }
@@ -366,8 +368,52 @@ func propertyGetAttr(p *propertyObject, name string) (Object, error) {
 		return slotOrNone(p.fset), nil
 	case "fdel":
 		return slotOrNone(p.fdel), nil
+	case "__get__", "__set__", "__delete__":
+		return propertyProtocolMethod(p, name), nil
 	}
 	return nil, Raise(AttributeError, "'property' object has no attribute '%s'", name)
+}
+
+// propertyProtocolMethod binds one of a property's descriptor-protocol dunders as
+// a callable method-wrapper. A property is a data descriptor, so it answers all
+// three, and code that probes the protocol with hasattr(prop, '__get__') the way
+// enum's _is_descriptor does sees it as a descriptor rather than a plain value.
+// The dunders run the same fget/fset/fdel the interpreter drives for attribute
+// access, so an explicit prop.__get__(obj) agrees with obj.attr.
+func propertyProtocolMethod(p *propertyObject, name string) Object {
+	switch name {
+	case "__get__":
+		return NewFunc("__get__", -1, func(a []Object) (Object, error) {
+			if len(a) < 1 || len(a) > 2 {
+				return nil, Raise(TypeError, "expected 1 or 2 arguments, got %d", len(a))
+			}
+			// A class-level read passes None for the instance, and a property hands
+			// itself back so type-level access returns the descriptor.
+			if a[0] == None {
+				return p, nil
+			}
+			if p.fget == nil {
+				return nil, Raise(AttributeError, "property has no getter")
+			}
+			return Call(p.fget, []Object{a[0]})
+		})
+	case "__set__":
+		return NewFunc("__set__", 2, func(a []Object) (Object, error) {
+			if p.fset == nil {
+				return nil, Raise(AttributeError, "property has no setter")
+			}
+			_, err := Call(p.fset, []Object{a[0], a[1]})
+			return None, err
+		})
+	default: // __delete__
+		return NewFunc("__delete__", 1, func(a []Object) (Object, error) {
+			if p.fdel == nil {
+				return nil, Raise(AttributeError, "property has no deleter")
+			}
+			_, err := Call(p.fdel, []Object{a[0]})
+			return None, err
+		})
+	}
 }
 
 // descriptorRepr spells the three descriptor objects deterministically, since

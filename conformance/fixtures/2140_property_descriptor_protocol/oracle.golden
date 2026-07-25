@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+True True True
+True
+False
+1
+True
+42
+None
+no setter
+no deleter
+200 OK
+404 True
+== exception:
+== stderr:
