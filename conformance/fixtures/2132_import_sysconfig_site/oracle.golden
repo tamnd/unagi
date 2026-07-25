@@ -1,0 +1,7 @@
+== exit: 0
+== stdout:
+True True
+True
+definitely_not_a_real_module_zzz True
+== exception:
+== stderr:

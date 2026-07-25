@@ -77,12 +77,15 @@ func PyHash(o Object) (int64, error) {
 		return pyHashUnion(x)
 	case *funcObject, *functionObject, *Exception, *dictValuesObject,
 		*ellipsisObject, *notImplementedObject, *classObject, *typeObject,
-		*patternObject, *matchObject, *futureObject, *asyncTask, *asyncFuture:
+		*patternObject, *matchObject, *futureObject, *asyncTask, *asyncFuture,
+		*Module:
 		// A class and a builtin type value hash by identity: type does not
 		// override __hash__, so a class keys a dict slot or set element by its
 		// pointer the way object.__hash__ does, letting {A, B} and {cls: v} work.
 		// A compiled re.Pattern and re.Match hash by identity too, which is what
 		// functools.lru_cache needs when re._compile_template keys on the pattern.
+		// A module hashes by identity as well, so site.abs_paths can build a
+		// set(sys.modules.values()) and dedupe modules the way CPython does.
 		return pyHashPointer(o), nil
 	case *weakrefObject:
 		// A ref hashes as its referent, so ref(cls) keys a set slot the way cls
