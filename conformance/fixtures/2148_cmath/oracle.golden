@@ -1,0 +1,29 @@
+== exit: 0
+== stdout:
+3.141592653589793 2.718281828459045 6.283185307179586
+inf nan
+infj nanj
+float complex
+1j
+(1+1j)
+(1+0j)
+1.5707963267948966
+3.141592653589793
+(1.0, 1.5707963267948966)
+(1+0j)
+(3+0j)
+0j
+(2+0j)
+(2+0j)
+True
+True
+True
+False
+True
+True
+False
+True
+ValueError math domain error
+TypeError must be real number, not str
+== exception:
+== stderr:
