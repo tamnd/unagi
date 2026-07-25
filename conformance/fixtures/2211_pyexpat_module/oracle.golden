@@ -1,0 +1,54 @@
+== exit: 0
+== stdout:
+expat_2.7.4
+UTF-8
+True
+syntax error
+2
+1 3
+syntax error
+('xmldecl', '1.0', 'UTF-8', -1)
+('comment', ' c ')
+('start', 'r', {'a': '1'})
+('pi', 'go', 'now')
+('chars', 'hi')
+('start', 'b', {})
+('end', 'b')
+('chars', 'bye')
+('end', 'r')
+('ns', 'p', 'urn:x')
+('ns', None, 'urn:d')
+('start', 'urn:d r', {})
+('start', 'urn:x c', {'a': '1'})
+('end', 'urn:x c')
+('end', 'urn:d r')
+['ab', 'cd']
+True
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>items</key>
+	<array>
+		<integer>1</integer>
+		<integer>2</integer>
+		<integer>3</integer>
+	</array>
+	<key>n</key>
+	<integer>42</integer>
+	<key>name</key>
+	<string>unagi</string>
+	<key>nested</key>
+	<dict>
+		<key>x</key>
+		<real>1.5</real>
+	</dict>
+	<key>ok</key>
+	<true/>
+</dict>
+</plist>
+
+a 1
+<?xml version="1.0" ?><a x="1"><b>text</b><c/></a>
+== exception:
+== stderr:
