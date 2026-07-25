@@ -1,0 +1,7 @@
+== exit: 0
+== stdout:
+['Sub', 'Base', 'object']
+['UsesProxy', 'dict', 'object']
+True
+== exception:
+== stderr:
