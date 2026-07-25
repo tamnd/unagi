@@ -373,3 +373,30 @@ func TestLRUCacheDisabled(t *testing.T) {
 		t.Fatalf("disabled underlying calls = %d, want 2", len(seen))
 	}
 }
+
+// TestUnwrapPartial checks _unwrap_partial/_unwrap_partialmethod peel a partial
+// chain to the innermost callable and pass a plain callable through unchanged,
+// the identity inspect relies on when it reads a function's code flags.
+func TestUnwrapPartial(t *testing.T) {
+	base := objects.NewFunc("base", 0, func([]objects.Object) (objects.Object, error) {
+		return objects.None, nil
+	})
+	chain := objects.NewPartial(objects.NewPartial(base, nil, nil, nil), nil, nil, nil)
+	for _, name := range []string{"_unwrap_partial", "_unwrap_partialmethod"} {
+		fn := ftFn(t, name)
+		got, err := objects.Call(fn, []objects.Object{chain})
+		if err != nil {
+			t.Fatalf("%s(chain): %v", name, err)
+		}
+		if got != base {
+			t.Errorf("%s(chain) did not reach the innermost callable", name)
+		}
+		got, err = objects.Call(fn, []objects.Object{base})
+		if err != nil {
+			t.Fatalf("%s(base): %v", name, err)
+		}
+		if got != base {
+			t.Errorf("%s(base) should pass a plain callable through unchanged", name)
+		}
+	}
+}

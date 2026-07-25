@@ -68,6 +68,20 @@ func indexOf(names []string, name string) int {
 	return -1
 }
 
+// UnwrapPartial peels a functools.partial chain down to the innermost wrapped
+// callable, following .func while the value is a partial, the way functools'
+// _unwrap_partial helper does. A value that is not a partial comes back
+// unchanged.
+func UnwrapPartial(o Object) Object {
+	for {
+		p, ok := o.(*partialObject)
+		if !ok {
+			return o
+		}
+		o = p.fn
+	}
+}
+
 // partialAttr reads the three attributes a partial exposes: the wrapped
 // callable, the frozen positionals as a tuple, and the frozen keywords as a
 // dict.

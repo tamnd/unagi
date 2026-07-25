@@ -219,6 +219,31 @@ func initFunctools(m *objects.Module) error {
 		return err
 	}
 
+	// _unwrap_partial(func): peel a partial chain down to the innermost wrapped
+	// callable. inspect calls it (through _unwrap_partialmethod) on the way to
+	// reading a function's code flags, which is how pdb's import reaches it.
+	unwrapPartial := objects.NewFunc("_unwrap_partial", 1,
+		func(a []objects.Object) (objects.Object, error) {
+			return objects.UnwrapPartial(a[0]), nil
+		})
+	if err := set("_unwrap_partial", unwrapPartial); err != nil {
+		return err
+	}
+
+	// _unwrap_partialmethod(func): CPython peels both partialmethod and partial
+	// wrappers to a fixpoint. This runtime has no partialmethod type, so the
+	// partialmethod arms are inert and the result is the partial-unwrapped
+	// callable, which is exactly CPython's answer for every value this runtime
+	// can represent (plain callables and partials). When a native partialmethod
+	// lands this grows the partialmethod arm.
+	unwrapPartialmethod := objects.NewFunc("_unwrap_partialmethod", 1,
+		func(a []objects.Object) (objects.Object, error) {
+			return objects.UnwrapPartial(a[0]), nil
+		})
+	if err := set("_unwrap_partialmethod", unwrapPartialmethod); err != nil {
+		return err
+	}
+
 	return nil
 }
 
