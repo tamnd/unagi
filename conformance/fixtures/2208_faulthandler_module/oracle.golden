@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+initial: False
+after enable: True
+after disable: False
+re-enabled: True
+final: False
+dump_later: None
+cancel_later: None
+register: None
+unregister: False
+bad timeout: TypeError
+== exception:
+== stderr:
