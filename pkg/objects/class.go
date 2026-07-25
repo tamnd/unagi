@@ -916,6 +916,23 @@ func init() {
 			}
 			return objectDefaultDir(args[0]), nil
 		}),
+		"__getstate__": NewFunc("__getstate__", 1, func(args []Object) (Object, error) {
+			if len(args) != 1 {
+				return nil, Raise(TypeError, "object.__getstate__() takes no arguments")
+			}
+			return objectDefaultGetState(args[0])
+		}),
+		"__reduce__": NewFunc("__reduce__", 1, func(args []Object) (Object, error) {
+			// Like __reduce_ex__, the copyreg-shaped reduction is not on the floor
+			// yet. The name resolves so hasattr and reassignment see it, but a real
+			// call is out of scope until copyreg lands.
+			return nil, Raise(TypeError, "cannot pickle '%s' object yet", func() string {
+				if len(args) > 0 {
+					return args[0].TypeName()
+				}
+				return "object"
+			}())
+		}),
 	}
 
 	// The four ordering slots object provides. object defines them, but they always
@@ -1018,7 +1035,8 @@ func init() {
 	// __str__ = int.__repr__) still calls it with self. __new__ stays a
 	// staticmethod, so it is left unbound.
 	for _, name := range []string{"__repr__", "__str__", "__format__", "__reduce_ex__",
-		"__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__", "__dir__"} {
+		"__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__", "__dir__",
+		"__getstate__", "__reduce__"} {
 		markSelfBound(objectDunders[name])
 	}
 	for _, tbl := range builtinTypeDunders {
@@ -3078,6 +3096,48 @@ func objectDefaultDir(o Object) Object {
 		elts[i] = NewStr(n)
 	}
 	return NewList(elts)
+}
+
+// objectDefaultGetState backs object.__getstate__(self): the default pickling
+// state CPython 3.11+ computes. An instance with a populated __dict__ returns
+// that dict; with __slots__ set it returns (dictstate, slotstate); with neither
+// it returns None. This is the honest, reproducible half of the pickle surface,
+// so __reduce__/__reduce_ex__ that would consume it stay stubbed until copyreg
+// lands. A non-instance receiver has no default state, so it answers None.
+func objectDefaultGetState(o Object) (Object, error) {
+	inst, ok := o.(*instanceObject)
+	if !ok {
+		return None, nil
+	}
+	var dictState Object = None
+	if inst.attrs != nil && len(inst.attrs.entries) > 0 {
+		// CPython returns the live __dict__, so d is c.__dict__ holds.
+		dictState = inst.attrs
+	}
+	// slotstate gathers every set slot in MRO declaration order, so a mixed
+	// dict-plus-slots instance reports (dict, {slot: value}) the way CPython does.
+	var keys, vals []Object
+	seen := map[string]bool{}
+	for _, c := range inst.cls.mro {
+		for _, n := range c.slotNames {
+			if seen[n] {
+				continue
+			}
+			if v, ok := inst.slots[n]; ok {
+				seen[n] = true
+				keys = append(keys, NewStr(n))
+				vals = append(vals, v)
+			}
+		}
+	}
+	if len(keys) == 0 {
+		return dictState, nil
+	}
+	slotState, err := NewDict(keys, vals)
+	if err != nil {
+		return nil, err
+	}
+	return NewTuple([]Object{dictState, slotState}), nil
 }
 
 // dirFromResult turns the value a user __dir__ returned into the sorted string
