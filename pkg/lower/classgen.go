@@ -333,11 +333,14 @@ func (f *fnCtx) classMethodBind(s *frontend.FuncDef) error {
 	if err != nil {
 		return err
 	}
-	methodObj := f.e.withDoc(callExpr(f.e.obj("NewFunctionT"),
+	methodObj, err := f.withAnnotations(f.e.withDoc(callExpr(f.e.obj("NewFunctionT"),
 		strLit(key+"."+s.Name),
 		f.e.paramSpecLit(s.Params),
 		dflts,
-		ident(f.e.methodImplName(c, s.Name, f.methodOrd[s]))), s.Body)
+		ident(f.e.methodImplName(c, s.Name, f.methodOrd[s]))), s.Body), s.Params, s.Returns)
+	if err != nil {
+		return err
+	}
 	bind := func(v ast.Expr) {
 		t := f.tmpVar()
 		f.add(define(ident(t), v))
@@ -468,11 +471,14 @@ func (f *fnCtx) classValueLocal(s *frontend.ClassDef, qual string) (ast.Expr, er
 			if err != nil {
 				return nil, err
 			}
-			methodObj := f.e.withDoc(callExpr(f.e.obj("NewFunctionT"),
+			methodObj, err := f.withAnnotations(f.e.withDoc(callExpr(f.e.obj("NewFunctionT"),
 				strLit(mqual),
 				f.e.paramSpecLit(st.Params),
 				dflts,
-				impl), st.Body)
+				impl), st.Body), st.Params, st.Returns)
+			if err != nil {
+				return nil, err
+			}
 			if len(st.Decorators) == 0 {
 				setName(st.Name, methodObj)
 				break

@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+{'x': <class 'int'>, 'y': 'str', 'return': <class 'bool'>}
+{'x': 'Later', 'return': 'Later'}
+{'a': <class 'int'>, 'b': <class 'str'>, 'args': <class 'float'>, 'c': <class 'bool'>, 'kw': <class 'bytes'>}
+{'n': <class 'int'>, 'return': <class 'str'>}
+{'z': <class 'float'>, 'return': <class 'int'>}
+{}
+{'x': <class 'int'>}
+5
+True
+{'p': <class 'str'>}
+int
+str
+unknown
+== exception:
+== stderr:
