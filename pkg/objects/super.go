@@ -357,6 +357,13 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 			r, err := instantiateCore(cls, args, nil, nil)
 			return r, true, err
 		}
+		// super().__call__() inside a weakref.ref subclass (weakref.py's
+		// WeakMethod) lands on the base ref's call, which returns the referent.
+		if w, ok := builtinUnwrap(self); ok {
+			if wr, ok := w.(*weakrefObject); ok && len(args) == 0 {
+				return weakrefTarget(wr), true, nil
+			}
+		}
 	case "__init_subclass__", "__set_name__":
 		// The object-root defaults for the two type-creation hooks are no-ops.
 		// A cooperative super().__init_subclass__() chain ends here once no user
@@ -456,6 +463,12 @@ func superCallMethodKwT(t *Thread, s *superObject, name string, pos []Object, kw
 	if name == "__call__" {
 		if cls, ok := s.obj.(*classObject); ok {
 			return instantiateCore(cls, pos, kwNames, kwVals)
+		}
+		// A weakref.ref subclass reaching super().__call__() returns the referent.
+		if w, ok := builtinUnwrap(s.obj); ok {
+			if wr, ok := w.(*weakrefObject); ok && len(pos) == 0 {
+				return weakrefTarget(wr), nil
+			}
 		}
 	}
 	if r, ok, err := builtinBaseCall(s.obj, name, pos, kwNames, kwVals); ok {

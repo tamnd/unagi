@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+True
+id42
+True
+True
+True
+True
+['k']
+True 1
+== exception:
+== stderr:
