@@ -37,8 +37,14 @@ func weakrefTarget(w *weakrefObject) Object { return w.referent }
 // while the immutable scalars and the built-in containers with no __weakref__
 // slot (int, str, bytes, tuple, list, dict and the rest) do not.
 func weakrefable(o Object) bool {
-	switch o.(type) {
-	case *instanceObject, *classObject, *typeObject, *functionObject, *funcObject,
+	switch x := o.(type) {
+	case *instanceObject:
+		// A slotted class supports weakref only when its layout carries a
+		// __weakref__ slot (declared, or inherited from a base that has one).
+		// A class with a __dict__ always qualifies. instWeakref already folds
+		// the !hasSlots / slotsWeakref / base cases.
+		return x.cls == nil || x.cls.instWeakref
+	case *classObject, *typeObject, *functionObject, *funcObject,
 		*boundMethod, *Module, *Exception, *setObject, *frozensetObject:
 		return true
 	}
