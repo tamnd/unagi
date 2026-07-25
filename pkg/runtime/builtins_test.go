@@ -605,6 +605,40 @@ func TestDictOf(t *testing.T) {
 	}
 }
 
+// TestDictOfKeysProtocol checks dict(mapping) builds from keys()/__getitem__
+// rather than iterating the object as pairs, the path xml.sax's
+// dict(AttributesImpl(...)) depends on.
+func TestDictOfKeysProtocol(t *testing.T) {
+	backing := map[string]int{"a": 1, "b": 2, "c": 3}
+	keys := objects.NewMethod("keys", 1, func(args []objects.Object) (objects.Object, error) {
+		return objects.NewList(objs(s("a"), s("b"), s("c"))), nil
+	})
+	getitem := objects.NewMethod("__getitem__", 2, func(args []objects.Object) (objects.Object, error) {
+		k, _ := objects.AsStr(args[1])
+		v, ok := backing[k]
+		if !ok {
+			return nil, objects.Raise("KeyError", "%s", k)
+		}
+		return i(int64(v)), nil
+	})
+	cls, err := objects.NewClass("M", "M", nil,
+		[]string{"keys", "__getitem__"}, []objects.Object{keys, getitem}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst, err := objects.Call(cls, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := DictOf(objs(inst))
+	if err != nil {
+		t.Fatalf("DictOf(mapping): %v", err)
+	}
+	if objects.Repr(got) != "{'a': 1, 'b': 2, 'c': 3}" {
+		t.Errorf("DictOf(mapping) = %s, want {'a': 1, 'b': 2, 'c': 3}", objects.Repr(got))
+	}
+}
+
 func TestSetOfFrozensetOf(t *testing.T) {
 	tests := []struct {
 		name    string

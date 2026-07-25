@@ -699,6 +699,29 @@ func DictOf(args []objects.Object) (objects.Object, error) {
 		}
 		return objects.NewDict(keys, vals)
 	}
+	// A plain object exposing a keys() method is a mapping (CPython's
+	// PyMapping_Keys probe): build from keys() and __getitem__, not by iterating
+	// the object as a sequence of pairs. This is what dict(AttributesImpl(...))
+	// in xml.sax and any user mapping relies on.
+	if keysFn, err := objects.LoadAttr(src, "keys"); err == nil {
+		keyObj, err := objects.Call(keysFn, nil)
+		if err != nil {
+			return nil, err
+		}
+		keys, err := materialize(keyObj)
+		if err != nil {
+			return nil, err
+		}
+		vals := make([]objects.Object, len(keys))
+		for i, k := range keys {
+			v, err := objects.GetItem(src, k)
+			if err != nil {
+				return nil, err
+			}
+			vals[i] = v
+		}
+		return objects.NewDict(keys, vals)
+	}
 	items, err := materialize(src)
 	if err != nil {
 		return nil, err
