@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+True
+True
+NoWeak TypeError: cannot create weak reference to 'NoWeak' object
+SubNoWeak TypeError: cannot create weak reference to 'SubNoWeak' object
+True
+proxy TypeError: cannot create weak reference to 'NoWeak' object
+== exception:
+== stderr:
