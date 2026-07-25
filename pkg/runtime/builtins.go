@@ -834,6 +834,28 @@ func init() {
 			}
 			return nil, objects.Raise(objects.TypeError, "pow() takes at most 3 arguments (%d given)", len(args))
 		}),
+		// globals and dir read as values (not called in place) resolve to these
+		// function objects. The compiler's fast path lowers a literal globals() /
+		// dir() call against thisModule, but timeit does `_globals = globals` and
+		// then calls the alias, and other modules pass dir around, so the value
+		// form needs a real callable. With no frame to name the caller's module,
+		// both fall back to the program's top-level module, the one SetMainModule
+		// records; the honest best a frameless AOT runtime can do, and enough for
+		// the reflective idioms that only want a dict or a name list back.
+		"globals": objects.NewFunc("globals", -1, func(args []objects.Object) (objects.Object, error) {
+			if len(args) != 0 {
+				return nil, objects.Raise(objects.TypeError, "globals() takes no arguments (%d given)", len(args))
+			}
+			ensureMainModule()
+			return Globals(mainModule), nil
+		}),
+		"dir": objects.NewFunc("dir", -1, func(args []objects.Object) (objects.Object, error) {
+			if len(args) == 0 {
+				ensureMainModule()
+				return Dir([]objects.Object{mainModule})
+			}
+			return Dir(args)
+		}),
 		"id":       exactlyOne("id", func(o objects.Object) (objects.Object, error) { return objects.IDOf(o), nil }),
 		"bin":      exactlyOne("bin", Bin),
 		"oct":      exactlyOne("oct", Oct),

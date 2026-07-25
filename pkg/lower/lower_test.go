@@ -266,6 +266,34 @@ func TestBuiltinReadAsValueLowering(t *testing.T) {
 	}
 }
 
+// Reading globals as a value (timeit's `_globals = globals`) resolves to the
+// builtin object and makes main bind the module namespace onto __main__, so the
+// aliased call reads the same live storage the in-place globals() call does.
+func TestGlobalsReadAsValueMaterializesModule(t *testing.T) {
+	got, err := lowerSrc(t, "M = 1\ng = globals\nprint(g())\n")
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	if !strings.Contains(got, `runtime.BuiltinFn("globals")`) {
+		t.Errorf("globals value read did not resolve to BuiltinFn:\n%s", got)
+	}
+	if !strings.Contains(got, "runtime.SetMainModule") {
+		t.Errorf("globals value read did not materialize the __main__ module:\n%s", got)
+	}
+}
+
+// A builtin value read that does not touch the namespace (len) leaves the
+// module-binding path off, so only globals/dir pay for materialization.
+func TestPlainBuiltinValueReadDoesNotMaterializeModule(t *testing.T) {
+	got, err := lowerSrc(t, "f = len\nprint(f([1]))\n")
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	if strings.Contains(got, "runtime.SetMainModule") {
+		t.Errorf("a plain builtin value read should not materialize __main__:\n%s", got)
+	}
+}
+
 // A builtin shadowed by a local binding reads the local slot, never the
 // builtin fallback.
 func TestShadowedBuiltinReadsLocal(t *testing.T) {
