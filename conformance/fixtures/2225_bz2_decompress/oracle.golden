@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+760
+unagi native bz2 decompression slice.
+
+True
+True
+True
+True
+False
+unagi
+False
+True
+True
+True
+== exception:
+== stderr:

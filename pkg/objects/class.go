@@ -2657,6 +2657,10 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return zlibCompressLoadAttr(x, name)
 	case *zlibDecompressObject:
 		return zlibDecompressLoadAttr(x, name)
+	case *bz2CompressObject:
+		return bz2CompressLoadAttr(x, name)
+	case *bz2DecompressObject:
+		return bz2DecompressLoadAttr(x, name)
 	case *listObject:
 		// A list method read binds as a callable, so items.append reads back and
 		// calls the same as items.append(x); any other name is the plain miss.
