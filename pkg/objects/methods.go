@@ -362,6 +362,18 @@ func CallMethodKwT(t *Thread, o Object, name string, pos []Object, kwNames []str
 // BaseException.add_note, the type message drops the class, both probed
 // on 3.14.
 func excMethod(e *Exception, name string, args []Object) (Object, error) {
+	if name == "with_traceback" {
+		// BaseException.with_traceback(tb) sets self.__traceback__ and returns
+		// self, the form `raise exc.with_traceback(tb)` and unittest's
+		// _AssertRaisesContext.__exit__ (`self.exception = exc.with_traceback(None)`)
+		// use. unagi models no first-class traceback object, so __traceback__ stays
+		// None; the tb argument is accepted and dropped and self is returned, which
+		// is all a caller that stores or re-raises the result observes.
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "with_traceback() takes exactly one argument (%d given)", len(args))
+		}
+		return e, nil
+	}
 	if name != "add_note" {
 		// A user exception method, or a callable stored on the instance, is
 		// resolved through the same attribute path a read takes and then called.

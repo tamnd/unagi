@@ -486,6 +486,7 @@ func initSys(m *objects.Module) error {
 		{"getprofile", 0, sysGetProfile},
 		{"call_tracing", 2, sysCallTracing},
 		{"exception", 0, sysException},
+		{"exc_info", 0, sysExcInfo},
 	} {
 		if err := set(f.name, objects.NewFunc(f.name, f.arity, f.fn)); err != nil {
 			return err
@@ -601,6 +602,29 @@ func sysException(args []objects.Object) (objects.Object, error) {
 
 func sysGetDefaultEncoding(args []objects.Object) (objects.Object, error) {
 	return objects.NewStr("utf-8"), nil
+}
+
+// sysExcInfo is sys.exc_info(): the (type, value, traceback) triple for the
+// exception now being handled, or (None, None, None) outside an except block.
+// It reads the same handled-exception stack sys.exception() and bare raise use,
+// so the value is that exception and the type is its class. unagi models no
+// first-class traceback object, so the third slot is None, the documented
+// stand-in exc.__traceback__ also returns; unittest's testPartExecutor reads
+// exc_info() to record a failure, and traceback.format_exception tolerates a
+// None traceback by printing just the exception line.
+func sysExcInfo(args []objects.Object) (objects.Object, error) {
+	if len(args) != 0 {
+		return nil, objects.Raise(objects.TypeError, "exc_info() takes no arguments (%d given)", len(args))
+	}
+	e := objects.CurrentHandled()
+	if e == nil {
+		return objects.NewTuple([]objects.Object{objects.None, objects.None, objects.None}), nil
+	}
+	var typ objects.Object = objects.ExcType(e.Kind)
+	if c, ok := objects.ClassOf(e); ok {
+		typ = c
+	}
+	return objects.NewTuple([]objects.Object{typ, e, objects.None}), nil
 }
 
 // sysIsFinalizing reports sys.is_finalizing(): whether the interpreter is
