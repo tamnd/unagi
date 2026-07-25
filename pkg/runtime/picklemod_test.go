@@ -51,3 +51,39 @@ func TestPickleLongCodec(t *testing.T) {
 		}
 	}
 }
+
+// TestPickleOpcodeConsts checks the pickle shim carries the opcode byte
+// constants and __all__ pickletools cross-checks at import, matching the byte
+// values CPython's pickle.py defines.
+func TestPickleOpcodeConsts(t *testing.T) {
+	m, err := ImportModule("pickle")
+	if err != nil {
+		t.Fatalf("import pickle: %v", err)
+	}
+	spot := map[string]string{
+		"MARK": "28", "STOP": "2e", "EMPTY_LIST": "5d", "PROTO": "80",
+		"FRAME": "95", "READONLY_BUFFER": "98", "FALSE": "4930300a", "TRUE": "4930310a",
+	}
+	for name, want := range spot {
+		v, err := objects.LoadAttr(m, name)
+		if err != nil {
+			t.Fatalf("pickle.%s: %v", name, err)
+		}
+		raw, ok := objects.AsBytesLike(v)
+		if !ok {
+			t.Fatalf("pickle.%s is %v, not bytes", name, v)
+		}
+		if got := hex.EncodeToString(raw); got != want {
+			t.Errorf("pickle.%s = %s, want %s", name, got, want)
+		}
+	}
+	// __all__ carries the base names and the opcode alphabet.
+	all, err := objects.LoadAttr(m, "__all__")
+	if err != nil {
+		t.Fatalf("pickle.__all__: %v", err)
+	}
+	n, err := objects.Len(all)
+	if err != nil || n != 82 {
+		t.Errorf("len(__all__) = %d (err %v), want 82", n, err)
+	}
+}

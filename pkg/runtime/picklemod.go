@@ -36,9 +36,81 @@ func initPickle(m *objects.Module) error {
 			return err
 		}
 	}
+	// The opcode byte constants and __all__. pickletools imports fine without
+	// them until its module-body assure_pickle_consistency() cross-checks its own
+	// opcode table against pickle.__all__, reading each uppercase name off the
+	// module and demanding an exact bijection of one-byte codes. CPython builds
+	// these in pickle.py; the Go shim shadows that file, so it carries the same
+	// names and byte values here.
+	if err := registerPickleOpcodes(m); err != nil {
+		return err
+	}
 	// The file-based Pickler/Unpickler classes, the dump/load module functions
 	// and bytes_types, over the same engine dumps/loads use.
 	return registerPickleObjects(m)
+}
+
+// registerPickleOpcodes stores the pickle opcode byte constants and __all__ on
+// the module. The one-byte opcodes are the alphabet pickletools disassembles and
+// cross-checks; FALSE and TRUE are the two multi-byte text-protocol codes the
+// same file names. __all__ mirrors CPython's, the base names followed by the
+// protocol constants and the uppercase opcode names dir() would surface.
+func registerPickleOpcodes(m *objects.Module) error {
+	opcodes := []struct {
+		name string
+		code []byte
+	}{
+		{"ADDITEMS", []byte{0x90}}, {"APPEND", []byte{0x61}}, {"APPENDS", []byte{0x65}},
+		{"BINBYTES", []byte{0x42}}, {"BINBYTES8", []byte{0x8e}}, {"BINFLOAT", []byte{0x47}},
+		{"BINGET", []byte{0x68}}, {"BININT", []byte{0x4a}}, {"BININT1", []byte{0x4b}},
+		{"BININT2", []byte{0x4d}}, {"BINPERSID", []byte{0x51}}, {"BINPUT", []byte{0x71}},
+		{"BINSTRING", []byte{0x54}}, {"BINUNICODE", []byte{0x58}}, {"BINUNICODE8", []byte{0x8d}},
+		{"BUILD", []byte{0x62}}, {"BYTEARRAY8", []byte{0x96}}, {"DICT", []byte{0x64}},
+		{"DUP", []byte{0x32}}, {"EMPTY_DICT", []byte{0x7d}}, {"EMPTY_LIST", []byte{0x5d}},
+		{"EMPTY_SET", []byte{0x8f}}, {"EMPTY_TUPLE", []byte{0x29}}, {"EXT1", []byte{0x82}},
+		{"EXT2", []byte{0x83}}, {"EXT4", []byte{0x84}}, {"FLOAT", []byte{0x46}},
+		{"FRAME", []byte{0x95}}, {"FROZENSET", []byte{0x91}}, {"GET", []byte{0x67}},
+		{"GLOBAL", []byte{0x63}}, {"INST", []byte{0x69}}, {"INT", []byte{0x49}},
+		{"LIST", []byte{0x6c}}, {"LONG", []byte{0x4c}}, {"LONG1", []byte{0x8a}},
+		{"LONG4", []byte{0x8b}}, {"LONG_BINGET", []byte{0x6a}}, {"LONG_BINPUT", []byte{0x72}},
+		{"MARK", []byte{0x28}}, {"MEMOIZE", []byte{0x94}}, {"NEWFALSE", []byte{0x89}},
+		{"NEWOBJ", []byte{0x81}}, {"NEWOBJ_EX", []byte{0x92}}, {"NEWTRUE", []byte{0x88}},
+		{"NEXT_BUFFER", []byte{0x97}}, {"NONE", []byte{0x4e}}, {"OBJ", []byte{0x6f}},
+		{"PERSID", []byte{0x50}}, {"POP", []byte{0x30}}, {"POP_MARK", []byte{0x31}},
+		{"PROTO", []byte{0x80}}, {"PUT", []byte{0x70}}, {"READONLY_BUFFER", []byte{0x98}},
+		{"REDUCE", []byte{0x52}}, {"SETITEM", []byte{0x73}}, {"SETITEMS", []byte{0x75}},
+		{"SHORT_BINBYTES", []byte{0x43}}, {"SHORT_BINSTRING", []byte{0x55}}, {"SHORT_BINUNICODE", []byte{0x8c}},
+		{"STACK_GLOBAL", []byte{0x93}}, {"STOP", []byte{0x2e}}, {"STRING", []byte{0x53}},
+		{"TUPLE", []byte{0x74}}, {"TUPLE1", []byte{0x85}}, {"TUPLE2", []byte{0x86}},
+		{"TUPLE3", []byte{0x87}}, {"UNICODE", []byte{0x56}},
+		// FALSE and TRUE are the multi-byte text codes, `I00\n` and `I01\n`.
+		{"FALSE", []byte{0x49, 0x30, 0x30, 0x0a}}, {"TRUE", []byte{0x49, 0x30, 0x31, 0x0a}},
+	}
+	for _, op := range opcodes {
+		if err := objects.StoreAttr(m, op.name, objects.NewBytes(op.code)); err != nil {
+			return err
+		}
+	}
+	names := []string{
+		"PickleError", "PicklingError", "UnpicklingError", "Pickler", "Unpickler",
+		"dump", "dumps", "load", "loads", "PickleBuffer", "ADDITEMS", "APPEND",
+		"APPENDS", "BINBYTES", "BINBYTES8", "BINFLOAT", "BINGET", "BININT", "BININT1",
+		"BININT2", "BINPERSID", "BINPUT", "BINSTRING", "BINUNICODE", "BINUNICODE8",
+		"BUILD", "BYTEARRAY8", "DEFAULT_PROTOCOL", "DICT", "DUP", "EMPTY_DICT",
+		"EMPTY_LIST", "EMPTY_SET", "EMPTY_TUPLE", "EXT1", "EXT2", "EXT4", "FALSE",
+		"FLOAT", "FRAME", "FROZENSET", "GET", "GLOBAL", "HIGHEST_PROTOCOL", "INST",
+		"INT", "LIST", "LONG", "LONG1", "LONG4", "LONG_BINGET", "LONG_BINPUT", "MARK",
+		"MEMOIZE", "NEWFALSE", "NEWOBJ", "NEWOBJ_EX", "NEWTRUE", "NEXT_BUFFER", "NONE",
+		"OBJ", "PERSID", "POP", "POP_MARK", "PROTO", "PUT", "READONLY_BUFFER", "REDUCE",
+		"SETITEM", "SETITEMS", "SHORT_BINBYTES", "SHORT_BINSTRING", "SHORT_BINUNICODE",
+		"STACK_GLOBAL", "STOP", "STRING", "TRUE", "TUPLE", "TUPLE1", "TUPLE2", "TUPLE3",
+		"UNICODE",
+	}
+	all := make([]objects.Object, len(names))
+	for i, n := range names {
+		all[i] = objects.NewStr(n)
+	}
+	return objects.StoreAttr(m, "__all__", objects.NewList(all))
 }
 
 // pickleDumps is pickle.dumps(obj, protocol=None, *, fix_imports=True,
