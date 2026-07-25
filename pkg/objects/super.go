@@ -91,17 +91,46 @@ func superLookup(s *superObject, name string) (Object, bool) {
 // probed 'super' object AttributeError.
 func superLoadAttr(s *superObject, name string) (Object, error) {
 	if v, ok := superLookup(s, name); ok {
+		// A descriptor subclass instance runs the protocol through its payload, the
+		// same unwrap instanceGet does before dispatching.
+		if p, ok := descriptorPayload(v); ok {
+			v = p
+		}
 		switch fn := v.(type) {
 		case *functionObject:
 			return &boundMethod{fn: fn, self: s.obj}, nil
 		case *classmethodObject:
 			return classmethodBind(fn.fn, s.objCls), nil
+		case *staticmethodObject:
+			return fn.fn, nil
 		case *funcObject:
 			// A Go-built class (such as _io._IOBase or _random.Random) carries its
 			// methods as self-bound funcObjects, so super().method read off such a
 			// base binds the instance the way instanceGet does for a direct read.
 			if fn.selfBound {
 				return bindBuiltinSelf(fn, s.obj), nil
+			}
+		case *propertyObject:
+			// super().prop invokes the base property's getter with the original
+			// instance, the way socket.py's family property reads super().family off
+			// the C socket. Without this the property object came back uninvoked.
+			if fn.fget == nil {
+				return nil, Raise(AttributeError, "property '%s' of '%s' object has no getter", name, s.objCls.name)
+			}
+			return Call(fn.fget, []Object{s.obj})
+		case *cachedPropertyObject:
+			if inst, ok := s.obj.(*instanceObject); ok {
+				return cachedPropertyGet(inst, name, fn)
+			}
+		case *memberDescriptor:
+			if inst, ok := s.obj.(*instanceObject); ok {
+				return slotGet(inst, fn)
+			}
+		case *instanceObject:
+			// A user data descriptor reached through super() runs its __get__ with the
+			// original instance and its type as owner.
+			if _, ok := fn.cls.lookup("__get__"); ok {
+				return instanceCallMethod(fn, "__get__", []Object{s.obj, s.objCls})
 			}
 		}
 		return v, nil
