@@ -2554,6 +2554,11 @@ func LoadAttr(o Object, name string) (Object, error) {
 	if v, ok := containerSpecialAttr(o, name); ok {
 		return v, nil
 	}
+	// An iterator answers __next__ and __iter__ the same way, so a hand-rolled
+	// `it.__next__()` loop and inspect's `iter(lines).__next__` resolve.
+	if v, ok := iteratorSpecialAttr(o, name); ok {
+		return v, nil
+	}
 	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", o.TypeName(), name)
 }
 

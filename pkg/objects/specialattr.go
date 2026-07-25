@@ -88,6 +88,46 @@ func containerSpecialAttr(o Object, name string) (Object, bool) {
 	}, true
 }
 
+// iteratorSpecialAttr resolves the two dunders every iterator answers: __next__
+// binds a method-wrapper that advances the cursor and raises StopIteration when
+// it is spent, and __iter__ returns the iterator itself, the way CPython's
+// iterators report `iter(it) is it`. It fires as a LoadAttr fallback for any
+// object driven by the Iterator interface (the iter() result, a container's
+// __iter__ handle, a generator, the lazy map/filter shapes), so inspect's
+// `iter(lines).__next__` and hand-rolled `it.__next__()` loops resolve. ok is
+// false for a non-iterator or any other name, leaving the ordinary
+// AttributeError in place.
+func iteratorSpecialAttr(o Object, name string) (Object, bool) {
+	if _, ok := o.(Iterator); !ok {
+		return nil, false
+	}
+	switch name {
+	case "__next__":
+		return &funcObject{
+			name:  "__next__",
+			arity: -1,
+			fn: func(args []Object) (Object, error) {
+				if len(args) != 0 {
+					return nil, Raise(TypeError, "expected 0 arguments, got %d", len(args))
+				}
+				return NextValue([]Object{o})
+			},
+		}, true
+	case "__iter__":
+		return &funcObject{
+			name:  "__iter__",
+			arity: -1,
+			fn: func(args []Object) (Object, error) {
+				if len(args) != 0 {
+					return nil, Raise(TypeError, "expected 0 arguments, got %d", len(args))
+				}
+				return o, nil
+			},
+		}, true
+	}
+	return nil, false
+}
+
 // applyContainerSpecial runs the operator a bound container dunder stands for.
 // The arity is the fixed one CPython's method-wrapper enforces: __setitem__
 // takes the key and value, everything else but __len__ takes the single key or
