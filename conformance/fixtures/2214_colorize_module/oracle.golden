@@ -1,0 +1,22 @@
+== exit: 0
+== stdout:
+Theme Syntax
+True True
+True
+11
+True
+True
+KeyError
+OVERRIDE True
+True
+True
+ANSIColors ANSIColors
+True True
+'violet and bold'
+True False
+True
+ValueError True
+KeyError: 'missing' True
+done
+== exception:
+== stderr:

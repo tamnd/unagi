@@ -227,6 +227,15 @@ func descriptorSubclassAttr(x *instanceObject, name string) (Object, bool) {
 // bindBuiltinSelf wraps a self-bound builtin so a call prepends the instance,
 // the way reading a wrapper_descriptor off an instance yields a bound method.
 func bindBuiltinSelf(d *funcObject, self Object) Object {
+	// A keyword-aware method (NewMethodKw, e.g. _colorize's copy_with) must keep
+	// its keywords when bound to an instance; a positional-only wrapper would make
+	// obj.method(k=v) raise "takes no keyword arguments". Forward through CallKw so
+	// self is prepended and the keywords reach the method's binder.
+	if d.kwfn != nil || d.kwfnT != nil {
+		return NewFuncKw(d.name, func(pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+			return CallKw(d, append([]Object{self}, pos...), kwNames, kwVals)
+		})
+	}
 	return NewFunc(d.name, -1, func(args []Object) (Object, error) {
 		return Call(d, append([]Object{self}, args...))
 	})
