@@ -283,6 +283,16 @@ func moduleLoadAttr(m *Module, name string) (Object, error) {
 	if v, ok := m.Get(name); ok {
 		return v, nil
 	}
+	// PEP 562: a module may define a module-level __getattr__(name) consulted for
+	// any name missing from its namespace, the hook typing.py uses to build the
+	// soft-deprecated Match and Pattern aliases on demand. It is not consulted for
+	// __getattr__ itself, and an AttributeError it raises surfaces to the caller
+	// unchanged rather than being reworded.
+	if name != "__getattr__" {
+		if hook, ok := m.Get("__getattr__"); ok && Callable(hook) {
+			return Call(hook, []Object{NewStr(name)})
+		}
+	}
 	return nil, m.missingAttr(name)
 }
 
