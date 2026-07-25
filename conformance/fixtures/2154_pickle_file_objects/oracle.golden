@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+1 [2, 3] (4, 5) [7, 8, 9]
+['x', 'y', {'z': 9}]
+(1, 2, 3)
+(<class 'bytes'>, <class 'bytearray'>)
+True True False
+write: file must have a 'write' attribute
+read: file must have 'read' and 'readline' attributes
+{'nested': [1, 2, 3]} (10, 20)
+['k1', 'k2'] True False
+['k1']
+== exception:
+== stderr:
