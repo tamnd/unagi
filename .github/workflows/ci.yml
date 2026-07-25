@@ -71,6 +71,31 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: go tool cover -func=coverage.out | tail -1
 
+  # Windows build, test, and run. The runtime compiles for windows/amd64 (#760),
+  # so this lane builds the whole module, runs every package suite that is green
+  # on Windows, and compiles-and-runs a program through the run driver as an end
+  # to end smoke, which exercises the Windows-specific .exe output handling. The
+  # unix-only modules (posix, select, socket, signal, pwd, grp) are tagged out on
+  # Windows and their remaining ports are tracked in #760, so their suites are
+  # not part of this lane yet.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+      - name: build
+        run: go build ./...
+      - name: test
+        run: go test -count=1 ./pkg/objects/... ./pkg/frontend/... ./pkg/lower/... ./pkg/runtime/...
+      - name: run a program end to end
+        run: |
+          "print('hello from windows ci')" | Out-File -Encoding ascii hello.py
+          go run ./cmd/unagi run hello.py
+
   # The differential oracle: replay every oracle.golden against real CPython so
   # the goldens can never drift from the interpreter. The subject-vs-golden
   # comparison happens in the test job above and needs no Python. The Python
