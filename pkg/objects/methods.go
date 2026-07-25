@@ -198,6 +198,18 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 			return nil, err
 		}
 		return CallT(t, v, args)
+	case *simpleNamespaceObject:
+		// ns.f(args) reads the attribute off the namespace and calls it, the way
+		// CPython does for a SimpleNamespace holding a function. The import
+		// machinery reaches its meta_path finder this way, finder.find_spec(name),
+		// so a function-valued attribute has to be invokable through method syntax
+		// and not just as a bound-then-called variable. The miss is the
+		// namespace's own AttributeError.
+		v, err := simpleNamespaceLoadAttr(x, name)
+		if err != nil {
+			return nil, err
+		}
+		return CallT(t, v, args)
 	}
 	// An iterator called through it.__next__() or it.__iter__() resolves the
 	// same dunder the bound read in LoadAttr exposes, then calls it.
