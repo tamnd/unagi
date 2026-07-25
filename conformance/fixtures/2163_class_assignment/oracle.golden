@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+B B
+Sub sub
+S1->S2: __class__ assignment: 'S2' object layout differs from 'S1'
+S1->U2: __class__ assignment: 'U2' object layout differs from 'S1'
+P->Q: __class__ assignment: 'Q' object layout differs from 'P'
+T1->T2 T2 7
+nontype: __class__ must be set to a class, not 'int' object
+del: can't delete __class__ attribute
+== exception:
+== stderr:

@@ -1,6 +1,9 @@
 package objects
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // __slots__ trades the per-instance dict for a fixed set of named slots. A
 // class body binding __slots__ makes type.__new__ install one member
@@ -164,6 +167,40 @@ func slotDel(x *instanceObject, d *memberDescriptor) error {
 	}
 	delete(x.slots, d.name)
 	return nil
+}
+
+// classSlotLayout returns the sorted union of every slot name a class's
+// instances carry across the MRO. The __dict__ and __weakref__ pseudo-slots
+// install no member descriptor and so never appear here; their contribution to
+// the layout is carried by instDict and instWeakref instead.
+func classSlotLayout(c *classObject) []string {
+	var names []string
+	for _, b := range c.mro {
+		names = append(names, b.slotNames...)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// layoutCompatible reports whether an instance of oldCls may be rebound to
+// newCls without changing its storage layout, the rule CPython's
+// compatible_for_assignment enforces for `x.__class__ = newCls`: the two types
+// must give their instances the same __dict__ and __weakref__ support and the
+// same set of slot names.
+func layoutCompatible(oldCls, newCls *classObject) bool {
+	if oldCls.instDict != newCls.instDict || oldCls.instWeakref != newCls.instWeakref {
+		return false
+	}
+	a, b := classSlotLayout(oldCls), classSlotLayout(newCls)
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // noDictSetError spells the two write failures on a dict-less instance: a
