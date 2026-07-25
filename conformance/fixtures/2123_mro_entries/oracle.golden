@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+True
+True
+0
+True
+(<class 'str'>, <class 'str'>)
+True
+True
+False
+False
+True
+True
+== exception:
+== stderr:

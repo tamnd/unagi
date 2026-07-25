@@ -55,6 +55,15 @@ func genericAliasLoadAttr(g *genericAliasObject, name string) (Object, error) {
 		return NewTuple(append([]Object(nil), g.args...)), nil
 	case "__parameters__":
 		return NewTuple(nil), nil
+	case "__mro_entries__":
+		// PEP 560: a class statement with a subscripted generic base, such as
+		// `class C(Mapping[str, str])`, replaces the alias with what its
+		// __mro_entries__ returns. The C types.GenericAlias always names the
+		// origin, `(Mapping,)`, without deduplicating against the other bases;
+		// that skip-if-present behavior belongs to typing._GenericAlias, not this.
+		return NewFunc("__mro_entries__", 1, func(args []Object) (Object, error) {
+			return NewTuple([]Object{g.origin}), nil
+		}), nil
 	}
 	return nil, Raise(AttributeError, "'types.GenericAlias' object has no attribute '%s'", name)
 }
