@@ -176,6 +176,13 @@ func initPosix(m *objects.Module) error {
 		}
 	}
 
+	// The process-wait surface (waitpid, the W* status macros,
+	// waitstatus_to_exitcode) and the fd-inheritance calls that subprocess.Popen
+	// drives to launch and reap children.
+	if err := initPosixProc(set); err != nil {
+		return err
+	}
+
 	// __all__ gives os.py's _get_exports_list the public surface without a dir()
 	// builtin: it reads posix.__all__ when present, else falls back to dir(). The
 	// list is the module's own public names now that every attribute is bound.
