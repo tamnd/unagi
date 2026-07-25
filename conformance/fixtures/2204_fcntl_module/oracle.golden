@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+LOCK_SH/EX/UN/NB: 1 2 8 4
+F_GETFD is int: True
+F_SETFD is int: True
+F_GETFL is int: True
+F_SETFL is int: True
+FD_CLOEXEC is int: True
+cleared: False
+set: True
+flock EX/UN: ok
+lockf EX/UN: ok
+done
+== exception:
+== stderr:
