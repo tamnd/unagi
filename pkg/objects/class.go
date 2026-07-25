@@ -352,7 +352,20 @@ func resolveMroEntries(bases []Object) (resolved []Object, changed bool, err err
 // of replacement bases. A base without the method, the ordinary case of a type,
 // reports ok false and is kept as itself. The result must be a tuple, the shape
 // __build_class__ requires.
+//
+// PEP 560 consults __mro_entries__ only on a base that is not a type: CPython's
+// update_bases skips any base passing PyType_Check before it even looks for the
+// method. A class or builtin type used as a base keeps itself, so a type that
+// defines __mro_entries__ as a plain method (typing._SpecialForm does, to reject
+// `class X(SomeForm)` where the form is an instance) is not misread as an unbound
+// call that drops its bases argument.
 func mroEntriesOf(b Object, origBases Object) ([]Object, bool, error) {
+	if IsTypeValue(b) {
+		return nil, false, nil
+	}
+	if _, ok := builtinTypeArgName(b); ok {
+		return nil, false, nil
+	}
 	fn, err := LoadAttr(b, "__mro_entries__")
 	if err != nil {
 		if e, ok := err.(*Exception); ok && e.Kind == AttributeError {
