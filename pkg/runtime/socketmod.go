@@ -163,6 +163,12 @@ func initSocket(m *objects.Module) error {
 	if err := set("SocketType", sockCls); err != nil {
 		return err
 	}
+
+	// Name resolution: getaddrinfo, gethostname, the gethostby* family,
+	// getnameinfo and the service/protocol lookups, plus the AI_/NI_ flags.
+	if err := registerSocketResolve(set); err != nil {
+		return err
+	}
 	return nil
 }
 
