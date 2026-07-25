@@ -112,3 +112,34 @@ func TestUnicodedataOneRuneError(t *testing.T) {
 		t.Errorf("category('ab') = %v, want TypeError", err)
 	}
 }
+
+// TestUnicodedataUCD320 checks the ucd_3_2_0 accessor stringprep binds: it
+// reports unidata_version '3.2.0' (matching CPython, the Unicode version RFC
+// 3454 targets) and exposes the same category surface as the module, so a
+// category-driven stringprep table answers correctly.
+func TestUnicodedataUCD320(t *testing.T) {
+	mo, err := ImportModule("unicodedata")
+	if err != nil {
+		t.Fatalf("import unicodedata: %v", err)
+	}
+	ucd, err := objects.LoadAttr(mo, "ucd_3_2_0")
+	if err != nil {
+		t.Fatalf("ucd_3_2_0: %v", err)
+	}
+	ver, err := objects.LoadAttr(ucd, "unidata_version")
+	if err != nil {
+		t.Fatalf("ucd_3_2_0.unidata_version: %v", err)
+	}
+	if s, _ := objects.AsStr(ver); s != "3.2.0" {
+		t.Errorf("ucd_3_2_0.unidata_version = %q, want 3.2.0", s)
+	}
+	// A function stored on a namespace is called unbound, so category(chr) keeps
+	// its one-argument shape.
+	cat, err := objects.CallMethod(ucd, "category", []objects.Object{objects.NewStr("A")})
+	if err != nil {
+		t.Fatalf("ucd_3_2_0.category('A'): %v", err)
+	}
+	if s, _ := objects.AsStr(cat); s != "Lu" {
+		t.Errorf("ucd_3_2_0.category('A') = %q, want Lu", s)
+	}
+}

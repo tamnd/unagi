@@ -9,7 +9,8 @@ import (
 // unicodedata is a built-in module. CPython implements it as a C extension over
 // the bundled Unicode Character Database; the runtime provides the same surface
 // in Go under the import name so `import unicodedata` (and the modules that
-// import it, pdb through _pyrepl.utils and doctest through pdb) load.
+// import it, pdb through _pyrepl.utils and doctest through pdb, and stringprep
+// through the ucd_3_2_0 accessor below) load.
 //
 // The general category is computed for real from Go's `unicode` package, which
 // tracks the same property, so category() agrees with CPython character for
@@ -26,32 +27,49 @@ func init() {
 }
 
 func initUnicodedata(m *objects.Module) error {
-	for _, e := range []struct {
-		name string
-		obj  objects.Object
-	}{
-		{"category", objects.NewFunc("category", 1, udCategory)},
-		{"combining", objects.NewFunc("combining", 1, udCombining)},
-		{"east_asian_width", objects.NewFunc("east_asian_width", 1, udEastAsianWidth)},
-		{"bidirectional", objects.NewFunc("bidirectional", 1, udBidirectional)},
-		{"mirrored", objects.NewFunc("mirrored", 1, udMirrored)},
-		{"decomposition", objects.NewFunc("decomposition", 1, udDecomposition)},
-		{"decimal", objects.NewFuncKw("decimal", udDecimal)},
-		{"digit", objects.NewFuncKw("digit", udDigit)},
-		{"numeric", objects.NewFuncKw("numeric", udNumeric)},
-		{"name", objects.NewFuncKw("name", udName)},
-		{"lookup", objects.NewFunc("lookup", 1, udLookup)},
-		{"normalize", objects.NewFunc("normalize", 2, udNormalize)},
-		{"is_normalized", objects.NewFunc("is_normalized", 2, udIsNormalized)},
-	} {
-		if err := objects.StoreAttr(m, e.name, e.obj); err != nil {
+	names := []string{
+		"category", "combining", "east_asian_width", "bidirectional",
+		"mirrored", "decomposition", "decimal", "digit", "numeric",
+		"name", "lookup", "normalize", "is_normalized",
+	}
+	vals := []objects.Object{
+		objects.NewFunc("category", 1, udCategory),
+		objects.NewFunc("combining", 1, udCombining),
+		objects.NewFunc("east_asian_width", 1, udEastAsianWidth),
+		objects.NewFunc("bidirectional", 1, udBidirectional),
+		objects.NewFunc("mirrored", 1, udMirrored),
+		objects.NewFunc("decomposition", 1, udDecomposition),
+		objects.NewFuncKw("decimal", udDecimal),
+		objects.NewFuncKw("digit", udDigit),
+		objects.NewFuncKw("numeric", udNumeric),
+		objects.NewFuncKw("name", udName),
+		objects.NewFunc("lookup", 1, udLookup),
+		objects.NewFunc("normalize", 2, udNormalize),
+		objects.NewFunc("is_normalized", 2, udIsNormalized),
+	}
+	for i, name := range names {
+		if err := objects.StoreAttr(m, name, vals[i]); err != nil {
 			return err
 		}
 	}
 	if err := objects.StoreAttr(m, "unidata_version", objects.NewStr(unicode.Version)); err != nil {
 		return err
 	}
-	return nil
+
+	// ucd_3_2_0 is CPython's accessor for the UCD frozen at Unicode 3.2.0, the
+	// version RFC 3454 (stringprep) is written against; stringprep.py binds it as
+	// its `unicodedata` and asserts `unidata_version == '3.2.0'` at import. It is
+	// modeled here as a namespace over the same function set as the module (a
+	// SimpleNamespace calls a stored function unbound, so `ucd_3_2_0.category(c)`
+	// has the same one-argument shape), so the category-driven stringprep tables
+	// answer correctly and the properties Go's stdlib does not carry keep the same
+	// documented best-effort behavior as the module. Its unidata_version reports
+	// '3.2.0', matching CPython byte for byte, since that is the identity of this
+	// accessor rather than a claim about the data behind it.
+	nsNames := append(append([]string{}, names...), "unidata_version")
+	nsVals := append(append([]objects.Object{}, vals...), objects.NewStr("3.2.0"))
+	ucd320 := objects.NewSimpleNamespace(nsNames, nsVals)
+	return objects.StoreAttr(m, "ucd_3_2_0", ucd320)
 }
 
 // oneRune pulls the single code point an argument must be, matching the C
