@@ -1,0 +1,24 @@
+== exit: 0
+== stdout:
+[b'a', b'b', b'c']
+[b'a', b'b c']
+[b'a', b'b c']
+[b'a-b', b'c']
+[b'x\n', b'y\n']
+data
+da�ta
+b'a   b'
+b'ac'
+[bytearray(b'a'), bytearray(b'b')]
+bytearray(b'ac')
+b'Hello'
+split() got an unexpected keyword argument 'bad'
+argument for split() given by name ('sep') and position (1)
+argument for decode() given by name ('encoding') and position (1)
+splitlines() takes at most 1 argument (2 given)
+expandtabs() takes at most 1 argument (2 given)
+translate() got an unexpected keyword argument 'bad'
+translate() takes at most 2 arguments (3 given)
+bytes.replace() takes no keyword arguments
+== exception:
+== stderr:

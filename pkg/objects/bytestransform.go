@@ -59,6 +59,12 @@ func bytesTransformMethod(v []byte, typeName, name string, args []Object) (Objec
 			return nil, true, err
 		}
 		return byteResult(typeName, out), true, nil
+	case "expandtabs":
+		out, err := bytesExpandTabs(v, args)
+		if err != nil {
+			return nil, true, err
+		}
+		return byteResult(typeName, out), true, nil
 	case "isascii", "isalpha", "isalnum", "isdigit", "isspace",
 		"islower", "isupper", "istitle":
 		if len(args) != 0 {
@@ -435,6 +441,42 @@ func bytesZfill(v []byte, args []Object) ([]byte, error) {
 	}
 	out = append(out, fillRun('0', pad)...)
 	return append(out, v[i:]...), nil
+}
+
+// bytesExpandTabs replaces each tab with spaces to the next multiple of
+// tabsize, counting columns per byte and resetting on \n and \r. A non-positive
+// tabsize deletes tabs. Probed on 3.14: b"ab\rcd\tx".expandtabs(4) == b'ab\rcd  x'.
+func bytesExpandTabs(v []byte, args []Object) ([]byte, error) {
+	if len(args) > 1 {
+		return nil, Raise(TypeError, "expandtabs() takes at most 1 argument (%d given)", len(args))
+	}
+	tabsize := 8
+	if len(args) == 1 {
+		n, ok := AsInt(args[0])
+		if !ok {
+			return nil, Raise(TypeError, "'%s' object cannot be interpreted as an integer", args[0].TypeName())
+		}
+		tabsize = int(n)
+	}
+	out := make([]byte, 0, len(v))
+	col := 0
+	for _, c := range v {
+		switch c {
+		case '\t':
+			if tabsize > 0 {
+				pad := tabsize - col%tabsize
+				out = append(out, fillRun(' ', pad)...)
+				col += pad
+			}
+		case '\n', '\r':
+			out = append(out, c)
+			col = 0
+		default:
+			out = append(out, c)
+			col++
+		}
+	}
+	return out, nil
 }
 
 // fillRun returns n copies of c.
