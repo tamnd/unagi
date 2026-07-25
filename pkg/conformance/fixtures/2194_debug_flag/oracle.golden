@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+True
+bool
+asserts active
+checked
+yes
+imaplib 0
+== exception:
+== stderr:
