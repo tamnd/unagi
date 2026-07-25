@@ -529,8 +529,28 @@ func init() {
 	objects.ClassOfResolver = TypeOf
 	register(map[string]objects.Object{
 		"__import__": objects.NewFuncKw("__import__", dunderImport),
-		"print": objects.NewFunc("print", -1, func(args []objects.Object) (objects.Object, error) {
-			if err := Print(args...); err != nil {
+		// print resolves to a keyword-aware object so the value path (passing
+		// print as a value, or `print(*args, file=...)` through argument
+		// unpacking) honours sep/end/file/flush the way the direct-call lowering
+		// does. A plain positional call keeps its own runtime.Print fast path.
+		"print": objects.NewFuncKw("print", func(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+			sep, end, file, flush := objects.None, objects.None, objects.None, objects.None
+			for i, name := range kwNames {
+				switch name {
+				case "sep":
+					sep = kwVals[i]
+				case "end":
+					end = kwVals[i]
+				case "file":
+					file = kwVals[i]
+				case "flush":
+					flush = kwVals[i]
+				default:
+					return nil, objects.Raise(objects.TypeError, "%s",
+						objects.UnexpectedKwMsg("print", name, []string{"sep", "end", "file", "flush"}))
+				}
+			}
+			if err := PrintKwFile(pos, sep, end, file, flush); err != nil {
 				return nil, err
 			}
 			return objects.None, nil

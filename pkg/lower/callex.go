@@ -40,9 +40,11 @@ func (f *fnCtx) callEx(e *frontend.Call) (ast.Expr, error) {
 	if name, ok := e.Fn.(*frontend.Name); ok && !f.nameIsBound(name.Id) {
 		if _, isDef := f.e.defs[name.Id]; !isDef {
 			if builtinNames[name.Id] {
-				if hasKwParts(e.Args) {
-					return nil, f.e.errf(e.Span(), "keyword arguments combined with argument unpacking are not supported yet on builtin calls")
-				}
+				// A builtin resolves to its runtime object and calls through the
+				// binder, so keyword parts merged with unpacking reach the object
+				// the same way a direct keyword call reaches its keyword lowering;
+				// a builtin whose object takes no keywords raises the ordinary
+				// TypeError at the call.
 				ct := f.tmpVar()
 				f.add(define(ident(ct), callExpr(sel("runtime", "BuiltinFn"), strLit(name.Id))))
 				return f.callExValue(ident(ct), e)
