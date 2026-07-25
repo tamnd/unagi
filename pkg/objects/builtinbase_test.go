@@ -176,3 +176,49 @@ func TestDictSubclassInheritsBuiltinBase(t *testing.T) {
 		t.Fatalf("getitem k = %v", v)
 	}
 }
+
+// TestDictSubclassDunderAttrs checks the mapping dunders are reachable as bound
+// attributes on a dict-subclass instance, the _Quoter shape urllib.parse relies
+// on, and that the bound __getitem__ dispatches through the operator.
+func TestDictSubclassDunderAttrs(t *testing.T) {
+	c := buildDictSubclass(t, "Plain", nil, nil)
+	inst, err := Instantiate(c, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("instantiate: %v", err)
+	}
+
+	setit, ok := dictSubclassAttr(inst.(*instanceObject), "__setitem__")
+	if !ok {
+		t.Fatalf("__setitem__ not exposed")
+	}
+	if _, err := Call(setit, []Object{NewStr("a"), NewInt(1)}); err != nil {
+		t.Fatalf("__setitem__ call: %v", err)
+	}
+
+	getit, ok := dictSubclassAttr(inst.(*instanceObject), "__getitem__")
+	if !ok {
+		t.Fatalf("__getitem__ not exposed")
+	}
+	v, err := Call(getit, []Object{NewStr("a")})
+	if err != nil || Str(v) != "1" {
+		t.Fatalf("__getitem__ a = %v, %v; want 1", v, err)
+	}
+
+	lenit, _ := dictSubclassAttr(inst.(*instanceObject), "__len__")
+	if n, err := Call(lenit, nil); err != nil || Str(n) != "1" {
+		t.Fatalf("__len__ = %v, %v; want 1", n, err)
+	}
+
+	containsit, _ := dictSubclassAttr(inst.(*instanceObject), "__contains__")
+	if got, _ := Call(containsit, []Object{NewStr("a")}); got != True {
+		t.Fatalf("__contains__ a = %v; want True", got)
+	}
+
+	delit, _ := dictSubclassAttr(inst.(*instanceObject), "__delitem__")
+	if _, err := Call(delit, []Object{NewStr("a")}); err != nil {
+		t.Fatalf("__delitem__: %v", err)
+	}
+	if n, _ := Len(inst); n != 0 {
+		t.Fatalf("len after __delitem__ = %d; want 0", n)
+	}
+}
