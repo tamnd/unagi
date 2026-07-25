@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+True True True
+b'I00\n' b'I01\n'
+PROTO True
+EMPTY_LIST True
+EMPTY_DICT True
+SETITEM True
+STOP True
+True
+True
+== exception:
+== stderr:
