@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+42
+the x value
+y docstring
+7
+z
+None
+5
+v doc
+TypeError
+== exception:
+== stderr:
