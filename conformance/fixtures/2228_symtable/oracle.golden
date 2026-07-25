@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+imported
+symtable
+16 2 4 1
+134 128 256
+12 15
+1 2 3 4 5
+2 0 1
+True
+SymbolTable
+Symbol
+== exception:
+== stderr:
