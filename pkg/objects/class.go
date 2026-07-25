@@ -535,6 +535,19 @@ func (c *classObject) runSetNameHooks() error {
 	}
 	var targets []setNameTarget
 	for _, name := range c.order {
+		// cached_property is a native descriptor with a __set_name__ that only
+		// records the attribute name it was assigned to. Handle it here so its
+		// attrname resolves the way CPython's does, including the TypeError when
+		// the same instance is bound to two different names.
+		if cp, ok := c.dict[name].(*cachedPropertyObject); ok {
+			if cp.attrname != "" && cp.attrname != name {
+				return Raise(TypeError,
+					"Cannot assign the same cached_property to two different names (%s and %s).",
+					Repr(NewStr(cp.attrname)), Repr(NewStr(name)))
+			}
+			cp.attrname = name
+			continue
+		}
 		inst, ok := c.dict[name].(*instanceObject)
 		if !ok {
 			continue
