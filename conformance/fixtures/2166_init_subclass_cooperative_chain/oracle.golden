@@ -1,0 +1,7 @@
+== exit: 0
+== stdout:
+[('A', 'a'), ('B', 'b')]
+t1 t2
+TypeError: Bad.__init_subclass__() takes no keyword arguments
+== exception:
+== stderr:

@@ -456,6 +456,18 @@ func superCallMethodKwT(t *Thread, s *superObject, name string, pos []Object, kw
 	if r, ok, err := builtinBaseCall(s.obj, name, pos, kwNames, kwVals); ok {
 		return r, err
 	}
+	// A cooperative super().__init_subclass__(**kw) chain ends at the object
+	// root once no user base defines the hook. Keywords the chain never consumed
+	// are the exact TypeError CPython raises, named after the class being
+	// created; the direct runInitSubclass path raises the same. An empty call
+	// falls through to the no-op object default below.
+	if name == "__init_subclass__" && len(kwNames) > 0 {
+		clsName := "object"
+		if c, ok := s.obj.(*classObject); ok {
+			clsName = c.name
+		}
+		return nil, Raise(TypeError, "%s.__init_subclass__() takes no keyword arguments", clsName)
+	}
 	if len(kwNames) == 0 {
 		if r, ok, err := objectDefaultCall(s.obj, name, pos); ok {
 			return r, err
