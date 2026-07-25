@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+imported
+zipimport
+zipimporter
+True
+True
+True
+5
+513
+1
+== exception:
+== stderr:
