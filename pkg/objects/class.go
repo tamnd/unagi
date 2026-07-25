@@ -1876,6 +1876,15 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 			// the arguments and the inherited __init__ ignores them.
 			return inst, nil
 		}
+		if c.builtinBase == "module" {
+			// A module subclass with no __init__ override inherits
+			// module.__init__(name, doc=None), which seeds __name__ and __doc__ on
+			// the instance.
+			if err := moduleSubclassInit(inst, pos, kwNames, kwVals); err != nil {
+				return nil, err
+			}
+			return inst, nil
+		}
 		if len(pos) > 0 || len(kwNames) > 0 {
 			return nil, Raise(TypeError, "%s() takes no arguments", c.name)
 		}

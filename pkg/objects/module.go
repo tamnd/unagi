@@ -56,6 +56,45 @@ func NewBuiltinModule(name string) *Module {
 	return m
 }
 
+// moduleSubclassInit runs the inherited module.__init__(name, doc=None) on a
+// module subclass instance, seeding __name__ and __doc__ the way CPython's
+// module_init does. importlib.util's _LazyModule takes this path only when a
+// subclass is built directly; the loader normally reassigns __class__ instead.
+func moduleSubclassInit(inst *instanceObject, pos []Object, kwNames []string, kwVals []Object) error {
+	var name, doc Object = nil, None
+	rest := pos
+	for i, kw := range kwNames {
+		switch kw {
+		case "name":
+			name = kwVals[i]
+		case "doc":
+			doc = kwVals[i]
+		default:
+			return Raise(TypeError, "'%s' is an invalid keyword argument for module.__init__()", kw)
+		}
+	}
+	if len(rest) > 0 {
+		name = rest[0]
+		rest = rest[1:]
+	}
+	if len(rest) > 0 {
+		doc = rest[0]
+		rest = rest[1:]
+	}
+	if len(rest) > 0 {
+		return Raise(TypeError, "module.__init__() takes at most 2 arguments (%d given)", len(pos))
+	}
+	if name == nil {
+		return Raise(TypeError, "module.__init__() missing required argument 'name' (pos 1)")
+	}
+	if _, ok := name.(*strObject); !ok {
+		return Raise(TypeError, "module.__init__() argument 1 must be str, not %s", name.TypeName())
+	}
+	inst.attrSet("__name__", name)
+	inst.attrSet("__doc__", doc)
+	return nil
+}
+
 // Name is the module's import name, for error messages.
 func (m *Module) Name() string { return m.name }
 
