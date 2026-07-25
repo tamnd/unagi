@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+module
+__main__
+True
+True
+42
+MARKERVALUE
+None
+== exception:
+== stderr:

@@ -185,6 +185,7 @@ func (e *emitter) mainGlobalsDecl(moduleVars, plainDefs []string) *ast.FuncDecl 
 	body := []ast.Stmt{
 		define(ident("m"), callExpr(sel("objects", "NewModule"), strLit("__main__"), ident("pyFile"))),
 		set(ident("thisModule"), ident("m")),
+		exprStmt(callExpr(sel("runtime", "SetMainModule"), ident("m"))),
 	}
 	for _, n := range moduleVars {
 		body = append(body, exprStmt(callExpr(sel("m", "Bind"), strLit(n), addr(mangle(n)))))
