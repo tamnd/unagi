@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+1
+default:z
+False
+{'a': 1}
+None
+5
+{'hello': 5}
+KeyError 'x'
+1 0 {'a': 1, 'new': 0}
+2 0 False
+== exception:
+== stderr:

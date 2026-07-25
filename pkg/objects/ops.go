@@ -1439,7 +1439,20 @@ func GetItem(o, key Object) (Object, error) {
 			return res, nil
 		}
 		if d, ok := dictBacked(x); ok {
-			return d.get(key)
+			if v, ok, err := d.lookup(key); err != nil {
+				return nil, err
+			} else if ok {
+				return v, nil
+			}
+			// A dict subclass that defines __missing__ has it called on a miss
+			// before the KeyError, the way CPython's dict_subscript does. The key
+			// is left unstored unless __missing__ stores it itself.
+			if res, defined, err := instanceSpecial(x, "__missing__", key); err != nil {
+				return nil, err
+			} else if defined {
+				return res, nil
+			}
+			return nil, NewException(KeyError, []Object{key})
 		}
 		if l, ok := listBacked(x); ok {
 			return GetItem(l, key)
