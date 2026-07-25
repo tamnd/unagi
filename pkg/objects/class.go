@@ -908,7 +908,12 @@ func init() {
 		"frozenset": {
 			"__repr__": NewFunc("__repr__", 1, builtinReprDunder),
 		},
+		// bytes carries __new__ so bytes.__new__(cls, value) resolves off the type
+		// object and builds a value subclass instance, the allocator zipfile's
+		// `class _Extra(bytes)` reaches through super().__new__(cls, val). Its repr
+		// prints the underlying bytes; the other dunders come from object.
 		"bytes": {
+			"__new__":  NewFunc("__new__", -1, builtinNewDunder),
 			"__repr__": NewFunc("__repr__", 1, builtinReprDunder),
 		},
 		"bytearray": {
@@ -1880,7 +1885,7 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 		inst.dictData = &dictObject{index: map[string]int{}}
 	case "list":
 		inst.listData = &listObject{}
-	case "int", "str", "tuple", "classmethod", "staticmethod", "property", "ref":
+	case "int", "str", "bytes", "tuple", "classmethod", "staticmethod", "property", "ref":
 		// A value subclass builds its immutable payload through the builtin base's
 		// own conversion, the way int.__new__ or str.__new__ sets the value from
 		// the constructor arguments before __init__ runs. classmethod, staticmethod

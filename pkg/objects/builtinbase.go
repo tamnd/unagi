@@ -19,7 +19,7 @@ package objects
 func builtinBaseName(b Object) (string, bool) {
 	if f, ok := b.(*funcObject); ok {
 		switch f.name {
-		case "dict", "list", "int", "str", "tuple", "classmethod", "staticmethod", "property":
+		case "dict", "list", "int", "str", "bytes", "tuple", "classmethod", "staticmethod", "property":
 			return f.name, true
 		case "ref":
 			// weakref.ref is exposed as the builtin `ref`; weakref.py subclasses it
@@ -165,6 +165,13 @@ func valueSubclassAttr(x *instanceObject, name string) (Object, bool) {
 	switch p := v.(type) {
 	case *strObject:
 		if !strSubclassMethods[name] {
+			return nil, false
+		}
+	case *bytesObject:
+		// A bytes subclass inherits the bytes method surface off its payload, so a
+		// zipfile _Extra answers hex(), decode() and startswith() from its
+		// underlying bytes when the class defines no override.
+		if !bytesMethodNames[name] {
 			return nil, false
 		}
 	case *tupleObject:

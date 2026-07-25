@@ -45,6 +45,16 @@ func asBytesLike(o Object) ([]byte, bool) {
 	case *bytearrayObject:
 		return x.snapshot(), true
 	}
+	// A bytes subclass instance reads as its underlying bytes wherever a
+	// bytes-like right operand is accepted, so bytes + _Extra concatenates and a
+	// bytes method takes a subclass argument. The left-operand fast paths assert
+	// *bytesObject directly, so a subclass on the left dispatches its own value
+	// first.
+	if v, ok := builtinUnwrap(o); ok {
+		if x, ok := v.(*bytesObject); ok {
+			return x.v, true
+		}
+	}
 	return nil, false
 }
 

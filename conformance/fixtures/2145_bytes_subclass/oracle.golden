@@ -1,0 +1,35 @@
+== exit: 0
+== stdout:
+Extra
+b'hello'
+7
+b'he'
+b'xx'
+True
+5
+104
+[104, 101, 108, 108, 111]
+b'el'
+68656c6c6f
+b'HELLO'
+hello
+True
+b'heLLo'
+[b'he', b'', b'o']
+b'hello!'
+b'>hello'
+b'hellohello'
+True
+True
+True
+True
+b'hello'
+Extra2
+True
+True
+b'hi'
+b'hi'
+False
+True
+== exception:
+== stderr:

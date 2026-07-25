@@ -210,7 +210,7 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 					// the fill happens in list.__init__, so super().__new__(cls,
 					// iterable) leaves the payload empty for __init__ to populate.
 					inst.listData = &listObject{}
-				case "int", "str", "tuple", "classmethod", "staticmethod", "property", "ref":
+				case "int", "str", "bytes", "tuple", "classmethod", "staticmethod", "property", "ref":
 					// A namedtuple subclass reaches super().__new__(cls, iterable)
 					// through the generated namedtuple __new__; it builds the tuple
 					// payload from the iterable, carrying the field metadata so the
