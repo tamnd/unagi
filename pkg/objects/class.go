@@ -495,9 +495,9 @@ func typeNewCore(meta *classObject, nameArg, basesArg, nsArg Object) (Object, er
 // itself. When only object's default is left, keyword arguments are the
 // no-keyword-arguments TypeError and an empty call is a no-op.
 //
-// A user hook that chains with super().__init_subclass__() needs the
-// classmethod super(type, subtype) form, which is a later slice; a self
-// contained hook that consumes its keywords works today.
+// A user hook that chains with super().__init_subclass__() runs through the
+// classmethod super(type, subtype) form, which NewSuper handles, and a self
+// contained hook that consumes its keywords works the same way.
 func (c *classObject) runInitSubclass(kwNames []string, kwVals []Object) error {
 	for _, base := range c.mro[1:] {
 		v, ok := base.dict["__init_subclass__"]
@@ -522,8 +522,8 @@ func (c *classObject) runInitSubclass(kwNames []string, kwVals []Object) error {
 // object exists. This is the descriptor-registration hook CPython runs from
 // type.__new__: a Field-style descriptor learns the attribute name it was
 // assigned to. Only names set in this body take part, never inherited ones, so
-// it walks c.order. A raising hook propagates; the RuntimeError that CPython
-// wraps it in is a later refinement.
+// it walks c.order. A raising hook propagates unchanged; Python 3.14 dropped the
+// old RuntimeError wrapping, so the original exception is what the caller sees.
 func (c *classObject) runSetNameHooks() error {
 	// Collect the (name, value) pairs first, the way type.__new__ gathers the
 	// descriptor list before firing any hook. A hook like enum's _proto_member
@@ -1980,6 +1980,40 @@ func InstantiateT(t *Thread, c *classObject, pos []Object, kwNames []string, kwV
 	return instantiateCore(c, pos, kwNames, kwVals)
 }
 
+// abstractInstantiateError is the object.__new__ gate CPython raises when a
+// class still carries unimplemented abstract methods. abc.py populates
+// __abstractmethods__ as a frozenset of the names left abstract by the MRO; a
+// non-empty one blocks allocation with the sorted names, singular or plural to
+// match the wording. It returns nil for a concrete class (no such attribute or
+// an empty frozenset), so the fast path pays only one MRO lookup.
+func abstractInstantiateError(c *classObject) error {
+	v, ok := c.lookup("__abstractmethods__")
+	if !ok {
+		return nil
+	}
+	fs, ok := v.(*frozensetObject)
+	if !ok || len(fs.elts) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(fs.elts))
+	for _, e := range fs.elts {
+		if s, ok := AsStr(e); ok {
+			names = append(names, s)
+		}
+	}
+	sort.Strings(names)
+	noun := "method"
+	if len(names) != 1 {
+		noun = "methods"
+	}
+	quoted := make([]string, len(names))
+	for i, n := range names {
+		quoted[i] = "'" + n + "'"
+	}
+	return Raise(TypeError, "Can't instantiate abstract class %s without an implementation for abstract %s %s",
+		c.name, noun, strings.Join(quoted, ", "))
+}
+
 // instantiateCore is the default type.__call__ creation protocol: it runs a user
 // __new__ then __init__, builds an *Exception for an exception class, or
 // allocates a plain instance and initializes it. Instantiate calls it when no
@@ -2026,6 +2060,12 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 			return nil, err
 		}
 		return e, nil
+	}
+	// object.__new__ refuses to allocate a class that still has abstract
+	// methods; a user __new__ that returned early skipped this, matching CPython
+	// where the check lives in object.__new__ rather than type.__call__.
+	if err := abstractInstantiateError(c); err != nil {
+		return nil, err
 	}
 	inst := &instanceObject{cls: c, attrs: newAttrs()}
 	if c.namedBase != nil {

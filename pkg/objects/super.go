@@ -293,6 +293,11 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 				if isExcClass(cls) {
 					return &Exception{Kind: cls.name, Class: cls, Args: append([]Object{}, args[1:]...)}, true, nil
 				}
+				// object.__new__ refuses an abstract class, so a user __new__ that
+				// ends its chain with super().__new__(cls) raises here.
+				if err := abstractInstantiateError(cls); err != nil {
+					return nil, true, err
+				}
 				inst := &instanceObject{cls: cls, attrs: newAttrs()}
 				switch cls.builtinBase {
 				case "dict":
