@@ -3346,6 +3346,9 @@ func DirNames(o Object) ([]string, bool, error) {
 	if m, isMod := o.(*Module); isMod {
 		return moduleDirNames(m)
 	}
+	if cls, isCls := o.(*classObject); isCls {
+		return classDefaultDirNames(cls), true, nil
+	}
 	inst, isInst := o.(*instanceObject)
 	if !isInst {
 		return nil, false, nil
@@ -3391,6 +3394,35 @@ func instanceDefaultDirNames(inst *instanceObject) []string {
 	}
 	for n := range inst.slots {
 		set[n] = true
+	}
+	names := make([]string, 0, len(set))
+	for n := range set {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// classDefaultDirNames gathers the names dir(cls) reports for a class object:
+// the object base set plus every name defined across the class's own MRO (minus
+// __qualname__, which a class namespace binds but dir omits), sorted and
+// de-duplicated. dir(EmptyClass) is exactly objectBaseDirNames on 3.14, and each
+// base contributes its namespace, so a subclass surfaces the methods it inherits.
+// The metaclass-only names (__mro__, __bases__, __call__, ...) are deliberately
+// left out: CPython's dir(cls) does not fold them in, only the type's own MRO.
+// This is what unittest's loader walks to collect test methods off a TestCase.
+func classDefaultDirNames(cls *classObject) []string {
+	set := map[string]bool{}
+	for _, n := range objectBaseDirNames {
+		set[n] = true
+	}
+	for _, c := range cls.mro {
+		for _, n := range c.order {
+			if n == "__qualname__" {
+				continue
+			}
+			set[n] = true
+		}
 	}
 	names := make([]string, 0, len(set))
 	for n := range set {
