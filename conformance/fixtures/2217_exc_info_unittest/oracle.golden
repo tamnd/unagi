@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+(None, None, None)
+True True boom
+True
+True True
+i
+5 1 1 False
+True True
+done
+== exception:
+== stderr:
