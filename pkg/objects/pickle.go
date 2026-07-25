@@ -350,6 +350,15 @@ func (p *pickler) memoize(o Object) {
 	p.framer.write(b[:]...)
 }
 
+// EncodeLong is pickle.encode_long: the minimal little-endian two's-complement
+// byte string for an integer, empty for zero. pickletools imports the pure
+// pickle.decode_long and pairs with this.
+func EncodeLong(x *big.Int) []byte { return encodeLong(x) }
+
+// DecodeLong is pickle.decode_long: the integer a two's-complement
+// little-endian byte string denotes, zero for empty.
+func DecodeLong(body []byte) *big.Int { return decodeLong(body) }
+
 // encodeLong returns CPython's minimal little-endian two's-complement encoding
 // of a big integer that fell outside the fixed-width int opcodes. The width is
 // (bit_length >> 3) + 1 bytes, which always leaves room for the sign bit; a
