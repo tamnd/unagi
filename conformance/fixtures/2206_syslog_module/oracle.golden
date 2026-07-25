@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+priorities: 0 1 2 3 4 5 6 7
+options: 1 2 4 8
+facilities: 0 8 16 24 32 48 56 64 72 128 184
+MASK(INFO): 64
+UPTO(WARNING): 31
+prev mask is int: True
+done
+== exception:
+== stderr:
