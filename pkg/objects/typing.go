@@ -123,9 +123,11 @@ func newTypeVar(t *Thread, pos []Object, kwNames []string, kwVals []Object) (Obj
 // treats each as the type of its own instances even though they are constructor
 // functions in this tier rather than real types.
 var (
-	typeVarConstructor      Object
-	paramSpecConstructor    Object
-	typeVarTupleConstructor Object
+	typeVarConstructor       Object
+	paramSpecConstructor     Object
+	typeVarTupleConstructor  Object
+	paramSpecArgsConstructor Object
+	paramSpecKwargsCtor      Object
 )
 
 // NewTypeVarConstructor returns the callable bound as _typing.TypeVar. It is a
@@ -248,23 +250,29 @@ func NewParamSpecConstructor() Object {
 // callables bound as _typing.ParamSpecArgs / _typing.ParamSpecKwargs, which wrap
 // a ParamSpec into its positional or keyword member.
 func NewParamSpecArgsConstructor() Object {
-	return NewFunc("ParamSpecArgs", 1, func(args []Object) (Object, error) {
-		ps, ok := args[0].(*paramSpecObject)
-		if !ok {
-			return nil, Raise(TypeError, "ParamSpecArgs(origin) argument must be a ParamSpec")
-		}
-		return &paramSpecArgsObject{origin: ps}, nil
-	})
+	if paramSpecArgsConstructor == nil {
+		paramSpecArgsConstructor = NewFunc("ParamSpecArgs", 1, func(args []Object) (Object, error) {
+			ps, ok := args[0].(*paramSpecObject)
+			if !ok {
+				return nil, Raise(TypeError, "ParamSpecArgs(origin) argument must be a ParamSpec")
+			}
+			return &paramSpecArgsObject{origin: ps}, nil
+		})
+	}
+	return paramSpecArgsConstructor
 }
 
 func NewParamSpecKwargsConstructor() Object {
-	return NewFunc("ParamSpecKwargs", 1, func(args []Object) (Object, error) {
-		ps, ok := args[0].(*paramSpecObject)
-		if !ok {
-			return nil, Raise(TypeError, "ParamSpecKwargs(origin) argument must be a ParamSpec")
-		}
-		return &paramSpecKwargsObject{origin: ps}, nil
-	})
+	if paramSpecKwargsCtor == nil {
+		paramSpecKwargsCtor = NewFunc("ParamSpecKwargs", 1, func(args []Object) (Object, error) {
+			ps, ok := args[0].(*paramSpecObject)
+			if !ok {
+				return nil, Raise(TypeError, "ParamSpecKwargs(origin) argument must be a ParamSpec")
+			}
+			return &paramSpecKwargsObject{origin: ps}, nil
+		})
+	}
+	return paramSpecKwargsCtor
 }
 
 // newParamSpec builds a ParamSpec from ParamSpec(name, *, bound=None,
