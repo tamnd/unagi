@@ -1,0 +1,20 @@
+== exit: 0
+== stdout:
+int | str
+int | str
+<class 'int'>
+int | None
+int | str
+int | str | bytes
+<class 'NoneType'>
+<class 'NoneType'>
+~T
+~T | int (~T,)
+int | str | bytes
+bytes | int | str
+True
+Union Union
+list[int] | str
+TypeError Cannot take a Union of no types.
+== exception:
+== stderr:

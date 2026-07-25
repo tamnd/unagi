@@ -53,5 +53,10 @@ func initTyping(m *objects.Module) error {
 	if err := objects.StoreAttr(m, "TypeVarTuple", objects.NewTypeVarTupleConstructor()); err != nil {
 		return err
 	}
+	// Union is the typing.Union special form, the type of every X | Y value.
+	// Union[int, str] subscripts to int | str, and type(int | str) is Union.
+	if err := objects.StoreAttr(m, "Union", objects.UnionForm()); err != nil {
+		return err
+	}
 	return nil
 }
