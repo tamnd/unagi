@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+1
+Z
+2
+True False
+[('a', '1'), ('b', '2'), ('z', 'Z')]
+[('a', '1'), ('z', 'Z')]
+X
+a%20b/c%3Fx%3D1
+a b/c
+== exception:
+== stderr:

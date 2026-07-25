@@ -398,9 +398,60 @@ func builtinBaseAttr(self Object, name string) (Object, bool) {
 // this fallback runs, so it never shadows one.
 func dictSubclassAttr(x *instanceObject, name string) (Object, bool) {
 	d, backed := dictBacked(x)
-	if !backed || !dictSubclassMethods[name] {
+	if !backed {
+		return nil, false
+	}
+	// The mapping dunders bind to the operator on the instance, not to the raw
+	// store, so dict.__getitem__ on a subclass calls the subclass __missing__ the
+	// way d[k] does and dict_subscript does in CPython. A user override lives in
+	// the class dict and is found before this fallback, so it never shadows one.
+	if mappingDunders[name] && name != "__init__" {
+		return dictDunderAttr(x, name), true
+	}
+	if !dictSubclassMethods[name] {
 		return nil, false
 	}
 	fn := func(args []Object) (Object, error) { return dictMethod(d, name, args) }
 	return NewFunc(name, -1, fn), true
+}
+
+// dictDunderAttr returns a dict mapping dunder bound to the subclass instance,
+// dispatching through the operator so inherited behavior (including __missing__
+// on __getitem__) matches the subscript form exactly.
+func dictDunderAttr(x *instanceObject, name string) Object {
+	fn := func(args []Object) (Object, error) {
+		switch name {
+		case "__getitem__":
+			if len(args) != 1 {
+				return nil, Raise(TypeError, "__getitem__ expected 1 argument, got %d", len(args))
+			}
+			return GetItem(x, args[0])
+		case "__setitem__":
+			if len(args) != 2 {
+				return nil, Raise(TypeError, "__setitem__ expected 2 arguments, got %d", len(args))
+			}
+			return None, SetItem(x, args[0], args[1])
+		case "__delitem__":
+			if len(args) != 1 {
+				return nil, Raise(TypeError, "__delitem__ expected 1 argument, got %d", len(args))
+			}
+			return None, DelItem(x, args[0])
+		case "__len__":
+			if len(args) != 0 {
+				return nil, Raise(TypeError, "__len__ expected 0 arguments, got %d", len(args))
+			}
+			n, err := Len(x)
+			if err != nil {
+				return nil, err
+			}
+			return NewInt(int64(n)), nil
+		case "__contains__":
+			if len(args) != 1 {
+				return nil, Raise(TypeError, "__contains__ expected 1 argument, got %d", len(args))
+			}
+			return Contains(x, args[0])
+		}
+		return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", x.TypeName(), name)
+	}
+	return NewFunc(name, -1, fn)
 }
