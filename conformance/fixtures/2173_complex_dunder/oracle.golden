@@ -1,0 +1,9 @@
+== exit: 0
+== stdout:
+(1+2j)
+(3.5+0j)
+(7+0j)
+TypeError: __complex__ returned non-complex (type str)
+TypeError: complex() argument must be a string or a number, not Non
+== exception:
+== stderr:
