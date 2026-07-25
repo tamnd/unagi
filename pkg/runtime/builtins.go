@@ -27,6 +27,13 @@ func asIndex(o objects.Object) (int64, error) {
 	if objects.IsBigInt(o) {
 		return 0, objects.Raise(objects.OverflowError, "Python int too large to convert to C ssize_t")
 	}
+	// A user class with __index__ is consumed here the way PyNumber_Index does,
+	// so range(I(3)), the base reprs and chr(I(65)) all read the returned int.
+	if r, ok, err := objects.IndexOf(o); err != nil {
+		return 0, err
+	} else if ok {
+		return asIndex(r)
+	}
 	return 0, objects.Raise(objects.TypeError,
 		"'%s' object cannot be interpreted as an integer", o.TypeName())
 }

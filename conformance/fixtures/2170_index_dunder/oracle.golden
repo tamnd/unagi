@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+[0, 1, 2]
+[1, 2, 3]
+[0, 3, 6, 9]
+30
+50
+0b101 0xff 0o10
+A
+e
+[20, 30, 40]
+[20, 40]
+[99, 20, 30, 40, 50]
+[20, 30, 40, 50]
+TypeError: __index__ returned non-int (type str)
+TypeError: __index__ returned non-int (type str)
+== exception:
+== stderr:

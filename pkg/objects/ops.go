@@ -1280,14 +1280,26 @@ func seqIndex(i int64, n int, msg string) (int, error) {
 // instance to its payload so a value subclass indexes as its int. It is the
 // sequence-only counterpart to AsInt: a mapping keys by hash and equality
 // instead, so a dict subscript keeps the instance and never routes here.
-func seqIndexKey(key Object) (int64, bool) {
+func seqIndexKey(key Object) (int64, bool, error) {
 	if i, ok := AsInt(key); ok {
-		return i, true
+		return i, true, nil
 	}
 	if v, ok := builtinUnwrap(key); ok {
-		return AsInt(v)
+		i, ok := AsInt(v)
+		return i, ok, nil
 	}
-	return 0, false
+	// A user class with __index__ supplies the sequence index, matching CPython
+	// which calls __index__ on any non-int subscript before its own error. A
+	// returned big int cannot fit a C index, the same limit a big-int literal hits.
+	if r, ok, err := IndexOf(key); err != nil {
+		return 0, false, err
+	} else if ok {
+		if i, ok := AsInt(r); ok {
+			return i, true, nil
+		}
+		return 0, false, errIndexFit()
+	}
+	return 0, false, nil
 }
 
 // GetItem implements subscription: o[key].
@@ -1304,7 +1316,10 @@ func GetItem(o, key Object) (Object, error) {
 	case *memoryviewObject:
 		return mvGetItem(x, key)
 	case *strObject:
-		i, ok := seqIndexKey(key)
+		i, ok, err := seqIndexKey(key)
+		if err != nil {
+			return nil, err
+		}
 		if !ok {
 			if IsBigInt(key) {
 				return nil, errIndexFit()
@@ -1318,7 +1333,10 @@ func GetItem(o, key Object) (Object, error) {
 		}
 		return NewStr(string(runes[j])), nil
 	case *bytesObject:
-		i, ok := seqIndexKey(key)
+		i, ok, err := seqIndexKey(key)
+		if err != nil {
+			return nil, err
+		}
 		if !ok {
 			if IsBigInt(key) {
 				return nil, errIndexFit()
@@ -1333,7 +1351,10 @@ func GetItem(o, key Object) (Object, error) {
 		}
 		return NewInt(int64(x.v[j])), nil
 	case *bytearrayObject:
-		i, ok := seqIndexKey(key)
+		i, ok, err := seqIndexKey(key)
+		if err != nil {
+			return nil, err
+		}
 		if !ok {
 			if IsBigInt(key) {
 				return nil, errIndexFit()
@@ -1349,7 +1370,10 @@ func GetItem(o, key Object) (Object, error) {
 		}
 		return NewInt(int64(v[j])), nil
 	case *listObject:
-		i, ok := seqIndexKey(key)
+		i, ok, err := seqIndexKey(key)
+		if err != nil {
+			return nil, err
+		}
 		if !ok {
 			if IsBigInt(key) {
 				return nil, errIndexFit()
@@ -1369,7 +1393,10 @@ func GetItem(o, key Object) (Object, error) {
 	case *arrayObject:
 		return arrayGetItem(x, key)
 	case *tupleObject:
-		i, ok := seqIndexKey(key)
+		i, ok, err := seqIndexKey(key)
+		if err != nil {
+			return nil, err
+		}
 		if !ok {
 			if IsBigInt(key) {
 				return nil, errIndexFit()
@@ -1390,7 +1417,10 @@ func GetItem(o, key Object) (Object, error) {
 	case *matchObject:
 		return matchGetItem(x, key)
 	case *rangeObject:
-		i, ok := seqIndexKey(key)
+		i, ok, err := seqIndexKey(key)
+		if err != nil {
+			return nil, err
+		}
 		if !ok {
 			if IsBigInt(key) {
 				return nil, errIndexFit()
@@ -1478,7 +1508,10 @@ func SetItem(o, key, val Object) error {
 	case *memoryviewObject:
 		return mvSetItem(x, key, val)
 	case *listObject:
-		i, ok := seqIndexKey(key)
+		i, ok, err := seqIndexKey(key)
+		if err != nil {
+			return err
+		}
 		if !ok {
 			if IsBigInt(key) {
 				return errIndexFit()
@@ -1497,7 +1530,10 @@ func SetItem(o, key, val Object) error {
 	case *arrayObject:
 		return arraySetItem(x, key, val)
 	case *bytearrayObject:
-		i, ok := seqIndexKey(key)
+		i, ok, err := seqIndexKey(key)
+		if err != nil {
+			return err
+		}
 		if !ok {
 			if IsBigInt(key) {
 				return errIndexFit()

@@ -3081,6 +3081,35 @@ func IntFromDunder(o Object) (Object, bool, error) {
 	return nil, false, nil
 }
 
+// IndexOf implements PyNumber_Index for a user instance: __index__ is called and
+// must return an int, which is handed back as an int or big int Object. It is the
+// lossless-integer coercion the range, bin/hex/oct, chr and sequence/slice
+// subscription paths all consult before their own "not an integer" TypeError. ok
+// is false when o is not a user instance defining __index__, leaving the caller's
+// existing handling untouched, so no builtin fast path pays for the lookup.
+func IndexOf(o Object) (Object, bool, error) {
+	x, isInst := o.(*instanceObject)
+	if !isInst {
+		return nil, false, nil
+	}
+	if _, has := x.cls.lookup("__index__"); !has {
+		return nil, false, nil
+	}
+	r, _, err := instanceSpecial(x, "__index__")
+	if err != nil {
+		return nil, true, err
+	}
+	if !instanceOfBuiltin(r, "int") {
+		return nil, true, Raise(TypeError,
+			"__index__ returned non-int (type %s)", r.TypeName())
+	}
+	if b, ok := AsBigInt(r); ok && IsBigInt(r) {
+		return NewIntFromBig(b), true, nil
+	}
+	i, _ := AsIntValue(r)
+	return NewInt(i), true, nil
+}
+
 // objectBaseDirNames is the name set object contributes to dir() of any
 // instance, the attributes every object carries through its type's object root.
 // dir() walks type(obj).__mro__ and object sits at the tail of every chain, so
