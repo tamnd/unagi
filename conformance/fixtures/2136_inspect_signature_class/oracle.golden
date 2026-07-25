@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+(a, b=1, *c, d, **e)
+(x, y=5)
+(a, b=1, *c, d, **e)
+['a', 'b', 'c', 'd', 'e']
+1
+True
+True
+== exception:
+== stderr:

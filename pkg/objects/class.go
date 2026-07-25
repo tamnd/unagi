@@ -2075,9 +2075,29 @@ func LoadAttr(o Object, name string) (Object, error) {
 	case *typeSlotDescriptor:
 		// inspect binds `type.__dict__['__mro__'].__get__` and the __dict__ one
 		// once and calls them to read a class slot, so the descriptor answers that
-		// one attribute with the reader and nothing else.
-		if name == "__get__" {
+		// one attribute with the reader. inspect.getattr_static also identifies
+		// the __dict__ getset by name and owner, so __name__, __qualname__ and
+		// __objclass__ carry the values CPython gives: the slot name, "type.<slot>",
+		// and the type object the descriptor lives on.
+		switch name {
+		case "__get__":
 			return NewFunc("__get__", -1, x.get), nil
+		case "__name__":
+			return NewStr(x.attr), nil
+		case "__qualname__":
+			return NewStr("type." + x.attr), nil
+		case "__objclass__":
+			// __objclass__ is the type the descriptor lives on, and inspect's
+			// _shadowed_dict compares it by identity against the class it walked
+			// to (`class_dict.__objclass__ is entry`). That class is the canonical
+			// `type` object the type() builtin resolves to, so hand back the same
+			// object rather than a second stand-in.
+			if BuiltinTypeResolver != nil {
+				if t, ok := BuiltinTypeResolver("type"); ok {
+					return t, nil
+				}
+			}
+			return typeClass, nil
 		}
 		return nil, Raise(AttributeError, "'getset_descriptor' object has no attribute '%s'", name)
 	case *staticmethodObject:
@@ -2439,6 +2459,26 @@ func LoadAttr(o Object, name string) (Object, error) {
 			// faithful answer, and type(x).__hash__(x) equals hash(x) the way an
 			// unbound object.__hash__ slot does.
 			return builtinHashDunder, nil
+		case "__get__":
+			// function is a descriptor type, so its unbound __get__ slot binds a
+			// function to an instance. inspect._descriptor_get reads it off the
+			// type as `type(f).__get__` and calls it `(f, obj, type(obj))` to bind
+			// a class's __init__ before reading its signature, dropping self.
+			if x.name == "function" {
+				return NewFunc("__get__", -1, func(args []Object) (Object, error) {
+					if len(args) < 2 || len(args) > 3 {
+						return nil, Raise(TypeError, "__get__ expected 2 or 3 arguments, got %d", len(args))
+					}
+					fn, ok := args[0].(*functionObject)
+					if !ok {
+						return nil, Raise(TypeError, "descriptor '__get__' requires a 'function' object but received a '%s'", args[0].TypeName())
+					}
+					if _, isNone := args[1].(*noneObject); isNone {
+						return fn, nil
+					}
+					return &boundMethod{fn: fn, self: args[1]}, nil
+				}), nil
+			}
 		}
 		return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
 	case *namedTupleType:
