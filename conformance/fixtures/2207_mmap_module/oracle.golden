@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+len: 24
+index: 72
+slice: b'Hello'
+step slice: b'HloWrd'
+find: 6
+rfind: 19
+after edits: b'Jello WORLD'
+read: b'Jello'
+tell: 5
+read_byte: 32
+readline: b'Jello WORLD\n'
+size: 24
+closed after with: True
+readonly slice: b'Jello'
+readonly write: mmap can't modify a readonly memory map.
+copy local: b'Zello'
+file first byte: b'J'
+anon read: b'abc'
+access modes: 1 2 3 0
+pagesize positive: True
+done
+== exception:
+== stderr:
