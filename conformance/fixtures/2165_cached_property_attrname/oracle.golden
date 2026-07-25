@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+area
+area
+9
+area
+area
+None
+TypeError: Cannot assign the same cached_property to two different names ('cp' and 'x').
+== exception:
+== stderr:

@@ -6,7 +6,13 @@ package objects
 // a non-data descriptor, the stored entry shadows it on every later read, so the
 // function runs once per instance. An instance with no __dict__ cannot cache the
 // value, which is the TypeError CPython raises.
-type cachedPropertyObject struct{ fn Object }
+type cachedPropertyObject struct {
+	fn Object
+	// attrname is the name the descriptor was assigned to, learned through
+	// __set_name__ at class creation. It stays empty until then, the state
+	// CPython reports as attrname == None.
+	attrname string
+}
 
 func (*cachedPropertyObject) TypeName() string { return "functools.cached_property" }
 
@@ -48,7 +54,10 @@ func cachedPropertyAttr(d *cachedPropertyObject, name string) (Object, error) {
 	case "func":
 		return d.fn, nil
 	case "attrname":
-		return None, nil
+		if d.attrname == "" {
+			return None, nil
+		}
+		return NewStr(d.attrname), nil
 	}
 	return nil, Raise(AttributeError, "'functools.cached_property' object has no attribute '%s'", name)
 }
