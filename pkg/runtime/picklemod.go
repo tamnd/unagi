@@ -34,7 +34,9 @@ func initPickle(m *objects.Module) error {
 			return err
 		}
 	}
-	return nil
+	// The file-based Pickler/Unpickler classes, the dump/load module functions
+	// and bytes_types, over the same engine dumps/loads use.
+	return registerPickleObjects(m)
 }
 
 // pickleDumps is pickle.dumps(obj, protocol=None, *, fix_imports=True,
