@@ -829,6 +829,13 @@ func init() {
 // name is still the object default it should replace with the Enum method.
 var objectDunders map[string]Object
 
+// objectDocString is object.__doc__, the canonical CPython 3.14.6 docstring the
+// base of the class hierarchy carries. inspect.getdoc(object) and doc-copy
+// idioms read it; every other class with no docstring still answers None.
+const objectDocString = "The base class of the class hierarchy.\n\n" +
+	"When called, it accepts no arguments and returns a new featureless\n" +
+	"instance that has no instance attributes and cannot be given any.\n"
+
 func init() {
 	objectDunders = map[string]Object{
 		"__repr__": NewFunc("__repr__", 1, func(args []Object) (Object, error) {
@@ -1376,6 +1383,9 @@ func init() {
 // classdict.update(cls.__dict__) folds them in, over a snapshot dict so a write
 // through the proxy is the TypeError CPython raises for a mappingproxy.
 func classDictProxy(c *classObject) Object {
+	if c == objectClass {
+		return objectDictProxy()
+	}
 	d := &dictObject{index: map[string]int{}}
 	for _, name := range c.order {
 		val := c.dict[name]
@@ -1391,6 +1401,60 @@ func classDictProxy(c *classObject) Object {
 			}
 		}
 		_ = d.set(NewStr(name), val)
+	}
+	return &mappingProxyObject{d: d}
+}
+
+// objectDictProxy is object.__dict__: the mappingproxy over the object root's
+// own slots. Its own dict holds only the three attribute-access wrappers, so it
+// is synthesized from the canonical surface object actually carries: the three
+// stored slots, __new__, __hash__, __doc__, and every objectDunders entry. Keys
+// come out sorted for a deterministic view (CPython's own order is C-defined and
+// not reproducible; membership and the surface are what matters). It lists
+// exactly the dunders unagi implements, so a name unagi does not carry
+// (__sizeof__, __init_subclass__) is honestly absent rather than faked.
+func objectDictProxy() Object {
+	d := &dictObject{index: map[string]int{}}
+	seen := map[string]bool{}
+	add := func(name string, val Object) {
+		if seen[name] || val == nil {
+			return
+		}
+		seen[name] = true
+		_ = d.set(NewStr(name), val)
+	}
+	names := make([]string, 0, len(objectDunders)+len(objectClass.dict)+3)
+	for name := range objectDunders {
+		names = append(names, name)
+	}
+	for name := range objectClass.dict {
+		names = append(names, name)
+	}
+	names = append(names, "__new__", "__hash__", "__doc__")
+	sort.Strings(names)
+	for _, name := range names {
+		switch name {
+		case "__new__":
+			add(name, objectNewBuiltin)
+		case "__doc__":
+			add(name, NewStr(objectDocString))
+		default:
+			if v, ok := objectClass.dict[name]; ok {
+				add(name, v)
+				continue
+			}
+			if v, ok := objectDunders[name]; ok {
+				add(name, v)
+				continue
+			}
+			if name == "__hash__" {
+				// object.__hash__ resolves through classInheritedDefault, not the
+				// dict or objectDunders, so surface it explicitly for the view.
+				if v, err := LoadAttr(objectClass, "__hash__"); err == nil {
+					add(name, v)
+				}
+			}
+		}
 	}
 	return &mappingProxyObject{d: d}
 }
@@ -2197,8 +2261,12 @@ func LoadAttr(o Object, name string) (Object, error) {
 		// Every class carries __doc__: a class with no docstring reads it back as
 		// None rather than raising, the way CPython's type object does. Vendored
 		// io.py leans on this when it copies `_io._IOBase.__doc__` onto its own
-		// abstract bases.
+		// abstract bases. The object root is the one type with a canonical
+		// docstring, which inspect.getdoc(object) and doc-copy idioms read.
 		if name == "__doc__" {
+			if x == objectClass {
+				return NewStr(objectDocString), nil
+			}
 			return None, nil
 		}
 		// Every class carries __annotations__: the dict its body accumulated, or a
