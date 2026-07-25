@@ -288,6 +288,14 @@ func initSys(m *objects.Module) error {
 		{"hash_info", sysHashInfo()},
 		{"float_info", sysFloatInfo()},
 		{"warnoptions", objects.NewList(nil)},
+		// sys.path is the import search path. A compiled program resolves its
+		// imports at build time, so the path plays no role in finding modules, but
+		// stdlib code iterates it: linecache walks it to locate a source file and
+		// warnings.warn_explicit reaches linecache through it. It is a mutable list
+		// seeded with "" as path[0], CPython's convention for the current directory
+		// when there is no script file, so an iteration succeeds and code that
+		// prepends to sys.path works.
+		{"path", objects.NewList([]objects.Object{objects.NewStr("")})},
 		// A compiled program has no Python installation tree, so the install
 		// prefixes are empty. They are equal to each other, which is how a program
 		// tells it is not running inside a virtual environment. Modules that build

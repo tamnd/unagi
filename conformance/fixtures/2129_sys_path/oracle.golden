@@ -1,0 +1,9 @@
+== exit: 0
+== stdout:
+True
+True
+/tmp/unagi_probe
+''
+1 UserWarning boom
+== exception:
+== stderr:
