@@ -1,0 +1,33 @@
+== exit: 0
+== stdout:
+True
+False
+True
+NotImplemented
+NotImplemented
+True
+NotImplemented
+True
+True
+NotImplemented
+True
+True
+True
+False
+NotImplemented
+NotImplemented
+True
+NotImplemented
+True
+True
+NotImplemented
+True
+True
+True
+NotImplemented
+True
+False
+True
+True True True
+== exception:
+== stderr:

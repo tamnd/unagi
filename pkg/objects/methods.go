@@ -22,6 +22,14 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 	if surface, ok := containerDunderSurface(o); ok && surface[name] {
 		return applyContainerSpecial(o, name, args)
 	}
+	// A builtin scalar comparison dunder called directly, (1).__eq__(2) or
+	// "a".__lt__("b"), lowers here rather than through LoadAttr, so the same
+	// slot surface has to answer in both places. The guard fires only for the
+	// concrete scalar builtins, each with its own NotImplemented domain, never a
+	// user subclass.
+	if res, ok, err := scalarCompareCall(o, name, args); ok {
+		return res, err
+	}
 	switch x := o.(type) {
 	case *intObject, *boolObject:
 		return intMethod(o, name, args)
