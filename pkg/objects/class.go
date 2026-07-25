@@ -3110,6 +3110,23 @@ func IndexOf(o Object) (Object, bool, error) {
 	return NewInt(i), true, nil
 }
 
+// InstanceDunder calls o.name(args...) when o is a user instance whose class
+// defines name, returning defined=false otherwise so the caller keeps its own
+// error. It is the exported gate the round() and math.floor/ceil/trunc builtins
+// use to reach a user numeric's __round__/__floor__/__ceil__/__trunc__ without
+// routing an ordinary builtin argument through attribute machinery.
+func InstanceDunder(o Object, name string, args ...Object) (Object, bool, error) {
+	x, ok := o.(*instanceObject)
+	if !ok {
+		return nil, false, nil
+	}
+	if _, has := x.cls.lookup(name); !has {
+		return nil, false, nil
+	}
+	res, _, err := instanceSpecial(x, name, args...)
+	return res, true, err
+}
+
 // objectBaseDirNames is the name set object contributes to dir() of any
 // instance, the attributes every object carries through its type's object root.
 // dir() walks type(obj).__mro__ and object sits at the tail of every chain, so

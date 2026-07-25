@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+('roundNone', 5)
+('round', 5, 2)
+('floor', 5)
+('ceil', 5)
+('trunc', 5)
+TypeError: type Bare doesn't define __round__ method
+TypeError: must be real number, not Bare
+== exception:
+== stderr:

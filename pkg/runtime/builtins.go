@@ -266,6 +266,17 @@ func Round(args []objects.Object) (objects.Object, error) {
 		}
 		return roundFloat(f, nd)
 	}
+	// A user numeric drives round() through __round__: round(x) calls it with no
+	// argument, round(x, n) passes ndigits through verbatim (including None).
+	var roundArgs []objects.Object
+	if len(args) == 2 {
+		roundArgs = []objects.Object{args[1]}
+	}
+	if res, defined, err := objects.InstanceDunder(x, "__round__", roundArgs...); err != nil {
+		return nil, err
+	} else if defined {
+		return res, nil
+	}
 	// Probed: round("a") -> TypeError: type str doesn't define __round__ method.
 	return nil, objects.Raise(objects.TypeError, "type %s doesn't define __round__ method", x.TypeName())
 }
