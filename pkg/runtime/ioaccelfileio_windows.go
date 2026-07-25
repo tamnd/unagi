@@ -1,22 +1,23 @@
-//go:build !windows
+//go:build windows
 
 package runtime
 
 import (
+	"os"
 	"syscall"
 
 	"github.com/tamnd/unagi/pkg/objects"
 )
 
-// _io.FileIO is the raw byte stream over an operating-system file descriptor: it
-// subclasses _RawIOBase and turns read/write/seek/truncate into the posix fd
-// calls in posixfd.go. It is the raw layer open() builds a BufferedReader or
-// BufferedWriter (and then a TextIOWrapper) on top of. A file descriptor stays a
-// plain int the way the posix layer exposes it, so the fd lives in the _fd slot;
-// close sets it to -1 and marks the stream closed. The mode flags decided at
-// construction live in the _readable/_writable/_created/_appending/_seekable
-// slots, the original file argument in _name and whether close owns the fd in
-// _closefd. This is sub-slice 5f of the _io arc (Spec 2076 stdlib S0_io_arc.md).
+// This is the Windows sibling of ioaccelfileio.go. The logic is identical, the
+// only difference is the low-level layer: a Windows file descriptor is a
+// syscall.Handle, not an int, and there is no ftruncate, so truncate seeks and
+// calls SetEndOfFile. The fd still lives in the _fd slot as a plain int (the
+// handle cast to int) so the rest of the _io stack stays platform-neutral. The
+// unix file carries //go:build !windows, so exactly one of the two compiles and
+// the shared names never collide. See ioaccelfileio.go for the field-by-field
+// commentary; only the syscall.Handle casts and the truncate/isatty/error
+// helpers below differ.
 var ioFileIOClass objects.Object
 
 // buildIOFileIO constructs the _io.FileIO classObject.
@@ -59,11 +60,7 @@ func buildIOFileIO() (objects.Object, error) {
 		[]objects.Object{ioRawIOBase}, names, vals, nil, nil)
 }
 
-// ioFileIOInit implements FileIO(name, mode='r', closefd=True, opener=None). name
-// is a path (str or bytes) or an already-open fd (int); mode is the usual
-// r/w/x/a with an optional '+' and a 'b' that is accepted and ignored since a raw
-// stream is always binary. When opener is given it supplies the fd from
-// opener(name, flags) instead of a direct open.
+// ioFileIOInit implements FileIO(name, mode='r', closefd=True, opener=None).
 func ioFileIOInit(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
 	self := pos[0]
 	rest := pos[1:]
@@ -112,8 +109,6 @@ func ioFileIOInit(pos []objects.Object, kwNames []string, kwVals []objects.Objec
 		return nil, err
 	}
 
-	// A bare fd argument reuses the descriptor; a path opens a new one. CPython
-	// treats any int (including a bool) as an fd here.
 	givenFd, isFd := objects.AsInt(nameArg)
 	var fd int
 	switch {
@@ -143,18 +138,15 @@ func ioFileIOInit(pos []objects.Object, kwNames []string, kwVals []objects.Objec
 		if !ok {
 			return nil, objects.Raise(objects.TypeError, "expected str, bytes or os.PathLike object, not %s", nameArg.TypeName())
 		}
-		nfd, serr := syscall.Open(path, flags, 0o666)
+		h, serr := syscall.Open(path, flags, 0o666)
 		if serr != nil {
 			return nil, posixStatErr(serr)
 		}
-		fd = nfd
+		fd = int(h)
 	}
 
-	// An append-mode stream starts logically at end of file, and a stat-able fd
-	// is seekable; a pipe or terminal is not. seek(0, SEEK_END) both positions an
-	// append stream and probes seekability in one call.
 	seekable := false
-	if _, serr := syscall.Seek(fd, 0, seekEndForFileIO(appending)); serr == nil {
+	if _, serr := syscall.Seek(syscall.Handle(fd), 0, seekEndForFileIO(appending)); serr == nil {
 		seekable = true
 	}
 
@@ -186,9 +178,9 @@ func ioFileIOInit(pos []objects.Object, kwNames []string, kwVals []objects.Objec
 	return objects.None, nil
 }
 
-// seekEndForFileIO returns SEEK_END when the stream appends (so the initial seek
-// lands at end of file) and SEEK_CUR otherwise (so it only probes seekability
-// without moving the position).
+// seekEndForFileIO returns SEEK_END when the stream appends and SEEK_CUR
+// otherwise, so the initial seek positions an append stream and probes
+// seekability without moving a plain stream.
 func seekEndForFileIO(appending bool) int {
 	if appending {
 		return 2
@@ -197,8 +189,8 @@ func seekEndForFileIO(appending bool) int {
 }
 
 // ioFileIOParseMode turns a FileIO mode string into open() flags and the derived
-// readable/writable/created/appending facts. Exactly one of r/w/x/a must appear;
-// '+' adds the missing direction and 'b' is accepted and ignored.
+// readable/writable/created/appending facts. The O_* flags are defined on
+// Windows too, so this is the same as the unix version.
 func ioFileIOParseMode(mode string) (flags int, readable, writable, created, appending bool, err error) {
 	var rwxa byte
 	plus := false
@@ -252,8 +244,7 @@ func ioFileIOParseMode(mode string) (flags int, readable, writable, created, app
 	return flags, readable, writable, created, appending, nil
 }
 
-// ioFileIOPath extracts a filesystem path string from a str or bytes argument,
-// the two path forms FileIO accepts directly.
+// ioFileIOPath extracts a filesystem path string from a str or bytes argument.
 func ioFileIOPath(o objects.Object) (string, bool) {
 	if s, ok := objects.AsStr(o); ok {
 		return s, true
@@ -291,8 +282,8 @@ func ioFileIOCheckOpen(self objects.Object) error {
 	return nil
 }
 
-// ioFileIORead reads up to size bytes, or the whole rest of the file when size is
-// negative or None. End of file returns b"".
+// ioFileIORead reads up to size bytes, or the whole rest of the file when size
+// is negative or None. End of file returns b"".
 func ioFileIORead(args []objects.Object) (objects.Object, error) {
 	self := args[0]
 	if err := ioFileIOCheckOpen(self); err != nil {
@@ -313,7 +304,7 @@ func ioFileIORead(args []objects.Object) (objects.Object, error) {
 		return ioFileIOReadall(args[:1])
 	}
 	buf := make([]byte, size)
-	got, serr := syscall.Read(ioFileIOFd(self), buf)
+	got, serr := syscall.Read(syscall.Handle(ioFileIOFd(self)), buf)
 	if serr != nil {
 		return nil, posixStatErr(serr)
 	}
@@ -323,7 +314,7 @@ func ioFileIORead(args []objects.Object) (objects.Object, error) {
 	return objects.NewBytes(buf[:got]), nil
 }
 
-// ioFileIOReadall reads to end of file in DEFAULT_BUFFER_SIZE chunks.
+// ioFileIOReadall reads to end of file in fixed-size chunks.
 func ioFileIOReadall(args []objects.Object) (objects.Object, error) {
 	self := args[0]
 	if err := ioFileIOCheckOpen(self); err != nil {
@@ -332,11 +323,11 @@ func ioFileIOReadall(args []objects.Object) (objects.Object, error) {
 	if !ioFileIOFlag(self, "_readable") {
 		return nil, ioUnsupported("File not open for reading")
 	}
-	fd := ioFileIOFd(self)
+	h := syscall.Handle(ioFileIOFd(self))
 	var res []byte
 	buf := make([]byte, 131072)
 	for {
-		got, serr := syscall.Read(fd, buf)
+		got, serr := syscall.Read(h, buf)
 		if serr != nil {
 			return nil, posixStatErr(serr)
 		}
@@ -349,7 +340,7 @@ func ioFileIOReadall(args []objects.Object) (objects.Object, error) {
 }
 
 // ioFileIOReadinto reads len(b) bytes into the writable buffer b and returns the
-// count read, the entry BufferedReader uses to fill its buffer.
+// count read.
 func ioFileIOReadinto(args []objects.Object) (objects.Object, error) {
 	self, b := args[0], args[1]
 	if err := ioFileIOCheckOpen(self); err != nil {
@@ -363,7 +354,7 @@ func ioFileIOReadinto(args []objects.Object) (objects.Object, error) {
 		return nil, err
 	}
 	buf := make([]byte, n)
-	got, serr := syscall.Read(ioFileIOFd(self), buf)
+	got, serr := syscall.Read(syscall.Handle(ioFileIOFd(self)), buf)
 	if serr != nil {
 		return nil, posixStatErr(serr)
 	}
@@ -379,7 +370,7 @@ func ioFileIOReadinto(args []objects.Object) (objects.Object, error) {
 }
 
 // ioFileIOWrite writes a bytes-like buffer and returns the count actually
-// written, which may be short exactly as the underlying write is.
+// written.
 func ioFileIOWrite(args []objects.Object) (objects.Object, error) {
 	self, data := args[0], args[1]
 	if err := ioFileIOCheckOpen(self); err != nil {
@@ -392,15 +383,15 @@ func ioFileIOWrite(args []objects.Object) (objects.Object, error) {
 	if !ok {
 		return nil, objects.Raise(objects.TypeError, "a bytes-like object is required, not '%s'", data.TypeName())
 	}
-	n, serr := syscall.Write(ioFileIOFd(self), b)
+	n, serr := syscall.Write(syscall.Handle(ioFileIOFd(self)), b)
 	if serr != nil {
 		return nil, posixStatErr(serr)
 	}
 	return objects.NewInt(int64(n)), nil
 }
 
-// ioFileIOSeek moves the file position to pos under whence (SEEK_SET/CUR/END) and
-// returns the new absolute offset.
+// ioFileIOSeek moves the file position to pos under whence and returns the new
+// absolute offset.
 func ioFileIOSeek(args []objects.Object) (objects.Object, error) {
 	self := args[0]
 	if err := ioFileIOCheckOpen(self); err != nil {
@@ -420,7 +411,7 @@ func ioFileIOSeek(args []objects.Object) (objects.Object, error) {
 			return nil, objects.Raise(objects.TypeError, "an integer is required")
 		}
 	}
-	off, serr := syscall.Seek(ioFileIOFd(self), pos, int(whence))
+	off, serr := syscall.Seek(syscall.Handle(ioFileIOFd(self)), pos, int(whence))
 	if serr != nil {
 		return nil, posixStatErr(serr)
 	}
@@ -433,7 +424,7 @@ func ioFileIOTell(args []objects.Object) (objects.Object, error) {
 	if err := ioFileIOCheckOpen(self); err != nil {
 		return nil, err
 	}
-	off, serr := syscall.Seek(ioFileIOFd(self), 0, 1)
+	off, serr := syscall.Seek(syscall.Handle(ioFileIOFd(self)), 0, 1)
 	if serr != nil {
 		return nil, posixStatErr(serr)
 	}
@@ -441,7 +432,8 @@ func ioFileIOTell(args []objects.Object) (objects.Object, error) {
 }
 
 // ioFileIOTruncate resizes the file to size, defaulting to the current position,
-// and returns the new size.
+// and returns the new size. Windows has no ftruncate, so it seeks to the target
+// size, calls SetEndOfFile, and restores the position.
 func ioFileIOTruncate(args []objects.Object) (objects.Object, error) {
 	self := args[0]
 	if err := ioFileIOCheckOpen(self); err != nil {
@@ -450,7 +442,7 @@ func ioFileIOTruncate(args []objects.Object) (objects.Object, error) {
 	if !ioFileIOFlag(self, "_writable") {
 		return nil, ioUnsupported("File not open for writing")
 	}
-	fd := ioFileIOFd(self)
+	h := syscall.Handle(ioFileIOFd(self))
 	var size int64
 	if len(args) >= 2 && args[1] != objects.None {
 		n, ok := objects.AsInt(args[1])
@@ -459,20 +451,37 @@ func ioFileIOTruncate(args []objects.Object) (objects.Object, error) {
 		}
 		size = n
 	} else {
-		cur, serr := syscall.Seek(fd, 0, 1)
+		cur, serr := syscall.Seek(h, 0, 1)
 		if serr != nil {
 			return nil, posixStatErr(serr)
 		}
 		size = cur
 	}
-	if serr := syscall.Ftruncate(fd, size); serr != nil {
+	if serr := fdSetEndOfFile(h, size); serr != nil {
 		return nil, posixStatErr(serr)
 	}
 	return objects.NewInt(size), nil
 }
 
+// fdSetEndOfFile resizes the file behind a handle to size without disturbing the
+// caller's file position, the Windows stand-in for ftruncate.
+func fdSetEndOfFile(h syscall.Handle, size int64) error {
+	cur, err := syscall.Seek(h, 0, 1)
+	if err != nil {
+		return err
+	}
+	if _, err := syscall.Seek(h, size, 0); err != nil {
+		return err
+	}
+	if err := syscall.SetEndOfFile(h); err != nil {
+		return err
+	}
+	_, err = syscall.Seek(h, cur, 0)
+	return err
+}
+
 // ioFileIOReadable / ioFileIOWritable / ioFileIOSeekable report the stored mode
-// facts, raising on a closed stream the way the C accelerator does.
+// facts, raising on a closed stream.
 func ioFileIOReadable(args []objects.Object) (objects.Object, error) {
 	if err := ioFileIOCheckOpen(args[0]); err != nil {
 		return nil, err
@@ -502,7 +511,7 @@ func ioFileIOFileno(args []objects.Object) (objects.Object, error) {
 	return objects.NewInt(int64(ioFileIOFd(args[0]))), nil
 }
 
-// ioFileIOIsatty reports whether the fd is a terminal.
+// ioFileIOIsatty reports whether the fd is a console.
 func ioFileIOIsatty(args []objects.Object) (objects.Object, error) {
 	if err := ioFileIOCheckOpen(args[0]); err != nil {
 		return nil, err
@@ -510,9 +519,16 @@ func ioFileIOIsatty(args []objects.Object) (objects.Object, error) {
 	return objects.NewBool(fdIsatty(ioFileIOFd(args[0]))), nil
 }
 
-// ioFileIOClose closes the fd when the stream owns it (closefd), then marks the
-// stream closed so every later operation raises. Closing an already-closed
-// stream is a no-op, matching _IOBase.close.
+// fdIsatty reports whether the handle is a Windows console. GetConsoleMode
+// succeeds only for a real console handle, the way isatty distinguishes a
+// terminal from a file or pipe.
+func fdIsatty(fd int) bool {
+	var mode uint32
+	return syscall.GetConsoleMode(syscall.Handle(fd), &mode) == nil
+}
+
+// ioFileIOClose closes the handle when the stream owns it, then marks the stream
+// closed.
 func ioFileIOClose(args []objects.Object) (objects.Object, error) {
 	self := args[0]
 	if ioIsClosed(self) {
@@ -520,8 +536,7 @@ func ioFileIOClose(args []objects.Object) (objects.Object, error) {
 	}
 	fd := ioFileIOFd(self)
 	if fd >= 0 && ioFileIOFlag(self, "_closefd") {
-		if serr := syscall.Close(fd); serr != nil {
-			// Still mark closed so the stream is not left half-open.
+		if serr := syscall.Close(syscall.Handle(fd)); serr != nil {
 			_ = objects.StoreAttr(self, "_fd", objects.NewInt(-1))
 			_ = objects.StoreAttr(self, ioClosedAttr, objects.True)
 			return nil, posixStatErr(serr)
@@ -542,10 +557,7 @@ func ioFileIONameProp(args []objects.Object) (objects.Object, error) {
 	return v, nil
 }
 
-// ioFileIONameSet backs raw.name = value. CPython keeps FileIO.name in the
-// instance dict, so it is writable, and tempfile.NamedTemporaryFile overwrites
-// it with the temp file's path. The value is stored where the getter and the
-// repr both read it.
+// ioFileIONameSet backs raw.name = value.
 func ioFileIONameSet(args []objects.Object) (objects.Object, error) {
 	if err := objects.StoreAttr(args[0], "_name", args[1]); err != nil {
 		return nil, err
@@ -553,8 +565,7 @@ func ioFileIONameSet(args []objects.Object) (objects.Object, error) {
 	return objects.None, nil
 }
 
-// ioFileIOModeProp reports the canonical binary mode string, matching CPython's
-// FileIO.mode for each create/read/write/append plus-or-not combination.
+// ioFileIOModeProp reports the canonical binary mode string.
 func ioFileIOModeProp(args []objects.Object) (objects.Object, error) {
 	self := args[0]
 	readable := ioFileIOFlag(self, "_readable")
@@ -584,8 +595,7 @@ func ioFileIOClosefdProp(args []objects.Object) (objects.Object, error) {
 	return objects.NewBool(ioFileIOFlag(args[0], "_closefd")), nil
 }
 
-// ioFileIORepr renders the CPython FileIO repr, closed or open with the name and
-// mode.
+// ioFileIORepr renders the CPython FileIO repr.
 func ioFileIORepr(args []objects.Object) (objects.Object, error) {
 	self := args[0]
 	if ioIsClosed(self) || ioFileIOFd(self) < 0 {
@@ -598,4 +608,17 @@ func ioFileIORepr(args []objects.Object) (objects.Object, error) {
 		return objects.NewStr("<_io.FileIO name='" + s + "' mode='" + modeStr + "' closefd=True>"), nil
 	}
 	return objects.NewStr("<_io.FileIO name=" + objects.Repr(name) + " mode='" + modeStr + "' closefd=True>"), nil
+}
+
+// posixStatErr maps a syscall error to the matching Python exception. It mirrors
+// the unix helper of the same name (which lives in the tagged-out posixstat.go),
+// using only the portable os.Is* predicates so it is correct on Windows too.
+func posixStatErr(err error) error {
+	switch {
+	case os.IsNotExist(err):
+		return objects.Raise("FileNotFoundError", "%s", err.Error())
+	case os.IsPermission(err):
+		return objects.Raise("PermissionError", "%s", err.Error())
+	}
+	return objects.Raise("OSError", "%s", err.Error())
 }
