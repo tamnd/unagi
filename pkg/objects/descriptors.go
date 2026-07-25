@@ -159,6 +159,10 @@ func instanceGet(x *instanceObject, name string, v Object) (Object, error) {
 		return cachedPropertyGet(x, name, d)
 	case *memberDescriptor:
 		return slotGet(x, d)
+	case *superObject:
+		// An unbound super stored as a class attribute is a descriptor: reading it
+		// off an instance binds it to that instance, the way super(C).__get__ does.
+		return superGet(d, x)
 	case *instanceObject:
 		// A user descriptor with __get__ runs __get__(descr, instance, owner);
 		// owner is the instance's type. Without __get__ the object is a plain
