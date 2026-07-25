@@ -83,6 +83,35 @@ func ShimmedModules() []string {
 	return names
 }
 
+// mainModule is the running program's top-level module, the object
+// `import __main__` and sys.modules['__main__'] hand back. The generated main
+// sets it through SetMainModule when the program calls globals() and so builds
+// its module object; a program that never does leaves it nil and the first
+// `import __main__` synthesizes an empty stand-in.
+var mainModule *objects.Module
+
+// SetMainModule records the running program's top-level module so a later
+// `import __main__` returns the same live namespace the body writes to. The
+// generated main calls it once, right after it builds the __main__ module, so
+// __main__.__dict__ is globals() for a program that reads either.
+func SetMainModule(m *objects.Module) {
+	mainModule = m
+	modulesSet("__main__", m)
+}
+
+// ensureMainModule returns the top-level module, building an empty one the first
+// time a program that never set it imports __main__. The stand-in is a real
+// module with a valid __dict__, so the import and attribute reads work; it just
+// holds no top-level bindings, since a program that does not call globals() keeps
+// those in Go variables the runtime cannot enumerate.
+func ensureMainModule() objects.Object {
+	if mainModule == nil {
+		mainModule = objects.NewModule("__main__", "")
+		modulesSet("__main__", mainModule)
+	}
+	return mainModule
+}
+
 // RegisterModule adds one compiled module to the import table. The generated
 // modtable.go calls it from init for every module in the program.
 func RegisterModule(name, file string, pkg bool, exec func(*objects.Module) error) {
@@ -215,6 +244,14 @@ func importOne(name, seg string, parent objects.Object) (objects.Object, error) 
 	}
 	ent, ok := moduleTable[name]
 	if !ok {
+		if name == "__main__" {
+			// The top-level program is __main__. There is no table entry for it,
+			// so `import __main__` resolves to the running module the generated
+			// main registered through SetMainModule, or, for a program that never
+			// built its module object (it does not call globals()), a valid empty
+			// stand-in so the import and __main__.__dict__ still work.
+			return ensureMainModule(), nil
+		}
 		return nil, moduleMissing(name)
 	}
 	var m *objects.Module
