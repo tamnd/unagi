@@ -1,0 +1,36 @@
+== exit: 0
+== stdout:
+name sqlite3
+apilevel 2.0
+paramstyle qmark
+SQLITE_OK 0
+SQLITE_ERROR 1
+SQLITE_BUSY 5
+SQLITE_LOCKED 6
+SQLITE_ROW 100
+SQLITE_DONE 101
+SQLITE_CONSTRAINT 19
+SQLITE_MISUSE 21
+SQLITE_SELECT 21
+SQLITE_INSERT 18
+SQLITE_UPDATE 23
+SQLITE_DELETE 9
+SQLITE_CREATE_TABLE 2
+SQLITE_DROP_TABLE 11
+SQLITE_LIMIT_LENGTH 0
+SQLITE_LIMIT_VARIABLE_NUMBER 9
+SQLITE_DBCONFIG_ENABLE_FKEY 1002
+PARSE_DECLTYPES 1
+PARSE_COLNAMES 2
+Error<-Exception True
+Warning<-Exception True
+DatabaseError<-Error True
+OperationalError<-DatabaseError True
+IntegrityError<-DatabaseError True
+NotSupportedError<-DatabaseError True
+Row is type True
+PrepareProtocol is type True
+Binary True
+register_adapter None
+== exception:
+== stderr:
