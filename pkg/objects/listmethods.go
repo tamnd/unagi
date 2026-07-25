@@ -213,7 +213,15 @@ func listSort(x *listObject, keyFn Object, reverse bool) (Object, error) {
 		if sortErr != nil {
 			return false
 		}
-		lt, err := order(OpLt, keys[perm[a]], keys[perm[b]])
+		// Route through the full comparison protocol, not the builtin-only
+		// order() fast path, so a list.sort() whose elements or cmp_to_key
+		// wrappers define only __lt__ dispatches the same way sorted() does.
+		r, err := Compare(OpLt, keys[perm[a]], keys[perm[b]])
+		if err != nil {
+			sortErr = err
+			return false
+		}
+		lt, err := TruthOf(r)
 		if err != nil {
 			sortErr = err
 			return false
