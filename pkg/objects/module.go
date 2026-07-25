@@ -1,6 +1,9 @@
 package objects
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // Module is a Python module object. Its namespace is split in two: slots are
 // live pointers into the generated Go package's module-scope variables, bound
@@ -158,6 +161,38 @@ func (m *Module) PublicNames() []string {
 		}
 	}
 	return out
+}
+
+// moduleDirNames backs dir() of a module: the sorted names bound in the module
+// namespace, its __dict__ keys with the dunders included, matching CPython's
+// module __dir__. A module that binds its own __dir__ (PEP 562) decides the
+// whole list instead, the way `dir(mod)` defers to a module-level __dir__.
+func moduleDirNames(m *Module) ([]string, bool, error) {
+	if v, ok := m.Get("__dir__"); ok && Callable(v) {
+		res, err := Call(v, nil)
+		if err != nil {
+			return nil, true, err
+		}
+		names, err := dirFromResult(res)
+		return names, true, err
+	}
+	set := map[string]bool{}
+	for _, n := range m.extraOrder {
+		if _, ok := m.extra[n]; ok {
+			set[n] = true
+		}
+	}
+	for _, n := range m.slotOrder {
+		if slot := m.slots[n]; slot != nil && *slot != nil {
+			set[n] = true
+		}
+	}
+	names := make([]string, 0, len(set))
+	for n := range set {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names, true, nil
 }
 
 // Get reads one attribute, reporting whether it is currently bound.

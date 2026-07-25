@@ -2788,6 +2788,9 @@ var objectBaseDirNames = []string{
 // de-duplicated. ok is false when o is not an instance dir() enumerates here, so
 // the caller raises its own "not supported" error.
 func DirNames(o Object) ([]string, bool, error) {
+	if m, isMod := o.(*Module); isMod {
+		return moduleDirNames(m)
+	}
 	inst, isInst := o.(*instanceObject)
 	if !isInst {
 		return nil, false, nil
