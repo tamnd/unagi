@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+2 15 30
+0 1
+Signals Handlers
+<Signals.SIGTERM: 15>
+<Handlers.SIG_IGN: 1>
+<built-in function default_int_handler>
+True
+True
+True
+True
+True
+True
+True
+True
+True
+True
+True
+OSError [Errno 22] Invalid argument
+TypeError signal handler must be signal.SIG_IGN, signal.SIG_DFL, or a callable object
+== exception:
+== stderr:

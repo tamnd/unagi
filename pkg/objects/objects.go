@@ -576,6 +576,9 @@ var builtinFuncReprs = map[string]bool{
 	"bin": true, "oct": true, "hex": true, "ord": true, "chr": true,
 	"hash": true, "sorted": true, "format": true, "next": true,
 	"isinstance": true, "issubclass": true,
+	// default_int_handler is signal's built-in SIGINT handler; getsignal hands
+	// it back, so it reprs as a built-in function the way CPython's does.
+	"default_int_handler": true,
 }
 
 // NewRange builds a range object. The caller must reject a zero step.
