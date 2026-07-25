@@ -164,7 +164,7 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		return zlibCompressMethod(x, name, args)
 	case *zlibDecompressObject:
 		return zlibDecompressMethod(x, name, args)
-	case *boundMethod, *functionObject, *funcObject, *namedTupleType, *lruCacheObject, *genericAliasObject, *typeObject:
+	case *boundMethod, *functionObject, *funcObject, *namedTupleType, *lruCacheObject, *singleDispatchObject, *genericAliasObject, *typeObject:
 		// A function or bound method has no method surface of its own, so
 		// obj.attr(args) reads the attribute and calls it, the way CPython does
 		// for b.__func__(self) or a builtin that carries a helper such as
@@ -316,7 +316,7 @@ func CallMethodKwT(t *Thread, o Object, name string, pos []Object, kwNames []str
 		return eventLoopMethodKw(x, name, pos, kwNames, kwVals)
 	case *contextObject:
 		return contextMethodKw(t, x, name, pos, kwNames, kwVals)
-	case *boundMethod, *functionObject, *funcObject, *namedTupleType, *lruCacheObject:
+	case *boundMethod, *functionObject, *funcObject, *namedTupleType, *lruCacheObject, *singleDispatchObject:
 		// A read-then-call the same way CallMethodT dispatches these, so a keyword
 		// call on a helper carried by a builtin works too: int.from_bytes(b, 'big',
 		// signed=True) reads from_bytes off the int type object and calls it.

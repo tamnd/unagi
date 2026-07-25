@@ -631,6 +631,9 @@ func CallT(t *Thread, f Object, args []Object) (Object, error) {
 	if c, ok := f.(*lruCacheObject); ok {
 		return lruCall(c, args, nil, nil)
 	}
+	if sd, ok := f.(*singleDispatchObject); ok {
+		return singleDispatchCall(sd, args, nil, nil)
+	}
 	if k, ok := f.(*keyObject); ok {
 		return keyCall(k, args)
 	}
@@ -699,6 +702,8 @@ func Callable(f Object) bool {
 	case *functionObject, *boundMethod, *classObject, *funcObject:
 		return true
 	case *namedTupleType, *partialObject, *lruCacheObject, *keyObject:
+		return true
+	case *singleDispatchObject:
 		return true
 	case *quitterObject, *printerObject, *weakrefObject, *genericAliasObject:
 		return true

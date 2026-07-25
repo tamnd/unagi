@@ -2495,6 +2495,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return matchAttr(x, name)
 	case *lruCacheObject:
 		return lruAttr(x, name)
+	case *singleDispatchObject:
+		return singleDispatchAttr(x, name)
 	case *keyObject:
 		if name == "obj" {
 			if x.obj == nil {

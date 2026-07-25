@@ -177,6 +177,8 @@ func CallKwT(t *Thread, f Object, pos []Object, kwNames []string, kwVals []Objec
 		return partialCall(fn, pos, kwNames, kwVals)
 	case *lruCacheObject:
 		return lruCall(fn, pos, kwNames, kwVals)
+	case *singleDispatchObject:
+		return singleDispatchCall(fn, pos, kwNames, kwVals)
 	case *boundMethod:
 		return fn.fn.bind(t, append([]Object{fn.self}, pos...), kwNames, kwVals)
 	case *classObject:

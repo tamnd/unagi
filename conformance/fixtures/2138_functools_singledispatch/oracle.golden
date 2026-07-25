@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+hello
+14
+int: 14
+3
+list: 3
+number 1.5
+number 3.0
+True
+True
+True
+base impl
+plain x
+2
+TypeError: fun requires at least 1 positional argument
+fun
+== exception:
+== stderr:
