@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+when: 0 1 2
+tty.__all__: ['cfmakecbreak', 'cfmakeraw', 'setcbreak', 'setraw']
+error subclass of Exception: True
+flags all nonzero ints: True
+VMIN/VTIME ints: True True
+tcgetattr(pipe): termios.error
+pty STDIN_FILENO: 0
+== exception:
+== stderr:
