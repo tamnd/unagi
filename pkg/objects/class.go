@@ -2480,7 +2480,15 @@ func LoadAttr(o Object, name string) (Object, error) {
 		}
 	case *typeObject:
 		if name == "__name__" || name == "__qualname__" {
-			return NewStr(x.name), nil
+			// The type value carries the module-qualified name (types.SimpleNamespace,
+			// collections.OrderedDict) so its repr reads <class 'types.SimpleNamespace'>,
+			// but __name__ is the bare tail after the last dot the way CPython reports
+			// SimpleNamespace, matching type(ns).__name__.
+			bare := x.name
+			if i := strings.LastIndexByte(bare, '.'); i >= 0 {
+				bare = bare[i+1:]
+			}
+			return NewStr(bare), nil
 		}
 		// A constructor-less builtin type still answers the type introspection
 		// attributes, so _collections_abc can register coroutine, generator, and
@@ -2548,6 +2556,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return tupleGetterAttr(x, name)
 	case *StructSeqType:
 		return structSeqTypeAttr(x, name)
+	case *simpleNamespaceObject:
+		return simpleNamespaceLoadAttr(x, name)
 	case *partialObject:
 		return partialAttr(x, name)
 	case *patternObject:
@@ -2670,6 +2680,10 @@ func StoreAttr(o Object, name string, val Object) error {
 		}
 	case *tupleGetterObject:
 		return tupleGetterSet(x, name, val)
+	case *simpleNamespaceObject:
+		// Every attribute is writable and a new name simply appears, the way a
+		// SimpleNamespace has a real, open __dict__.
+		return x.dict.set(NewStr(name), val)
 	case *localObject:
 		// See LoadAttr: a t-less write lands on the main thread's private store;
 		// the emitted code carries the real thread via StoreAttrT.
@@ -2728,6 +2742,13 @@ func DelAttr(o Object, name string) error {
 		// See LoadAttr: a t-less delete targets the main thread's private store;
 		// the emitted code carries the real thread via DelAttrT.
 		return x.delAttr(mainThread, name)
+	case *simpleNamespaceObject:
+		if _, ok, err := x.dict.delete(NewStr(name)); err != nil {
+			return err
+		} else if ok {
+			return nil
+		}
+		return Raise(AttributeError, "'types.SimpleNamespace' object has no attribute '%s'", name)
 	}
 	return Raise(AttributeError, "'%s' object has no attribute '%s'", o.TypeName(), name)
 }

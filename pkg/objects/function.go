@@ -201,6 +201,17 @@ func CallKwT(t *Thread, f Object, pos []Object, kwNames []string, kwVals []Objec
 		// Calling a parameterized generic constructs its origin, so dict[str,
 		// int](a=1) builds a dict and keyword arguments thread through.
 		return CallKwT(t, fn.origin, pos, kwNames, kwVals)
+	case *typeObject:
+		// types.SimpleNamespace(a=1, b=2) is the one constructor-less type that
+		// takes keyword arguments; every other type value either constructs from
+		// positionals or exposes no Python constructor at all.
+		if fn.name == "types.SimpleNamespace" {
+			return newSimpleNamespace(pos, kwNames, kwVals)
+		}
+		if len(kwNames) == 0 {
+			return callTypeObject(fn, pos)
+		}
+		return nil, Raise(TypeError, "%s() takes no keyword arguments", fn.name)
 	case *funcObject:
 		if fn.kwfnT != nil {
 			return fn.kwfnT(t, pos, kwNames, kwVals)
