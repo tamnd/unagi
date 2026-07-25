@@ -150,6 +150,44 @@ var tupleSubclassMethods = map[string]bool{
 	"count": true, "index": true,
 }
 
+// tupleDunders names the read-only sequence dunders a tuple subclass reaches as
+// a plain attribute read. tuple is immutable, so there is no __setitem__ or
+// __delitem__ to inherit.
+var tupleDunders = map[string]bool{
+	"__getitem__": true, "__len__": true, "__contains__": true,
+}
+
+// tupleDunderAttr returns a tuple sequence dunder bound to the subclass
+// instance, dispatching through the operator so slicing and negative indices
+// match the subscript form. It mirrors listDunderAttr for the immutable case.
+func tupleDunderAttr(x *instanceObject, name string) Object {
+	fn := func(args []Object) (Object, error) {
+		switch name {
+		case "__getitem__":
+			if len(args) != 1 {
+				return nil, Raise(TypeError, "__getitem__ expected 1 argument, got %d", len(args))
+			}
+			return GetItem(x, args[0])
+		case "__len__":
+			if len(args) != 0 {
+				return nil, Raise(TypeError, "__len__ expected 0 arguments, got %d", len(args))
+			}
+			n, err := Len(x)
+			if err != nil {
+				return nil, err
+			}
+			return NewInt(int64(n)), nil
+		case "__contains__":
+			if len(args) != 1 {
+				return nil, Raise(TypeError, "__contains__ expected 1 argument, got %d", len(args))
+			}
+			return Contains(x, args[0])
+		}
+		return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", x.TypeName(), name)
+	}
+	return NewFunc(name, -1, fn)
+}
+
 // valueSubclassAttr resolves an inherited builtin method on a value subclass
 // instance, returning a callable bound to the payload. ok is false when the
 // instance is not value-backed or the name is not one of the builtin's methods,
@@ -182,6 +220,12 @@ func valueSubclassAttr(x *instanceObject, name string) (Object, bool) {
 			if r, ok := namedInstanceAttr(x.cls, p, name); ok {
 				return r, true
 			}
+		}
+		// The read-only sequence dunders bind to the operator on the instance, so
+		// tuple.__getitem__ on a subclass honors slices and negative indices the way
+		// t[k] does. tuple is immutable, so only the reading half exists.
+		if tupleDunders[name] {
+			return tupleDunderAttr(x, name), true
 		}
 		if !tupleSubclassMethods[name] {
 			return nil, false
