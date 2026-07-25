@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+http://Example.com/path?q=1
+Example.com
+1
+http
+http host 8080 /a/b
+x=1&y=2 frag
+http://a.com/z
+[('x', ['1', '3']), ('y', ['2'])]
+True
+== exception:
+== stderr:
