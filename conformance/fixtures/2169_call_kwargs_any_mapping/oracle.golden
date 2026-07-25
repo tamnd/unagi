@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+{'x': 'X', 'y': 'Y'}
+{'a': 1, 'b': 2}
+{'a': 1, 'b': 2, 'c': 3}
+E1: __main__.f() argument after ** must be a mapping, not int
+E2: __main__.f() argument after ** must be a mapping, not NoKeys
+E3: __main__.f() got multiple values for keyword argument 'x'
+E4: keywords must be strings
+{'x': 'X', 'y': 'Y'}
+== exception:
+== stderr:
