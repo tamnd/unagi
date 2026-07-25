@@ -454,7 +454,14 @@ func typeNew(args []Object) (Object, error) {
 	}
 	meta, ok := args[0].(*classObject)
 	if !ok {
-		return nil, Raise(TypeError, "type.__new__(X): X is not a type object (%s)", args[0].TypeName())
+		// The `type` builtin constructor is the metatype, so type.__new__(type,
+		// ...) names typeClass as the metaclass the same as type.__new__(Meta,
+		// ...) names a user metaclass.
+		if n, isFn := BuiltinFuncName(args[0]); isFn && n == "type" {
+			meta = typeClass
+		} else {
+			return nil, Raise(TypeError, "type.__new__(X): X is not a type object (%s)", args[0].TypeName())
+		}
 	}
 	return typeNewCore(meta, args[1], args[2], args[3])
 }
@@ -2687,6 +2694,16 @@ func LoadAttr(o Object, name string) (Object, error) {
 				return typeBuiltinOrClass(), nil
 			}
 			return TypeSingleton("builtin_function_or_method"), nil
+		}
+		// The `type` constructor is the metatype itself, so its dunders come from
+		// the typeClass dict: type.__new__ is the class-construction allocator and
+		// type.__init__ the no-op initializer. typing.py builds NamedTuple with
+		// `type.__new__(NamedTupleMeta, 'NamedTuple', (), {})`, the explicit
+		// metaclass-construction form typeNew already handles.
+		if x.name == "type" {
+			if v, ok := typeClass.lookup(name); ok {
+				return v, nil
+			}
 		}
 		// A constructor that doubles as a type object answers its string dunder
 		// methods and the type introspection attributes: int.__format__,

@@ -1,0 +1,7 @@
+== exit: 0
+== stdout:
+Meta X 1 ['object']
+type Y
+Z 1 2 ['Z', 'X', 'object']
+== exception:
+== stderr:
