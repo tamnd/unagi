@@ -1620,6 +1620,13 @@ func builtinTypeArgName(cls Object) (string, bool) {
 		if builtinTypeReprs[c.name] {
 			return c.name, true
 		}
+	case *functionObject:
+		// collections.ChainMap is a native functionObject standing in for a class,
+		// so isinstance(x, ChainMap) resolves against the "ChainMap" layout a
+		// ChainMap value or subclass instance records.
+		if c.qual == "ChainMap" {
+			return "ChainMap", true
+		}
 	case *typeObject:
 		return c.name, true
 	}
@@ -2183,6 +2190,17 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 		// call builds from the referent and optional callback. The keyword arguments
 		// belong to a user __init__, so only the positional ones reach the value.
 		v, err := Call(c.builtinBaseFn, pos)
+		if err != nil {
+			return nil, err
+		}
+		inst.builtinData = v
+	case "ChainMap":
+		// A ChainMap subclass wraps the chainMapObject that ChainMap(*maps) builds.
+		// The base is a native functionObject, not a funcObject, so no builtinBaseFn
+		// is recorded; the payload is built through NewChainMap directly, the way
+		// types.GenericAlias builds its own. Its store is the payload's live maps
+		// list, mutated in place, so this mutable base fits the value payload shape.
+		v, err := NewChainMap(pos)
 		if err != nil {
 			return nil, err
 		}

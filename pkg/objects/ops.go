@@ -1590,6 +1590,12 @@ func SetItem(o, key, val Object) error {
 		if l, ok := listBacked(x); ok {
 			return SetItem(l, key, val)
 		}
+		// A mutable value subclass (a ChainMap subclass) writes through to its
+		// payload, so cm[key] = value reaches the underlying mapping. An immutable
+		// payload raises its own "does not support item assignment" here.
+		if v, ok := builtinUnwrap(x); ok {
+			return SetItem(v, key, val)
+		}
 	}
 	return Raise(TypeError, "'%s' object does not support item assignment", o.TypeName())
 }
