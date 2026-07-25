@@ -910,6 +910,12 @@ func init() {
 			}
 			return objectDefaultNe(args[0], args[1])
 		}),
+		"__dir__": NewFunc("__dir__", 1, func(args []Object) (Object, error) {
+			if len(args) != 1 {
+				return nil, Raise(TypeError, "object.__dir__() takes no arguments")
+			}
+			return objectDefaultDir(args[0]), nil
+		}),
 	}
 
 	// The four ordering slots object provides. object defines them, but they always
@@ -1012,7 +1018,7 @@ func init() {
 	// __str__ = int.__repr__) still calls it with self. __new__ stays a
 	// staticmethod, so it is left unbound.
 	for _, name := range []string{"__repr__", "__str__", "__format__", "__reduce_ex__",
-		"__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__"} {
+		"__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__", "__dir__"} {
 		markSelfBound(objectDunders[name])
 	}
 	for _, tbl := range builtinTypeDunders {
@@ -3004,6 +3010,16 @@ func DirNames(o Object) ([]string, bool, error) {
 		names, err := dirFromResult(res)
 		return names, true, err
 	}
+	return instanceDefaultDirNames(inst), true, nil
+}
+
+// instanceDefaultDirNames gathers the names object.__dir__ reports for an
+// instance: the object base set, every name across its type's MRO (minus
+// __qualname__), its own attributes, and its slots, sorted and de-duplicated.
+// It does not consult a user __dir__, so object.__dir__(self) computes the
+// default directly, which is what the common `def __dir__: return
+// object.__dir__(self) + [...]` override relies on to avoid recursing.
+func instanceDefaultDirNames(inst *instanceObject) []string {
 	set := map[string]bool{}
 	for _, n := range objectBaseDirNames {
 		set[n] = true
@@ -3033,7 +3049,26 @@ func DirNames(o Object) ([]string, bool, error) {
 		names = append(names, n)
 	}
 	sort.Strings(names)
-	return names, true, nil
+	return names
+}
+
+// objectDefaultDir backs object.__dir__(o): the list every object inherits when
+// its class does not override __dir__. For an instance it is the default name
+// gather above; for anything else it is object's own base name set, so a bare
+// object.__dir__ read still answers with a list.
+func objectDefaultDir(o Object) Object {
+	var names []string
+	if inst, ok := o.(*instanceObject); ok {
+		names = instanceDefaultDirNames(inst)
+	} else {
+		names = append([]string(nil), objectBaseDirNames...)
+		sort.Strings(names)
+	}
+	elts := make([]Object, len(names))
+	for i, n := range names {
+		elts[i] = NewStr(n)
+	}
+	return NewList(elts)
 }
 
 // dirFromResult turns the value a user __dir__ returned into the sorted string
