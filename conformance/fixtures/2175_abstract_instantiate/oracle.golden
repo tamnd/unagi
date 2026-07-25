@@ -1,0 +1,9 @@
+== exit: 0
+== stdout:
+Can't instantiate abstract class A without an implementation for abstract method 'f'
+Can't instantiate abstract class B without an implementation for abstract methods 'f', 'g'
+Can't instantiate abstract class X without an implementation for abstract method 'f'
+Can't instantiate abstract class N without an implementation for abstract method 'f'
+3
+== exception:
+== stderr:
