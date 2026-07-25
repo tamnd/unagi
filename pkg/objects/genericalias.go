@@ -1,6 +1,38 @@
 package objects
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
+
+// collectTypeParams gathers the type parameters an argument list contributes to
+// __parameters__: each TypeVar, ParamSpec, or TypeVarTuple in first-seen order,
+// deduplicated by identity, recursing into nested generic aliases and unions the
+// way CPython's _collect_parameters does. So dict[K, list[V]] yields (K, V),
+// dict[T, T] collapses to (T,), and list[int] yields nothing.
+func collectTypeParams(args []Object) []Object {
+	var params []Object
+	add := func(p Object) {
+		if !slices.Contains(params, p) {
+			params = append(params, p)
+		}
+	}
+	for _, a := range args {
+		switch x := a.(type) {
+		case *typeVarObject, *paramSpecObject, *typeVarTupleObject:
+			add(a)
+		case *genericAliasObject:
+			for _, p := range collectTypeParams(x.args) {
+				add(p)
+			}
+		case *unionObject:
+			for _, p := range collectTypeParams(x.args) {
+				add(p)
+			}
+		}
+	}
+	return params
+}
 
 // genericAliasObject is a parameterized builtin generic, the value list[int] and
 // dict[str, int] evaluate to. types.GenericAlias produces it, and subscripting a
@@ -45,8 +77,8 @@ func newGenericAliasPayload(args []Object) (Object, error) {
 
 // genericAliasLoadAttr answers the three attributes a GenericAlias exposes:
 // __origin__ is the parameterized type, __args__ the argument tuple, and
-// __parameters__ the type variables among the arguments, empty here since the
-// floor never parameterizes with a TypeVar.
+// __parameters__ the type variables among the arguments, in first-seen order and
+// deduplicated, so list[T] reports (T,) and dict[T, T] reports (T,).
 func genericAliasLoadAttr(g *genericAliasObject, name string) (Object, error) {
 	switch name {
 	case "__origin__":
@@ -54,7 +86,7 @@ func genericAliasLoadAttr(g *genericAliasObject, name string) (Object, error) {
 	case "__args__":
 		return NewTuple(append([]Object(nil), g.args...)), nil
 	case "__parameters__":
-		return NewTuple(nil), nil
+		return NewTuple(collectTypeParams(g.args)), nil
 	case "__mro_entries__":
 		// PEP 560: a class statement with a subscripted generic base, such as
 		// `class C(Mapping[str, str])`, replaces the alias with what its

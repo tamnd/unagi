@@ -196,14 +196,14 @@ func unionMemberRepr(m Object) string {
 }
 
 // unionLoadAttr answers the attributes a union exposes: __args__ is the member
-// tuple pickle_union reads, and __parameters__ is empty because a concrete union
-// carries no type variables.
+// tuple pickle_union reads, and __parameters__ is the type variables among the
+// members in first-seen order, so (T | int).__parameters__ reports (T,).
 func unionLoadAttr(u *unionObject, name string) (Object, error) {
 	switch name {
 	case "__args__":
 		return NewTuple(append([]Object{}, u.args...)), nil
 	case "__parameters__":
-		return NewTuple(nil), nil
+		return NewTuple(collectTypeParams(u.args)), nil
 	}
 	return nil, Raise(AttributeError, "'typing.Union' object has no attribute '%s'", name)
 }
