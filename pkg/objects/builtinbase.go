@@ -32,6 +32,13 @@ func builtinBaseName(b Object) (string, bool) {
 			// dict. It carries no value payload, so construction never calls the
 			// base function; instantiateLocal builds the per-thread store instead.
 			return "local", true
+		case "collections.defaultdict":
+			// collections.defaultdict is a dict subclass exposed as a funcObject;
+			// importlib.metadata's FreezableDefaultDict subclasses it. A subclass
+			// instance is dict-backed like a plain dict subclass, but its store is a
+			// defaultDict-kind dictObject carrying default_factory, so a missing key
+			// runs the inherited defaultdict.__missing__ fill.
+			return "defaultdict", true
 		}
 	}
 	// collections.ChainMap is exposed as a native functionObject (not a funcObject)
@@ -282,7 +289,7 @@ func InstanceOverride(o Object, name string, args ...Object) (Object, bool, erro
 // operator and method sites use it as the fallback after an override lookup
 // misses.
 func dictBacked(x *instanceObject) (*dictObject, bool) {
-	if x.cls.builtinBase == "dict" && x.dictData != nil {
+	if (x.cls.builtinBase == "dict" || x.cls.builtinBase == "defaultdict") && x.dictData != nil {
 		return x.dictData, true
 	}
 	return nil, false
@@ -362,6 +369,11 @@ func builtinBaseCall(self Object, name string, pos []Object, kwNames []string, k
 	}
 	switch name {
 	case "__init__":
+		if d.kind == defaultDict {
+			// super().__init__(factory, ...) reached from a defaultdict subclass
+			// peels the default_factory the inherited defaultdict.__init__ does.
+			return None, true, defaultdictInit(d, pos, kwNames, kwVals)
+		}
 		return None, true, dictInit(d, pos, kwNames, kwVals)
 	case "__setitem__":
 		if len(pos) != 2 {
@@ -463,6 +475,13 @@ func dictSubclassAttr(x *instanceObject, name string) (Object, bool) {
 	d, backed := dictBacked(x)
 	if !backed {
 		return nil, false
+	}
+	// A defaultdict subclass exposes the one data attribute defaultdict adds:
+	// default_factory reads the store's factory (or None). It is a getset
+	// descriptor on the base type in CPython, so it resolves before the plain dict
+	// method surface and is not shadowed by the instance dict.
+	if name == "default_factory" && d.kind == defaultDict {
+		return dictDefaultFactory(d), true
 	}
 	// The mapping dunders bind to the operator on the instance, not to the raw
 	// store, so dict.__getitem__ on a subclass calls the subclass __missing__ the
