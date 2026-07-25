@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+(0,)
+{'d': 1, 'e': 2}
+None None
+(3,)
+(a, b, c=0, *args, d=1, e=2, **kw)
+['a', 'b', 'c', 'args', 'd', 'e', 'kw']
+0 1
+None
+== exception:
+== stderr:
