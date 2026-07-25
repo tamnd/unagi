@@ -169,6 +169,15 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 			f.e.usedObjects = true
 			return f.e.obj("Ellipsis"), nil
 		}
+		if e.Id == "__debug__" {
+			// __debug__ is the interpreter's optimize flag. unagi has no -O mode
+			// and always runs asserts, so it folds to True, the constant modules
+			// read to guard debug-only branches (imaplib, logging, and others).
+			// An assignment to it anywhere in scope makes it an ordinary variable
+			// handled above.
+			f.e.usedObjects = true
+			return f.e.obj("True"), nil
+		}
 		if e.Id == "super" {
 			// super read as a value resolves to its type object, so it can be
 			// stored, passed around, and used as a dict key the way copyreg
