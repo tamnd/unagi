@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+a-b-c
+head|a|b|c
+a, b, c;
+buffer: 'a/b/c\n'
+a b c
+TypeError: print() got an unexpected keyword argument 'bogus'
+== exception:
+== stderr:
