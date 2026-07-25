@@ -164,7 +164,7 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		return zlibCompressMethod(x, name, args)
 	case *zlibDecompressObject:
 		return zlibDecompressMethod(x, name, args)
-	case *boundMethod, *functionObject, *funcObject, *namedTupleType, *lruCacheObject, *genericAliasObject:
+	case *boundMethod, *functionObject, *funcObject, *namedTupleType, *lruCacheObject, *genericAliasObject, *typeObject:
 		// A function or bound method has no method surface of its own, so
 		// obj.attr(args) reads the attribute and calls it, the way CPython does
 		// for b.__func__(self) or a builtin that carries a helper such as
@@ -172,7 +172,9 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		// Point._make(it) reads _make off the type and calls it. The lru_cache
 		// wrapper follows suit for sq.cache_info() and sq.cache_clear(). A
 		// GenericAlias answers ga.__mro_entries__(bases) the same way, reading the
-		// method its LoadAttr exposes and calling it.
+		// method its LoadAttr exposes and calling it. A constructor-less type object
+		// dispatches type(fn).__hash__(fn) and type(x).__repr__(x) through the same
+		// read-then-call, since its dunders live only on the LoadAttr side.
 		v, err := LoadAttr(o, name)
 		if err != nil {
 			return nil, err

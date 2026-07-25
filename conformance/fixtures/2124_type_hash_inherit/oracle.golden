@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+False False False
+True True True True
+False True False
+False
+True
+True
+True
+True
+True
+True
+== exception:
+== stderr:
