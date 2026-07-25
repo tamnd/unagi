@@ -26,6 +26,7 @@ type ClassBuilder struct {
 	ns       Object
 	kwNames  []string
 	kwVals   []Object
+	lazyAnns []classAnn
 }
 
 // StartClass runs the class-statement header: metaclass determination,
@@ -159,27 +160,15 @@ func (b *ClassBuilder) Set(name string, v Object) error {
 	return SetItem(b.ns, NewStr(name), v)
 }
 
-// Annotation records one class-body variable annotation into the __annotations__
-// mapping the class namespace carries, creating that dict on the first annotated
-// name. The value is the annotation evaluated eagerly at class-body execution,
-// the way a body without `from __future__ import annotations` stores it. The dict
-// lives in the namespace, so it folds into the class dict at Finish and reads back
-// through both C.__annotations__ and C.__dict__['__annotations__'].
-func (b *ClassBuilder) Annotation(name string, v Object) error {
-	ann, found, err := b.Load("__annotations__")
-	if err != nil {
-		return err
-	}
-	if !found {
-		ann, err = NewDict(nil, nil)
-		if err != nil {
-			return err
-		}
-		if err := b.Set("__annotations__", ann); err != nil {
-			return err
-		}
-	}
-	return SetItem(ann, NewStr(name), v)
+// AnnotationLazy records one class-body variable annotation as an unevaluated
+// thunk, PEP 649's deferred __annotate__. The class body no longer evaluates the
+// annotation as it runs, so a forward reference or a name imported only under
+// `if TYPE_CHECKING` costs nothing at class-definition time; the thunks run in
+// order on the first C.__annotations__ read (see classAnnotations) and memoize
+// into the class annotation dict. Because the annotation never lands in the
+// namespace, `'__annotations__' in C.__dict__` stays false the way 3.14 reports.
+func (b *ClassBuilder) AnnotationLazy(name string, thunk func() (Object, error)) {
+	b.lazyAnns = append(b.lazyAnns, classAnn{name: name, thunk: thunk})
 }
 
 // Load reads a name the class body may have bound in the namespace. ok is
@@ -235,10 +224,28 @@ func (b *ClassBuilder) Finish(staticAttrs []string) (Object, error) {
 	if err := b.Set("__static_attributes__", NewTuple(elts)); err != nil {
 		return nil, err
 	}
-	// A non-type callable, and a plain class that won determination without
-	// deriving from type, both just get called with (name, bases, ns) and the
-	// class keywords: no __new__/__init__ metaclass protocol, and the return
-	// value is the class binding whatever it is.
+	cls, err := b.create()
+	if err != nil {
+		return nil, err
+	}
+	// The class body's deferred annotations attach to the finished class, whatever
+	// metaclass built it, so C.__annotations__ evaluates them lazily. A metaclass
+	// that returns something other than a class carries no annotation storage, so
+	// they are dropped there the way CPython has nowhere to put them.
+	if len(b.lazyAnns) > 0 {
+		if c, ok := cls.(*classObject); ok {
+			c.annotate = b.lazyAnns
+		}
+	}
+	return cls, nil
+}
+
+// create builds the class object from the populated namespace, dispatching on
+// the metaclass the header determined: a non-type callable or a plain class that
+// won determination without deriving from type is just called with (name, bases,
+// ns) and the class keywords, the default type metatype slots the namespace
+// directly, and a type-derived metaclass runs the full __new__/__init__ protocol.
+func (b *ClassBuilder) create() (Object, error) {
 	if b.callable != nil {
 		return CallKw(b.callable, []Object{NewStr(b.name), metaBasesTuple(b.bases), b.ns}, b.kwNames, b.kwVals)
 	}

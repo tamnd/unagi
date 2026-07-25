@@ -16,13 +16,33 @@ package objects
 // classAnnotations returns a class's __annotations__ mapping: the dict the class
 // body accumulated, or a fresh empty dict a class that declared none gets on
 // first read and keeps thereafter, so repeated reads hand back the same object
-// the way 3.14 memoizes it. It matches CPython in never raising for a class, so
-// `C.__annotations__` and `getattr(C, '__annotations__', None)` both give a dict.
-func classAnnotations(c *classObject) Object {
-	if c.annotations == nil {
-		c.annotations = newAttrs()
+// the way 3.14 memoizes it. A class that declared annotations carries them as
+// deferred thunks (PEP 649 __annotate__); the first read evaluates them in order
+// into the dict and drops the thunks, so a forward reference raises here on
+// access rather than at class-definition time, and later reads hand back the
+// same realized dict. It matches CPython in never raising for a class that
+// declared none.
+func classAnnotations(c *classObject) (Object, error) {
+	if c.annotations != nil {
+		return c.annotations, nil
 	}
-	return c.annotations
+	if c.annotate != nil {
+		d := newAttrs()
+		for _, a := range c.annotate {
+			v, err := a.thunk()
+			if err != nil {
+				return nil, err
+			}
+			if err := SetItem(d, NewStr(a.name), v); err != nil {
+				return nil, err
+			}
+		}
+		c.annotations = d
+		c.annotate = nil
+		return d, nil
+	}
+	c.annotations = newAttrs()
+	return c.annotations, nil
 }
 
 // annotationsDescriptor is the getset descriptor CPython installs as
@@ -50,5 +70,5 @@ func annotationsDescriptorGet(args []Object) (Object, error) {
 	if !ok {
 		return nil, Raise(AttributeError, "__annotations__")
 	}
-	return classAnnotations(c), nil
+	return classAnnotations(c)
 }

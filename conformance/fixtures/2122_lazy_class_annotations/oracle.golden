@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+hi
+True
+['x', 'y', 'z']
+False
+True
+D defined
+NameError on access
+E defined
+True
+== exception:
+== stderr:
