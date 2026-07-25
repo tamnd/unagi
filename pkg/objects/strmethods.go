@@ -15,6 +15,81 @@ func wantStrArg(method string, pos int, o Object) (string, error) {
 	return s, nil
 }
 
+// kwArg names one parameter of a keyword-accepting builtin method. def is the
+// value a gap takes when neither a positional nor a keyword fills it; a nil def
+// marks a positional-only parameter, which a keyword can never fill.
+type kwArg struct {
+	name string
+	def  Object
+}
+
+// kwSig is a builtin method's parameter list with the count of leading
+// positional-only parameters, the shape CPython's argument clinic gives these
+// methods.
+type kwSig struct {
+	params  []kwArg
+	posOnly int
+}
+
+// strKwSigs are the str methods that accept keyword arguments on CPython 3.14,
+// probed one by one: split/rsplit/splitlines/encode/expandtabs take theirs by
+// keyword, replace takes only count (old and new stay positional-only). The
+// remaining str methods reject keywords, so they are absent here and fall
+// through to the takes-no-keyword-arguments error.
+var strKwSigs = map[string]kwSig{
+	"split":      {params: []kwArg{{"sep", None}, {"maxsplit", NewInt(-1)}}},
+	"rsplit":     {params: []kwArg{{"sep", None}, {"maxsplit", NewInt(-1)}}},
+	"splitlines": {params: []kwArg{{"keepends", NewBool(false)}}},
+	"encode":     {params: []kwArg{{"encoding", NewStr("utf-8")}, {"errors", NewStr("strict")}}},
+	"expandtabs": {params: []kwArg{{"tabsize", NewInt(8)}}},
+	"replace":    {params: []kwArg{{"old", nil}, {"new", nil}, {"count", NewInt(-1)}}, posOnly: 2},
+}
+
+// bindBuiltinKw merges positional args and keywords into the positional slice a
+// no-keyword builtin method expects, following the method's parameter list and
+// CPython's argument-clinic errors: an unknown keyword, a keyword that repeats a
+// positional, and a keyword past unfilled positional-only parameters each raise
+// the wording CPython 3.14 gives. A keyword fills its parameter's slot and any
+// earlier keyword-fillable gap takes that parameter's default, so
+// "a b".split(maxsplit=1) reads as split(None, 1).
+func bindBuiltinKw(method string, sig kwSig, pos []Object, kwNames []string, kwVals []Object) ([]Object, error) {
+	idxOf := func(n string) int {
+		for i := sig.posOnly; i < len(sig.params); i++ {
+			if sig.params[i].name == n {
+				return i
+			}
+		}
+		return -1
+	}
+	placed := map[int]Object{}
+	highest := len(pos) - 1
+	for k, kn := range kwNames {
+		i := idxOf(kn)
+		if i < 0 {
+			return nil, Raise(TypeError, "%s() got an unexpected keyword argument '%s'", method, kn)
+		}
+		if i < len(pos) {
+			return nil, Raise(TypeError, "argument for %s() given by name ('%s') and position (%d)", method, kn, i+1)
+		}
+		placed[i] = kwVals[k]
+		if i > highest {
+			highest = i
+		}
+	}
+	out := append([]Object(nil), pos...)
+	for i := len(pos); i <= highest; i++ {
+		if v, ok := placed[i]; ok {
+			out = append(out, v)
+			continue
+		}
+		if i < sig.posOnly || sig.params[i].def == nil {
+			return nil, Raise(TypeError, "%s() takes at least %d positional arguments (%d given)", method, sig.posOnly, len(pos))
+		}
+		out = append(out, sig.params[i].def)
+	}
+	return out, nil
+}
+
 // strMethod dispatches the no-kwargs str method surface. Every result
 // and error text is probed on CPython 3.14; the helpers below the
 // switch carry the mechanics.

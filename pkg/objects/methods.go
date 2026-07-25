@@ -248,6 +248,13 @@ func CallMethodKwT(t *Thread, o Object, name string, pos []Object, kwNames []str
 			}
 			return strFormatKw(x.v, pos, kw)
 		}
+		if sig, ok := strKwSigs[name]; ok {
+			merged, err := bindBuiltinKw(name, sig, pos, kwNames, kwVals)
+			if err != nil {
+				return nil, err
+			}
+			return strMethod(x, name, merged)
+		}
 	case *bytesObject:
 		return bytesTranslateKw(o, "bytes", name, pos, kwNames, kwVals)
 	case *bytearrayObject:
