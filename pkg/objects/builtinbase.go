@@ -42,6 +42,14 @@ func builtinBaseName(b Object) (string, bool) {
 	if t, ok := b.(*typeObject); ok && t.name == "types.GenericAlias" {
 		return "types.GenericAlias", true
 	}
+	// types.ModuleType is a constructor-less type object, the value `import
+	// types` binds as ModuleType. importlib.util subclasses it as _LazyModule to
+	// swap a module's __class__ for lazy loading, so the base has to be
+	// accepted; the subclass carries no distinct payload, its instances are
+	// ordinary objects whose inherited __init__ seeds __name__ and __doc__.
+	if t, ok := b.(*typeObject); ok && t.name == "module" {
+		return "module", true
+	}
 	return "", false
 }
 

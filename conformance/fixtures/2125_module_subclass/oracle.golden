@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+True
+True
+True
+foo None
+the docs
+baz
+41
+hi world
+missing name
+name not str
+True
+== exception:
+== stderr:
