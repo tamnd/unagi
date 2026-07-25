@@ -34,10 +34,22 @@ func TestSysIdentityAttrs(t *testing.T) {
 	if s, _ := objects.AsStr(attr("platform")); s != sysPlatform() {
 		t.Errorf("sys.platform = %q, want %q", s, sysPlatform())
 	}
-	// version_info is a 5-tuple whose triple gates the common version check.
+	// version_info is a struct sequence whose triple gates the common version
+	// check and whose named fields and repr match CPython.
 	vi := attr("version_info")
-	if got := objects.Repr(vi); got != "(3, 14, 6, 'final', 0)" {
-		t.Errorf("sys.version_info = %s, want (3, 14, 6, 'final', 0)", got)
+	if got := objects.Repr(vi); got != "sys.version_info(major=3, minor=14, micro=6, releaselevel='final', serial=0)" {
+		t.Errorf("sys.version_info = %s, want the sys.version_info(...) struct sequence repr", got)
+	}
+	if n, _ := objects.AsInt(func() objects.Object { v, _ := objects.LoadAttr(vi, "major"); return v }()); n != 3 {
+		t.Errorf("sys.version_info.major = %d, want 3", n)
+	}
+	// implementation is a SimpleNamespace naming the interpreter cpython 3.14.
+	im := attr("implementation")
+	if s, _ := objects.AsStr(func() objects.Object { v, _ := objects.LoadAttr(im, "name"); return v }()); s != "cpython" {
+		t.Errorf("sys.implementation.name = %q, want cpython", s)
+	}
+	if s, _ := objects.AsStr(func() objects.Object { v, _ := objects.LoadAttr(im, "cache_tag"); return v }()); s != "cpython-314" {
+		t.Errorf("sys.implementation.cache_tag = %q, want cpython-314", s)
 	}
 }
 

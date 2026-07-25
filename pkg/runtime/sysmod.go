@@ -43,11 +43,9 @@ func sysArgv() objects.Object {
 //
 // The identity attributes below carry the pinned CPython's own values, so a
 // floor module that gates on sys.version_info or reads sys.maxsize sees what it
-// would under CPython 3.14.6. version_info is a plain tuple here rather than the
-// struct sequence CPython uses: the >= and indexing a version gate needs behave
-// identically, but the tm-style named fields (.major) and the
-// sys.version_info(...) repr are an accepted divergence until the struct
-// sequence type lands.
+// would under CPython 3.14.6. version_info is a struct sequence like CPython's,
+// so a >= or indexing gate, the named fields (.major, .releaselevel), and the
+// sys.version_info(...) repr all behave the way stdlib code expects.
 
 // The pinned oracle, mirrored from conformance/ORACLE_PIN. Moving the pin moves
 // these in the same diff, so a version bump stays visible in review.
@@ -61,6 +59,71 @@ const (
 
 func init() {
 	moduleTable["sys"] = &moduleEntry{builtin: true, exec: initSys}
+}
+
+// sysVersionInfoType is the struct sequence behind sys.version_info. All five
+// fields are the visible sequence CPython exposes, so it indexes and compares as
+// a tuple while also answering .major, .minor, .micro, .releaselevel and
+// .serial, and reprs as sys.version_info(major=3, minor=14, ...).
+var sysVersionInfoType = objects.NewStructSeqType(
+	"sys.version_info", "sys.version_info",
+	[]string{"major", "minor", "micro", "releaselevel", "serial"},
+	5, 0,
+)
+
+// sysVersionInfo builds sys.version_info from the pinned oracle constants.
+func sysVersionInfo() objects.Object {
+	seq := []objects.Object{
+		objects.NewInt(pyMajor),
+		objects.NewInt(pyMinor),
+		objects.NewInt(pyMicro),
+		objects.NewStr(pyReleaseLevel),
+		objects.NewInt(pySerial),
+	}
+	return sysVersionInfoType.NewStructSeq(seq, seq)
+}
+
+// sysMultiarch reports sys.implementation._multiarch, the platform tag sysconfig
+// joins into its config paths. CPython leaves it 'darwin' on macOS and the GNU
+// triplet on Linux; it is derived from the host so a compiled program reports the
+// tag of the machine it runs on, and code that only reads it for a path prefix
+// gets a plausible value.
+func sysMultiarch() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "darwin"
+	case "linux":
+		arch := runtime.GOARCH
+		switch arch {
+		case "amd64":
+			arch = "x86_64"
+		case "arm64":
+			arch = "aarch64"
+		}
+		return arch + "-linux-gnu"
+	default:
+		return runtime.GOARCH + "-" + runtime.GOOS
+	}
+}
+
+// sysImplementation builds sys.implementation, the SimpleNamespace describing the
+// running interpreter. A compiled program executes CPython 3.14.6 semantics, so
+// it reports name 'cpython' and the matching cache_tag, version and hexversion,
+// which is what lets sysconfig build its cache paths and import (unblocking
+// zoneinfo through it). It is a genuine types.SimpleNamespace so a read of any
+// attribute and its repr match what stdlib code reads off the real one.
+func sysImplementation(hex int64) objects.Object {
+	return objects.NewSimpleNamespace(
+		[]string{"name", "cache_tag", "version", "hexversion", "_multiarch", "supports_isolated_interpreters"},
+		[]objects.Object{
+			objects.NewStr("cpython"),
+			objects.NewStr(fmt.Sprintf("cpython-%d%d", pyMajor, pyMinor)),
+			sysVersionInfo(),
+			objects.NewInt(hex),
+			objects.NewStr(sysMultiarch()),
+			objects.False,
+		},
+	)
 }
 
 // sysFlagsType is the structseq class behind sys.flags. The first 18 fields are
@@ -269,13 +332,6 @@ func initSys(m *objects.Module) error {
 	if err := set("modules", modules); err != nil {
 		return err
 	}
-	versionInfo := objects.NewTuple([]objects.Object{
-		objects.NewInt(pyMajor),
-		objects.NewInt(pyMinor),
-		objects.NewInt(pyMicro),
-		objects.NewStr(pyReleaseLevel),
-		objects.NewInt(pySerial),
-	})
 	// hexversion packs the version the way CPython's PY_VERSION_HEX macro does:
 	// major, minor, micro in a byte each, then the release level nibble (final is
 	// 0xF) and the serial nibble.
@@ -284,7 +340,11 @@ func initSys(m *objects.Module) error {
 		name string
 		val  objects.Object
 	}{
-		{"version_info", versionInfo},
+		{"version_info", sysVersionInfo()},
+		// sys.implementation is the SimpleNamespace naming the interpreter, its
+		// cache tag and version. sysconfig reads cache_tag to build its paths, so
+		// its absence stopped sysconfig (and zoneinfo through it) from importing.
+		{"implementation", sysImplementation(hex)},
 		// sys.version is the human-readable banner. A compiled program is not a
 		// live interpreter, so the build fields carry a fixed unagi tag rather than
 		// a real build date. It is shaped the way platform's CPython parser expects,

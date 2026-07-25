@@ -54,6 +54,9 @@ func callTypeObject(t *typeObject, args []Object) (Object, error) {
 			return nil, Raise(TypeError, "mappingproxy() takes at most 1 argument (%d given)", len(args))
 		}
 	}
+	if t.name == "types.SimpleNamespace" {
+		return newSimpleNamespace(args, nil, nil)
+	}
 	if t.name == "types.GenericAlias" {
 		// types.GenericAlias(origin, args) is the explicit constructor for what
 		// origin[args] builds, so _collections_abc's classmethod(GenericAlias)
