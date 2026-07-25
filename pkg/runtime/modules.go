@@ -33,6 +33,17 @@ type moduleEntry struct {
 
 var moduleTable = map[string]*moduleEntry{}
 
+// frozenImportlibAliases maps the frozen bootstrap module names to the importlib
+// source modules they are the frozen form of. CPython embeds these as frozen
+// modules and registers them under both names as the same object; here the two
+// sources import normally, so the frozen name resolves to the same module. This
+// is what zipimport pulls in (import _frozen_importlib_external as
+// _bootstrap_external).
+var frozenImportlibAliases = map[string]string{
+	"_frozen_importlib":          "importlib._bootstrap",
+	"_frozen_importlib_external": "importlib._bootstrap_external",
+}
+
 // modules is the live registry dict. Deleting an entry makes the next import
 // run the body again, storing None halts the import, and storing any other
 // object makes the import hand that object out.
@@ -251,6 +262,26 @@ func importOne(name, seg string, parent objects.Object) (objects.Object, error) 
 			// built its module object (it does not call globals()), a valid empty
 			// stand-in so the import and __main__.__dict__ still work.
 			return ensureMainModule(), nil
+		}
+		if target, ok := frozenImportlibAliases[name]; ok {
+			// _frozen_importlib and _frozen_importlib_external are the frozen forms
+			// of importlib._bootstrap and importlib._bootstrap_external; CPython
+			// registers them as the same module objects under both names. The two
+			// sources already import here, so alias the frozen name to the same
+			// object and register it in sys.modules, which is what zipimport (and
+			// any other consumer that reaches for the bootstrap by its frozen name)
+			// pulls in. Module identity is preserved, matching CPython.
+			mod, err := ImportModule(target)
+			if err != nil {
+				return nil, err
+			}
+			modulesSet(name, mod)
+			if parent != nil {
+				if err := objects.StoreAttr(parent, seg, mod); err != nil {
+					return nil, err
+				}
+			}
+			return mod, nil
 		}
 		if strings.HasPrefix(name, "_sysconfigdata_") {
 			// sysconfig imports a build-time data module whose name it computes
