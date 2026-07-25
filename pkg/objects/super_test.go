@@ -100,3 +100,22 @@ func TestSuperRepr(t *testing.T) {
 		t.Errorf("superRepr = %q", got)
 	}
 }
+
+func TestSuperInvokesBaseProperty(t *testing.T) {
+	// A property defined on the base is invoked through super(): reading
+	// super().x runs the base getter with the original instance rather than
+	// handing back the property object uninvoked.
+	base := mkclass(t, "Base")
+	getter := NewFunc("x", 1, func(args []Object) (Object, error) { return NewStr("base-x"), nil })
+	base.setAttr("x", NewProperty(getter, nil, nil))
+	derived := mkclass(t, "Derived", base)
+	inst := &instanceObject{cls: derived, attrs: newAttrs()}
+	sup, _ := NewSuper(derived, inst)
+	got, err := superLoadAttr(sup.(*superObject), "x")
+	if err != nil {
+		t.Fatalf("superLoadAttr: %v", err)
+	}
+	if Repr(got) != "'base-x'" {
+		t.Errorf("super().x = %s, want 'base-x'", Repr(got))
+	}
+}

@@ -148,6 +148,21 @@ func initSocket(m *objects.Module) error {
 			return err
 		}
 	}
+
+	// The socket type itself. socket.py subclasses it at module level, so it is
+	// an ordinary class whose methods are Go functions over syscall, holding a
+	// real descriptor per instance.
+	sockCls, err := buildSocketClass()
+	if err != nil {
+		return err
+	}
+	if err := set("socket", sockCls); err != nil {
+		return err
+	}
+	// SocketType is an alias of the socket class, the way CPython exposes it.
+	if err := set("SocketType", sockCls); err != nil {
+		return err
+	}
 	return nil
 }
 

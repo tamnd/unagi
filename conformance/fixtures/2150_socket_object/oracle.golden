@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+bound host: 127.0.0.1
+peer host: 127.0.0.1
+server got: hello unagi
+client got: ack
+family: True
+type: True
+proto: 0
+fileno open: True
+timeout default: None
+timeout set: 5.0
+blocking: True
+closed fileno: -1
+recv after close: OSError
+SocketType is socket: False
+done
+== exception:
+== stderr:

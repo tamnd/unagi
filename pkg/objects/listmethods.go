@@ -146,24 +146,94 @@ func listMethod(x *listObject, name string, args []Object) (Object, error) {
 		if len(args) != 0 {
 			return nil, Raise(TypeError, "sort expected 0 arguments, got %d", len(args))
 		}
-		var sortErr error
-		sort.SliceStable(x.elts, func(i, j int) bool {
-			if sortErr != nil {
-				return false
-			}
-			lt, err := order(OpLt, x.elts[i], x.elts[j])
-			if err != nil {
-				sortErr = err
-				return false
-			}
-			return lt
-		})
-		if sortErr != nil {
-			return nil, sortErr
-		}
-		return None, nil
+		return listSort(x, None, false)
 	}
 	return nil, noAttr(x, name)
+}
+
+// listMethodKw handles list method calls that carry keyword arguments. Only
+// sort does: list.sort(*, key=None, reverse=False), both keyword-only. Every
+// other list method rejects keywords the way CPython does.
+func listMethodKw(x *listObject, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	if name != "sort" {
+		return nil, Raise(TypeError, "list.%s() takes no keyword arguments", name)
+	}
+	if len(pos) != 0 {
+		return nil, Raise(TypeError, "sort() takes no positional arguments")
+	}
+	var keyFn Object = None
+	reverse := false
+	for i, kn := range kwNames {
+		switch kn {
+		case "key":
+			keyFn = kwVals[i]
+		case "reverse":
+			r, err := TruthOf(kwVals[i])
+			if err != nil {
+				return nil, err
+			}
+			reverse = r
+		default:
+			return nil, Raise(TypeError, "sort() got an unexpected keyword argument '%s'", kn)
+		}
+	}
+	return listSort(x, keyFn, reverse)
+}
+
+// listSort sorts a list in place by an optional key and direction, the shared
+// core of list.sort with and without keywords. The key, if any, is called once
+// per element the way CPython's decorate-sort-undecorate does, and a descending
+// sort reverses before and after a stable ascending pass so equal elements keep
+// their original order.
+func listSort(x *listObject, keyFn Object, reverse bool) (Object, error) {
+	n := len(x.elts)
+	keys := make([]Object, n)
+	if keyFn == None {
+		copy(keys, x.elts)
+	} else {
+		for i, e := range x.elts {
+			k, err := Call(keyFn, []Object{e})
+			if err != nil {
+				return nil, err
+			}
+			keys[i] = k
+		}
+	}
+	perm := make([]int, n)
+	for i := range perm {
+		perm[i] = i
+	}
+	if reverse {
+		for i, j := 0, n-1; i < j; i, j = i+1, j-1 {
+			perm[i], perm[j] = perm[j], perm[i]
+		}
+	}
+	var sortErr error
+	sort.SliceStable(perm, func(a, b int) bool {
+		if sortErr != nil {
+			return false
+		}
+		lt, err := order(OpLt, keys[perm[a]], keys[perm[b]])
+		if err != nil {
+			sortErr = err
+			return false
+		}
+		return lt
+	})
+	if sortErr != nil {
+		return nil, sortErr
+	}
+	if reverse {
+		for i, j := 0, n-1; i < j; i, j = i+1, j-1 {
+			perm[i], perm[j] = perm[j], perm[i]
+		}
+	}
+	sorted := make([]Object, n)
+	for i, p := range perm {
+		sorted[i] = x.elts[p]
+	}
+	copy(x.elts, sorted)
+	return None, nil
 }
 
 // sliceBound converts an index bound for list.index and tuple.index.
