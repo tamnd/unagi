@@ -252,6 +252,20 @@ func importOne(name, seg string, parent objects.Object) (objects.Object, error) 
 			// stand-in so the import and __main__.__dict__ still work.
 			return ensureMainModule(), nil
 		}
+		if strings.HasPrefix(name, "_sysconfigdata_") {
+			// sysconfig imports a build-time data module whose name it computes
+			// from sys.abiflags/sys.platform/_multiarch, so the exact name is
+			// platform specific and cannot be a static table entry. An AOT Go
+			// binary was never produced by a CPython build, so there is no real
+			// build database; synthesize one under whatever name was asked for so
+			// sysconfig, and pydoc and zoneinfo through it, import.
+			m := objects.NewBuiltinModule(name)
+			if err := initSysconfigData(m); err != nil {
+				return nil, err
+			}
+			modulesSet(name, m)
+			return m, nil
+		}
 		return nil, moduleMissing(name)
 	}
 	var m *objects.Module
