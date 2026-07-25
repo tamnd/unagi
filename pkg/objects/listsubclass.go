@@ -81,11 +81,64 @@ func listInit(l *listObject, pos []Object, kwNames []string, kwVals []Object) er
 // this fallback runs, so it never shadows one.
 func listSubclassAttr(x *instanceObject, name string) (Object, bool) {
 	l, backed := listBacked(x)
-	if !backed || !listMethodNames[name] {
+	if !backed {
+		return nil, false
+	}
+	// The sequence dunders bind to the operator on the instance, not to the raw
+	// store, so list.__getitem__ on a subclass honors slices and negative indices
+	// the way x[k] does. A user override lives in the class dict and is found
+	// before this fallback, so it never shadows one. __init__ stays out (it runs
+	// through the class construction path, not as a plain attribute read).
+	if listDunders[name] && name != "__init__" {
+		return listDunderAttr(x, name), true
+	}
+	if !listMethodNames[name] {
 		return nil, false
 	}
 	fn := func(args []Object) (Object, error) { return listMethod(l, name, args) }
 	return NewFunc(name, -1, fn), true
+}
+
+// listDunderAttr returns a list sequence dunder bound to the subclass instance,
+// dispatching through the operator so inherited behavior (slicing, negative
+// indices) matches the subscript form exactly. It mirrors dictDunderAttr for
+// mappings.
+func listDunderAttr(x *instanceObject, name string) Object {
+	fn := func(args []Object) (Object, error) {
+		switch name {
+		case "__getitem__":
+			if len(args) != 1 {
+				return nil, Raise(TypeError, "__getitem__ expected 1 argument, got %d", len(args))
+			}
+			return GetItem(x, args[0])
+		case "__setitem__":
+			if len(args) != 2 {
+				return nil, Raise(TypeError, "__setitem__ expected 2 arguments, got %d", len(args))
+			}
+			return None, SetItem(x, args[0], args[1])
+		case "__delitem__":
+			if len(args) != 1 {
+				return nil, Raise(TypeError, "__delitem__ expected 1 argument, got %d", len(args))
+			}
+			return None, DelItem(x, args[0])
+		case "__len__":
+			if len(args) != 0 {
+				return nil, Raise(TypeError, "__len__ expected 0 arguments, got %d", len(args))
+			}
+			n, err := Len(x)
+			if err != nil {
+				return nil, err
+			}
+			return NewInt(int64(n)), nil
+		case "__contains__":
+			if len(args) != 1 {
+				return nil, Raise(TypeError, "__contains__ expected 1 argument, got %d", len(args))
+			}
+			return Contains(x, args[0])
+		}
+		return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", x.TypeName(), name)
+	}
+	return NewFunc(name, -1, fn)
 }
 
 // listDunders names the list operators a list subclass reaches through super(),
