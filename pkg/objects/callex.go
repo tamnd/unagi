@@ -76,6 +76,91 @@ func kwAccum(kw Object) *dictObject {
 	return kw.(*dictObject)
 }
 
+// kwMappingPairs enumerates a **mapping argument into parallel key and value
+// slices in iteration order, the source for a call-site ** merge. A dict, or a
+// dict subclass instance, is read from its own entries; a dict subclass that
+// overrides keys() is still read at the dict level so the override is bypassed,
+// matching CPython's dict_merge fast path. Any other object must satisfy the
+// mapping protocol: a keys() method whose results index it. notMapping is true
+// when the object is not a mapping at all (no keys()), so the caller raises its
+// own call-site "argument after ** must be a mapping" error with the right
+// callee spelling rather than the display-side "object is not a mapping" one.
+func kwMappingPairs(m Object) (keys, vals []Object, notMapping bool, err error) {
+	var src *dictObject
+	switch x := m.(type) {
+	case *dictObject:
+		src = x
+	case *instanceObject:
+		if d, ok := dictBacked(x); ok {
+			src = d
+		}
+	}
+	if src != nil {
+		ks := src.keySlice()
+		keys = make([]Object, 0, len(ks))
+		vals = make([]Object, 0, len(ks))
+		for _, k := range ks {
+			v, err := src.get(k)
+			if err != nil {
+				return nil, nil, false, err
+			}
+			keys = append(keys, k)
+			vals = append(vals, v)
+		}
+		return keys, vals, false, nil
+	}
+	keysFn, err := LoadAttr(m, "keys")
+	if err != nil {
+		if isAttrError(err) {
+			return nil, nil, true, nil
+		}
+		return nil, nil, false, err
+	}
+	keysObj, err := Call(keysFn, nil)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	it, err := Iter(keysObj)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	for {
+		k, ok, err := it.Next()
+		if err != nil {
+			return nil, nil, false, err
+		}
+		if !ok {
+			break
+		}
+		v, err := GetItem(m, k)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		keys = append(keys, k)
+		vals = append(vals, v)
+	}
+	return keys, vals, false, nil
+}
+
+// kwMergeInto folds the enumerated key/value pairs of a **mapping into the
+// accumulated keyword dict, raising a duplicate-keyword error through dupErr
+// (which spells the callee the way each call site wants). It is the shared body
+// of KwMerge, KwMergeFor and KwMergeM once the source pairs are in hand.
+func kwMergeInto(kw Object, keys, vals []Object, dupErr func(key Object) error) (Object, error) {
+	d := kwAccum(kw)
+	for i, k := range keys {
+		if _, exists, err := d.lookup(k); err != nil {
+			return nil, err
+		} else if exists {
+			return nil, dupErr(k)
+		}
+		if err := d.set(k, vals[i]); err != nil {
+			return nil, err
+		}
+	}
+	return d, nil
+}
+
 // KwSet adds one literal name=value keyword to the accumulated dict. A
 // collision means a **mapping earlier in the call already supplied the
 // name; duplicated literal keywords never get this far, the parser
@@ -99,28 +184,18 @@ func KwSet(f, kw Object, name string, v Object) (Object, error) {
 // mapping-ness and duplicates in argument position, before anything to the
 // right of it evaluates.
 func KwMerge(f, kw Object, m Object) (Object, error) {
-	src, ok := m.(*dictObject)
-	if !ok {
+	keys, vals, notMapping, err := kwMappingPairs(m)
+	if err != nil {
+		return nil, err
+	}
+	if notMapping {
 		return nil, Raise(TypeError, "%s argument after ** must be a mapping, not %s",
 			FunctionStr(f), m.TypeName())
 	}
-	d := kwAccum(kw)
-	for _, k := range src.keySlice() {
-		if _, exists, err := d.lookup(k); err != nil {
-			return nil, err
-		} else if exists {
-			return nil, Raise(TypeError, "%s got multiple values for keyword argument '%s'",
-				FunctionStr(f), Str(k))
-		}
-		v, err := src.get(k)
-		if err != nil {
-			return nil, err
-		}
-		if err := d.set(k, v); err != nil {
-			return nil, err
-		}
-	}
-	return d, nil
+	return kwMergeInto(kw, keys, vals, func(k Object) error {
+		return Raise(TypeError, "%s got multiple values for keyword argument '%s'",
+			FunctionStr(f), Str(k))
+	})
 }
 
 // KwSetFor is KwSet for a callee whose spelling is known at compile time, like
@@ -143,28 +218,18 @@ func KwSetFor(funcstr string, kw Object, name string, v Object) (Object, error) 
 
 // KwMergeFor is KwMerge for a compile-time-known callee spelling.
 func KwMergeFor(funcstr string, kw Object, m Object) (Object, error) {
-	src, ok := m.(*dictObject)
-	if !ok {
+	keys, vals, notMapping, err := kwMappingPairs(m)
+	if err != nil {
+		return nil, err
+	}
+	if notMapping {
 		return nil, Raise(TypeError, "%s argument after ** must be a mapping, not %s",
 			funcstr, m.TypeName())
 	}
-	d := kwAccum(kw)
-	for _, k := range src.keySlice() {
-		if _, exists, err := d.lookup(k); err != nil {
-			return nil, err
-		} else if exists {
-			return nil, Raise(TypeError, "%s got multiple values for keyword argument '%s'",
-				funcstr, Str(k))
-		}
-		v, err := src.get(k)
-		if err != nil {
-			return nil, err
-		}
-		if err := d.set(k, v); err != nil {
-			return nil, err
-		}
-	}
-	return d, nil
+	return kwMergeInto(kw, keys, vals, func(k Object) error {
+		return Raise(TypeError, "%s got multiple values for keyword argument '%s'",
+			funcstr, Str(k))
+	})
 }
 
 // ExcNoKeywords rejects the keyword parts of a builtin exception constructor
@@ -335,28 +400,18 @@ func KwSetM(recv Object, name string, kw Object, key string, v Object) (Object, 
 // KwMergeM is KwMerge for a method call: it folds a **mapping into the keyword
 // dict, spelling the mapping and duplicate errors against the method name.
 func KwMergeM(recv Object, name string, kw Object, m Object) (Object, error) {
-	src, ok := m.(*dictObject)
-	if !ok {
+	keys, vals, notMapping, err := kwMappingPairs(m)
+	if err != nil {
+		return nil, err
+	}
+	if notMapping {
 		return nil, Raise(TypeError, "%s argument after ** must be a mapping, not %s",
 			methodFuncStr(recv, name), m.TypeName())
 	}
-	d := kwAccum(kw)
-	for _, k := range src.keySlice() {
-		if _, exists, err := d.lookup(k); err != nil {
-			return nil, err
-		} else if exists {
-			return nil, Raise(TypeError, "%s got multiple values for keyword argument '%s'",
-				methodFuncStr(recv, name), Str(k))
-		}
-		v, err := src.get(k)
-		if err != nil {
-			return nil, err
-		}
-		if err := d.set(k, v); err != nil {
-			return nil, err
-		}
-	}
-	return d, nil
+	return kwMergeInto(kw, keys, vals, func(k Object) error {
+		return Raise(TypeError, "%s got multiple values for keyword argument '%s'",
+			methodFuncStr(recv, name), Str(k))
+	})
 }
 
 // CallMethodEx invokes a method with a merged positional slice and keyword
