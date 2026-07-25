@@ -426,6 +426,11 @@ func DelItem(o, key Object) error {
 		if l, ok := listBacked(x); ok {
 			return DelItem(l, key)
 		}
+		// A mutable value subclass (a ChainMap subclass) deletes through to its
+		// payload, so del cm[key] reaches the underlying mapping.
+		if v, ok := builtinUnwrap(x); ok {
+			return DelItem(v, key)
+		}
 	}
 	// Probed on 3.14: del (1, 2)[0] -> TypeError: 'tuple' object doesn't
 	// support item deletion. Note "doesn't"; slices say "does not".

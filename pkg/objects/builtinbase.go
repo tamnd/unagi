@@ -34,6 +34,14 @@ func builtinBaseName(b Object) (string, bool) {
 			return "local", true
 		}
 	}
+	// collections.ChainMap is exposed as a native functionObject (not a funcObject)
+	// over the chainMapObject; unittest's case.py subclasses it as _OrderedChainMap
+	// to reorder the maps in __iter__. A subclass instance wraps a chainMapObject
+	// payload built by NewChainMap, and the mapping operators unwrap to it. It
+	// carries no builtinBaseFn, so instantiateCore special-cases the name.
+	if f, ok := b.(*functionObject); ok && f.qual == "ChainMap" {
+		return "ChainMap", true
+	}
 	// types.GenericAlias is a type object rather than a builtin function, the
 	// value `from types import GenericAlias` binds. _collections_abc subclasses
 	// it as _CallableGenericAlias, so it is a value base whose payload is a
@@ -239,6 +247,17 @@ func valueSubclassAttr(x *instanceObject, name string) (Object, bool) {
 			return nil, false
 		}
 		return val, true
+	case *chainMapObject:
+		// A ChainMap subclass inherits maps, parents and the ChainMap method
+		// surface off its payload; the mapping operators already unwrap through
+		// builtinUnwrap. self.maps is the live list _OrderedChainMap walks in its
+		// __iter__, so the read has to reach the payload's own resolution. The
+		// bound methods act on the payload, the same faithful-enough delegation
+		// the other value subclasses use.
+		if r, err := LoadAttr(p, name); err == nil {
+			return r, true
+		}
+		return nil, false
 	default:
 		return nil, false
 	}
