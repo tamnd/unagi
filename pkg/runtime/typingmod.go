@@ -58,5 +58,10 @@ func initTyping(m *objects.Module) error {
 	if err := objects.StoreAttr(m, "Union", objects.UnionForm()); err != nil {
 		return err
 	}
+	// TypeAliasType(name, value, *, type_params=()) builds the PEP 695 alias
+	// object, the same type a `type Name = value` statement binds.
+	if err := objects.StoreAttr(m, "TypeAliasType", objects.NewTypeAliasTypeConstructor()); err != nil {
+		return err
+	}
 	return nil
 }

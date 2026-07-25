@@ -1465,6 +1465,11 @@ func GetItem(o, key Object) (Object, error) {
 		if x.name == "typing.Union" {
 			return unionSubscript(key)
 		}
+	case *typeAliasObject:
+		// A TypeAliasType is subscriptable, so a generic alias Alias[int] builds a
+		// types.GenericAlias whose origin is the alias, the way CPython's
+		// TypeAliasType.__getitem__ does.
+		return NewGenericAlias(x, key), nil
 	case *classObject:
 		return classSubscript(x, key)
 	case *funcObject:
