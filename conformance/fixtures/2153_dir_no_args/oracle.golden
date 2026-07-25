@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+public upper: ['ALPHA', 'BETA']
+ALPHA in dir(): True
+gamma in dir(): True
+Delta in dir(): True
+sys in dir(): True
+_private in dir(): True
+sorted: True
+is list: True
+x in dir(d): True
+EPSILON in dir(): True
+done
+== exception:
+== stderr:
