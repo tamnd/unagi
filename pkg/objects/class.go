@@ -2421,6 +2421,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return paramSpecMemberLoadAttr(x.origin, "ParamSpecArgs", name)
 	case *paramSpecKwargsObject:
 		return paramSpecMemberLoadAttr(x.origin, "ParamSpecKwargs", name)
+	case *typeVarTupleObject:
+		return typeVarTupleLoadAttr(x, name)
 	case *templateObject:
 		return templateLoadAttr(x, name)
 	case *interpolationObject:

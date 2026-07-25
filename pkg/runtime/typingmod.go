@@ -48,5 +48,10 @@ func initTyping(m *objects.Module) error {
 	if err := objects.StoreAttr(m, "ParamSpecKwargs", objects.NewParamSpecKwargsConstructor()); err != nil {
 		return err
 	}
+	// TypeVarTuple(name, *, default=) builds a variadic type variable. It carries
+	// no variance or bound and stands only for a run of type arguments.
+	if err := objects.StoreAttr(m, "TypeVarTuple", objects.NewTypeVarTupleConstructor()); err != nil {
+		return err
+	}
 	return nil
 }
