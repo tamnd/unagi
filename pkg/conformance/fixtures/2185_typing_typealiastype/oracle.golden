@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+A A __main__ list[int] () () TypeAliasType
+(~T,) (~T,) B[int] GenericAlias (<class 'int'>,) True
+(~T, ~P) (~T, ~P)
+TypeError typealias() missing required argument 'name' (pos 1)
+TypeError typealias() missing required argument 'value' (pos 2)
+TypeError typealias() argument 'name' must be str, not int
+TypeError type_params must be a tuple
+TypeError typealias() got an unexpected keyword argument 'foo'
+AttributeError 'typing.TypeAliasType' object has no attribute '__qualname__'
+== exception:
+== stderr:
