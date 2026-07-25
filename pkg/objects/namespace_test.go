@@ -40,6 +40,30 @@ func TestSimpleNamespaceConstruct(t *testing.T) {
 	}
 }
 
+// A function-valued attribute has to be callable through ns.f(args) method
+// syntax, not just as a bound-then-called variable. The import machinery reaches
+// its meta_path finder this way, finder.find_spec(name), so CallMethod has to
+// resolve the attribute and call it rather than look for a builtin method surface.
+func TestSimpleNamespaceMethodCall(t *testing.T) {
+	inc := NewFunc("inc", 1, func(args []Object) (Object, error) {
+		n, _ := AsInt(args[0])
+		return NewInt(n + 1), nil
+	})
+	ns := NewSimpleNamespace([]string{"f"}, []Object{inc})
+	got, err := CallMethod(ns, "f", []Object{NewInt(41)})
+	if err != nil {
+		t.Fatalf("ns.f(41): %v", err)
+	}
+	if n, _ := AsInt(got); n != 42 {
+		t.Errorf("ns.f(41) = %d, want 42", n)
+	}
+	// A missing attribute is the namespace's own AttributeError, not a
+	// not-callable error.
+	if _, err := CallMethod(ns, "missing", nil); err == nil {
+		t.Errorf("ns.missing(): want AttributeError")
+	}
+}
+
 func TestSimpleNamespaceEmptyAndPositional(t *testing.T) {
 	if got := Repr(NewSimpleNamespace(nil, nil)); got != "namespace()" {
 		t.Errorf("empty repr = %q, want namespace()", got)

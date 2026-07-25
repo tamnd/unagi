@@ -419,12 +419,13 @@ func initSys(m *objects.Module) error {
 		// pycache_prefix is the directory bytecode caches are redirected to, None by
 		// default. Inert here for the same reason, present so a read succeeds.
 		{"pycache_prefix", objects.None},
-		// The import-machinery registries. A compiled program resolves imports at
-		// build time and consults none of these at run time, so they carry the empty
-		// forms CPython would start them at before finders register: two lists and a
-		// cache dict. They exist so stdlib code that iterates or mutates them runs.
+		// The import-machinery registries. A compiled program resolves imports in
+		// the native importer, not through these, so path_hooks and the importer
+		// cache carry the empty forms CPython starts them at. meta_path is seeded
+		// with the native finder so importlib.import_module and the rest of the pure
+		// machinery resolve the same names the import statement does.
 		{"path_hooks", objects.NewList(nil)},
-		{"meta_path", objects.NewList(nil)},
+		{"meta_path", objects.NewList([]objects.Object{nativeMetaFinder()})},
 	}
 	pathImporterCache, err := objects.NewDict(nil, nil)
 	if err != nil {
