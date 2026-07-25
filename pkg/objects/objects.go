@@ -654,6 +654,17 @@ func CallT(t *Thread, f Object, args []Object) (Object, error) {
 		if defined {
 			return res, nil
 		}
+		// A weakref.ref subclass with no __call__ override inherits the base ref's
+		// call: it returns the referent. weakref.py's KeyedRef relies on this, and
+		// importlib's _ModuleLock reads a KeyedRef by calling it.
+		if w, ok := builtinUnwrap(inst); ok {
+			if wr, ok := w.(*weakrefObject); ok {
+				if len(args) != 0 {
+					return nil, Raise(TypeError, "ref() takes no arguments (%d given)", len(args))
+				}
+				return weakrefTarget(wr), nil
+			}
+		}
 		return nil, Raise(TypeError, "'%s' object is not callable", f.TypeName())
 	}
 	if w, ok := f.(*weakrefObject); ok {
@@ -715,8 +726,16 @@ func Callable(f Object) bool {
 		// raises, the same way callable(types.GeneratorType) is True.
 		return true
 	case *instanceObject:
-		_, ok := x.cls.lookup("__call__")
-		return ok
+		if _, ok := x.cls.lookup("__call__"); ok {
+			return true
+		}
+		// A weakref.ref subclass instance inherits the base ref's call.
+		if w, ok := builtinUnwrap(x); ok {
+			if _, ok := w.(*weakrefObject); ok {
+				return true
+			}
+		}
+		return false
 	}
 	return false
 }

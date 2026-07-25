@@ -42,6 +42,57 @@ func TestWeakrefCallReturnsReferent(t *testing.T) {
 	}
 }
 
+// refBaseValue is the weakref.ref builtin as a class statement names it: a
+// funcObject spelled "ref" that builds a weakref payload, the base a ref
+// subclass (weakref.py's KeyedRef and WeakMethod) inherits from.
+func refBaseValue() Object {
+	return NewFunc("ref", -1, func(args []Object) (Object, error) {
+		var callback Object
+		if len(args) == 2 {
+			callback = args[1]
+		}
+		return NewWeakref(args[0], callback)
+	})
+}
+
+// TestRefSubclassIsCallable checks a weakref.ref subclass instance inherits the
+// base ref's call, returning the referent, so weakref.py's KeyedRef (which
+// importlib's _ModuleLock reads by calling) works.
+func TestRefSubclassIsCallable(t *testing.T) {
+	base := refBaseValue()
+	if name, ok := builtinBaseName(base); !ok || name != "ref" {
+		t.Fatalf("builtinBaseName(ref) = %q, %v; want ref, true", name, ok)
+	}
+	c, err := buildClass(nil, "KeyedRef", "__main__.KeyedRef", []Object{base}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("build KeyedRef: %v", err)
+	}
+	cc := c.(*classObject)
+	if cc.builtinBase != "ref" {
+		t.Fatalf("builtinBase = %q, want ref", cc.builtinBase)
+	}
+
+	referent := weakrefClass(t)
+	obj, _ := Instantiate(referent, nil, nil, nil)
+	k, err := Instantiate(cc, []Object{obj}, nil, nil)
+	if err != nil {
+		t.Fatalf("instantiate KeyedRef: %v", err)
+	}
+	if !Callable(k) {
+		t.Fatalf("Callable(KeyedRef instance) = false, want true")
+	}
+	got, err := Call(k, nil)
+	if err != nil {
+		t.Fatalf("call KeyedRef instance: %v", err)
+	}
+	if got != obj {
+		t.Fatalf("KeyedRef() = %v, want the referent", got)
+	}
+	if _, err := Call(k, []Object{obj}); err == nil {
+		t.Fatalf("KeyedRef(arg) did not raise, want TypeError")
+	}
+}
+
 func TestWeakrefHashAndEqualByReferent(t *testing.T) {
 	c := weakrefClass(t)
 	inst, _ := Instantiate(c, nil, nil, nil)
