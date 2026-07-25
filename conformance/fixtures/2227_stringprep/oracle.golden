@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+imported
+3.2.0
+True
+False
+True
+False
+False
+True
+True
+False
+True
+True
+False
+True
+True
+== exception:
+== stderr:
