@@ -2094,6 +2094,15 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return ClassOfResolver(o), nil
 		}
 	}
+	// The builtin scalar types expose their rich-comparison slots as readable,
+	// callable methods, each with its own NotImplemented domain, so
+	// `(1).__eq__(2)` and `"a".__lt__("b")` resolve the way `int.__eq__` and
+	// `str.__lt__` do in CPython. Nothing else owns these names on a scalar, and
+	// user instances and classes are excluded, so this precedes the per-type
+	// switch below.
+	if fn, ok := scalarCompareDunder(o, name); ok {
+		return fn, nil
+	}
 	switch x := o.(type) {
 	case *instanceObject:
 		return instanceLoadAttr(x, name)
