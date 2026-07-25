@@ -117,7 +117,7 @@ func (c *buildCache) buildBinary(genDir, out string, link func(dst string) error
 	if err != nil {
 		return link(out)
 	}
-	canonical := filepath.Join(dir, key)
+	canonical := exeName(filepath.Join(dir, key))
 	if err := link(canonical); err != nil {
 		return err
 	}
