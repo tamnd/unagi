@@ -2415,6 +2415,12 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return noDefaultLoadAttr(name)
 	case *typeVarObject:
 		return typeVarLoadAttr(x, name)
+	case *paramSpecObject:
+		return paramSpecLoadAttr(x, name)
+	case *paramSpecArgsObject:
+		return paramSpecMemberLoadAttr(x.origin, "ParamSpecArgs", name)
+	case *paramSpecKwargsObject:
+		return paramSpecMemberLoadAttr(x.origin, "ParamSpecKwargs", name)
 	case *templateObject:
 		return templateLoadAttr(x, name)
 	case *interpolationObject:

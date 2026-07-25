@@ -234,6 +234,12 @@ func reprCore(o Object, strict bool) (string, error) {
 		return "typing.NoDefault", nil
 	case *typeVarObject:
 		return typeVarRepr(x), nil
+	case *paramSpecObject:
+		return paramSpecRepr(x), nil
+	case *paramSpecArgsObject:
+		return x.origin.name + ".args", nil
+	case *paramSpecKwargsObject:
+		return x.origin.name + ".kwargs", nil
 	case *templateObject:
 		return templateRepr(x)
 	case *interpolationObject:

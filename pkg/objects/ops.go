@@ -946,6 +946,15 @@ func equals(a, b Object) bool {
 		// match, so list[int] equals a second list[int] but not list[str].
 		y, ok := b.(*genericAliasObject)
 		return ok && equals(x.origin, y.origin) && seqEquals(x.args, y.args)
+	case *paramSpecArgsObject:
+		// P.args is compared by origin, so two ParamSpecArgs are equal exactly
+		// when they belong to the same ParamSpec; P.args == P.args holds across
+		// separate reads and ParamSpecArgs(P) == P.args.
+		y, ok := b.(*paramSpecArgsObject)
+		return ok && x.origin == y.origin
+	case *paramSpecKwargsObject:
+		y, ok := b.(*paramSpecKwargsObject)
+		return ok && x.origin == y.origin
 	}
 	return a == b
 }

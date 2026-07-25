@@ -42,6 +42,9 @@ func asUnionMember(o Object) (Object, bool) {
 		// A type variable stands for itself in a union, so T | int keeps ~T in
 		// __args__ and reprs it with its variance sigil, the way CPython does.
 		return t, true
+	case *paramSpecObject:
+		// A ParamSpec stands for itself in a union the same way a TypeVar does.
+		return t, true
 	}
 	if o == None {
 		return TypeSingleton("NoneType"), true
@@ -186,6 +189,8 @@ func unionMemberRepr(m Object) string {
 		// _type_repr of a type variable is its own repr, so a union member shows
 		// as ~T with its variance sigil.
 		return typeVarRepr(t)
+	case *paramSpecObject:
+		return paramSpecRepr(t)
 	}
 	return m.TypeName()
 }

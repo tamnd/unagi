@@ -37,5 +37,16 @@ func initTyping(m *objects.Module) error {
 	if err := objects.StoreAttr(m, "TypeVar", objects.NewTypeVarConstructor()); err != nil {
 		return err
 	}
+	// ParamSpec(name, *, bound=, covariant=, contravariant=, infer_variance=,
+	// default=) and its .args / .kwargs member types.
+	if err := objects.StoreAttr(m, "ParamSpec", objects.NewParamSpecConstructor()); err != nil {
+		return err
+	}
+	if err := objects.StoreAttr(m, "ParamSpecArgs", objects.NewParamSpecArgsConstructor()); err != nil {
+		return err
+	}
+	if err := objects.StoreAttr(m, "ParamSpecKwargs", objects.NewParamSpecKwargsConstructor()); err != nil {
+		return err
+	}
 	return nil
 }
