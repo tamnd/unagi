@@ -1,0 +1,22 @@
+== exit: 0
+== stdout:
+1.5
+16.0
+1.5
+-1.5
+inf -inf
+inf
+1.3125
+255.0
+3.141592653589793
+0.0 -0.0
+True
+True
+ValueError: invalid hexadecimal floating-point string
+ValueError: invalid hexadecimal floating-point string
+ValueError: invalid hexadecimal floating-point string
+ValueError: invalid hexadecimal floating-point string
+ValueError: invalid hexadecimal floating-point string
+OverflowError: hexadecimal value too large to represent as a float
+== exception:
+== stderr:

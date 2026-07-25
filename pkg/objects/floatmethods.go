@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"strings"
 )
 
 // This file holds the float methods and the two number attributes every float
@@ -155,4 +156,148 @@ func floatLoadAttr(o Object, name string) (Object, error) {
 		return None, nil
 	}
 	return nil, Raise(AttributeError, "'float' object has no attribute '%s'", name)
+}
+
+// hex-float parse status for floatFromhex.
+const (
+	hexFloatBad = iota
+	hexFloatOK
+	hexFloatOverflow
+)
+
+// floatFromhex implements the float.fromhex(s) classmethod, the inverse of
+// (f).hex(). It parses a hexadecimal floating-point string: optional surrounding
+// whitespace and sign, inf/infinity/nan, an optional 0x prefix, a hex mantissa
+// with an optional fractional part, and an optional binary p-exponent. The form
+// is the lenient one CPython accepts, where '1.8' reads as hex 1.5 and 'ff' as
+// 255. A big.Float carries full precision so the round-trip of (f).hex() is
+// exact.
+func floatFromhex(args []Object) (Object, error) {
+	if len(args) != 1 {
+		return nil, Raise(TypeError, "float.fromhex() takes exactly one argument (%d given)", len(args))
+	}
+	s, ok := AsStr(args[0])
+	if !ok {
+		return nil, Raise(TypeError, "bad argument type for built-in operation")
+	}
+	f, status := parseHexFloat(s)
+	switch status {
+	case hexFloatOK:
+		return NewFloat(f), nil
+	case hexFloatOverflow:
+		return nil, Raise(OverflowError, "hexadecimal value too large to represent as a float")
+	default:
+		return nil, Raise(ValueError, "invalid hexadecimal floating-point string")
+	}
+}
+
+// hexDigitVal returns the value of an ASCII hex digit and whether c is one.
+func hexDigitVal(c byte) (int, bool) {
+	switch {
+	case c >= '0' && c <= '9':
+		return int(c - '0'), true
+	case c >= 'a' && c <= 'f':
+		return int(c-'a') + 10, true
+	case c >= 'A' && c <= 'F':
+		return int(c-'A') + 10, true
+	}
+	return 0, false
+}
+
+// parseHexFloat parses one hexadecimal float string, returning the value and a
+// status (bad string, ok, or overflow). It mirrors CPython's float_fromhex:
+// the mantissa's hex digits build an exact integer coefficient scaled by two to
+// the (binary-exponent minus four-per-fraction-digit).
+func parseHexFloat(s string) (float64, int) {
+	t := strings.Trim(s, " \t\n\v\f\r")
+	i, n := 0, len(t)
+	neg := false
+	if i < n && (t[i] == '+' || t[i] == '-') {
+		neg = t[i] == '-'
+		i++
+	}
+	switch strings.ToLower(t[i:]) {
+	case "inf", "infinity":
+		if neg {
+			return math.Inf(-1), hexFloatOK
+		}
+		return math.Inf(1), hexFloatOK
+	case "nan":
+		return math.NaN(), hexFloatOK
+	}
+	if i+1 < n && t[i] == '0' && (t[i+1] == 'x' || t[i+1] == 'X') {
+		i += 2
+	}
+	coeff := new(big.Int)
+	sixteen := big.NewInt(16)
+	sawDigit := false
+	seenDot := false
+	fdigits := 0
+	for i < n {
+		c := t[i]
+		if c == '.' {
+			if seenDot {
+				return 0, hexFloatBad
+			}
+			seenDot = true
+			i++
+			continue
+		}
+		d, isHex := hexDigitVal(c)
+		if !isHex {
+			break
+		}
+		coeff.Mul(coeff, sixteen)
+		coeff.Add(coeff, big.NewInt(int64(d)))
+		if seenDot {
+			fdigits++
+		}
+		sawDigit = true
+		i++
+	}
+	if !sawDigit {
+		return 0, hexFloatBad
+	}
+	binExp := 0
+	if i < n && (t[i] == 'p' || t[i] == 'P') {
+		i++
+		esign := 1
+		if i < n && (t[i] == '+' || t[i] == '-') {
+			if t[i] == '-' {
+				esign = -1
+			}
+			i++
+		}
+		if i >= n || t[i] < '0' || t[i] > '9' {
+			return 0, hexFloatBad
+		}
+		e := 0
+		for i < n && t[i] >= '0' && t[i] <= '9' {
+			e = e*10 + int(t[i]-'0')
+			if e > 1<<30 {
+				e = 1 << 30
+			}
+			i++
+		}
+		binExp = esign * e
+	}
+	if i != n {
+		return 0, hexFloatBad
+	}
+	if coeff.Sign() == 0 {
+		if neg {
+			return math.Copysign(0, -1), hexFloatOK
+		}
+		return 0, hexFloatOK
+	}
+	e2 := binExp - 4*fdigits
+	mant := new(big.Float).SetPrec(200).SetInt(coeff)
+	res, _ := new(big.Float).SetPrec(200).SetMantExp(mant, e2).Float64()
+	if math.IsInf(res, 0) {
+		return 0, hexFloatOverflow
+	}
+	if neg {
+		res = -res
+	}
+	return res, hexFloatOK
 }

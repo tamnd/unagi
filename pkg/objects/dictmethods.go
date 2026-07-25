@@ -17,6 +17,9 @@ func builtinTypeClassmethod(typeName, name string) (Object, bool) {
 	if (typeName == "int" || typeName == "bool") && name == "from_bytes" {
 		return NewFuncKw("from_bytes", intFromBytes), true
 	}
+	if typeName == "float" && name == "fromhex" {
+		return NewFunc("fromhex", -1, floatFromhex), true
+	}
 	if typeName == "bytes" || typeName == "bytearray" {
 		switch name {
 		case "maketrans":
