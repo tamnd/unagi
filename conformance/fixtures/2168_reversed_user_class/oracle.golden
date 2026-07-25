@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+['c', 'b', 'a']
+reversed
+[20, 10, 0]
+[]
+TypeError: 'Q' object is not reversible
+42
+== exception:
+== stderr:

@@ -103,6 +103,57 @@ func (gi *getitemIter) Next() (Object, bool, error) {
 	return res, true, nil
 }
 
+// Reversed mode results for ReversedInstance.
+const (
+	// ReversedNotInstance means o is not a user instance; the caller reverses
+	// its own builtin sequences.
+	ReversedNotInstance = iota
+	// ReversedResult means __reversed__ handled it; the caller returns Result
+	// verbatim (CPython does not require __reversed__ to return an iterator).
+	ReversedResult
+	// ReversedElems means the __len__ + __getitem__ fallback produced Elems,
+	// already in reverse order, for the caller to wrap as a reversed iterator.
+	ReversedElems
+)
+
+// ReversedInstance drives reversed(o) for a user class instance. A __reversed__
+// method wins and its result comes back as-is. Otherwise a class defining both
+// __len__ and __getitem__ is an old-style sequence, so o[n-1]..o[0] is read into
+// a slice for the caller to wrap. A class with neither is the not-reversible
+// TypeError. mode is ReversedNotInstance for anything that is not a user
+// instance, so the runtime falls through to its builtin cases.
+func ReversedInstance(o Object) (mode int, result Object, elems []Object, err error) {
+	x, ok := o.(*instanceObject)
+	if !ok {
+		return ReversedNotInstance, nil, nil, nil
+	}
+	if _, ok := x.cls.lookup("__reversed__"); ok {
+		res, _, err := instanceSpecial(x, "__reversed__")
+		if err != nil {
+			return ReversedResult, nil, nil, err
+		}
+		return ReversedResult, res, nil, nil
+	}
+	_, hasLen := x.cls.lookup("__len__")
+	_, hasGetItem := x.cls.lookup("__getitem__")
+	if hasLen && hasGetItem {
+		n, err := Len(o)
+		if err != nil {
+			return ReversedElems, nil, nil, err
+		}
+		elems = make([]Object, 0, n)
+		for i := n - 1; i >= 0; i-- {
+			v, err := GetItem(o, NewInt(int64(i)))
+			if err != nil {
+				return ReversedElems, nil, nil, err
+			}
+			elems = append(elems, v)
+		}
+		return ReversedElems, nil, elems, nil
+	}
+	return ReversedResult, nil, nil, Raise(TypeError, "'%s' object is not reversible", o.TypeName())
+}
+
 // containsByIter answers membership by scanning an iterable when the container
 // defines no __contains__, comparing each element with ==. It matches CPython's
 // PySequence_Contains fallback used for both __iter__ and __getitem__ sequences.
