@@ -14,6 +14,14 @@ type namedType struct {
 	defaults *dictObject          // _field_defaults: the trailing fields that carry a default
 	makeFn   Object               // the _make classmethod, built once and shared
 	getters  []*tupleGetterObject // one _tuplegetter per field, read off the class object
+	// extra is the lazily allocated writable attribute overlay a namedtuple type
+	// grows when code assigns to it: typing.NamedTuple sets __annotate__ and
+	// __bases__ and drops user methods on the generated class, and selectors-style
+	// callers replace __doc__. It lives on the shared metadata so both a read off
+	// the type (NT.method) and off an instance (nt_instance.method) reach it, and
+	// stays nil for the plain collections.namedtuple type that is only ever
+	// constructed, so that path pays nothing for it.
+	extra map[string]Object
 }
 
 // tupleGetterObject is the descriptor a namedtuple installs for each field,
@@ -162,12 +170,33 @@ func namedTupleTypeAttr(t *namedTupleType, name string) (Object, error) {
 		return NewStr(t.nt.name), nil
 	case "__doc__":
 		return t.doc, nil
+	case "__new__":
+		// The constructor is a real function object, so typing.NamedTuple can reach
+		// it as `nm_tpl.__new__` and hang `__new__.__annotate__` off it.
+		return t.build, nil
+	case "__annotations__":
+		// type.__annotations__ reads through __annotate__ (PEP 649): call the stored
+		// annotate function with Format.VALUE (1). A namedtuple with no annotations
+		// reports an empty dict, the way a bare collections.namedtuple type does.
+		if t.nt.extra != nil {
+			if ann, ok := t.nt.extra["__annotate__"]; ok {
+				return Call(ann, []Object{NewInt(1)})
+			}
+		}
+		return NewDict(nil, nil)
 	}
 	// A field name off the class object reads back its _tuplegetter descriptor,
 	// the way `NT.opname` does in CPython.
 	for i, f := range t.nt.fields {
 		if f == name {
 			return t.nt.getters[i], nil
+		}
+	}
+	// A writable attribute the overlay grew (typing.NamedTuple's __annotate__ and
+	// __bases__, user methods) reads back before the name is reported missing.
+	if t.nt.extra != nil {
+		if v, ok := t.nt.extra[name]; ok {
+			return v, nil
 		}
 	}
 	return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", t.nt.name, name)
@@ -220,6 +249,26 @@ func namedTupleInstanceAttr(x *tupleObject, name string) (Object, error) {
 	case "_make":
 		return x.named.makeFn, nil
 	}
+	// A member typing.NamedTuple dropped on the generated class (setattr on the
+	// type) reads through the instance the way a class body member does: a method
+	// binds self, a property computes through fget, a staticmethod hands back its
+	// function, and a plain data attribute reads back as-is.
+	if x.named.extra != nil {
+		if v, ok := x.named.extra[name]; ok {
+			switch d := v.(type) {
+			case *functionObject:
+				return &boundMethod{fn: d, self: x}, nil
+			case *propertyObject:
+				if d.fget == nil {
+					return nil, Raise(AttributeError, "property '%s' has no getter", name)
+				}
+				return Call(d.fget, []Object{x})
+			case *staticmethodObject:
+				return d.fn, nil
+			}
+			return v, nil
+		}
+	}
 	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", x.named.name, name)
 }
 
@@ -239,6 +288,21 @@ func namedTupleMethod(x *tupleObject, name string, args []Object) (Object, bool,
 	case "_make":
 		v, err := Call(x.named.makeFn, args)
 		return v, true, err
+	}
+	// A user method typing.NamedTuple dropped on the generated class dispatches as
+	// x.method(args) too, so the direct-call path binds self and invokes it rather
+	// than falling through to the bare-tuple AttributeError.
+	if x.named.extra != nil {
+		if v, ok := x.named.extra[name]; ok {
+			switch d := v.(type) {
+			case *functionObject:
+				r, err := Call(d, append([]Object{x}, args...))
+				return r, true, err
+			case *staticmethodObject:
+				r, err := Call(d.fn, args)
+				return r, true, err
+			}
+		}
 	}
 	return nil, false, nil
 }

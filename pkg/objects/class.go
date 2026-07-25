@@ -1876,6 +1876,20 @@ func IsInstance(obj, cls Object) (Object, error) {
 		_, ok := obj.(*typeVarTupleObject)
 		return NewBool(ok), nil
 	}
+	// A namedtuple class (collections.namedtuple, typing.NamedTuple) is a real type
+	// for isinstance: an instance is one whose shared field metadata is this class's,
+	// so isinstance(Point(1, 2), Point) is true while a different namedtuple is not.
+	if nt, ok := cls.(*namedTupleType); ok {
+		if tup, ok := obj.(*tupleObject); ok {
+			return NewBool(tup.named == nt.nt), nil
+		}
+		if inst, ok := obj.(*instanceObject); ok {
+			if tup, ok := inst.builtinData.(*tupleObject); ok {
+				return NewBool(tup.named == nt.nt), nil
+			}
+		}
+		return False, nil
+	}
 	return nil, Raise(TypeError, "isinstance() arg 2 must be a type, a tuple of types, or a union")
 }
 
@@ -2985,12 +2999,19 @@ func StoreAttr(o Object, name string, val Object) error {
 		return threadStoreAttr(x, name, val)
 	case *namedTupleType:
 		// The class __doc__ is writable: namedtuple sets a default and code such as
-		// selectors replaces it with a fuller description. Other attributes on the
-		// type object stay read-only.
+		// selectors replaces it with a fuller description.
 		if name == "__doc__" {
 			x.doc = val
 			return nil
 		}
+		// Every other assignment lands in the writable overlay: typing.NamedTuple
+		// sets __annotate__ and __bases__ and drops user-defined methods on the
+		// generated class, all of which read back through namedTupleTypeAttr.
+		if x.nt.extra == nil {
+			x.nt.extra = make(map[string]Object)
+		}
+		x.nt.extra[name] = val
+		return nil
 	case *tupleGetterObject:
 		return tupleGetterSet(x, name, val)
 	case *simpleNamespaceObject:
