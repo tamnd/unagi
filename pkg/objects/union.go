@@ -85,6 +85,42 @@ func unionOr(a, b Object) (Object, bool, error) {
 	return buildUnion(members), true, nil
 }
 
+// UnionForm is the typing.Union special form, the object _typing exports as
+// Union and the type of every X | Y value, so `type(int | str) is Union` holds.
+// Subscripting it builds a union the same way the | operator does.
+func UnionForm() Object { return TypeSingleton("typing.Union") }
+
+// unionSubscript builds the union Union[...] names. A tuple key spreads into the
+// members and any other key is a single member; an empty tuple is the TypeError
+// CPython raises. A nested Union flattens into the result, None stands for its
+// NoneType type object, and buildUnion deduplicates and collapses a lone member
+// back to itself, so Union[int] is int and Union[int, Union[str, bytes]] is
+// int | str | bytes.
+func unionSubscript(key Object) (Object, error) {
+	var items []Object
+	if tup, ok := key.(*tupleObject); ok {
+		items = tup.elts
+	} else {
+		items = []Object{key}
+	}
+	if len(items) == 0 {
+		return nil, Raise(TypeError, "Cannot take a Union of no types.")
+	}
+	var members []Object
+	for _, it := range items {
+		if u, ok := it.(*unionObject); ok {
+			members = append(members, u.args...)
+			continue
+		}
+		if m, ok := asUnionMember(it); ok {
+			members = append(members, m)
+			continue
+		}
+		members = append(members, it)
+	}
+	return buildUnion(members), nil
+}
+
 // buildUnion deduplicates the members by identity, keeping first-seen order, and
 // collapses a single survivor back to that type: int | int is int, not a union,
 // the same as CPython.

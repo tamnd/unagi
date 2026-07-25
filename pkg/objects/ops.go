@@ -1459,6 +1459,12 @@ func GetItem(o, key Object) (Object, error) {
 		return NewInt(x.start + i*x.step), nil
 	case *contextObject:
 		return x.getItem(key)
+	case *typeObject:
+		// The typing.Union special form builds a union when subscripted, so
+		// Union[int, str] is int | str the way its __class_getitem__ does.
+		if x.name == "typing.Union" {
+			return unionSubscript(key)
+		}
 	case *classObject:
 		return classSubscript(x, key)
 	case *funcObject:
