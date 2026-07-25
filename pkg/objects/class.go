@@ -728,6 +728,39 @@ func classIntrospect(c *classObject, name string) (Object, bool) {
 	return nil, false
 }
 
+// classInheritedDefault answers the object-level tail of a class's own MRO: the
+// dunder methods every class inherits from object when no class in its MRO bound
+// them in its dict. These belong to the class's own MRO, so under CPython's type
+// attribute precedence they outrank a non-data attribute a metaclass merely
+// contributes, which is why both the metaclass fallback and the ordinary path
+// consult this before giving up.
+func classInheritedDefault(x *classObject, name string) (Object, bool) {
+	switch name {
+	case "__new__":
+		// A class with no __new__ of its own inherits object.__new__, the one
+		// canonical allocator.
+		return objectNewBuiltin, true
+	case "__hash__":
+		// A class with no __hash__ of its own inherits object.__hash__, unless it
+		// or a base defines __eq__ without a __hash__, which the class machinery
+		// nulls to None the way `B.__hash__ is None` reports for an __eq__-only
+		// class. dataclasses reads `f.default.__class__.__hash__ is None` to reject
+		// a mutable default, so a hashable default's type has to answer here.
+		for _, c := range x.mro {
+			if _, ok := c.dict["__eq__"]; ok {
+				return None, true
+			}
+		}
+		return builtinHashDunder, true
+	}
+	// A class that overrides none of the object dunders inherits them, so
+	// C.__repr__ is object.__repr__ the way CPython reports it.
+	if v, ok := objectDunders[name]; ok {
+		return v, true
+	}
+	return nil, false
+}
+
 // classSubclassesList builds the list __subclasses__() returns, the direct
 // subclasses in creation order. Each element is the class object itself, so a
 // caller reads back the same classes it built.
@@ -2028,6 +2061,16 @@ func LoadAttr(o Object, name string) (Object, error) {
 				if v, ok := x.lookup(name); ok {
 					return classGet(x, v)
 				}
+				// The class's own MRO ends in object, whose inherited dunders
+				// (object.__new__, __hash__, __repr__, ...) belong to that MRO and
+				// so outrank a non-data attribute the metaclass merely contributes.
+				// C.__new__ therefore reads the canonical allocator, not the
+				// metaclass's type.__new__ constructor, which is what email.policy's
+				// self.__class__.__new__(self.__class__) relies on under an ABCMeta
+				// metaclass.
+				if v, ok := classInheritedDefault(x, name); ok {
+					return v, nil
+				}
 				return metaGet(x, meta, name, mv)
 			}
 		}
@@ -2043,29 +2086,10 @@ func LoadAttr(o Object, name string) (Object, error) {
 				return v, nil
 			}
 		}
-		// A class with no __new__ of its own inherits object.__new__, so
-		// C.__new__ reads back the one canonical allocator.
-		if name == "__new__" {
-			return objectNewBuiltin, nil
-		}
-		// A class with no __hash__ of its own inherits object.__hash__, unless it
-		// or a base defines __eq__ without a __hash__, which the class machinery
-		// nulls to None the way `B.__hash__ is None` reports for an __eq__-only
-		// class. dataclasses reads `f.default.__class__.__hash__ is None` to reject
-		// a mutable default, so a hashable default's type has to answer here. This
-		// point is reached only when no class in the MRO bound __hash__ in its dict,
-		// so the object default stands unless an __eq__ demoted it.
-		if name == "__hash__" {
-			for _, c := range x.mro {
-				if _, ok := c.dict["__eq__"]; ok {
-					return None, nil
-				}
-			}
-			return builtinHashDunder, nil
-		}
-		// A class that overrides none of the object dunders inherits them, so
-		// C.__repr__ is object.__repr__ the way CPython reports it.
-		if v, ok := objectDunders[name]; ok {
+		// A class that binds none of the object dunders in its own MRO inherits
+		// them from object, the tail of every class's MRO, so C.__new__ reads the
+		// canonical allocator and C.__repr__ reads object.__repr__.
+		if v, ok := classInheritedDefault(x, name); ok {
 			return v, nil
 		}
 		// Every class carries __doc__: a class with no docstring reads it back as
