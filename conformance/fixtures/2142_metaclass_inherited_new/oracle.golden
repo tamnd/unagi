@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+Policy
+True
+a
+True
+True
+True
+9
+meta:Widget
+== exception:
+== stderr:
