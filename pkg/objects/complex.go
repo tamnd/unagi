@@ -192,6 +192,39 @@ func complexMethod(c *complexObject, name string, args []Object) (Object, error)
 	return NewComplex(c.re, -c.im), nil
 }
 
+// complexFromDunder resolves a user instance to complex components the way
+// complex(o) does: __complex__ wins and must return a complex (else
+// "__complex__ returned non-complex (type X)"), otherwise __float__ then
+// __index__ supply a real value with a zero imaginary part. ok is false when o
+// is not a user instance or defines none of the three, leaving the caller's
+// "argument must be a string or a number" error.
+func complexFromDunder(o Object) (re, im float64, ok bool, err error) {
+	x, isInst := o.(*instanceObject)
+	if !isInst {
+		return 0, 0, false, nil
+	}
+	if _, has := x.cls.lookup("__complex__"); has {
+		r, _, e := instanceSpecial(x, "__complex__")
+		if e != nil {
+			return 0, 0, true, e
+		}
+		if !instanceOfBuiltin(r, "complex") {
+			return 0, 0, true, Raise(TypeError,
+				"__complex__ returned non-complex (type %s)", r.TypeName())
+		}
+		cr, ci, _ := asComplex(r)
+		return cr, ci, true, nil
+	}
+	// __float__ then __index__, exactly float()'s instance fallback.
+	if f, defined, e := FloatFromDunder(o); e != nil {
+		return 0, 0, true, e
+	} else if defined {
+		fv, _ := AsFloat(f)
+		return fv, 0, true, nil
+	}
+	return 0, 0, false, nil
+}
+
 // ComplexNew builds a complex from the constructor arguments, either of which
 // may be nil when the caller omitted it. A str real parses like a literal and
 // forbids a second argument; numeric parts combine as real + imag*1j. The
@@ -219,10 +252,23 @@ func ComplexNew(real, imag Object) (Object, error) {
 	if real != nil {
 		re, im, ok := asComplex(real)
 		if !ok {
-			return nil, Raise(TypeError, "complex() argument must be a string or a number, not %s", real.TypeName())
+			// A user numeric supplies the real argument through __complex__, then
+			// __float__, then __index__. A resolved value carries its imaginary
+			// part, so it routes through the combining path like a complex arg.
+			cre, cim, dok, err := complexFromDunder(real)
+			if err != nil {
+				return nil, err
+			}
+			if !dok {
+				return nil, Raise(TypeError, "complex() argument must be a string or a number, not %s", real.TypeName())
+			}
+			re, im = cre, cim
+			realIsC = true
 		}
 		rr, ri = re, im
-		_, realIsC = real.(*complexObject)
+		if !realIsC {
+			_, realIsC = real.(*complexObject)
+		}
 	}
 	ie, ii := 0.0, 0.0
 	imagIsC := false
