@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+groups {'a': [1, 2], 'b': [3]}
+factory is list True
+isinstance defaultdict True
+isinstance dict True
+issubclass defaultdict True
+issubclass dict True
+keys ['a', 'b']
+get missing none
+count 0
+override const:anything
+seeded {'k': [9]}
+seeded factory is list True
+plain isinstance dict True
+counter isinstance dict True
+ordered isinstance dict True
+== exception:
+== stderr:

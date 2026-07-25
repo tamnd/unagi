@@ -202,6 +202,20 @@ func genericSetAttr(x *instanceObject, name string, val Object) error {
 			}
 		}
 	}
+	// A defaultdict subclass's default_factory is a getset descriptor on the base
+	// type, so an assignment writes through to the store's factory rather than
+	// landing in the instance dict, the way FreezableDefaultDict.freeze sets
+	// self.default_factory = None. Any other value is the callable-or-None
+	// TypeError CPython raises.
+	if name == "default_factory" {
+		if d, ok := dictBacked(x); ok && d.kind == defaultDict {
+			if val != None && !Callable(val) {
+				return Raise(TypeError, "default_factory must be callable or None")
+			}
+			d.factory = val
+			return nil
+		}
+	}
 	if !x.cls.instDict {
 		return noDictSetError(x, name, tok)
 	}

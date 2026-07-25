@@ -1646,6 +1646,22 @@ func isTypeArg(o Object) bool {
 	return false
 }
 
+// builtinBaseMatches reports whether a user class whose recorded builtin base
+// layout is base counts as a subclass of the builtin type named name. The name
+// is the arg-2 type's repr key, so a defaultdict subclass carries the "defaultdict"
+// base yet must answer to both "collections.defaultdict" (the module-qualified
+// type) and "dict", since defaultdict is itself a dict subclass in CPython.
+func builtinBaseMatches(base, name string) bool {
+	if base == name {
+		return true
+	}
+	switch base {
+	case "defaultdict":
+		return name == "collections.defaultdict" || name == "dict"
+	}
+	return false
+}
+
 // instanceOfBuiltin reports whether obj is an instance of the builtin type
 // named name. int owns bool as a subtype, type covers every type value, and
 // every other kind matches its own TypeName exactly.
@@ -1653,7 +1669,7 @@ func instanceOfBuiltin(obj Object, name string) bool {
 	// A dict subclass instance is an instance of dict, so isinstance(x, dict)
 	// answers from the layout the class recorded, not its own type name.
 	if inst, ok := obj.(*instanceObject); ok {
-		return inst.cls.builtinBase == name
+		return builtinBaseMatches(inst.cls.builtinBase, name)
 	}
 	switch name {
 	case "type":
@@ -1668,6 +1684,11 @@ func instanceOfBuiltin(obj Object, name string) bool {
 		// namedtuple and structseq values (os.stat_result) are tuple subclasses,
 		// so they report a distinct TypeName yet are instances of tuple.
 		_, ok := obj.(*tupleObject)
+		return ok
+	case "dict":
+		// Counter, OrderedDict and defaultdict are dict subclasses in CPython, so
+		// they report a distinct TypeName yet are instances of dict.
+		_, ok := obj.(*dictObject)
 		return ok
 	case "collections.OrderedDict":
 		// The OrderedDict type name carries its module so it reprs as a class the
@@ -1958,7 +1979,7 @@ func subclassOf(sc *classObject, cls Object) (Object, error) {
 	// A user class is a subclass of a builtin type only when it derives from
 	// that type, the layout recorded on the class; object is handled above.
 	if tname, ok := builtinTypeArgName(cls); ok {
-		return NewBool(sc.builtinBase == tname), nil
+		return NewBool(builtinBaseMatches(sc.builtinBase, tname)), nil
 	}
 	return nil, Raise(TypeError, "issubclass() arg 2 must be a class, a tuple of classes, or a union")
 }
@@ -2179,6 +2200,11 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 	switch c.builtinBase {
 	case "dict":
 		inst.dictData = &dictObject{index: map[string]int{}}
+	case "defaultdict":
+		// A defaultdict subclass is dict-backed with a defaultDict-kind store; the
+		// factory is bound from the constructor arguments by the inherited
+		// defaultdict.__init__ below (or a super().__init__ call).
+		inst.dictData = &dictObject{index: map[string]int{}, kind: defaultDict}
 	case "list":
 		inst.listData = &listObject{}
 	case "int", "str", "bytes", "tuple", "classmethod", "staticmethod", "property", "ref":
@@ -2221,7 +2247,15 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 	if !ok {
 		if inst.dictData != nil {
 			// A dict subclass with no __init__ override inherits dict.__init__,
-			// which seeds the store from the constructor arguments.
+			// which seeds the store from the constructor arguments. A defaultdict
+			// subclass inherits defaultdict.__init__ instead, which first peels the
+			// default_factory off the front.
+			if c.builtinBase == "defaultdict" {
+				if err := defaultdictInit(inst.dictData, pos, kwNames, kwVals); err != nil {
+					return nil, err
+				}
+				return inst, nil
+			}
 			if err := dictInit(inst.dictData, pos, kwNames, kwVals); err != nil {
 				return nil, err
 			}

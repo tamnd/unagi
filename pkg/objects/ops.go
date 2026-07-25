@@ -1502,6 +1502,11 @@ func GetItem(o, key Object) (Object, error) {
 			} else if defined {
 				return res, nil
 			}
+			// A defaultdict subclass with no __missing__ override inherits
+			// defaultdict.__missing__: a live factory fills and stores the key.
+			if d.kind == defaultDict && d.factory != nil && d.factory != None {
+				return defaultdictFill(d, key)
+			}
 			return nil, NewException(KeyError, []Object{key})
 		}
 		if l, ok := listBacked(x); ok {
