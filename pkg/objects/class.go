@@ -761,6 +761,34 @@ func classInheritedDefault(x *classObject, name string) (Object, bool) {
 	return nil, false
 }
 
+// objectDefaultNe implements object.__ne__: it delegates to the object's own
+// __eq__ and inverts the truth of the result, declining (NotImplemented) when
+// __eq__ does, exactly as object_richcompare drives Py_NE. When the object has
+// no user __eq__ its equality is identity, so unequal objects yield
+// NotImplemented and let the other operand decide.
+func objectDefaultNe(self, other Object) (Object, error) {
+	if inst, ok := self.(*instanceObject); ok {
+		res, defined, err := instanceSpecial(inst, "__eq__", other)
+		if err != nil {
+			return nil, err
+		}
+		if defined {
+			if _, ni := res.(*notImplementedObject); ni {
+				return NotImplemented, nil
+			}
+			t, err := TruthOf(res)
+			if err != nil {
+				return nil, err
+			}
+			return NewBool(!t), nil
+		}
+	}
+	if self == other {
+		return NewBool(false), nil
+	}
+	return NotImplemented, nil
+}
+
 // classSubclassesList builds the list __subclasses__() returns, the direct
 // subclasses in creation order. Each element is the class object itself, so a
 // caller reads back the same classes it built.
@@ -860,6 +888,41 @@ func init() {
 			// class attribute lookup consults first.
 			return NotImplemented, nil
 		}),
+		// object's comparison slots. These match object_richcompare: __eq__ is
+		// identity or NotImplemented (so the other operand's slot still gets a say),
+		// __ne__ delegates to the object's own __eq__ and inverts unless it declines,
+		// and the four ordering slots always decline. The operator path (a == b) runs
+		// through Compare/richCompare and never reads these, so they exist purely so
+		// the dunders are readable and borrowable as attributes — the shape
+		// http.cookies.Morsel relies on with `__ne__ = object.__ne__`.
+		"__eq__": NewFunc("__eq__", 2, func(args []Object) (Object, error) {
+			if len(args) != 2 {
+				return nil, Raise(TypeError, "object.__eq__() takes exactly one argument")
+			}
+			if args[0] == args[1] {
+				return NewBool(true), nil
+			}
+			return NotImplemented, nil
+		}),
+		"__ne__": NewFunc("__ne__", 2, func(args []Object) (Object, error) {
+			if len(args) != 2 {
+				return nil, Raise(TypeError, "object.__ne__() takes exactly one argument")
+			}
+			return objectDefaultNe(args[0], args[1])
+		}),
+	}
+
+	// The four ordering slots object provides. object defines them, but they always
+	// return NotImplemented: a bare object has no order, so a < b raises only after
+	// both operands decline. Kept as distinct builtins so each reads back under its
+	// own name.
+	for _, name := range []string{"__lt__", "__le__", "__gt__", "__ge__"} {
+		objectDunders[name] = NewFunc(name, 2, func(args []Object) (Object, error) {
+			if len(args) != 2 {
+				return nil, Raise(TypeError, "object.%s() takes exactly one argument", name)
+			}
+			return NotImplemented, nil
+		})
 	}
 
 	// int and str carry their own string dunders and inherit the rest from
@@ -948,7 +1011,8 @@ func init() {
 	// bind it as self, so a class that reassigns one to another slot (Enum sets
 	// __str__ = int.__repr__) still calls it with self. __new__ stays a
 	// staticmethod, so it is left unbound.
-	for _, name := range []string{"__repr__", "__str__", "__format__", "__reduce_ex__"} {
+	for _, name := range []string{"__repr__", "__str__", "__format__", "__reduce_ex__",
+		"__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__"} {
 		markSelfBound(objectDunders[name])
 	}
 	for _, tbl := range builtinTypeDunders {
