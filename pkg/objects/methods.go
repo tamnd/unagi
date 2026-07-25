@@ -191,6 +191,11 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		}
 		return CallT(t, v, args)
 	}
+	// An iterator called through it.__next__() or it.__iter__() resolves the
+	// same dunder the bound read in LoadAttr exposes, then calls it.
+	if v, ok := iteratorSpecialAttr(o, name); ok {
+		return CallT(t, v, args)
+	}
 	return nil, noAttr(o, name)
 }
 

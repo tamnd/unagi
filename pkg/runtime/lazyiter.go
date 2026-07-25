@@ -60,6 +60,12 @@ func (c *callIter) Next() (objects.Object, bool, error) {
 func Iter(args []objects.Object) (objects.Object, error) {
 	switch len(args) {
 	case 1:
+		// iter() is idempotent on an iterator: an object that is already its own
+		// iterator (it implements Next) comes back unchanged, so iter(it) is it,
+		// matching CPython. Only a plain iterable gets a fresh handle.
+		if _, ok := args[0].(objects.Iterator); ok {
+			return args[0], nil
+		}
 		it, err := objects.Iter(args[0])
 		if err != nil {
 			return nil, err

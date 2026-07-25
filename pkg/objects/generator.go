@@ -414,6 +414,25 @@ func genMethod(g *generatorObject, name string, args []Object) (Object, error) {
 			return nil, Raise(TypeError, "close() takes no arguments (%d given)", len(args))
 		}
 		return g.closeGen()
+	case "__next__":
+		// A plain generator is its own iterator: gen.__next__() advances it and
+		// raises StopIteration when the frame returns, the same as next(gen). A
+		// coroutine is not an iterator, so it keeps the attribute miss.
+		if g.isCoro {
+			return nil, noAttr(g, name)
+		}
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "__next__() takes no arguments (%d given)", len(args))
+		}
+		return NextValue([]Object{g})
+	case "__iter__":
+		if g.isCoro {
+			return nil, noAttr(g, name)
+		}
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "__iter__() takes no arguments (%d given)", len(args))
+		}
+		return g, nil
 	}
 	return nil, noAttr(g, name)
 }
