@@ -175,6 +175,12 @@ func genericGetAttr(x *instanceObject, name string) (Object, error) {
 // descriptor with __set__ runs it), otherwise the value lands in the instance
 // dict with its insertion order recorded.
 func genericSetAttr(x *instanceObject, name string, val Object) error {
+	// __class__ rebinds the instance's type through object's getset descriptor,
+	// which outranks the instance dict, so a write never lands in the dict.
+	// CPython requires the new value be a class whose instance layout matches.
+	if name == "__class__" {
+		return instanceSetClass(x, val)
+	}
 	tv, tok := x.cls.lookup(name)
 	if tok {
 		if p, ok := descriptorPayload(tv); ok {
@@ -203,6 +209,23 @@ func genericSetAttr(x *instanceObject, name string, val Object) error {
 	return nil
 }
 
+// instanceSetClass implements `x.__class__ = newCls`: the new value must be a
+// class whose instances share x's layout, and then x is retyped in place. This
+// matches CPython's object.__class__ setter, including the two TypeErrors it
+// raises for a non-class value and an incompatible layout.
+func instanceSetClass(x *instanceObject, val Object) error {
+	newCls, ok := val.(*classObject)
+	if !ok {
+		return Raise(TypeError, "__class__ must be set to a class, not '%s' object", val.TypeName())
+	}
+	if !layoutCompatible(x.cls, newCls) {
+		return Raise(TypeError, "__class__ assignment: '%s' object layout differs from '%s'",
+			newCls.name, x.cls.name)
+	}
+	x.cls = newCls
+	return nil
+}
+
 // genericDelAttr is object.__delattr__: a data descriptor with __delete__ (or a
 // property with a deleter) intercepts the delete, otherwise the instance-dict
 // entry is removed, a missing name being the same AttributeError a read gives.
@@ -227,6 +250,10 @@ func genericDelAttr(x *instanceObject, name string) error {
 				return err
 			}
 		}
+	}
+	if name == "__class__" {
+		// CPython refuses to delete __class__ outright, before any dict check.
+		return Raise(TypeError, "can't delete __class__ attribute")
 	}
 	if !x.cls.instDict {
 		// A delete on a dict-less instance fails the same two ways a write
