@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+attr alpha
+attr again beta
+from alpha
+attr decline module 'lazy' has no attribute 'GAMMA'
+from decline ImportError
+Match typing.Match
+Pattern typing.Pattern
+ContextManager typing.ContextManager
+re.Match module re
+typing decline module 'typing' has no attribute 'NoSuchName'
+== exception:
+== stderr:

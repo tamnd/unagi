@@ -2889,6 +2889,16 @@ func LoadAttr(o Object, name string) (Object, error) {
 		// NotImplemented and the ABC falls back to its registry, which register just
 		// populated, keeping isinstance faithful.
 		switch name {
+		case "__module__":
+			// A module-qualified type name carries its module as the part before the
+			// last dot, so re.Match.__module__ reads 're' and collections.OrderedDict
+			// reads 'collections'; a bare type name lives in builtins the way CPython
+			// reports function.__module__. typing._alias reads origin.__module__ when
+			// it builds the soft-deprecated Match and Pattern aliases.
+			if i := strings.LastIndexByte(x.name, '.'); i >= 0 {
+				return NewStr(x.name[:i]), nil
+			}
+			return NewStr("builtins"), nil
 		case "__mro__":
 			return NewTuple([]Object{x, objectClass}), nil
 		case "__bases__":

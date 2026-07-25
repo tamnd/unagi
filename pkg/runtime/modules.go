@@ -388,6 +388,19 @@ func ImportFrom(module, name string) (objects.Object, error) {
 	if _, ok := moduleTable[module+"."+name]; ok {
 		return ImportModule(module + "." + name)
 	}
+	// PEP 562: `from module import name` consults a module-level __getattr__ for a
+	// name absent from the namespace, the same hook attribute access uses, so
+	// typing's lazily built Match and Pattern import. A miss the hook signals with
+	// AttributeError falls through to the ordinary ImportError wording below.
+	if hook, ok := m.Get("__getattr__"); ok && objects.Callable(hook) {
+		v, err := objects.Call(hook, []objects.Object{objects.NewStr(name)})
+		if err == nil {
+			return v, nil
+		}
+		if !isAttributeError(err) {
+			return nil, err
+		}
+	}
 	if m.Initializing() {
 		return nil, objects.Raise(objects.ImportError,
 			"cannot import name '%s' from '%s' (consider renaming '%s' if it has the same name as a library you intended to import)",
