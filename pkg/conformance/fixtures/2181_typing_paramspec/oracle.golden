@@ -1,0 +1,22 @@
+== exit: 0
+== stdout:
+~P P <class 'NoneType'>
+False False False False typing.NoDefault
+P.args ParamSpecArgs
+P.kwargs ParamSpecKwargs
+True True
+P
++P_co -P_contra P
+~P | int int | ~P
+<class 'int'>
+[<class 'int'>, <class 'str'>] True
+True False
+True P.args
+(<class 'int'>, <class 'str'>)
+__main__
+ValueError Bivariant types are not supported.
+TypeError paramspec() argument 'name' must be str, not int
+TypeError paramspec() takes exactly 1 positional argument (3 given)
+TypeError paramspec() got an unexpected keyword argument 'foo'
+== exception:
+== stderr:

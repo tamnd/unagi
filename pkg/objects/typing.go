@@ -193,6 +193,180 @@ func typeVarLoadAttr(tv *typeVarObject, name string) (Object, error) {
 	return nil, Raise(AttributeError, "'typing.TypeVar' object has no attribute '%s'", name)
 }
 
+// paramSpecObject is typing.ParamSpec, a parameter specification variable. It
+// mirrors a TypeVar's variance and default surface but takes no constraints and
+// carries the .args / .kwargs members a Callable signature substitutes. One
+// CPython quirk is faithfully preserved: an unbounded ParamSpec reports
+// __bound__ as the NoneType type object, not None (a TypeVar reports None).
+type paramSpecObject struct {
+	name          string
+	bound         Object // nil when unbounded (reads back as the NoneType type)
+	covariant     bool
+	contravariant bool
+	inferVariance bool
+	hasDefault    bool
+	defaultVal    Object
+	module        string
+}
+
+func (*paramSpecObject) TypeName() string { return "ParamSpec" }
+
+// paramSpecArgsObject is P.args, the positional half of a ParamSpec. It reprs as
+// "P.args" and is compared by its origin ParamSpec.
+type paramSpecArgsObject struct{ origin *paramSpecObject }
+
+func (*paramSpecArgsObject) TypeName() string { return "ParamSpecArgs" }
+
+// paramSpecKwargsObject is P.kwargs, the keyword half of a ParamSpec.
+type paramSpecKwargsObject struct{ origin *paramSpecObject }
+
+func (*paramSpecKwargsObject) TypeName() string { return "ParamSpecKwargs" }
+
+// NewParamSpecConstructor returns the callable bound as _typing.ParamSpec.
+func NewParamSpecConstructor() Object {
+	return NewFuncKwT("ParamSpec", newParamSpec)
+}
+
+// NewParamSpecArgsConstructor and NewParamSpecKwargsConstructor return the
+// callables bound as _typing.ParamSpecArgs / _typing.ParamSpecKwargs, which wrap
+// a ParamSpec into its positional or keyword member.
+func NewParamSpecArgsConstructor() Object {
+	return NewFunc("ParamSpecArgs", 1, func(args []Object) (Object, error) {
+		ps, ok := args[0].(*paramSpecObject)
+		if !ok {
+			return nil, Raise(TypeError, "ParamSpecArgs(origin) argument must be a ParamSpec")
+		}
+		return &paramSpecArgsObject{origin: ps}, nil
+	})
+}
+
+func NewParamSpecKwargsConstructor() Object {
+	return NewFunc("ParamSpecKwargs", 1, func(args []Object) (Object, error) {
+		ps, ok := args[0].(*paramSpecObject)
+		if !ok {
+			return nil, Raise(TypeError, "ParamSpecKwargs(origin) argument must be a ParamSpec")
+		}
+		return &paramSpecKwargsObject{origin: ps}, nil
+	})
+}
+
+// newParamSpec builds a ParamSpec from ParamSpec(name, *, bound=None,
+// covariant=False, contravariant=False, infer_variance=False, default=NoDefault).
+// Unlike a TypeVar it takes exactly one positional argument and no constraints.
+func newParamSpec(t *Thread, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	if len(pos) < 1 {
+		return nil, Raise(TypeError, "paramspec() missing required argument 'name' (pos 1)")
+	}
+	if len(pos) > 1 {
+		return nil, Raise(TypeError, "paramspec() takes exactly 1 positional argument (%d given)", len(pos))
+	}
+	name, ok := AsStr(pos[0])
+	if !ok {
+		return nil, Raise(TypeError, "paramspec() argument 'name' must be str, not %s", pos[0].TypeName())
+	}
+	ps := &paramSpecObject{name: name, module: callerModuleName(t), defaultVal: noDefault}
+	for i, k := range kwNames {
+		switch k {
+		case "bound":
+			if kwVals[i] != None {
+				ps.bound = kwVals[i]
+			}
+		case "covariant":
+			ps.covariant = Truth(kwVals[i])
+		case "contravariant":
+			ps.contravariant = Truth(kwVals[i])
+		case "infer_variance":
+			ps.inferVariance = Truth(kwVals[i])
+		case "default":
+			ps.hasDefault = true
+			ps.defaultVal = kwVals[i]
+		default:
+			return nil, Raise(TypeError, "paramspec() got an unexpected keyword argument '%s'", k)
+		}
+	}
+	if ps.covariant && ps.contravariant {
+		return nil, Raise(ValueError, "Bivariant types are not supported.")
+	}
+	if ps.inferVariance && (ps.covariant || ps.contravariant) {
+		return nil, Raise(ValueError, "Variance cannot be specified with infer_variance.")
+	}
+	return ps, nil
+}
+
+// paramSpecRepr renders a ParamSpec as its variance sigil followed by the name,
+// the same shape a TypeVar uses.
+func paramSpecRepr(ps *paramSpecObject) string {
+	switch {
+	case ps.covariant:
+		return "+" + ps.name
+	case ps.contravariant:
+		return "-" + ps.name
+	case ps.inferVariance:
+		return ps.name
+	default:
+		return "~" + ps.name
+	}
+}
+
+// paramSpecLoadAttr answers a ParamSpec's attributes and bound methods.
+func paramSpecLoadAttr(ps *paramSpecObject, name string) (Object, error) {
+	switch name {
+	case "__name__", "__qualname__":
+		return NewStr(ps.name), nil
+	case "__bound__":
+		if ps.bound == nil {
+			// The CPython quirk: an unbounded ParamSpec reports the NoneType type.
+			return TypeSingleton("NoneType"), nil
+		}
+		return ps.bound, nil
+	case "__covariant__":
+		return NewBool(ps.covariant), nil
+	case "__contravariant__":
+		return NewBool(ps.contravariant), nil
+	case "__infer_variance__":
+		return NewBool(ps.inferVariance), nil
+	case "__default__":
+		return ps.defaultVal, nil
+	case "__module__":
+		return NewStr(ps.module), nil
+	case "args":
+		return &paramSpecArgsObject{origin: ps}, nil
+	case "kwargs":
+		return &paramSpecKwargsObject{origin: ps}, nil
+	case "has_default":
+		return NewFunc("has_default", 0, func(args []Object) (Object, error) {
+			return NewBool(ps.hasDefault), nil
+		}), nil
+	case "__reduce__":
+		return NewFunc("__reduce__", 0, func(args []Object) (Object, error) {
+			return NewStr(ps.name), nil
+		}), nil
+	case "__typing_subst__":
+		return NewFunc("__typing_subst__", 1, func(args []Object) (Object, error) {
+			return args[0], nil
+		}), nil
+	case "__or__":
+		return NewFunc("__or__", 1, func(args []Object) (Object, error) {
+			return BitOr(ps, args[0])
+		}), nil
+	case "__ror__":
+		return NewFunc("__ror__", 1, func(args []Object) (Object, error) {
+			return BitOr(args[0], ps)
+		}), nil
+	}
+	return nil, Raise(AttributeError, "'typing.ParamSpec' object has no attribute '%s'", name)
+}
+
+// paramSpecMemberLoadAttr answers the attributes shared by P.args and P.kwargs:
+// __origin__ is the ParamSpec they came from.
+func paramSpecMemberLoadAttr(origin *paramSpecObject, kind, name string) (Object, error) {
+	switch name {
+	case "__origin__":
+		return origin, nil
+	}
+	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", kind, name)
+}
+
 // noDefaultLoadAttr answers the sentinel's attributes. __reduce__ is a callable
 // returning the bare name "NoDefault", which is how CPython makes it picklable
 // and copy-stable: copy.copy and pickle both see a global reference and hand

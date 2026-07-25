@@ -1,0 +1,28 @@
+import _typing
+PS = _typing.ParamSpec
+P = PS('P')
+print(repr(P), P.__name__, repr(P.__bound__))
+print(P.__covariant__, P.__contravariant__, P.__infer_variance__, P.has_default(), repr(P.__default__))
+print(repr(P.args), type(P.args).__name__)
+print(repr(P.kwargs), type(P.kwargs).__name__)
+print(P.args.__origin__ is P, P.kwargs.__origin__ is P)
+print(P.__reduce__())
+print(repr(PS('P_co', covariant=True)), repr(PS('P_contra', contravariant=True)), repr(PS('P', infer_variance=True)))
+print(repr(P | int), repr(int | P))
+B = PS('B', bound=int)
+print(repr(B.__bound__))
+D = PS('D', default=[int, str])
+print(D.__default__, D.has_default())
+Q = PS('Q')
+print(P.args == P.args, P.args == Q.args)
+PSA = _typing.ParamSpecArgs
+print(PSA(P) == P.args, repr(PSA(P)))
+print(P.__typing_subst__((int, str)))
+print(P.__module__)
+def err(fn):
+    try: fn()
+    except Exception as e: print(type(e).__name__, e)
+err(lambda: PS('X', covariant=True, contravariant=True))
+err(lambda: PS(5))
+err(lambda: PS('X', int, str))
+err(lambda: PS('X', foo=1))
