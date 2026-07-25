@@ -156,6 +156,17 @@ func initFunctools(m *objects.Module) error {
 		return err
 	}
 
+	// singledispatch(func): turn func into a generic function that dispatches on
+	// the type of its first argument. func is the default implementation and
+	// wrapper.register binds a more specific one to a type, with dispatch walking
+	// the registry by subclass so a base class also serves its subclasses.
+	singledispatch := objects.NewFunc("singledispatch", 1, func(a []objects.Object) (objects.Object, error) {
+		return objects.NewSingleDispatch(a[0]), nil
+	})
+	if err := set("singledispatch", singledispatch); err != nil {
+		return err
+	}
+
 	// cached_property(func): a non-data descriptor that computes its value from
 	// func the first time it is read off an instance and caches the result in the
 	// instance dict, so the function runs once per instance and later reads hit
