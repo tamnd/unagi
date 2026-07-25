@@ -2020,6 +2020,21 @@ func LoadAttr(o Object, name string) (Object, error) {
 		if name == "__new__" {
 			return objectNewBuiltin, nil
 		}
+		// A class with no __hash__ of its own inherits object.__hash__, unless it
+		// or a base defines __eq__ without a __hash__, which the class machinery
+		// nulls to None the way `B.__hash__ is None` reports for an __eq__-only
+		// class. dataclasses reads `f.default.__class__.__hash__ is None` to reject
+		// a mutable default, so a hashable default's type has to answer here. This
+		// point is reached only when no class in the MRO bound __hash__ in its dict,
+		// so the object default stands unless an __eq__ demoted it.
+		if name == "__hash__" {
+			for _, c := range x.mro {
+				if _, ok := c.dict["__eq__"]; ok {
+					return None, nil
+				}
+			}
+			return builtinHashDunder, nil
+		}
 		// A class that overrides none of the object dunders inherits them, so
 		// C.__repr__ is object.__repr__ the way CPython reports it.
 		if v, ok := objectDunders[name]; ok {
@@ -2355,6 +2370,17 @@ func LoadAttr(o Object, name string) (Object, error) {
 					return v, nil
 				}
 			}
+			// A builtin type answers __hash__ the way its __dict__ carries it: the
+			// hashable constructors read back object's hash slot, the unhashable
+			// containers (list, dict, set, bytearray) read back None. dataclasses
+			// reads `f.default.__class__.__hash__ is None` on the default's type, so
+			// int.__hash__ and str.__hash__ have to resolve to a callable here.
+			if name == "__hash__" {
+				if builtinUnhashableType[x.name] {
+					return None, nil
+				}
+				return builtinHashDunder, nil
+			}
 			if v, ok := builtinTypeIntrospect(x, name); ok {
 				return v, nil
 			}
@@ -2395,6 +2421,15 @@ func LoadAttr(o Object, name string) (Object, error) {
 			// stable per-type builtin: the registration object and the print-time
 			// `type(object).__repr__` lookup are then the same and the dispatch hits.
 			return typeObjectReprDunder(x.name), nil
+		case "__hash__":
+			// dataclasses guards against a mutable default with
+			// `f.default.__class__.__hash__ is None`, so a hashable default's type has
+			// to answer __hash__ with a callable, not raise. These constructor-less
+			// types (function, generator, the iterator and view types) inherit
+			// object.__hash__ and are all hashable, so the shared hash dunder is the
+			// faithful answer, and type(x).__hash__(x) equals hash(x) the way an
+			// unbound object.__hash__ slot does.
+			return builtinHashDunder, nil
 		}
 		return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
 	case *namedTupleType:
