@@ -63,5 +63,14 @@ func initTyping(m *objects.Module) error {
 	if err := objects.StoreAttr(m, "TypeAliasType", objects.NewTypeAliasTypeConstructor()); err != nil {
 		return err
 	}
+	// Generic is the base class user generics subclass. Generic[T] and Box[int]
+	// build a typing._GenericAlias by delegating to typing.py's own builder.
+	generic, err := genericBaseClass()
+	if err != nil {
+		return err
+	}
+	if err := objects.StoreAttr(m, "Generic", generic); err != nil {
+		return err
+	}
 	return nil
 }

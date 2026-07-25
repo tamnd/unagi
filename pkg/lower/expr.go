@@ -162,6 +162,13 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 			f.e.usedObjects = true
 			return f.e.obj("NotImplemented"), nil
 		}
+		if e.Id == "Ellipsis" {
+			// The Ellipsis singleton, the value of the `...` literal, read by its
+			// builtin name; typing compares against it (`args is Ellipsis`) when
+			// lowering Callable and Tuple forms.
+			f.e.usedObjects = true
+			return f.e.obj("Ellipsis"), nil
+		}
 		if e.Id == "super" {
 			// super read as a value resolves to its type object, so it can be
 			// stored, passed around, and used as a dict key the way copyreg

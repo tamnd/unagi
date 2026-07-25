@@ -166,7 +166,8 @@ func hashKey(o Object) (string, error) {
 	case *funcObject, *functionObject, *Exception, *dictValuesObject,
 		*ellipsisObject, *notImplementedObject, *classObject, *typeObject,
 		*patternObject, *matchObject, *futureObject, *asyncTask, *asyncFuture,
-		*Module:
+		*Module, *typeVarObject, *paramSpecObject, *typeVarTupleObject,
+		*paramSpecArgsObject, *paramSpecKwargsObject, *typeAliasObject:
 		// Identity types: the same objects PyHash hashes by pointer key
 		// dict slots by pointer, so two equal-by-identity reads collide
 		// and everything else stays distinct. The Ellipsis and NotImplemented
