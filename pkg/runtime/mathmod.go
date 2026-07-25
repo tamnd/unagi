@@ -777,6 +777,13 @@ func mathRound(args []objects.Object, name string, round func(float64) float64) 
 	if bi, ok := objects.AsBigInt(args[0]); ok {
 		return objects.NewIntFromBig(bi), nil
 	}
+	// A user numeric drives floor/ceil/trunc through its own __floor__/__ceil__/
+	// __trunc__, whose result is returned verbatim the way CPython's math does.
+	if res, defined, err := objects.InstanceDunder(args[0], "__"+name+"__"); err != nil {
+		return nil, err
+	} else if defined {
+		return res, nil
+	}
 	x, err := mathToFloat(args[0])
 	if err != nil {
 		return nil, err
