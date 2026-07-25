@@ -1,0 +1,36 @@
+package runtime
+
+import (
+	"github.com/tamnd/unagi/pkg/objects"
+)
+
+// _typing is the built-in C accelerator behind the pure-Python typing module.
+// typing.py opens with a hard `from _typing import (_idfunc, TypeVar,
+// ParamSpec, TypeVarTuple, ParamSpecArgs, ParamSpecKwargs, TypeAliasType,
+// Generic, Union, NoDefault)` and has no pure-Python fallback, so `import
+// typing` cannot even start without this module. CPython 3.14 implements these
+// in C (Objects/typevarobject.c); we provide the same names natively so the
+// vendored typing.py runs unmodified and never sees an ImportError.
+//
+// The names land object by object across slices. This first slice provides the
+// two leaf primitives that carry no type-machinery of their own: _idfunc, the
+// identity function typing uses for cheap no-op hooks, and NoDefault, the
+// sentinel a type parameter reports when it has no default.
+func init() {
+	moduleTable["_typing"] = &moduleEntry{builtin: true, exec: initTyping}
+}
+
+func initTyping(m *objects.Module) error {
+	// _idfunc(x, /) returns its single argument unchanged. typing binds it as a
+	// no-op __call__ on the special forms so `SomeForm(arg)` yields arg.
+	idfunc := objects.NewFunc("_idfunc", 1, func(args []objects.Object) (objects.Object, error) {
+		return args[0], nil
+	})
+	if err := objects.StoreAttr(m, "_idfunc", idfunc); err != nil {
+		return err
+	}
+	if err := objects.StoreAttr(m, "NoDefault", objects.NoDefaultSingleton()); err != nil {
+		return err
+	}
+	return nil
+}

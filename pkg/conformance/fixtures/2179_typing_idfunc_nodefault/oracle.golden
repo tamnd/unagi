@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+5
+hi
+True
+typing.NoDefault
+typing.NoDefault
+NoDefault
+True
+== exception:
+== stderr:

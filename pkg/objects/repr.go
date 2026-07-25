@@ -230,6 +230,8 @@ func reprCore(o Object, strict bool) (string, error) {
 		return genericAliasRepr(x)
 	case *typeAliasObject:
 		return x.name, nil
+	case *noDefaultObject:
+		return "typing.NoDefault", nil
 	case *templateObject:
 		return templateRepr(x)
 	case *interpolationObject:

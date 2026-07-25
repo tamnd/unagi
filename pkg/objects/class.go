@@ -2411,6 +2411,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return genericAliasLoadAttr(x, name)
 	case *typeAliasObject:
 		return typeAliasLoadAttr(x, name)
+	case *noDefaultObject:
+		return noDefaultLoadAttr(name)
 	case *templateObject:
 		return templateLoadAttr(x, name)
 	case *interpolationObject:
