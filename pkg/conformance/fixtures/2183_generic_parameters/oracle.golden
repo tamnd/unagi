@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+(~T,)
+(~K, ~V)
+(~T,)
+(~V, ~K)
+()
+(~K, ~V)
+(~P,)
+(Ts,)
+(~T,)
+(~T, ~V)
+(~T,)
+(~V, ~T)
+()
+== exception:
+== stderr:
