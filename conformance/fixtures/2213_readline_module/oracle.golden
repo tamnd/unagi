@@ -1,0 +1,26 @@
+== exit: 0
+== stdout:
+4
+alpha delta
+None None
+BETA
+3 BETA
+0
+3
+['BETA', 'gamma', 'delta']
+FileNotFoundError
+2
+['line3', 'line4']
+True
+True
+ 	
+
+spam spanner None
+''
+0 0
+None
+None
+None
+done
+== exception:
+== stderr:
