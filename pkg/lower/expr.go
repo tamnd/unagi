@@ -191,6 +191,14 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 			// builtins (exit, copyright, ...) take the same path: they are
 			// value-only, so reading and calling both go through the registered
 			// object. Shadowing by a local or module variable is handled above.
+			if e.Id == "globals" || e.Id == "dir" {
+				// The value forms of globals and dir read the module namespace at
+				// call time the way the in-place globals()/dir() calls do, so main
+				// must bind the module-scope names onto the __main__ module even
+				// when the only reference is a value alias (timeit's `_globals =
+				// globals`). Setting usedGlobals here materializes that storage.
+				f.e.usedGlobals = true
+			}
 			return callExpr(sel("runtime", "BuiltinFn"), strLit(e.Id)), nil
 		}
 		if objects.IsExceptionClass(e.Id) {

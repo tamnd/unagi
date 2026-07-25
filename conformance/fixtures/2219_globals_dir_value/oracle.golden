@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+globals type dict
+marker in globals True
+marker value 41
+injected read back 99
+globals arg TypeError
+press in dir(Widget) True
+kind in dir(Widget) True
+dir(Widget) sorted True
+MARKER in dir() True
+Widget in dir() True
+timeit imported timeit
+default_repeat 5
+done
+== exception:
+== stderr:
