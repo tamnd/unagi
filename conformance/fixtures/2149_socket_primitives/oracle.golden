@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+2 1 2 6 17 0
+256 1 1 16777216 1
+b'\x01\x02\x03\x04'
+1.2.3.4
+b'\x01\x02\x03\x04'
+b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01'
+1.2.3.4
+::1
+None
+3.5
+None
+True True
+True True gaierror
+True
+OSError illegal IP address string passed to inet_aton
+OSError packed IP wrong length for inet_ntoa
+ValueError Cannot convert negative int
+OverflowError Python int too large for C uint16_t
+OverflowError Python int too large for C uint32_t
+OSError illegal IP address string passed to inet_pton
+ValueError invalid length of packed IP address string
+== exception:
+== stderr:
