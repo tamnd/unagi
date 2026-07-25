@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+tracing init: False
+limit init: 1
+tracing after start(5): True
+limit after start(5): 5
+tracing after stop: False
+limit after stop: 5
+limit after start(): 1
+traced_mem not tracing: (0, 0)
+take_snapshot not tracing: RuntimeError
+clear_traces: None
+reset_peak: None
+start(0): ValueError
+obj traceback: None
+== exception:
+== stderr:
