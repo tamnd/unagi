@@ -1,0 +1,9 @@
+== exit: 0
+== stdout:
+True True True
+True True
+['a', 'b'] 1 2 True
+3
+TypeError True
+== exception:
+== stderr:

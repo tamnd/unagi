@@ -3115,6 +3115,15 @@ func InstanceDict(o Object) (Object, error) {
 		return instanceDict(x)
 	case *Exception:
 		return excDict(x)
+	case *Module:
+		// vars(module) is the module's live namespace, the same dict its __dict__
+		// hands back. sre_constants does vars(re._constants) to hoist the opcode
+		// names into its own globals, so a module has to answer here.
+		return moduleLoadAttr(x, "__dict__")
+	case *simpleNamespaceObject:
+		// vars(ns) is a SimpleNamespace's live attribute dict, the same object
+		// ns.__dict__ exposes.
+		return x.dict, nil
 	}
 	return nil, Raise(TypeError, "vars() argument must have __dict__ attribute")
 }

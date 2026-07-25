@@ -271,6 +271,28 @@ func TestInstanceDictNonInstance(t *testing.T) {
 	}
 }
 
+// InstanceDict on a SimpleNamespace is its live attribute dict, the same object
+// its __dict__ exposes, so a write through vars(ns) reaches the namespace. This
+// is the module analogue sre_constants leans on, tested here through the shared
+// namespace dict.
+func TestInstanceDictSimpleNamespace(t *testing.T) {
+	ns := NewSimpleNamespace([]string{"a", "b"}, []Object{NewInt(1), NewInt(2)})
+	d, err := InstanceDict(ns)
+	if err != nil {
+		t.Fatalf("vars(ns): %v", err)
+	}
+	if got := Repr(d); got != "{'a': 1, 'b': 2}" {
+		t.Errorf("vars(ns) = %s, want {'a': 1, 'b': 2}", got)
+	}
+	// Live: a write through the returned dict reaches the namespace.
+	if err := SetItem(d, NewStr("c"), NewInt(3)); err != nil {
+		t.Fatalf("SetItem: %v", err)
+	}
+	if v, err := LoadAttr(ns, "c"); err != nil || Repr(v) != "3" {
+		t.Errorf("ns.c = %v (err %v), want 3", v, err)
+	}
+}
+
 // TestNewType3 covers the three-argument type() dynamic-class path: a valid
 // build carries name, bases, namespace values and MRO, and each argument-type
 // slot raises the probed type.__new__ wording.
