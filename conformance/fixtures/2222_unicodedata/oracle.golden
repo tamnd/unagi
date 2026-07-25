@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+Lu Ll Lt Lm Lo Ll Mn Mc Me Nd Nl No Pc Pd Ps Pe Pi Pf Po Sm Sc Sk So Zs Cc Cf
+9 4 6.0
+-1 -2 -3.0
+ValueError
+ValueError
+ValueError
+W F Na
+hello world
+True True
+bad form
+0 ''
+TypeError
+== exception:
+== stderr:
