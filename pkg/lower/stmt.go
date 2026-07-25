@@ -178,8 +178,13 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 			if hasDflt {
 				dfltsExpr = f.objSlice(dflts)
 			}
-			f.add(set(ident(f.e.fnObjName(s)),
-				f.e.withDoc(callExpr(f.e.obj("NewFunctionT"), strLit(s.Name), f.e.paramSpecLit(s.Params), dfltsExpr, ident(f.e.implName(s))), s.Body)))
+			fnObj, err := f.withAnnotations(
+				f.e.withDoc(callExpr(f.e.obj("NewFunctionT"), strLit(s.Name), f.e.paramSpecLit(s.Params), dfltsExpr, ident(f.e.implName(s))), s.Body),
+				s.Params, s.Returns)
+			if err != nil {
+				return nil, err
+			}
+			f.add(set(ident(f.e.fnObjName(s)), fnObj))
 			return ident(f.e.fnObjName(s)), nil
 		}
 		if len(s.Decorators) == 0 {
@@ -493,6 +498,48 @@ func (f *fnCtx) annThunk(ann frontend.Expr) (ast.Expr, error) {
 		},
 		Body: body,
 	}, nil
+}
+
+// withAnnotations wraps a freshly built function object so its __annotations__
+// slot carries the def's parameter and return annotations, each lowered to the
+// same lazy closure annThunk builds for a class body, so the values evaluate on
+// the first __annotations__ read rather than at definition time (PEP 649). The
+// names follow declaration order with "return" last, aligned to the thunks. A
+// def with no annotations is left untouched.
+func (f *fnCtx) withAnnotations(obj ast.Expr, params []frontend.Param, returns frontend.Expr) (ast.Expr, error) {
+	var names, thunks []ast.Expr
+	add := func(name string, ann frontend.Expr) error {
+		th, err := f.annThunk(ann)
+		if err != nil {
+			return err
+		}
+		names = append(names, strLit(name))
+		thunks = append(thunks, th)
+		return nil
+	}
+	for _, p := range params {
+		if p.Annotation == nil {
+			continue
+		}
+		if err := add(p.Name, p.Annotation); err != nil {
+			return nil, err
+		}
+	}
+	if returns != nil {
+		if err := add("return", returns); err != nil {
+			return nil, err
+		}
+	}
+	if len(names) == 0 {
+		return obj, nil
+	}
+	namesLit := &ast.CompositeLit{Type: &ast.ArrayType{Elt: ident("string")}, Elts: names}
+	thunkType := &ast.FuncType{
+		Params:  &ast.FieldList{},
+		Results: fieldList(field(f.e.obj("Object")), field(ident("error"))),
+	}
+	thunksLit := &ast.CompositeLit{Type: &ast.ArrayType{Elt: thunkType}, Elts: thunks}
+	return callExpr(f.e.obj("WithFuncAnnotationsLazy"), obj, namesLit, thunksLit), nil
 }
 
 func (f *fnCtx) assignTo(target frontend.Expr, v ast.Expr) error {

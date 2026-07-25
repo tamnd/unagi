@@ -29,14 +29,48 @@ func funcDict(fn *functionObject) *dictObject {
 	return o.dict
 }
 
-// funcAnnotations returns the function __annotations__, allocating an empty dict
-// on first use the way CPython hands back a fresh mapping a caller can mutate.
-func funcAnnotations(fn *functionObject) *dictObject {
+// funcAnnotations returns the function __annotations__, realizing the deferred
+// parameter and return annotations into a dict on the first read the way PEP 649
+// evaluates them lazily. The realized dict is memoized so a later read hands back
+// the same mutable mapping, and an unresolved annotation name raises its
+// NameError here rather than at definition time. A def with no annotations
+// allocates an empty dict a caller can mutate, matching CPython.
+func funcAnnotations(fn *functionObject) (*dictObject, error) {
 	o := fn.overlay()
-	if o.annotations == nil {
-		o.annotations = newAttrs()
+	if o.annotations != nil {
+		return o.annotations, nil
 	}
-	return o.annotations
+	d := newAttrs()
+	for _, la := range o.annLazy {
+		v, err := la.thunk()
+		if err != nil {
+			return nil, err
+		}
+		if err := d.set(NewStr(la.name), v); err != nil {
+			return nil, err
+		}
+	}
+	o.annotations = d
+	o.annLazy = nil
+	return d, nil
+}
+
+// WithFuncAnnotationsLazy records a def's parameter and return annotations as
+// unevaluated closures on a freshly built function object, in declaration order
+// with the names aligned to the thunks, and returns the function so the emit
+// site can wrap the NewFunction call. They realize on the first __annotations__
+// read.
+func WithFuncAnnotationsLazy(fn Object, names []string, thunks []func() (Object, error)) Object {
+	f, ok := fn.(*functionObject)
+	if !ok {
+		return fn
+	}
+	o := f.overlay()
+	o.annLazy = make([]lazyAnn, len(names))
+	for i := range names {
+		o.annLazy[i] = lazyAnn{name: names[i], thunk: thunks[i]}
+	}
+	return fn
 }
 
 // functionLoadAttr reads fn.name across the slot defaults and the __dict__. The
@@ -73,7 +107,7 @@ func functionLoadAttr(fn *functionObject, name string) (Object, error) {
 	case "__kwdefaults__":
 		return functionKwDefaults(fn), nil
 	case "__annotations__":
-		return funcAnnotations(fn), nil
+		return funcAnnotations(fn)
 	case "__dict__":
 		return funcDict(fn), nil
 	case "__get__":

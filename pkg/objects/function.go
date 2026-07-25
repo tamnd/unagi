@@ -63,6 +63,20 @@ type funcAttrs struct {
 	name, qual  Object
 	doc, module Object
 	annotations *dictObject
+	// annLazy holds the def's parameter and return annotations as unevaluated
+	// closures, in declaration order with "return" last. They are realized into
+	// annotations on the first __annotations__ read (PEP 649) and then cleared, so
+	// a forward reference or a TYPE_CHECKING-only name costs nothing at definition
+	// time and raises only on access. An explicit __annotations__ assignment sets
+	// annotations directly and shadows these.
+	annLazy []lazyAnn
+}
+
+// lazyAnn is one deferred annotation: a parameter name (or "return") and the
+// closure that evaluates its annotation expression in the def's enclosing scope.
+type lazyAnn struct {
+	name  string
+	thunk func() (Object, error)
 }
 
 // overlay returns the function's writable overlay, allocating it on first use.
