@@ -45,6 +45,21 @@ var strKwSigs = map[string]kwSig{
 	"replace":    {params: []kwArg{{"old", nil}, {"new", nil}, {"count", NewInt(-1)}}, posOnly: 2},
 }
 
+// bytesKwSigs are the bytes and bytearray methods that accept keyword arguments
+// on CPython 3.14, probed one by one. The set parallels str but not exactly:
+// split/rsplit/splitlines/expandtabs match, encode becomes decode, replace does
+// not take keywords here, and translate(table, /, delete=b”) keeps table
+// positional-only while delete is keyword-fillable. Methods absent here reject
+// keywords and fall through to the takes-no-keyword-arguments error.
+var bytesKwSigs = map[string]kwSig{
+	"split":      {params: []kwArg{{"sep", None}, {"maxsplit", NewInt(-1)}}},
+	"rsplit":     {params: []kwArg{{"sep", None}, {"maxsplit", NewInt(-1)}}},
+	"splitlines": {params: []kwArg{{"keepends", NewBool(false)}}},
+	"decode":     {params: []kwArg{{"encoding", NewStr("utf-8")}, {"errors", NewStr("strict")}}},
+	"expandtabs": {params: []kwArg{{"tabsize", NewInt(8)}}},
+	"translate":  {params: []kwArg{{"table", nil}, {"delete", NewBytes(nil)}}, posOnly: 1},
+}
+
 // bindBuiltinKw merges positional args and keywords into the positional slice a
 // no-keyword builtin method expects, following the method's parameter list and
 // CPython's argument-clinic errors: an unknown keyword, a keyword that repeats a
@@ -60,6 +75,17 @@ func bindBuiltinKw(method string, sig kwSig, pos []Object, kwNames []string, kwV
 			}
 		}
 		return -1
+	}
+	// More arguments than the method has parameters is a count error, not a
+	// name collision. CPython reports this before the given-by-name-and-position
+	// wording, so splitlines(x, keepends=y), expandtabs(x, tabsize=y) and
+	// translate(t, d, delete=y) all read "takes at most N arguments (M given)".
+	if given := len(pos) + len(kwNames); given > len(sig.params) {
+		noun := "arguments"
+		if len(sig.params) == 1 {
+			noun = "argument"
+		}
+		return nil, Raise(TypeError, "%s() takes at most %d %s (%d given)", method, len(sig.params), noun, given)
 	}
 	placed := map[int]Object{}
 	highest := len(pos) - 1

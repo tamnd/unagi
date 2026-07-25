@@ -256,9 +256,9 @@ func CallMethodKwT(t *Thread, o Object, name string, pos []Object, kwNames []str
 			return strMethod(x, name, merged)
 		}
 	case *bytesObject:
-		return bytesTranslateKw(o, "bytes", name, pos, kwNames, kwVals)
+		return bytesMethodKw(o, "bytes", name, pos, kwNames, kwVals)
 	case *bytearrayObject:
-		return bytesTranslateKw(o, "bytearray", name, pos, kwNames, kwVals)
+		return bytesMethodKw(o, "bytearray", name, pos, kwNames, kwVals)
 	case *dictObject:
 		if x.kind == orderedDict {
 			return orderedMethodKw(x, name, pos, kwNames, kwVals)

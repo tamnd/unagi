@@ -151,23 +151,23 @@ func bytesFromhex(typeName string, args []Object) (Object, error) {
 	return byteResult(typeName, out), nil
 }
 
-// bytesTranslateKw handles the one bytes/bytearray method that takes a keyword,
-// translate(table, /, delete=b”), by folding the delete keyword into a second
-// positional argument and dispatching through the positional path. Any other
-// bytes method, or any other keyword, is the take-no-keyword TypeError CPython
-// gives. base64.b16decode reaches this with translate(None, delete=b'0123...').
-func bytesTranslateKw(o Object, typeName, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
-	if name != "translate" {
+// bytesMethodKw dispatches the bytes and bytearray methods that accept keyword
+// arguments on CPython 3.14 (split, rsplit, splitlines, decode, expandtabs,
+// translate). bindBuiltinKw folds the keywords into the positional slice the
+// no-keyword method already expects and reproduces CPython's argument-clinic
+// errors, then the merged call runs through the positional path. Any method not
+// in bytesKwSigs rejects keywords, the take-no-keyword TypeError CPython gives.
+// base64.b16decode reaches this with translate(None, delete=b'0123...').
+func bytesMethodKw(o Object, typeName, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	sig, ok := bytesKwSigs[name]
+	if !ok {
 		return nil, Raise(TypeError, "%s.%s() takes no keyword arguments", typeName, name)
 	}
-	args := append([]Object(nil), pos...)
-	for i, kn := range kwNames {
-		if kn != "delete" {
-			return nil, Raise(TypeError, "translate() got an unexpected keyword argument '%s'", kn)
-		}
-		args = append(args, kwVals[i])
+	merged, err := bindBuiltinKw(name, sig, pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
 	}
-	return CallMethod(o, name, args)
+	return CallMethod(o, name, merged)
 }
 
 // isHexSpace reports the ASCII whitespace fromhex skips between bytes, matching
