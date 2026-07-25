@@ -406,6 +406,11 @@ func initSys(m *objects.Module) error {
 		// abiflags is the ABI flag suffix on the executable name, empty on a normal
 		// build. sysconfig joins it into config paths.
 		{"abiflags", objects.NewStr("")},
+		// platlibdir is the platform library subdirectory, "lib" on POSIX (some
+		// distributions use "lib64"), the fixed CPython default. sysconfig's
+		// _init_config_vars reads it unconditionally, so its absence stopped
+		// pydoc and zoneinfo, which trigger get_config_vars, from importing.
+		{"platlibdir", objects.NewStr("lib")},
 		// copyright is the interpreter's copyright banner, the same fixed text
 		// CPython carries. site reads it to build the copyright() builtin.
 		{"copyright", objects.NewStr("Copyright (c) 2001 Python Software Foundation.\n" +
