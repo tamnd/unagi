@@ -24,6 +24,8 @@ func initPickle(m *objects.Module) error {
 	}{
 		{"dumps", objects.NewFuncKw("dumps", pickleDumps)},
 		{"loads", objects.NewFuncKw("loads", pickleLoads)},
+		{"encode_long", objects.NewFunc("encode_long", 1, pickleEncodeLong)},
+		{"decode_long", objects.NewFunc("decode_long", 1, pickleDecodeLong)},
 		{"DEFAULT_PROTOCOL", objects.NewInt(objects.PickleDefaultProtocol)},
 		{"HIGHEST_PROTOCOL", objects.NewInt(objects.PickleHighestProtocol)},
 		{"PickleError", objects.PickleErrorClass()},
@@ -108,6 +110,27 @@ func resolvePickleProtocol(arg objects.Object) (int, error) {
 		return 0, objects.Raise("NotImplementedError", "pickle protocol %d is not supported yet; use protocol 2 or higher", proto)
 	}
 	return int(proto), nil
+}
+
+// pickleEncodeLong is pickle.encode_long(x): the two's-complement
+// little-endian bytes for an integer, empty for zero. pickletools pairs it with
+// decode_long to render LONG opcodes.
+func pickleEncodeLong(args []objects.Object) (objects.Object, error) {
+	n, ok := objects.AsBigInt(args[0])
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", args[0].TypeName())
+	}
+	return objects.NewBytes(objects.EncodeLong(n)), nil
+}
+
+// pickleDecodeLong is pickle.decode_long(data): the integer a two's-complement
+// little-endian byte string denotes. pickletools imports this name directly.
+func pickleDecodeLong(args []objects.Object) (objects.Object, error) {
+	body, ok := objects.AsBufferBytes(args[0])
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "argument should be a bytes-like object, not '%s'", args[0].TypeName())
+	}
+	return objects.NewIntFromBig(objects.DecodeLong(body)), nil
 }
 
 // pickleLoads is pickle.loads(data, /, *, fix_imports=True, encoding='ASCII',
