@@ -181,8 +181,16 @@ func Range(args ...objects.Object) (objects.Object, error) {
 		// the honest overflow where an int64 result cannot be produced.
 		v, ok := objects.AsBigInt(a)
 		if !ok {
-			return nil, objects.Raise(objects.TypeError,
-				"'%s' object cannot be interpreted as an integer", a.TypeName())
+			// A user class supplies each bound through __index__, the way range()
+			// calls PyNumber_Index on any non-int argument before erroring.
+			if r, isIdx, err := objects.IndexOf(a); err != nil {
+				return nil, err
+			} else if isIdx {
+				v, _ = objects.AsBigInt(r)
+			} else {
+				return nil, objects.Raise(objects.TypeError,
+					"'%s' object cannot be interpreted as an integer", a.TypeName())
+			}
 		}
 		vals[i] = v
 	}

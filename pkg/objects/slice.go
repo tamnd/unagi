@@ -24,6 +24,20 @@ func slicePart(part Object) (int64, bool, error) {
 		}
 		return -(1 << 62), true, nil
 	}
+	// A user class with __index__ supplies the bound, exactly the "or have an
+	// __index__ method" the error text promises. A magnitude past int64 clamps
+	// the same way an out-of-range int-literal bound does.
+	if r, ok, err := IndexOf(part); err != nil {
+		return 0, false, err
+	} else if ok {
+		if i, ok := AsInt(r); ok {
+			return i, true, nil
+		}
+		if b, ok := r.(*intObject); ok && b.big != nil && b.big.Sign() > 0 {
+			return 1 << 62, true, nil
+		}
+		return -(1 << 62), true, nil
+	}
 	// Probed on 3.14: [1][None:'a'] -> TypeError: slice indices must be
 	// integers or None or have an __index__ method. Same text for str and
 	// tuple receivers and for slice assignment and deletion.
@@ -329,7 +343,10 @@ func DelItem(o, key Object) error {
 	case *memoryviewObject:
 		return mvDelItem(x)
 	case *bytearrayObject:
-		i, ok := seqIndexKey(key)
+		i, ok, err := seqIndexKey(key)
+		if err != nil {
+			return err
+		}
 		if !ok {
 			if IsBigInt(key) {
 				return errIndexFit()
@@ -345,7 +362,10 @@ func DelItem(o, key Object) error {
 		x.v = append(x.v[:j], x.v[j+1:]...)
 		return nil
 	case *listObject:
-		i, ok := seqIndexKey(key)
+		i, ok, err := seqIndexKey(key)
+		if err != nil {
+			return err
+		}
 		if !ok {
 			// Probed: del xs[2**100] raises the same index-fit error as
 			// reading, not the type error.
