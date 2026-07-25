@@ -159,6 +159,14 @@ func genericGetAttr(x *instanceObject, name string) (Object, error) {
 	if v, ok := objectDunderBound(x, name); ok {
 		return v, nil
 	}
+	// Every object carries __doc__: an instance whose class defines no docstring
+	// reads it back as None off the type rather than raising, the way CPython
+	// does. A class with a docstring stored it in the class dict, so the lookup
+	// above already answered it. email._policybase._extend_docstrings reads
+	// attr.__doc__ on every value in a class dict, WeakSet instances included.
+	if name == "__doc__" {
+		return None, nil
+	}
 	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", x.cls.name, name)
 }
 

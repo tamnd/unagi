@@ -119,5 +119,8 @@ func intLoadAttr(o Object, name string) (Object, error) {
 			return intMethod(recv, method, args)
 		}), nil
 	}
+	if name == "__doc__" {
+		return None, nil
+	}
 	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", o.TypeName(), name)
 }
