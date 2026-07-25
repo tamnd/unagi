@@ -112,6 +112,7 @@ func Build(ctx context.Context, pyPath string, opts Options) (string, error) {
 	if out, err = filepath.Abs(out); err != nil {
 		return "", err
 	}
+	out = exeName(out)
 
 	// link runs the Go toolchain for the module in genDir, writing the binary to
 	// dst. -trimpath keeps the generated module's temp path out of the compiled
@@ -137,6 +138,20 @@ func Build(ctx context.Context, pyPath string, opts Options) (string, error) {
 		return "", err
 	}
 	return out, nil
+}
+
+// exeName gives a linker output path its platform executable suffix. On Windows
+// the Go toolchain writes `go build -o X` to X.exe whenever X has no extension,
+// so every path we hand the linker, and then stat, copy, or exec, has to carry
+// .exe up front or the artifact on disk and the name we track for it diverge:
+// the build "succeeds" but the file we return, cache, or run does not exist.
+// On other platforms, and when a caller already asked for an explicit .exe, it
+// is a no-op.
+func exeName(p string) string {
+	if runtime.GOOS == "windows" && filepath.Ext(p) == "" {
+		return p + ".exe"
+	}
+	return p
 }
 
 // Run compiles pyPath into a temporary binary, executes it wired to this
