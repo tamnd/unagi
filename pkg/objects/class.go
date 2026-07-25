@@ -1245,7 +1245,19 @@ func init() {
 func classDictProxy(c *classObject) Object {
 	d := &dictObject{index: map[string]int{}}
 	for _, name := range c.order {
-		_ = d.set(NewStr(name), c.dict[name])
+		val := c.dict[name]
+		// __new__ is an implicit staticmethod, so the class dict presents it wrapped
+		// even though a plain def stores the bare function. enum.EnumType.convert_class
+		// reads cls.__dict__['__new__'].__func__ to recover the underlying function,
+		// which is how `import http` and pstats build their IntEnum members. The
+		// internal slot stays the plain function, so super() and instantiation are
+		// unaffected; only this reflective view wraps it.
+		if name == "__new__" {
+			if _, already := val.(*staticmethodObject); !already {
+				val = NewStaticMethod(val)
+			}
+		}
+		_ = d.set(NewStr(name), val)
 	}
 	return &mappingProxyObject{d: d}
 }
