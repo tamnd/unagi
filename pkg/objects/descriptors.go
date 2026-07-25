@@ -22,8 +22,10 @@ func (*classmethodObject) TypeName() string { return "classmethod" }
 // absent raises the probed AttributeError. It is a data descriptor, so it wins
 // over an instance-dict entry of the same name. setter, getter, and deleter
 // return a fresh property carrying the replaced slot, which is what the
-// @prop.setter decorator idiom relies on.
-type propertyObject struct{ fget, fset, fdel Object }
+// @prop.setter decorator idiom relies on. doc holds the explicit docstring a
+// caller passed as property(doc=...); when absent __doc__ falls back to the
+// getter's own docstring, the way CPython copies fget.__doc__ into the property.
+type propertyObject struct{ fget, fset, fdel, doc Object }
 
 func (*propertyObject) TypeName() string { return "property" }
 
@@ -54,18 +56,36 @@ var (
 		}
 		return NewClassMethod(args[0]), nil
 	})
-	PropertyBuiltin Object = NewFunc("property", -1, func(args []Object) (Object, error) {
-		if len(args) > 4 {
-			return nil, Raise(TypeError, "property() takes at most 4 arguments (%d given)", len(args))
+	PropertyBuiltin Object = NewFuncKw("property", func(pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+		if len(pos) > 4 {
+			return nil, Raise(TypeError, "property() takes at most 4 arguments (%d given)", len(pos))
 		}
-		arg := func(i int) Object {
-			if i < len(args) {
-				return args[i]
+		// The four slots by position, then overridden by any keyword of the same
+		// name. CPython names them fget, fset, fdel and doc.
+		slots := [4]Object{}
+		for i := 0; i < len(pos) && i < 4; i++ {
+			slots[i] = pos[i]
+		}
+		names := [4]string{"fget", "fset", "fdel", "doc"}
+		for i, kn := range kwNames {
+			idx := -1
+			for j, n := range names {
+				if n == kn {
+					idx = j
+					break
+				}
 			}
-			return nil
+			if idx < 0 {
+				return nil, Raise(TypeError, "'%s' is an invalid keyword argument for property()", kn)
+			}
+			slots[idx] = kwVals[i]
 		}
-		// The fourth argument is the docstring, which this tier does not model.
-		return NewProperty(noneToNil(arg(0)), noneToNil(arg(1)), noneToNil(arg(2))), nil
+		return &propertyObject{
+			fget: noneToNil(slots[0]),
+			fset: noneToNil(slots[1]),
+			fdel: noneToNil(slots[2]),
+			doc:  noneToNil(slots[3]),
+		}, nil
 	})
 )
 
@@ -352,15 +372,15 @@ func propertyGetAttr(p *propertyObject, name string) (Object, error) {
 	switch name {
 	case "getter":
 		return NewFunc("getter", 1, func(a []Object) (Object, error) {
-			return &propertyObject{fget: a[0], fset: p.fset, fdel: p.fdel}, nil
+			return &propertyObject{fget: a[0], fset: p.fset, fdel: p.fdel, doc: p.doc}, nil
 		}), nil
 	case "setter":
 		return NewFunc("setter", 1, func(a []Object) (Object, error) {
-			return &propertyObject{fget: p.fget, fset: a[0], fdel: p.fdel}, nil
+			return &propertyObject{fget: p.fget, fset: a[0], fdel: p.fdel, doc: p.doc}, nil
 		}), nil
 	case "deleter":
 		return NewFunc("deleter", 1, func(a []Object) (Object, error) {
-			return &propertyObject{fget: p.fget, fset: p.fset, fdel: a[0]}, nil
+			return &propertyObject{fget: p.fget, fset: p.fset, fdel: a[0], doc: p.doc}, nil
 		}), nil
 	case "fget":
 		return slotOrNone(p.fget), nil
@@ -368,6 +388,18 @@ func propertyGetAttr(p *propertyObject, name string) (Object, error) {
 		return slotOrNone(p.fset), nil
 	case "fdel":
 		return slotOrNone(p.fdel), nil
+	case "__doc__":
+		// An explicit doc= wins; absent it, the getter's own docstring stands in,
+		// the way CPython copies fget.__doc__ into a property with no doc.
+		if p.doc != nil {
+			return p.doc, nil
+		}
+		if p.fget != nil {
+			if d, err := LoadAttr(p.fget, "__doc__"); err == nil {
+				return d, nil
+			}
+		}
+		return None, nil
 	case "__get__", "__set__", "__delete__":
 		return propertyProtocolMethod(p, name), nil
 	}
