@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+count 3
+with temp 4
+after unregister 1
+decorated
+after run 0
+body done
+bye at-exit
+== exception:
+== stderr:
