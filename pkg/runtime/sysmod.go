@@ -358,6 +358,10 @@ func initSys(m *objects.Module) error {
 		{"byteorder", objects.NewStr("little")},
 		{"platform", objects.NewStr(sysPlatform())},
 		{"flags", sysFlags()},
+		// sys.monitoring is PEP 669's monitoring API, an inert but honest registry
+		// here: bdb/pdb/doctest read sys.monitoring.events at import and drive the
+		// tool-id and event calls, none of which fire in a compiled program.
+		{"monitoring", buildSysMonitoring()},
 		{"hash_info", sysHashInfo()},
 		{"float_info", sysFloatInfo()},
 		{"warnoptions", objects.NewList(nil)},

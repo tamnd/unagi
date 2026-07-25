@@ -1,0 +1,24 @@
+== exit: 0
+== stdout:
+0 1 4 16 32 2048 262144
+26627
+0 1 2 5
+False
+use -> None
+get_tool dbg
+use_again ERR ValueError tool 0 is already in use
+out_of_range ERR ValueError invalid tool 6 (must be between 0 and 5)
+events_default 0
+events_after 48
+set_free ERR ValueError tool 3 is not in use
+first_prev None
+second_prev_callable True
+cleared_events 0 still_claimed dbg
+after_free None
+restart None
+default settrace True
+monitoring monitoring True
+26627 1196
+done
+== exception:
+== stderr:
