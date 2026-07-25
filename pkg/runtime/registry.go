@@ -122,4 +122,7 @@ func SpawnThread(t *Thread, target func()) {
 func WaitForNonDaemonThreads() {
 	objects.ShutdownExecutors()
 	nonDaemon.Wait()
+	// atexit handlers run at the same point CPython's finalization runs them,
+	// after the non-daemon threads have joined and before the process exits.
+	RunAtexit()
 }
