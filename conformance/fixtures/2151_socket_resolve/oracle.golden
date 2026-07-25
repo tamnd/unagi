@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+gai stream: (<AddressFamily.AF_INET: 2>, <SocketKind.SOCK_STREAM: 1>, 6, '', ('127.0.0.1', 80))
+gai passive: (<AddressFamily.AF_INET: 2>, <SocketKind.SOCK_DGRAM: 2>, 17, '', ('0.0.0.0', 0))
+gethostbyname: 127.0.0.1
+getservbyname http: 80
+getservbyname http tcp: 80
+getprotobyname tcp: 6
+getprotobyname udp: 17
+getnameinfo: ('127.0.0.1', '80')
+AI_PASSIVE is int: True
+NI_NUMERICHOST is int: True
+done
+== exception:
+== stderr:
