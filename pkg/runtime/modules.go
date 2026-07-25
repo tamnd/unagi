@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -287,14 +288,25 @@ func seedModuleAttrs(m *objects.Module, name string, ent *moduleEntry) {
 // not-a-package suffix when the parent imported fine but is a plain module,
 // both wordings probed on 3.14.
 func moduleMissing(name string) error {
+	msg := fmt.Sprintf("No module named '%s'", name)
 	if i := strings.LastIndexByte(name, '.'); i >= 0 {
 		parent := name[:i]
 		if pent, ok := moduleTable[parent]; ok && !pent.pkg {
-			return objects.Raise(objects.ModuleNotFoundError,
-				"No module named '%s'; '%s' is not a package", name, parent)
+			msg = fmt.Sprintf("No module named '%s'; '%s' is not a package", name, parent)
 		}
 	}
-	return objects.Raise(objects.ModuleNotFoundError, "No module named '%s'", name)
+	// Carry the missing name on .name the way CPython's ModuleNotFoundError does,
+	// so a caller that inspects it, site.execsitecustomize checks exc.name to
+	// swallow a missing optional module silently, sees the name it expects.
+	kw, err := objects.NewDict([]objects.Object{objects.NewStr("name")}, []objects.Object{objects.NewStr(name)})
+	if err != nil {
+		return err
+	}
+	exc, err := NewExcKw(objects.ModuleNotFoundError, []objects.Object{objects.NewStr(msg)}, kw)
+	if err != nil {
+		return err
+	}
+	return RaiseObj(exc)
 }
 
 // ImportRoot is the plain import statement without as: import a.b.c executes

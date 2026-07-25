@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+True
+True
+True True
+True
+True
+list list dict
+True str
+utf-8
+False
+True int
+True
+None
+True
+None
+None
+True
+None [(1, 2)]
+== exception:
+== stderr:

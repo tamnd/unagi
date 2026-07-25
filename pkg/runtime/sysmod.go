@@ -309,7 +309,45 @@ func initSys(m *objects.Module) error {
 		// is no executable path to report. platform reads it to guess the build, and
 		// with it empty falls through to the values it derives from sys itself.
 		{"executable", objects.NewStr("")},
+		// _framework is the macOS framework name a framework build reports, empty
+		// on a non-framework build. sysconfig reads it on darwin to place the user
+		// base directory, so its absence stopped sysconfig from importing.
+		{"_framework", objects.NewStr("")},
+		// abiflags is the ABI flag suffix on the executable name, empty on a normal
+		// build. sysconfig joins it into config paths.
+		{"abiflags", objects.NewStr("")},
+		// copyright is the interpreter's copyright banner, the same fixed text
+		// CPython carries. site reads it to build the copyright() builtin.
+		{"copyright", objects.NewStr("Copyright (c) 2001 Python Software Foundation.\n" +
+			"All Rights Reserved.\n\n" +
+			"Copyright (c) 2000 BeOpen.com.\n" +
+			"All Rights Reserved.\n\n" +
+			"Copyright (c) 1995-2001 Corporation for National Research Initiatives.\n" +
+			"All Rights Reserved.\n\n" +
+			"Copyright (c) 1991-1995 Stichting Mathematisch Centrum, Amsterdam.\n" +
+			"All Rights Reserved.")},
+		// dont_write_bytecode carries CPython's default: bytecode writing is on, so
+		// the flag reads False. A compiled program imports nothing at run time, so
+		// the value is inert; it exists so code that branches on it runs.
+		{"dont_write_bytecode", objects.NewBool(false)},
+		// pycache_prefix is the directory bytecode caches are redirected to, None by
+		// default. Inert here for the same reason, present so a read succeeds.
+		{"pycache_prefix", objects.None},
+		// The import-machinery registries. A compiled program resolves imports at
+		// build time and consults none of these at run time, so they carry the empty
+		// forms CPython would start them at before finders register: two lists and a
+		// cache dict. They exist so stdlib code that iterates or mutates them runs.
+		{"path_hooks", objects.NewList(nil)},
+		{"meta_path", objects.NewList(nil)},
 	}
+	pathImporterCache, err := objects.NewDict(nil, nil)
+	if err != nil {
+		return err
+	}
+	attrs = append(attrs, struct {
+		name string
+		val  objects.Object
+	}{"path_importer_cache", pathImporterCache})
 	for _, a := range attrs {
 		if err := set(a.name, a.val); err != nil {
 			return err
@@ -344,6 +382,26 @@ func initSys(m *objects.Module) error {
 	}
 	if err := set("getfilesystemencodeerrors", objects.NewFunc("getfilesystemencodeerrors", 0, sysGetFilesystemEncodeErrors)); err != nil {
 		return err
+	}
+	for _, f := range []struct {
+		name  string
+		arity int
+		fn    func(args []objects.Object) (objects.Object, error)
+	}{
+		{"intern", 1, sysIntern},
+		{"getdefaultencoding", 0, sysGetDefaultEncoding},
+		{"is_finalizing", 0, sysIsFinalizing},
+		{"getallocatedblocks", 0, sysGetAllocatedBlocks},
+		{"_clear_type_cache", 0, sysClearTypeCache},
+		{"settrace", 1, sysSetTrace},
+		{"gettrace", 0, sysGetTrace},
+		{"setprofile", 1, sysSetProfile},
+		{"getprofile", 0, sysGetProfile},
+		{"call_tracing", 2, sysCallTracing},
+	} {
+		if err := set(f.name, objects.NewFunc(f.name, f.arity, f.fn)); err != nil {
+			return err
+		}
 	}
 	stdout, stderr, stdin, err := buildSysStreams()
 	if err != nil {
@@ -419,4 +477,119 @@ func sysGetFrame(t *objects.Thread, args []objects.Object) (objects.Object, erro
 		depth = int(n)
 	}
 	return t.FrameAtDepth(depth)
+}
+
+// sysIntern implements sys.intern(string): CPython hands back a canonical copy
+// so equal literals can share storage. A compiled program keeps no intern pool,
+// so this returns the argument unchanged, which preserves the two properties a
+// caller relies on, the result equals the argument and is a str. The argument
+// must be a str, the TypeError CPython raises for anything else.
+func sysIntern(args []objects.Object) (objects.Object, error) {
+	if len(args) != 1 {
+		return nil, objects.Raise(objects.TypeError, "intern() takes exactly one argument (%d given)", len(args))
+	}
+	if _, ok := objects.AsStr(args[0]); !ok {
+		return nil, objects.Raise(objects.TypeError, "intern() argument 1 must be str, not %s", args[0].TypeName())
+	}
+	return args[0], nil
+}
+
+// sysGetDefaultEncoding reports sys.getdefaultencoding(): utf-8, the value
+// CPython 3 fixes it at. codecs and io read it to pick a default text codec.
+func sysGetDefaultEncoding(args []objects.Object) (objects.Object, error) {
+	return objects.NewStr("utf-8"), nil
+}
+
+// sysIsFinalizing reports sys.is_finalizing(): whether the interpreter is
+// shutting down. A compiled program that reaches user code is always running,
+// never finalizing, so this is False. threading and logging read it to decide
+// whether it is safe to spawn work during shutdown.
+func sysIsFinalizing(args []objects.Object) (objects.Object, error) {
+	return objects.NewBool(false), nil
+}
+
+// sysGetAllocatedBlocks reports sys.getallocatedblocks(): the number of memory
+// blocks the allocator currently holds. Go manages memory itself and exposes no
+// such count, so this reports 0. The value drives CPython leak checks that a
+// compiled program does not run; code that only reads it keeps working.
+func sysGetAllocatedBlocks(args []objects.Object) (objects.Object, error) {
+	return objects.NewInt(0), nil
+}
+
+// sysClearTypeCache implements sys._clear_type_cache(): CPython flushes its
+// internal method-resolution cache and returns None. There is no such cache to
+// flush here, so this is a no-op that returns None, which is all a caller sees.
+func sysClearTypeCache(args []objects.Object) (objects.Object, error) {
+	return objects.None, nil
+}
+
+// Tracing and profiling hooks. CPython keeps one of each per thread and fires
+// them from the bytecode eval loop. A compiled program runs native Go with no
+// such loop, so a hook installed here never fires; it is stored and handed back
+// so code that saves, replaces, and restores the hook, the pattern pdb, profile,
+// trace and many context managers use, runs without raising. The store is
+// process-wide rather than per-thread, an accepted divergence while the hooks
+// stay inert.
+var (
+	traceHookMu sync.Mutex
+	traceHook   objects.Object = objects.None
+	profileHook objects.Object = objects.None
+)
+
+// sysSetTrace implements sys.settrace(function): install the trace hook, or
+// clear it when passed None. The hook never fires in this tier.
+func sysSetTrace(args []objects.Object) (objects.Object, error) {
+	if len(args) != 1 {
+		return nil, objects.Raise(objects.TypeError, "settrace() takes exactly one argument (%d given)", len(args))
+	}
+	traceHookMu.Lock()
+	traceHook = args[0]
+	traceHookMu.Unlock()
+	return objects.None, nil
+}
+
+// sysGetTrace implements sys.gettrace(): the installed trace hook, or None when
+// none is set, which is the state a program starts in.
+func sysGetTrace(args []objects.Object) (objects.Object, error) {
+	traceHookMu.Lock()
+	v := traceHook
+	traceHookMu.Unlock()
+	return v, nil
+}
+
+// sysSetProfile implements sys.setprofile(function): install the profile hook,
+// or clear it with None. Like the trace hook it never fires here.
+func sysSetProfile(args []objects.Object) (objects.Object, error) {
+	if len(args) != 1 {
+		return nil, objects.Raise(objects.TypeError, "setprofile() takes exactly one argument (%d given)", len(args))
+	}
+	traceHookMu.Lock()
+	profileHook = args[0]
+	traceHookMu.Unlock()
+	return objects.None, nil
+}
+
+// sysGetProfile implements sys.getprofile(): the installed profile hook, or None.
+func sysGetProfile(args []objects.Object) (objects.Object, error) {
+	traceHookMu.Lock()
+	v := profileHook
+	traceHookMu.Unlock()
+	return v, nil
+}
+
+// sysCallTracing implements sys.call_tracing(func, args): CPython enables
+// tracing and calls func(*args) for its side effects, returning None. Tracing is
+// inert here, so this simply calls func(*args) and returns None. args must be a
+// tuple, the type CPython requires.
+func sysCallTracing(args []objects.Object) (objects.Object, error) {
+	if len(args) != 2 {
+		return nil, objects.Raise(objects.TypeError, "call_tracing() takes exactly 2 arguments (%d given)", len(args))
+	}
+	if args[1].TypeName() != "tuple" {
+		return nil, objects.Raise(objects.TypeError, "call_tracing() argument 2 must be tuple, not %s", args[1].TypeName())
+	}
+	if _, err := objects.CallStarEx(args[0], args[1], nil); err != nil {
+		return nil, err
+	}
+	return objects.None, nil
 }
