@@ -240,6 +240,8 @@ func reprCore(o Object, strict bool) (string, error) {
 		return x.origin.name + ".args", nil
 	case *paramSpecKwargsObject:
 		return x.origin.name + ".kwargs", nil
+	case *typeVarTupleObject:
+		return x.name, nil
 	case *templateObject:
 		return templateRepr(x)
 	case *interpolationObject:

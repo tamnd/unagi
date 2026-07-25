@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+Ts Ts __main__
+False typing.NoDefault
+Ts
+__qualname__ False
+__bound__ False
+__covariant__ False
+__contravariant__ False
+True (<class 'int'>, <class 'str'>)
+TypeError Substitution of bare TypeVarTuple is not supported
+TypeError typevartuple() missing required argument 'name' (pos 1)
+TypeError typevartuple() takes exactly 1 positional argument (2 given)
+TypeError typevartuple() argument 'name' must be str, not int
+TypeError typevartuple() got an unexpected keyword argument 'bound'
+== exception:
+== stderr:

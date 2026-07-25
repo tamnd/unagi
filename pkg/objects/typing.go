@@ -367,6 +367,82 @@ func paramSpecMemberLoadAttr(origin *paramSpecObject, kind, name string) (Object
 	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", kind, name)
 }
 
+// typeVarTupleObject is typing.TypeVarTuple, a variadic type variable standing
+// for an arbitrary-length run of types. It has no variance and no bound: only a
+// name and an optional default. Its repr is the bare name.
+//
+// Iterating a TypeVarTuple yields its unpacked form *Ts (typing.Unpack[Ts]),
+// which is a typing-level special form built on the Unpack machinery. That form
+// lands with the Unpack slice; a bare TypeVarTuple here carries its name,
+// default and substitution hook.
+type typeVarTupleObject struct {
+	name       string
+	hasDefault bool
+	defaultVal Object
+	module     string
+}
+
+func (*typeVarTupleObject) TypeName() string { return "TypeVarTuple" }
+
+// NewTypeVarTupleConstructor returns the callable bound as _typing.TypeVarTuple.
+func NewTypeVarTupleConstructor() Object {
+	return NewFuncKwT("TypeVarTuple", newTypeVarTuple)
+}
+
+// newTypeVarTuple builds a TypeVarTuple from TypeVarTuple(name, *,
+// default=NoDefault). It takes exactly one positional argument, no constraints
+// and no variance keywords.
+func newTypeVarTuple(t *Thread, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	if len(pos) < 1 {
+		return nil, Raise(TypeError, "typevartuple() missing required argument 'name' (pos 1)")
+	}
+	if len(pos) > 1 {
+		return nil, Raise(TypeError, "typevartuple() takes exactly 1 positional argument (%d given)", len(pos))
+	}
+	name, ok := AsStr(pos[0])
+	if !ok {
+		return nil, Raise(TypeError, "typevartuple() argument 'name' must be str, not %s", pos[0].TypeName())
+	}
+	tvt := &typeVarTupleObject{name: name, module: callerModuleName(t), defaultVal: noDefault}
+	for i, k := range kwNames {
+		switch k {
+		case "default":
+			tvt.hasDefault = true
+			tvt.defaultVal = kwVals[i]
+		default:
+			return nil, Raise(TypeError, "typevartuple() got an unexpected keyword argument '%s'", k)
+		}
+	}
+	return tvt, nil
+}
+
+// typeVarTupleLoadAttr answers a TypeVarTuple's attributes and bound methods.
+func typeVarTupleLoadAttr(tvt *typeVarTupleObject, name string) (Object, error) {
+	switch name {
+	case "__name__":
+		return NewStr(tvt.name), nil
+	case "__default__":
+		return tvt.defaultVal, nil
+	case "__module__":
+		return NewStr(tvt.module), nil
+	case "has_default":
+		return NewFunc("has_default", 0, func(args []Object) (Object, error) {
+			return NewBool(tvt.hasDefault), nil
+		}), nil
+	case "__reduce__":
+		return NewFunc("__reduce__", 0, func(args []Object) (Object, error) {
+			return NewStr(tvt.name), nil
+		}), nil
+	case "__typing_subst__":
+		// A bare TypeVarTuple cannot be substituted on its own; it only takes part
+		// through Unpack[Ts]. CPython raises here rather than returning a value.
+		return NewFunc("__typing_subst__", 1, func(args []Object) (Object, error) {
+			return nil, Raise(TypeError, "Substitution of bare TypeVarTuple is not supported")
+		}), nil
+	}
+	return nil, Raise(AttributeError, "'typing.TypeVarTuple' object has no attribute '%s'", name)
+}
+
 // noDefaultLoadAttr answers the sentinel's attributes. __reduce__ is a callable
 // returning the bare name "NoDefault", which is how CPython makes it picklable
 // and copy-stable: copy.copy and pickle both see a global reference and hand
