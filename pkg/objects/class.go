@@ -1876,6 +1876,17 @@ func IsInstance(obj, cls Object) (Object, error) {
 		_, ok := obj.(*typeVarTupleObject)
 		return NewBool(ok), nil
 	}
+	// P.args / P.kwargs report their own types the same way: get_origin does
+	// isinstance(tp, (..., ParamSpecArgs, ParamSpecKwargs)) to recover P, so the
+	// two member constructors count as valid arg 2 types.
+	if paramSpecArgsConstructor != nil && cls == paramSpecArgsConstructor {
+		_, ok := obj.(*paramSpecArgsObject)
+		return NewBool(ok), nil
+	}
+	if paramSpecKwargsCtor != nil && cls == paramSpecKwargsCtor {
+		_, ok := obj.(*paramSpecKwargsObject)
+		return NewBool(ok), nil
+	}
 	// A namedtuple class (collections.namedtuple, typing.NamedTuple) is a real type
 	// for isinstance: an instance is one whose shared field metadata is this class's,
 	// so isinstance(Point(1, 2), Point) is true while a different namedtuple is not.

@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+None
+<class 'list'> (<class 'int'>,)
+<class 'dict'> (<class 'str'>, <class 'int'>)
+<class 'list'> (<class 'int'>,)
+<class 'typing.Union'>
+<class 'typing.Union'>
+True True
+True
+True
+{'name': <class 'str'>, 'year': <class 'int'>} True
+['name', 'year'] []
+False ['a', 'b']
+== exception:
+== stderr:
