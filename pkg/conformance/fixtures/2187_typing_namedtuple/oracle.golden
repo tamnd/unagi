@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+Employee(name='Guido', id=3, dept='eng')
+Guido 3 eng
+hi Guido Guido/eng person
+{'name': 'Guido', 'id': 3, 'dept': 'eng'}
+Employee(name='Guido', id=7, dept='eng')
+('name', 'id', 'dept') {'id': 3, 'dept': 'eng'}
+['Guido', 3, 'eng'] Guido 3
+Guido 3 eng
+True True
+True True False
+{'name': <class 'str'>, 'id': <class 'int'>, 'dept': <class 'str'>}
+{'name': <class 'str'>, 'id': <class 'int'>, 'dept': <class 'str'>}
+1
+Rec(a=1, b='hi') 1 hi {'a': <class 'int'>, 'b': <class 'str'>}
+Empty() ()
+TypeError: Non-default namedtuple field y cannot follow default field x
+AttributeError: Cannot overwrite NamedTuple attribute _fields
+== exception:
+== stderr:

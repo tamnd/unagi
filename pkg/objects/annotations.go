@@ -45,6 +45,36 @@ func classAnnotations(c *classObject) (Object, error) {
 	return c.annotations, nil
 }
 
+// makeClassAnnotate builds the PEP 649 __annotate__ function a class body
+// carries when a user metaclass drives its creation. get_annotate_from_class_
+// namespace reads it off the namespace, and typing.NamedTuple and TypedDict call
+// it to recover the field annotations. The function takes an annotationlib.Format
+// and returns the {name: type} mapping: VALUE (1) and FORWARDREF (3) evaluate the
+// deferred thunks, and any other format raises NotImplementedError the way a
+// value-only annotate does, so callers fall back to the stringizer path.
+func makeClassAnnotate(anns []classAnn) Object {
+	return NewFunc("__annotate__", 1, func(args []Object) (Object, error) {
+		format := int64(1)
+		if i, ok := args[0].(*intObject); ok {
+			format = i.v
+		}
+		if format != 1 && format != 3 {
+			return nil, Raise("NotImplementedError", "%s", Repr(args[0]))
+		}
+		d := newAttrs()
+		for _, a := range anns {
+			v, err := a.thunk()
+			if err != nil {
+				return nil, err
+			}
+			if err := SetItem(d, NewStr(a.name), v); err != nil {
+				return nil, err
+			}
+		}
+		return d, nil
+	})
+}
+
 // annotationsDescriptor is the getset descriptor CPython installs as
 // type.__dict__['__annotations__']. annotationlib binds its __get__ once as
 // `_BASE_GET_ANNOTATIONS = type.__dict__["__annotations__"].__get__` and calls it
