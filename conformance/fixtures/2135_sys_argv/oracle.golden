@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+True
+True
+True
+True
+appended
+['prog', 'one', 'two']
+prog
+['one', 'two']
+True
+True
+False
+== exception:
+== stderr:

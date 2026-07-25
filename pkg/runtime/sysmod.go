@@ -3,6 +3,7 @@ package runtime
 import (
 	"fmt"
 	"math"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -20,6 +21,18 @@ func sysPlatform() string {
 	default:
 		return runtime.GOOS
 	}
+}
+
+// sysArgv builds sys.argv from the process arguments. A compiled program is a
+// native executable, so os.Args carries the argument vector directly: argv[0]
+// is the program path and argv[1:] the arguments. The result is a fresh mutable
+// list so a program may rewrite sys.argv in place.
+func sysArgv() objects.Object {
+	argv := make([]objects.Object, len(os.Args))
+	for i, a := range os.Args {
+		argv[i] = objects.NewStr(a)
+	}
+	return objects.NewList(argv)
 }
 
 // sys is the first built-in module: the runtime registers it in the import
@@ -288,6 +301,19 @@ func initSys(m *objects.Module) error {
 		{"hash_info", sysHashInfo()},
 		{"float_info", sysFloatInfo()},
 		{"warnoptions", objects.NewList(nil)},
+		// sys.argv is the command-line argument list. A compiled program is
+		// launched as a native executable, so os.Args maps straight across:
+		// argv[0] is the program's own path and argv[1:] are the arguments it
+		// was invoked with, the way a frozen CPython build reports them. It is a
+		// mutable list so argparse and getopt can consume it and code that
+		// rewrites sys.argv works.
+		{"argv", sysArgv()},
+		// sys.orig_argv is the argument vector as the program was launched,
+		// before anything rewrites sys.argv. A compiled program has no
+		// interpreter prefix, so it is the same os.Args, in a separate list so
+		// editing sys.argv leaves orig_argv untouched the way CPython keeps them
+		// independent.
+		{"orig_argv", sysArgv()},
 		// sys.path is the import search path. A compiled program resolves its
 		// imports at build time, so the path plays no role in finding modules, but
 		// stdlib code iterates it: linecache walks it to locate a source file and
