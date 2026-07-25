@@ -113,8 +113,9 @@ func (f *fnCtx) call(e *frontend.Call) (ast.Expr, error) {
 // superCall lowers super(). The zero-argument form reads the method's
 // __class__ cell and self, which the method lowering threaded in; used
 // outside a method it has nothing to find and lowers to the RuntimeError
-// CPython raises. The explicit two-argument form passes both through. The
-// one-argument unbound form and keyword arguments are a later slice.
+// CPython raises. The explicit two-argument form passes both through, and the
+// one-argument form builds the unbound super a __get__ later binds. Keyword
+// arguments are still rejected, as CPython does.
 func (f *fnCtx) superCall(e *frontend.Call) (ast.Expr, error) {
 	for _, a := range e.Args {
 		if a.Name != "" {
@@ -130,6 +131,14 @@ func (f *fnCtx) superCall(e *frontend.Call) (ast.Expr, error) {
 		}
 		tmp := f.tmpVar()
 		f.fallible(tmp, f.e.obj("NewSuper"), ident(f.superClass), ident(f.superSelf))
+		return ident(tmp), nil
+	case 1:
+		args, err := f.plainArgExprs(e.Args)
+		if err != nil {
+			return nil, err
+		}
+		tmp := f.tmpVar()
+		f.fallible(tmp, f.e.obj("NewSuperUnbound"), args[0])
 		return ident(tmp), nil
 	case 2:
 		args, err := f.plainArgExprs(e.Args)

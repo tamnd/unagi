@@ -57,6 +57,38 @@ func NewSuper(start, obj Object) (Object, error) {
 		obj.TypeName(), sc.name)
 }
 
+// NewSuperUnbound builds the one-argument unbound super, super(start). It
+// carries no instance or instance-class, so it resolves no cooperative names
+// until a __get__ binds it to an instance. This is the descriptor form CPython
+// hands back from super(type) with a single argument.
+func NewSuperUnbound(start Object) (Object, error) {
+	sc, ok := start.(*classObject)
+	if !ok {
+		return nil, Raise(TypeError, "super() argument 1 must be a type, not %s", start.TypeName())
+	}
+	return &superObject{start: sc}, nil
+}
+
+// superGet implements super.__get__(obj[, type]): binding an unbound super to an
+// instance yields the ordinary two-argument super, while a None instance or an
+// already-bound super comes back unchanged, matching CPython's super_descr_get.
+func superGet(s *superObject, obj Object) (Object, error) {
+	if obj == nil || obj == None || s.obj != nil {
+		return s, nil
+	}
+	return NewSuper(s.start, obj)
+}
+
+// superGetCall validates the argument count for super.__get__(obj[, type]) and
+// binds. The type argument only names the owner and does not affect the bind, so
+// it is accepted and ignored the way CPython's super_descr_get uses obj alone.
+func superGetCall(s *superObject, args []Object) (Object, error) {
+	if len(args) < 1 || len(args) > 2 {
+		return nil, Raise(TypeError, "expected 1 or 2 arguments")
+	}
+	return superGet(s, args[0])
+}
+
 // hasInMRO reports whether target is on c's linearization.
 func hasInMRO(c, target *classObject) bool {
 	for _, k := range c.mro {
@@ -90,6 +122,31 @@ func superLookup(s *superObject, name string) (Object, bool) {
 // instance as self, any other value comes back as is, and a miss is the
 // probed 'super' object AttributeError.
 func superLoadAttr(s *superObject, name string) (Object, error) {
+	// super exposes its own introspection attributes on both the bound and the
+	// unbound form, and __get__ makes the unbound form a descriptor.
+	switch name {
+	case "__thisclass__":
+		return s.start, nil
+	case "__self__":
+		if s.obj == nil {
+			return None, nil
+		}
+		return s.obj, nil
+	case "__self_class__":
+		if s.objCls == nil {
+			return None, nil
+		}
+		return s.objCls, nil
+	case "__get__":
+		return NewFunc("__get__", -1, func(args []Object) (Object, error) {
+			return superGetCall(s, args)
+		}), nil
+	}
+	// An unbound super resolves no cooperative names; only a __get__ bind gives
+	// it an instance and MRO to walk.
+	if s.objCls == nil {
+		return nil, Raise(AttributeError, "'super' object has no attribute '%s'", name)
+	}
 	if v, ok := superLookup(s, name); ok {
 		// A descriptor subclass instance runs the protocol through its payload, the
 		// same unwrap instanceGet does before dispatching.
@@ -154,6 +211,12 @@ func superCallMethod(s *superObject, name string, args []Object) (Object, error)
 // runs the next method under that thread. The object-root and builtin-base
 // defaults it can fall through to run no user code, so they stay t-less.
 func superCallMethodT(t *Thread, s *superObject, name string, args []Object) (Object, error) {
+	if name == "__get__" {
+		return superGetCall(s, args)
+	}
+	if s.objCls == nil {
+		return nil, Raise(AttributeError, "'super' object has no attribute '%s'", name)
+	}
 	if v, ok := superLookup(s, name); ok {
 		// __new__ is an implicit staticmethod: it takes cls explicitly and no
 		// instance is bound, so a chained super().__new__(cls) calls the next
@@ -358,6 +421,12 @@ func superCallMethodKw(s *superObject, name string, pos []Object, kwNames []stri
 // superCallMethodKwT is superCallMethodKw threading the ambient Thread into the
 // resolved callable's binder.
 func superCallMethodKwT(t *Thread, s *superObject, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	if name == "__get__" && len(kwNames) == 0 {
+		return superGetCall(s, pos)
+	}
+	if s.objCls == nil {
+		return nil, Raise(AttributeError, "'super' object has no attribute '%s'", name)
+	}
 	if v, ok := superLookup(s, name); ok {
 		if name == "__new__" {
 			return CallKwT(t, staticNew(v), pos, kwNames, kwVals)
@@ -398,5 +467,8 @@ func superCallMethodKwT(t *Thread, s *superObject, name string, pos []Object, kw
 // superRepr matches 3.14: the class is spelled by its bare name and the
 // instance by its type name without an address, so it is deterministic.
 func superRepr(s *superObject) string {
+	if s.objCls == nil {
+		return fmt.Sprintf("<super: <class '%s'>, NULL>", s.start.name)
+	}
 	return fmt.Sprintf("<super: <class '%s'>, <%s object>>", s.start.name, s.objCls.name)
 }

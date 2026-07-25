@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+super
+<super: <class 'B'>, NULL>
+B None None
+unbound.m: 'super' object has no attribute 'm'
+A.m
+<super: <class 'B'>, <B object>>
+B
+True
+super(5): super() argument 1 must be a type, not int
+super C B.m
+<super: <class 'C'>, NULL>
+== exception:
+== stderr:
