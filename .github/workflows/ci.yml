@@ -71,6 +71,30 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: go tool cover -func=coverage.out | tail -1
 
+  # Windows build and test. pkg/runtime still uses unix-only syscall APIs, so the
+  # whole module does not compile for windows/amd64 yet (tracked in #760). Until
+  # the runtime port lands, this lane proves the platform-neutral packages, the
+  # compiler front half, build and pass their tests on a real Windows runner, and
+  # runs a full `go build ./...` as an allowed-to-fail signal so the remaining
+  # runtime port is visible on every PR without blocking it. Flip the full build
+  # and test to required once #760 is green.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+      - name: build platform-neutral packages
+        run: go build ./pkg/objects/... ./pkg/frontend/... ./pkg/lower/...
+      - name: test platform-neutral packages
+        run: go test -count=1 ./pkg/objects/... ./pkg/frontend/... ./pkg/lower/...
+      - name: full build (tracked, allowed to fail until #760)
+        continue-on-error: true
+        run: go build ./...
+
   # The differential oracle: replay every oracle.golden against real CPython so
   # the goldens can never drift from the interpreter. The subject-vs-golden
   # comparison happens in the test job above and needs no Python. The Python
