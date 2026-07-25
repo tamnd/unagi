@@ -717,6 +717,13 @@ func classIntrospect(c *classObject, name string) (Object, bool) {
 		return NewFunc("__subclasses__", 0, func([]Object) (Object, error) {
 			return classSubclassesList(c), nil
 		}), true
+	case "mro":
+		// type.mro() returns the MRO as a fresh list, the mutable sibling of the
+		// __mro__ tuple. email._policybase._extend_docstrings walks base.mro() to
+		// find inherited members to re-document.
+		return NewFunc("mro", 0, func([]Object) (Object, error) {
+			return NewList(classMroChain(c)), nil
+		}), true
 	}
 	return nil, false
 }
@@ -2148,6 +2155,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return NewFloat(x.re), nil
 		case "imag":
 			return NewFloat(x.im), nil
+		case "__doc__":
+			return None, nil
 		}
 		return nil, Raise(AttributeError, "'complex' object has no attribute '%s'", name)
 	case *contextVar:
@@ -2201,6 +2210,9 @@ func LoadAttr(o Object, name string) (Object, error) {
 		if v, ok := containerSpecialAttr(x, name); ok {
 			return v, nil
 		}
+		if name == "__doc__" {
+			return None, nil
+		}
 		return nil, noAttr(x, name)
 	case *dequeObject:
 		// maxlen reads the bound as an int, or None for an unbounded deque; it is
@@ -2251,6 +2263,9 @@ func LoadAttr(o Object, name string) (Object, error) {
 		}
 		if v, ok := containerSpecialAttr(x, name); ok {
 			return v, nil
+		}
+		if name == "__doc__" {
+			return None, nil
 		}
 		return nil, noAttr(x, name)
 	case *memoryviewObject:
@@ -2462,6 +2477,11 @@ func LoadAttr(o Object, name string) (Object, error) {
 			// stable per-type builtin: the registration object and the print-time
 			// `type(object).__repr__` lookup are then the same and the dispatch hits.
 			return typeObjectReprDunder(x.name), nil
+		case "__doc__":
+			// A constructor-less builtin type carries no stored docstring, so it
+			// reads back None the way an undocumented type does in CPython, rather
+			// than raising.
+			return None, nil
 		case "__hash__":
 			// dataclasses guards against a mutable default with
 			// `f.default.__class__.__hash__ is None`, so a hashable default's type has
@@ -2572,6 +2592,14 @@ func LoadAttr(o Object, name string) (Object, error) {
 	// `it.__next__()` loop and inspect's `iter(lines).__next__` resolve.
 	if v, ok := iteratorSpecialAttr(o, name); ok {
 		return v, nil
+	}
+	// Every object answers __doc__: a builtin value or type constructor that
+	// carries no stored docstring reads back None rather than raising, the way
+	// CPython gives an undocumented object a None __doc__. email._policybase's
+	// _extend_docstrings iterates a class dict and reads attr.__doc__ on every
+	// value, strings and ints included, so http.client and urllib.request import.
+	if name == "__doc__" {
+		return None, nil
 	}
 	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", o.TypeName(), name)
 }

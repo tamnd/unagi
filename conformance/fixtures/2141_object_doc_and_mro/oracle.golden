@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+True
+True
+True
+True
+True
+True
+True
+True
+True
+True
+None
+A short docstring.
+A short docstring.
+list
+['Leaf', 'Mid', 'Base', 'object']
+True
+True
+== exception:
+== stderr:

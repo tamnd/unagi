@@ -151,5 +151,8 @@ func floatLoadAttr(o Object, name string) (Object, error) {
 			return floatMethod(recv, method, args)
 		}), nil
 	}
+	if name == "__doc__" {
+		return None, nil
+	}
 	return nil, Raise(AttributeError, "'float' object has no attribute '%s'", name)
 }
