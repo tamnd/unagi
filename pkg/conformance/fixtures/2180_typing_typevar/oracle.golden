@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+~T T None ()
+False False False False typing.NoDefault
++T_co
+-T_contra
+T
+<class 'int'> ()
+(<class 'int'>, <class 'str'>) None
+True <class 'int'>
+True None
+<class 'int'>
+T
+~T | int
+int | ~T
+__main__
+TypeError Constraints cannot be combined with bound=...
+TypeError A single constraint is not allowed
+ValueError Bivariant types are not supported.
+ValueError Variance cannot be specified with infer_variance.
+TypeError typevar() argument 'name' must be str, not int
+TypeError typevar() got an unexpected keyword argument 'weird'
+TypeError Cannot subclass an instance of TypeVar
+== exception:
+== stderr:

@@ -2413,6 +2413,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return typeAliasLoadAttr(x, name)
 	case *noDefaultObject:
 		return noDefaultLoadAttr(name)
+	case *typeVarObject:
+		return typeVarLoadAttr(x, name)
 	case *templateObject:
 		return templateLoadAttr(x, name)
 	case *interpolationObject:

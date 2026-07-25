@@ -32,5 +32,10 @@ func initTyping(m *objects.Module) error {
 	if err := objects.StoreAttr(m, "NoDefault", objects.NoDefaultSingleton()); err != nil {
 		return err
 	}
+	// TypeVar(name, *constraints, bound=, covariant=, contravariant=,
+	// infer_variance=, default=) builds a type variable.
+	if err := objects.StoreAttr(m, "TypeVar", objects.NewTypeVarConstructor()); err != nil {
+		return err
+	}
 	return nil
 }

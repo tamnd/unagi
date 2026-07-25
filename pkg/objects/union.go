@@ -38,6 +38,10 @@ func asUnionMember(o Object) (Object, bool) {
 			return t, true
 		}
 		return nil, false
+	case *typeVarObject:
+		// A type variable stands for itself in a union, so T | int keeps ~T in
+		// __args__ and reprs it with its variance sigil, the way CPython does.
+		return t, true
 	}
 	if o == None {
 		return TypeSingleton("NoneType"), true
@@ -178,6 +182,10 @@ func unionMemberRepr(m Object) string {
 		if s, err := genericAliasRepr(t); err == nil {
 			return s
 		}
+	case *typeVarObject:
+		// _type_repr of a type variable is its own repr, so a union member shows
+		// as ~T with its variance sigil.
+		return typeVarRepr(t)
 	}
 	return m.TypeName()
 }
