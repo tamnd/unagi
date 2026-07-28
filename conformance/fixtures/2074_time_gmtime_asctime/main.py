@@ -6,10 +6,12 @@
 
 import time
 
-# gmtime is the UTC breakdown, with tm_zone fixed to UTC and tm_gmtoff to zero.
+# gmtime is the UTC breakdown, with tm_gmtoff fixed to zero. tm_zone spells the
+# UTC zone as "UTC" or "GMT" depending on the host C library, so only its
+# membership in that pair is checked rather than the exact spelling.
 g0 = time.gmtime(0)
 print(g0)
-print(g0.tm_zone, g0.tm_gmtoff, g0.tm_wday, g0.tm_yday)
+print(g0.tm_zone in ("UTC", "GMT"), g0.tm_gmtoff, g0.tm_wday, g0.tm_yday)
 g = time.gmtime(1700000000)
 print(g)
 print(g.tm_year, g.tm_mon, g.tm_mday, g.tm_hour, g.tm_min, g.tm_sec)
