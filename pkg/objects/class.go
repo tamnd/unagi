@@ -2863,6 +2863,14 @@ func LoadAttr(o Object, name string) (Object, error) {
 			if v, ok := builtinTypeIntrospect(x, name); ok {
 				return v, nil
 			}
+			// int and bool expose their arithmetic and bitwise operator dunders off
+			// the type, so int.__add__ reads back a callable and type(int.__add__) is
+			// a type (multiprocessing.reduction registers it at import). These are the
+			// number-protocol slots, handled here rather than left to the __-prefix
+			// guard below that reserves __-names for the descriptor table.
+			if v, ok := builtinNumericUnboundDunder(x.name, name); ok {
+				return v, nil
+			}
 			// A plain method read off the type is the unbound method: int.bit_length
 			// then int.bit_length(5) dispatches the same as (5).bit_length(). Dunders
 			// are left to the descriptor handling above, so only the public names
