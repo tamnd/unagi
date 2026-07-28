@@ -14,30 +14,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Build and test on Linux and macOS with the race detector on. gofmt and vet
-  # run here too so a formatting slip fails fast on both platforms. unagi is
-  # pure Go with no cgo, so nothing extra needs installing first. The pipeline
-  # tests shell out to the Go toolchain to build generated programs, which the
-  # runner already has.
+  # Race-detector unit sweep on Linux and macOS. gofmt and vet run here too so a
+  # formatting slip fails fast on both platforms. unagi is pure Go with no cgo, so
+  # nothing extra needs installing first. This runs -short: the compile-heavy
+  # suites (the conformance corpus and the static-tier probes) are the slow part
+  # and link one throwaway binary per case, so they run in the dedicated sharded
+  # corpus job below instead of under the race detector on every platform. What
+  # stays here is the fast unit suite under -race, including the platform-specific
+  # runtime code that only these two OSes exercise.
   test:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # The conformance suite compiles one throwaway binary per fixture. The
-          # runner throttles concurrent builds to keep peak linker memory in
-          # check; on the roomy Linux runner we lift that cap so the warm build
-          # cache is exercised in parallel, while the lower-memory macOS runner
-          # keeps the runner's safe default (half the cores).
-          - os: ubuntu-latest
-            build_jobs: "4"
-            test_timeout: "30m"
-          - os: macos-latest
-            build_jobs: ""
-            # The macOS runner is slower and builds at half the cores, so the
-            # race-instrumented corpus brushes the 30m ceiling as the fixture set
-            # grows. Give it more headroom; the job timeout is still the real cap.
-            test_timeout: "50m"
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7.0.1
@@ -59,17 +48,44 @@ jobs:
       - name: build
         run: go build ./...
       - name: test
-        env:
-          UNAGI_TEST_BUILD_JOBS: ${{ matrix.build_jobs }}
-        # The race-instrumented conformance corpus links one binary per fixture,
-        # and the slower macOS runner keeps a lower build-concurrency cap, so the
-        # sweep can run past Go's default 10-minute per-test timeout. The per-OS
-        # timeout gives each runner headroom; the CI job timeout is still the real
-        # ceiling.
-        run: go test -race -count=1 -timeout=${{ matrix.test_timeout }} -coverprofile=coverage.out ./...
+        run: go test -race -short -count=1 -timeout=20m -coverprofile=coverage.out ./...
       - name: coverage summary
         if: matrix.os == 'ubuntu-latest'
         run: go tool cover -func=coverage.out | tail -1
+
+  # Compile-heavy conformance corpus, sharded across parallel Linux jobs. Each
+  # fixture links one throwaway binary, times the forced-tier and double-compile
+  # reruns, so a single runner outgrows any sane time budget as the corpus grows.
+  # UNAGI_TEST_SHARD makes each job build a disjoint slice (by a stable hash of
+  # the fixture name), so wall time stays flat as fixtures are added: widen the
+  # shard count, not the timeout. build_jobs lifts the per-runner build cap to 4
+  # so the warm cache is exercised in parallel. The child fixture builds are not
+  # race-instrumented, so the corpus runs without -race; the compiler packages it
+  # drives keep their race coverage in the test job above. Shard 0 also carries
+  # the emit/ir/build static-tier probes, which are few and not worth sharding.
+  corpus:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["0/4", "1/4", "2/4", "3/4"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+      - name: corpus shard
+        env:
+          UNAGI_TEST_SHARD: ${{ matrix.shard }}
+          UNAGI_TEST_BUILD_JOBS: "4"
+        run: go test -count=1 -timeout=30m ./pkg/conformance/
+      - name: static-tier probes
+        if: matrix.shard == '0/4'
+        env:
+          UNAGI_TEST_BUILD_JOBS: "4"
+        run: go test -count=1 -timeout=20m ./pkg/emit/ ./pkg/ir/ ./pkg/build/
 
   # Windows build, test, and run. The runtime compiles for windows/amd64 (#760),
   # so this lane builds the whole module, runs every package suite that is green

@@ -2,10 +2,12 @@ package conformance
 
 import (
 	"context"
+	"hash/fnv"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/tamnd/unagi/pkg/build"
@@ -85,7 +87,55 @@ func corpus(t *testing.T) ([]Fixture, *Runner) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return fixtures, &Runner{LedgerIDs: ids}
+	return shardFixtures(t, fixtures), &Runner{LedgerIDs: ids}
+}
+
+// shardFixtures keeps only the fixtures assigned to this shard. The compile-heavy
+// corpus sweeps link one throwaway binary per fixture, times the forced-tier and
+// double-compile reruns, so on a single runner they outgrow any sane time budget
+// as the corpus grows. UNAGI_TEST_SHARD="index/total" (e.g. "0/4") lets CI fan
+// the sweep out across parallel jobs, each building a disjoint slice. Assignment
+// is by a stable hash of the fixture name, so a fixture lands in exactly one shard
+// regardless of enumeration order across the parallel processes. Unset, or total
+// <= 1, keeps every fixture, so a plain `go test` and the oracle lane are
+// unaffected.
+func shardFixtures(t *testing.T, fixtures []Fixture) []Fixture {
+	t.Helper()
+	spec := os.Getenv("UNAGI_TEST_SHARD")
+	if spec == "" {
+		return fixtures
+	}
+	idx, total, ok := parseShard(spec)
+	if !ok {
+		t.Fatalf("bad UNAGI_TEST_SHARD %q, want index/total", spec)
+	}
+	if total <= 1 {
+		return fixtures
+	}
+	var keep []Fixture
+	for _, f := range fixtures {
+		h := fnv.New32a()
+		_, _ = h.Write([]byte(f.Name))
+		if int(h.Sum32()%uint32(total)) == idx {
+			keep = append(keep, f)
+		}
+	}
+	return keep
+}
+
+// parseShard reads an "index/total" shard spec, rejecting a malformed spec or an
+// index outside [0, total).
+func parseShard(spec string) (idx, total int, ok bool) {
+	a, b, found := strings.Cut(spec, "/")
+	if !found {
+		return 0, 0, false
+	}
+	i, err1 := strconv.Atoi(a)
+	n, err2 := strconv.Atoi(b)
+	if err1 != nil || err2 != nil || n <= 0 || i < 0 || i >= n {
+		return 0, 0, false
+	}
+	return i, n, true
 }
 
 // TestCorpusGolden compiles every fixture and judges it against the
