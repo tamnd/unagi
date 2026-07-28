@@ -1,5 +1,3 @@
-//go:build !windows
-
 package runtime
 
 import (
@@ -12,13 +10,22 @@ import (
 
 // _socket is a built-in module: CPython implements the low-level socket surface
 // in C, so the runtime provides it in Go, with the public socket.py layered on
-// top. This slice lands the deterministic half: the address-family, socket-type,
-// protocol and option constants (sourced from Go's syscall package so each value
+// top. This is the deterministic half: the address-family, socket-type,
+// protocol and option constants (per-GOOS in socketModuleConsts so each value
 // matches the platform the program is built on, the way CPython's differ by
-// platform), the error hierarchy (error is OSError, gaierror and herror are its
-// subclasses, timeout is TimeoutError), and the byte-order and address
-// conversion helpers. The socket object itself, name resolution and I/O are
-// later slices.
+// platform, including Windows omitting AF_UNIX and using the winsock SO_* codes),
+// the error hierarchy (error is OSError, gaierror and herror are its subclasses,
+// timeout is TimeoutError), and the byte-order and address conversion helpers.
+// The socket object and name resolution follow in socketobj.go and
+// socketresolve.go, with the raw syscalls behind a per-GOOS backend.
+
+// socketConst is one named integer the _socket module exposes. The set and the
+// values differ by platform, so the table lives per-GOOS in socketmodconst_unix
+// (from syscall) and socketmodconst_windows (winsock literals).
+type socketConst struct {
+	name string
+	val  int64
+}
 
 func init() {
 	moduleTable["_socket"] = &moduleEntry{builtin: true, exec: initSocket}
@@ -29,52 +36,23 @@ func initSocket(m *objects.Module) error {
 		return objects.StoreAttr(m, name, v)
 	}
 
-	// The integer constants. syscall carries the platform value for each, which
-	// is what makes AF_INET6 (30 on darwin, 10 on linux) and SOL_SOCKET (0xffff
-	// on darwin, 1 on linux) come out right wherever the program is compiled.
-	consts := []struct {
-		name string
-		val  int64
-	}{
-		{"AF_UNSPEC", syscall.AF_UNSPEC},
-		{"AF_INET", syscall.AF_INET},
-		{"AF_INET6", syscall.AF_INET6},
-		{"AF_UNIX", syscall.AF_UNIX},
-		{"SOCK_STREAM", syscall.SOCK_STREAM},
-		{"SOCK_DGRAM", syscall.SOCK_DGRAM},
-		{"SOCK_RAW", syscall.SOCK_RAW},
-		{"SOCK_RDM", syscall.SOCK_RDM},
-		{"SOCK_SEQPACKET", syscall.SOCK_SEQPACKET},
-		{"SOL_SOCKET", syscall.SOL_SOCKET},
-		{"IPPROTO_IP", syscall.IPPROTO_IP},
-		{"IPPROTO_ICMP", syscall.IPPROTO_ICMP},
-		{"IPPROTO_TCP", syscall.IPPROTO_TCP},
-		{"IPPROTO_UDP", syscall.IPPROTO_UDP},
-		{"IPPROTO_IPV6", syscall.IPPROTO_IPV6},
-		{"IPPROTO_RAW", syscall.IPPROTO_RAW},
-		{"SO_REUSEADDR", syscall.SO_REUSEADDR},
-		{"SO_KEEPALIVE", syscall.SO_KEEPALIVE},
-		{"SO_BROADCAST", syscall.SO_BROADCAST},
-		{"SO_ERROR", syscall.SO_ERROR},
-		{"SO_TYPE", syscall.SO_TYPE},
-		{"SO_LINGER", syscall.SO_LINGER},
-		{"SO_RCVBUF", syscall.SO_RCVBUF},
-		{"SO_SNDBUF", syscall.SO_SNDBUF},
-		{"TCP_NODELAY", syscall.TCP_NODELAY},
-		{"SHUT_RD", syscall.SHUT_RD},
-		{"SHUT_WR", syscall.SHUT_WR},
-		{"SHUT_RDWR", syscall.SHUT_RDWR},
-		{"MSG_PEEK", syscall.MSG_PEEK},
-		{"MSG_WAITALL", syscall.MSG_WAITALL},
-		{"MSG_DONTROUTE", syscall.MSG_DONTROUTE},
-		{"MSG_OOB", syscall.MSG_OOB},
-		// The IANA well-known addresses are the same on every platform.
+	// The address-family, socket-type, protocol and option constants. The set and
+	// values are per-GOOS (AF_INET6 is 30 on darwin, 10 on linux, 23 on Windows;
+	// SOL_SOCKET is 0xffff on darwin and Windows, 1 on linux; Windows omits
+	// AF_UNIX and gives SO_ERROR 0x1007), so socketModuleConsts carries the right
+	// table for the build platform.
+	for _, c := range socketModuleConsts {
+		if err := set(c.name, objects.NewInt(c.val)); err != nil {
+			return err
+		}
+	}
+	// The IANA well-known addresses are the same on every platform.
+	for _, c := range []socketConst{
 		{"INADDR_ANY", 0x00000000},
 		{"INADDR_BROADCAST", 0xffffffff},
 		{"INADDR_LOOPBACK", 0x7f000001},
 		{"INADDR_NONE", 0xffffffff},
-	}
-	for _, c := range consts {
+	} {
 		if err := set(c.name, objects.NewInt(c.val)); err != nil {
 			return err
 		}

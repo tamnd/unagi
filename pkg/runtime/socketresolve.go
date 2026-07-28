@@ -1,5 +1,3 @@
-//go:build !windows
-
 package runtime
 
 import (
@@ -451,7 +449,7 @@ func firstIPv4(host string) (string, error) {
 // net package resolves a name to a port but not the reverse, so getservbyport
 // reads the file directly, the source getservbyport itself consults.
 func serviceByPort(port int, proto string) (string, bool) {
-	f, err := os.Open("/etc/services")
+	f, err := os.Open(servicesFilePath)
 	if err != nil {
 		return "", false
 	}
