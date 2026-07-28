@@ -3,8 +3,10 @@ import xml.parsers.expat as expat
 import plistlib
 import xml.dom.minidom as minidom
 
-# Module identity and the errors/model submodules the shim republishes.
-print(expat.EXPAT_VERSION)
+# Module identity and the errors/model submodules the shim republishes. The
+# bundled libexpat version drifts between hosts, so only the "expat_" prefix of
+# EXPAT_VERSION is asserted rather than the exact release.
+print(expat.EXPAT_VERSION.startswith("expat_"))
 print(expat.native_encoding)
 print(expat.error is expat.ExpatError)
 print(expat.errors.XML_ERROR_SYNTAX)
