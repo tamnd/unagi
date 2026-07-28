@@ -164,6 +164,12 @@ type instanceObject struct {
 	// self[i], the inherited list methods and the sequence operators read and
 	// write. It is nil for an instance whose class has no list base.
 	listData *listObject
+	// setData is the payload of a set or frozenset subclass instance, a
+	// *setObject or *frozensetObject the inherited set methods, the membership
+	// protocol and the set operators read and write. It is nil for an instance
+	// whose class has no set base. The payload keeps the base's own type so a
+	// frozenset subclass stays immutable while a set subclass mutates in place.
+	setData Object
 	// builtinData is the immutable payload of a value subclass instance: the
 	// intObject an int subclass wraps or the strObject a str subclass wraps, set
 	// once at construction. It is nil for an instance whose class has no such
@@ -2207,6 +2213,10 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 		inst.dictData = &dictObject{index: map[string]int{}, kind: defaultDict}
 	case "list":
 		inst.listData = &listObject{}
+	case "set":
+		inst.setData = &setObject{newSetCore(0)}
+	case "frozenset":
+		inst.setData = &frozensetObject{newSetCore(0)}
 	case "int", "str", "bytes", "tuple", "classmethod", "staticmethod", "property", "ref":
 		// A value subclass builds its immutable payload through the builtin base's
 		// own conversion, the way int.__new__ or str.__new__ sets the value from
@@ -2265,6 +2275,14 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 			// A list subclass with no __init__ override inherits list.__init__,
 			// which fills the store from the optional iterable argument.
 			if err := listInit(inst.listData, pos, kwNames, kwVals); err != nil {
+				return nil, err
+			}
+			return inst, nil
+		}
+		if inst.setData != nil {
+			// A set or frozenset subclass with no __init__ override inherits
+			// set.__init__, which fills the store from the optional iterable.
+			if err := setInit(inst.setData, pos, kwNames, kwVals); err != nil {
 				return nil, err
 			}
 			return inst, nil

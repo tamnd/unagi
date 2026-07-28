@@ -1231,6 +1231,9 @@ func Contains(container, item Object) (Object, error) {
 		if l, ok := listBacked(x); ok {
 			return Contains(l, item)
 		}
+		if c, ok := setBackedObj(x); ok {
+			return setContains(c, item)
+		}
 		if v, ok := builtinUnwrap(x); ok {
 			return Contains(v, item)
 		}
@@ -1679,6 +1682,9 @@ func Len(o Object) (int, error) {
 		if l, ok := listBacked(x); ok {
 			return len(l.elts), nil
 		}
+		if c, ok := setBackedObj(x); ok {
+			return len(c.elts), nil
+		}
 		if v, ok := builtinUnwrap(x); ok {
 			return Len(v)
 		}
@@ -1852,6 +1858,9 @@ func Iter(o Object) (Iterator, error) {
 				}
 				if l, backed := listBacked(x); backed {
 					return Iter(l)
+				}
+				if c, backed := setBackedObj(x); backed {
+					return &sliceIter{elts: c.elts}, nil
 				}
 				if v, ok := builtinUnwrap(x); ok {
 					return Iter(v)

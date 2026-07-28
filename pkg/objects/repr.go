@@ -411,6 +411,19 @@ func reprCore(o Object, strict bool) (string, error) {
 			if l, ok := listBacked(x); ok {
 				return reprCore(l, strict)
 			}
+			// A set subclass inherits set.__repr__, which unlike list and dict does
+			// name the type: probed, repr(S()) is "S()" and repr(S({1, 2})) is
+			// "S({1, 2})", since set_repr spells Py_TYPE(so)->tp_name.
+			if c, ok := setBackedObj(x); ok {
+				if len(c.elts) == 0 {
+					return x.cls.name + "()", nil
+				}
+				body, err := reprSeqCore(c.elts, "{", "}", strict)
+				if err != nil {
+					return "", err
+				}
+				return x.cls.name + "(" + body + ")", nil
+			}
 			// A value subclass with no __repr__ override reprs as its payload, so
 			// an int subclass member prints as its int value.
 			if v, ok := builtinUnwrap(x); ok {

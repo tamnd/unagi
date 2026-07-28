@@ -112,6 +112,22 @@ func richSlot(x Object, op CmpOp, other Object) (res Object, ok bool, err error)
 		}
 		return r, true, nil
 	}
+	// A set subclass with no comparison override compares as a set: equality
+	// against any set or frozenset by elements, and < <= > >= as the subset
+	// relations. An order comparison against a non-set declines, so the caller
+	// raises the unorderable TypeError set pairs give.
+	if c, ok := setBackedObj(inst); ok {
+		switch op {
+		case OpEq:
+			return NewBool(coreEquals(c, other)), true, nil
+		case OpNe:
+			return NewBool(!coreEquals(c, other)), true, nil
+		}
+		if oc, ok := asSetCore(other); ok {
+			return NewBool(setOrder(op, c, oc)), true, nil
+		}
+		return nil, false, nil
+	}
 	if op == OpNe {
 		// object.__ne__ negates __eq__ unless __eq__ itself declines.
 		eq, hasEq, err := instanceSpecial(inst, "__eq__", other)

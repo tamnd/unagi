@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+3
+True False
+[2, 3, 4]
+True False
+S()
+S({1, 2})
+[2, 3, 4, 10] set
+[3, 4] set
+[3, 4]
+[2, 4, 100]
+True
+True
+False
+[2, 3, 4, 50] set
+0 []
+F({1, 2}) 2 True
+[1, 2, 3] frozenset
+True True
+[1, 2, 3] 2
+== exception:
+== stderr:
