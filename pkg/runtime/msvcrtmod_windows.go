@@ -44,7 +44,7 @@ func msvcrtGetOsfhandle(args []objects.Object) (objects.Object, error) {
 	if len(args) != 1 {
 		return nil, objects.Raise(objects.TypeError, "get_osfhandle() takes exactly 1 argument (%d given)", len(args))
 	}
-	fd, ok := objects.AsInt(args[0])
+	fd, ok := objects.AsIntValue(args[0])
 	if !ok {
 		return nil, objects.Raise(objects.TypeError, "an integer is required (got type %s)", args[0].TypeName())
 	}
@@ -59,11 +59,11 @@ func msvcrtOpenOsfhandle(args []objects.Object) (objects.Object, error) {
 	if len(args) != 2 {
 		return nil, objects.Raise(objects.TypeError, "open_osfhandle() takes exactly 2 arguments (%d given)", len(args))
 	}
-	handle, ok := objects.AsInt(args[0])
+	handle, ok := objects.AsIntValue(args[0])
 	if !ok {
 		return nil, objects.Raise(objects.TypeError, "an integer is required (got type %s)", args[0].TypeName())
 	}
-	if _, ok := objects.AsInt(args[1]); !ok {
+	if _, ok := objects.AsIntValue(args[1]); !ok {
 		return nil, objects.Raise(objects.TypeError, "an integer is required (got type %s)", args[1].TypeName())
 	}
 	return objects.NewInt(handle), nil

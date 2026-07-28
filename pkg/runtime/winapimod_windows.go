@@ -130,9 +130,10 @@ func initWinapi(m *objects.Module) error {
 }
 
 // winArgInt reads one integer argument at position i, raising the CPython
-// not-an-integer TypeError otherwise.
+// not-an-integer TypeError otherwise. It reaches through int subclasses, since
+// subprocess passes its handles as Handle (a class Handle(int)) instances.
 func winArgInt(name string, args []objects.Object, i int) (int64, error) {
-	v, ok := objects.AsInt(args[i])
+	v, ok := objects.AsIntValue(args[i])
 	if !ok {
 		return 0, objects.Raise(objects.TypeError, "an integer is required (got type %s)", args[i].TypeName())
 	}
@@ -470,7 +471,7 @@ func winAttrInt(o objects.Object, name string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	n, ok := objects.AsInt(v)
+	n, ok := objects.AsIntValue(v)
 	if !ok {
 		return 0, objects.Raise(objects.TypeError, "startupinfo.%s must be an integer", name)
 	}
