@@ -20,7 +20,7 @@ func TestUnicodedataCategory(t *testing.T) {
 		{"_", "Pc"}, {"-", "Pd"}, {"(", "Ps"}, {")", "Pe"}, {"«", "Pi"}, {"»", "Pf"}, {"!", "Po"},
 		{"+", "Sm"}, {"$", "Sc"}, {"^", "Sk"}, {"©", "So"},
 		{" ", "Zs"}, {" ", "Zl"}, {" ", "Zp"},
-		{"\x00", "Cc"}, {"​", "Cf"}, {"\U000f0000", "Co"},
+		{"\x00", "Cc"}, {"\u200b", "Cf"}, {"\U000f0000", "Co"},
 		{"\U0003fffd", "Cn"},
 	}
 	for _, c := range cases {

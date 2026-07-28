@@ -139,7 +139,7 @@ func monRegisterCallback(args []objects.Object) (objects.Object, error) {
 	sysMonitoring.mu.Lock()
 	defer sysMonitoring.mu.Unlock()
 	t := &sysMonitoring.tools[id]
-	var prev objects.Object = objects.None
+	prev := objects.None
 	if t.callbacks != nil {
 		if p, ok := t.callbacks[event]; ok {
 			prev = p

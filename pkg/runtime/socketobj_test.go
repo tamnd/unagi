@@ -84,7 +84,7 @@ func TestSocketLoopback(t *testing.T) {
 
 func TestSocketFamilyAttr(t *testing.T) {
 	s := newSocket(t, 2, 1)
-	defer objects.CallMethod(s, "close", nil)
+	defer func() { _, _ = objects.CallMethod(s, "close", nil) }()
 	fam, err := objects.LoadAttr(s, "family")
 	if err != nil {
 		t.Fatalf("family: %v", err)

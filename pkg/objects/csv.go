@@ -449,7 +449,7 @@ func (r *csvReader) saveField() error {
 		return nil
 	}
 	s := string(r.field)
-	var field Object = NewStr(s)
+	field := NewStr(s)
 	if r.unquotedField && len(r.field) != 0 && (q == csvQuoteNonnumeric || q == csvQuoteStrings) {
 		f, err := csvParseFloat(s)
 		if err != nil {
@@ -596,11 +596,12 @@ func (r *csvReader) processChar(c rune) error {
 		}
 
 	case csvEatCRNL:
-		if c == '\n' || c == '\r' {
+		switch c {
+		case '\n', '\r':
 			// swallow the rest of the line ending
-		} else if c == csvEOL {
+		case csvEOL:
 			r.state = csvStartRecord
-		} else {
+		default:
 			return csvErrorf(r.errClass,
 				"new-line character seen in unquoted field - do you need to open the file with newline=''?")
 		}

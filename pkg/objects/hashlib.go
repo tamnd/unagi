@@ -102,9 +102,9 @@ func (h *hashObject) sum() []byte {
 // shakeSum computes length bytes of a shake's extendable output.
 func (h *hashObject) shakeSum(length int) []byte {
 	s := h.algo.newShake()
-	s.Write(h.data)
+	_, _ = s.Write(h.data)
 	out := make([]byte, length)
-	s.Read(out)
+	_, _ = s.Read(out)
 	return out
 }
 
@@ -308,7 +308,7 @@ func CompareDigest(a, b Object) (Object, error) {
 	as, aStr := AsStr(a)
 	bs, bStr := AsStr(b)
 	if aStr || bStr {
-		if !(aStr && bStr) {
+		if !aStr || !bStr {
 			return nil, Raise(TypeError, "unsupported operand types(s) or combination of types")
 		}
 		if !isASCII(as) || !isASCII(bs) {

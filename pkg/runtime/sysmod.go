@@ -629,7 +629,7 @@ func sysExcInfo(args []objects.Object) (objects.Object, error) {
 	if e == nil {
 		return objects.NewTuple([]objects.Object{objects.None, objects.None, objects.None}), nil
 	}
-	var typ objects.Object = objects.ExcType(e.Kind)
+	typ := objects.ExcType(e.Kind)
 	if c, ok := objects.ClassOf(e); ok {
 		typ = c
 	}

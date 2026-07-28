@@ -51,7 +51,7 @@ func TestFcntlModule(t *testing.T) {
 	if err != nil {
 		t.Fatalf("temp file: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	fd := objects.NewInt(int64(f.Fd()))
 
 	call := func(name string, args ...objects.Object) objects.Object {

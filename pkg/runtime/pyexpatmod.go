@@ -517,7 +517,7 @@ func expatXMLDecl(self objects.Object, inst string) error {
 	case "no":
 		standalone = objects.NewInt(0)
 	}
-	var vObj, eObj objects.Object = objects.None, objects.None
+	vObj, eObj := objects.None, objects.None
 	if version != "" {
 		vObj = objects.NewStr(version)
 	}

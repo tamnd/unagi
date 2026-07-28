@@ -52,8 +52,8 @@ func TestTermiosModule(t *testing.T) {
 	if err := syscall.Pipe(fds[:]); err != nil {
 		t.Skipf("pipe unavailable: %v", err)
 	}
-	defer syscall.Close(fds[0])
-	defer syscall.Close(fds[1])
+	defer func() { _ = syscall.Close(fds[0]) }()
+	defer func() { _ = syscall.Close(fds[1]) }()
 	_, cerr := objects.Call(attr("tcgetattr"), []objects.Object{objects.NewInt(int64(fds[0]))})
 	if cerr == nil {
 		t.Fatal("tcgetattr on a pipe should raise, got nil")

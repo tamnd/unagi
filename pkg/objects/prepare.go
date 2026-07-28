@@ -247,7 +247,7 @@ func (b *ClassBuilder) Finish(staticAttrs []string) (Object, error) {
 	// it. The default metatype keeps its annotations in a dedicated slot instead,
 	// so `'__annotate__' in C.__dict__` stays false there, and the injection is
 	// scoped to the non-default path.
-	if len(b.lazyAnns) > 0 && !(b.meta == typeClass && b.callable == nil) {
+	if len(b.lazyAnns) > 0 && (b.meta != typeClass || b.callable != nil) {
 		if err := b.Set("__annotate__", makeClassAnnotate(b.lazyAnns)); err != nil {
 			return nil, err
 		}

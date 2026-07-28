@@ -10,9 +10,8 @@ import "syscall"
 // sendto missing from Go's syscall) that it carries its own backend in
 // sockbackend_windows.go.
 
-// sockStartup is a no-op on unix; winsock needs WSAStartup, so the Windows
-// backend does that work at first use instead.
-func sockStartup() error { return nil }
+// The Windows backend defines sockStartup for WSAStartup; unix needs no such
+// initialization, so there is no unix counterpart.
 
 func sockSocket(family, socktype, proto int) (int, error) {
 	return syscall.Socket(family, socktype, proto)

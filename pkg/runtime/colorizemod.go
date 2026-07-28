@@ -413,7 +413,7 @@ func colorizeKwMap(kwNames []string, kwVals []objects.Object) map[string]objects
 // environment controls CPython does, then falls back to whether the target
 // stream is a terminal.
 func colorizeCanColorizeKw(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
-	var file objects.Object = objects.None
+	file := objects.None
 	for i, n := range kwNames {
 		if n == "file" {
 			file = kwVals[i]
@@ -503,7 +503,7 @@ func colorizeGetColors(pos []objects.Object, kwNames []string, kwVals []objects.
 		}
 		colorize = t
 	}
-	var file objects.Object = objects.None
+	file := objects.None
 	for i, n := range kwNames {
 		switch n {
 		case "colorize":
@@ -531,7 +531,7 @@ func colorizeGetColors(pos []objects.Object, kwNames []string, kwVals []objects.
 }
 
 func colorizeGetTheme(_ []objects.Object, kwNames []string, kwVals []objects.Object, themeNoColor objects.Object) (objects.Object, error) {
-	var ttyFile objects.Object = objects.None
+	ttyFile := objects.None
 	forceColor, forceNoColor := false, false
 	for i, n := range kwNames {
 		switch n {
