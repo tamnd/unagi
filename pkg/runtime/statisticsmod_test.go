@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"math"
 	"testing"
 
 	"github.com/tamnd/unagi/pkg/objects"
@@ -8,8 +9,14 @@ import (
 
 // TestStatisticsInvCDF checks the accelerator imports and reproduces CPython's
 // _normal_dist_inv_cdf across every branch of the AS241 approximation. The
-// expected values are CPython 3.14.6 output; the arithmetic is deterministic
-// IEEE-754, so equality is exact.
+// expected values are CPython 3.14.6 output. The AS241 rational approximation
+// evaluates a chain of multiply-adds, and whether the compiler contracts those
+// to a fused multiply-add differs by target (windows/amd64 fuses one step the
+// unix builds do not), so the last bit can move by a single ULP. A real error in
+// any branch is orders of magnitude larger, so the check allows a few ULP of
+// slack rather than demanding a bit-exact match.
+const invCDFTol = 1e-12
+
 func TestStatisticsInvCDF(t *testing.T) {
 	mo, err := ImportModule("_statistics")
 	if err != nil {
@@ -37,7 +44,7 @@ func TestStatisticsInvCDF(t *testing.T) {
 			t.Fatalf("inv_cdf(%v): %v", c, err)
 		}
 		g, ok := objects.AsFloat(got)
-		if !ok || g != c.want {
+		if !ok || math.Abs(g-c.want) > invCDFTol {
 			t.Fatalf("inv_cdf(%v, %v, %v) = %v, want %v", c.p, c.mu, c.sigma, got, c.want)
 		}
 	}
