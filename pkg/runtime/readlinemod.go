@@ -346,7 +346,7 @@ func readlineAppendHistoryFile(args []objects.Object) (objects.Object, error) {
 	if oerr != nil {
 		return nil, readlineOSError(oerr)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if _, werr := f.WriteString(text); werr != nil {
 		return nil, readlineOSError(werr)
 	}

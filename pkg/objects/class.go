@@ -3547,7 +3547,7 @@ func objectDefaultGetState(o Object) (Object, error) {
 	if !ok {
 		return None, nil
 	}
-	var dictState Object = None
+	dictState := None
 	if inst.attrs != nil && len(inst.attrs.entries) > 0 {
 		// CPython returns the live __dict__, so d is c.__dict__ holds.
 		dictState = inst.attrs

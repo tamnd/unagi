@@ -165,7 +165,7 @@ func mathProd(pos []objects.Object, kwNames []string, kwVals []objects.Object) (
 	if len(pos) != 1 {
 		return nil, objects.Raise(objects.TypeError, "prod() takes exactly 1 positional argument (%d given)", len(pos))
 	}
-	var acc objects.Object = objects.NewInt(1)
+	acc := objects.NewInt(1)
 	for i, k := range kwNames {
 		if k != "start" {
 			return nil, objects.Raise(objects.TypeError, "prod() got an unexpected keyword argument '%s'", k)

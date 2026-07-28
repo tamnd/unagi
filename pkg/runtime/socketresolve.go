@@ -453,7 +453,7 @@ func serviceByPort(port int, proto string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	want := strconv.Itoa(port) + "/" + proto
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {

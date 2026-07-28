@@ -26,7 +26,7 @@ func TestForkExecPipe(t *testing.T) {
 	if err := syscall.Pipe(fds[:]); err != nil {
 		t.Fatalf("pipe: %v", err)
 	}
-	defer syscall.Close(fds[0])
+	defer func() { _ = syscall.Close(fds[0]) }()
 
 	argv := objects.NewList([]objects.Object{objects.NewStr("/bin/echo"), objects.NewStr("hi")})
 	execList := objects.NewList([]objects.Object{objects.NewStr("/bin/echo")})
@@ -44,7 +44,7 @@ func TestForkExecPipe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fork_exec: %v", err)
 	}
-	syscall.Close(fds[1]) // parent drops the write end so the read sees EOF
+	_ = syscall.Close(fds[1]) // parent drops the write end so the read sees EOF
 
 	pid, ok := objects.AsInt(pidObj)
 	if !ok || pid <= 0 {
@@ -57,7 +57,7 @@ func TestForkExecPipe(t *testing.T) {
 		t.Errorf("child wrote %q, want %q", got, "hi\n")
 	}
 	var ws syscall.WaitStatus
-	syscall.Wait4(int(pid), &ws, 0, nil)
+	_, _ = syscall.Wait4(int(pid), &ws, 0, nil)
 }
 
 // TestForkExecMissing checks a nonexistent executable surfaces as an OSError

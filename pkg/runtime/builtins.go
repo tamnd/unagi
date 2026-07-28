@@ -131,7 +131,7 @@ func Sum(args []objects.Object) (objects.Object, error) {
 	default:
 		return nil, objects.Raise(objects.TypeError, "sum() takes at most 2 arguments (%d given)", len(args))
 	}
-	var acc objects.Object = objects.NewInt(0)
+	acc := objects.NewInt(0)
 	if len(args) == 2 {
 		if _, ok := objects.AsStr(args[1]); ok {
 			// Probed: sum() can't sum strings [use ''.join(seq) instead],

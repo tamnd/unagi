@@ -161,7 +161,7 @@ func listMethodKw(x *listObject, name string, pos []Object, kwNames []string, kw
 	if len(pos) != 0 {
 		return nil, Raise(TypeError, "sort() takes no positional arguments")
 	}
-	var keyFn Object = None
+	keyFn := None
 	reverse := false
 	for i, kn := range kwNames {
 		switch kn {
