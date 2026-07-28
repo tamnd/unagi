@@ -118,6 +118,37 @@ func superLookup(s *superObject, name string) (Object, bool) {
 	return nil, false
 }
 
+// builtinNewSlotWins reports whether the first __new__ provider past s.start in
+// the cooperative order is a collapsed builtin/value/namedtuple base rather than
+// a class node. The builtin base a class introduces sits right after that class
+// in CPython's MRO, so it is walked before any co-base declared alongside it. A
+// class that introduced such a base carries ownsBuiltinBase, and every builtin
+// base supplies a __new__, so an owning class encountered before a class node
+// with a __new__ in its dict means the builtin construction wins. s.start's own
+// builtin slot is the first candidate, since it precedes every node after it.
+func builtinNewSlotWins(s *superObject) bool {
+	if s.start != nil && s.start.ownsBuiltinBase {
+		return true
+	}
+	mro := s.objCls.mro
+	i := 0
+	for ; i < len(mro); i++ {
+		if mro[i] == s.start {
+			i++
+			break
+		}
+	}
+	for ; i < len(mro); i++ {
+		if _, ok := mro[i].dict["__new__"]; ok {
+			return false
+		}
+		if mro[i].ownsBuiltinBase {
+			return true
+		}
+	}
+	return false
+}
+
 // superLoadAttr reads super().name as a value: a function binds the original
 // instance as self, any other value comes back as is, and a miss is the
 // probed 'super' object AttributeError.
@@ -217,6 +248,20 @@ func superCallMethodT(t *Thread, s *superObject, name string, args []Object) (Ob
 	if s.objCls == nil {
 		return nil, Raise(AttributeError, "'super' object has no attribute '%s'", name)
 	}
+	// A value, namedtuple, or builtin base is collapsed off the class-node MRO,
+	// but its type sits right after the class that introduced it, before any
+	// co-base declared alongside that class. For __new__ the builtin base always
+	// supplies a constructor, so when the builtin slot precedes the next class
+	// node that carries __new__, the builtin construction must win. superLookup
+	// walks class nodes only, so without this it would return the co-base __new__
+	// (a namedtuple base combined with Enum resolved to Enum.__new__ and dropped
+	// the tuple fields). objectDefaultCall's __new__ branch runs the builtin
+	// construction, seeding the payload from the value/namedtuple base.
+	if name == "__new__" && builtinNewSlotWins(s) {
+		if r, ok, err := objectDefaultCall(s.obj, name, args); ok {
+			return r, err
+		}
+	}
 	if v, ok := superLookup(s, name); ok {
 		// __new__ is an implicit staticmethod: it takes cls explicitly and no
 		// instance is bound, so a chained super().__new__(cls) calls the next
@@ -315,12 +360,14 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 				case "frozenset":
 					inst.setData = &frozensetObject{newSetCore(0)}
 				case "int", "str", "bytes", "tuple", "classmethod", "staticmethod", "property", "ref":
-					// A namedtuple subclass reaches super().__new__(cls, iterable)
-					// through the generated namedtuple __new__; it builds the tuple
-					// payload from the iterable, carrying the field metadata so the
-					// result stays a namedtuple value.
+					// A namedtuple subclass reaches super().__new__(cls, *fields)
+					// with the fields spelled out, the signature the generated
+					// namedtuple __new__ carries (def __new__(cls, a, b)). The
+					// builder binds them positionally or by keyword and fills the
+					// defaults, the same path instantiateCore takes, so the payload
+					// keeps the field metadata and stays a namedtuple value.
 					if cls.namedBase != nil {
-						v, err := Call(cls.namedBase.nt.makeFn, args[1:])
+						v, err := CallKw(cls.namedBase.build, args[1:], nil, nil)
 						if err != nil {
 							return nil, true, err
 						}

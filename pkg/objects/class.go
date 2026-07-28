@@ -120,6 +120,15 @@ type classObject struct {
 	// the field metadata and the builder so construction binds the fields and the
 	// _make/_replace/_fields helpers resolve. It is inherited like builtinBase.
 	namedBase *namedTupleType
+	// ownsBuiltinBase marks a class that named its builtin, value, or namedtuple
+	// base directly, rather than inheriting it from a class base. The builtin base
+	// is collapsed off the class-node MRO, but in CPython its type sits right after
+	// the class that introduced it and before any co-base declared alongside it. A
+	// class that introduced the base carries this flag so the cooperative super()
+	// walk consults the builtin slot at that C3 position instead of deferring it
+	// past every class node, which is what let a co-base (Enum after a namedtuple
+	// base) wrongly shadow the builtin __new__.
+	ownsBuiltinBase bool
 	// annotations holds the class __annotations__ mapping, the dict its body
 	// accumulated for its PEP 526 variable annotations. It lives here rather than
 	// in dict so C.__annotations__ reads it while `'__annotations__' in C.__dict__`
@@ -264,6 +273,7 @@ func newClassCore(meta *classObject, name, qual string, bases []Object, names []
 			// field/helper reads both route to the payload.
 			c.builtinBase = "tuple"
 			c.namedBase = nt
+			c.ownsBuiltinBase = true
 			continue
 		}
 		if name, ok := builtinBaseName(b); ok {
@@ -275,6 +285,7 @@ func newClassCore(meta *classObject, name, qual string, bases []Object, names []
 			if fn, ok := b.(*funcObject); ok {
 				c.builtinBaseFn = fn
 			}
+			c.ownsBuiltinBase = true
 			continue
 		}
 		bc, ok := asBaseClass(b)
