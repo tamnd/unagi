@@ -244,6 +244,25 @@ func importHasFromList(fromlist objects.Object) bool {
 // The value bound and returned is whatever the registry holds after the body
 // finished, so a body that replaced its own entry hands out the replacement.
 func importOne(name, seg string, parent objects.Object) (objects.Object, error) {
+	if name == "genericpath" {
+		if _, ok := modulesGet("os"); !ok {
+			// genericpath imports os, os imports posixpath, and posixpath runs
+			// `from genericpath import *`. When genericpath is the cold entry, its
+			// body is stuck at its own `import os` line when posixpath reaches back
+			// for it, so the star-import sees a half-built module and raises. CPython
+			// never hits this because its startup imports os first, which loads
+			// genericpath fully through the same cycle (os is the entry, so
+			// genericpath completes before anything reads it). Do the same here: pull
+			// os in first, which populates genericpath as a side effect, then fall
+			// through to the registry hit below. The guard reads os from sys.modules,
+			// where the import machinery registers it before running its body, so the
+			// recursive genericpath import this triggers finds os present and does not
+			// re-enter this branch.
+			if _, err := ImportModule("os"); err != nil {
+				return nil, err
+			}
+		}
+	}
 	if v, ok := modulesGet(name); ok {
 		if v == objects.None {
 			// A None entry means an earlier import was deliberately stopped;
