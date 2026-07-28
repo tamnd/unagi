@@ -37,9 +37,9 @@ type winTimeval struct {
 }
 
 var (
-	ws2_32               = syscall.NewLazyDLL("ws2_32.dll")
-	procSelect           = ws2_32.NewProc("select")
-	procWSAGetLastError  = ws2_32.NewProc("WSAGetLastError")
+	ws2_32              = syscall.NewLazyDLL("ws2_32.dll")
+	procSelect          = ws2_32.NewProc("select")
+	procWSAGetLastError = ws2_32.NewProc("WSAGetLastError")
 )
 
 // winBuildSet loads the fds into a winsock fd_set, enforcing the FD_SETSIZE cap

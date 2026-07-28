@@ -35,11 +35,11 @@ func readlineOSError(err error) error {
 // The module is portable, so it registers on every target.
 
 type readlineState struct {
-	mu       sync.Mutex
-	history  []string
-	maxLen   int // set_history_length; -1 means unlimited
+	mu        sync.Mutex
+	history   []string
+	maxLen    int // set_history_length; -1 means unlimited
 	completer objects.Object
-	delims   string
+	delims    string
 	// Stored hooks, returned as set but never invoked (no interactive loop).
 	startupHook  objects.Object
 	preInputHook objects.Object
@@ -48,13 +48,13 @@ type readlineState struct {
 }
 
 var readlineMod = &readlineState{
-	maxLen:      -1,
-	completer:   objects.None,
-	delims:      " \t\n`~!@#$%^&*()-=+[{]}\\|;:'\",<>/?",
-	startupHook: objects.None,
+	maxLen:       -1,
+	completer:    objects.None,
+	delims:       " \t\n`~!@#$%^&*()-=+[{]}\\|;:'\",<>/?",
+	startupHook:  objects.None,
 	preInputHook: objects.None,
-	displayHook: objects.None,
-	autoHistory: true,
+	displayHook:  objects.None,
+	autoHistory:  true,
 }
 
 func init() {
