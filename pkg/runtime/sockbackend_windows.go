@@ -22,6 +22,8 @@ var (
 	procAccept   = ws2_32.NewProc("accept")
 	procRecvfrom = ws2_32.NewProc("recvfrom")
 	procSendto   = ws2_32.NewProc("sendto")
+	procSend     = ws2_32.NewProc("send")
+	procRecv     = ws2_32.NewProc("recv")
 )
 
 // wsaStartupOnce runs WSAStartup exactly once. Winsock refuses every call until
@@ -87,11 +89,43 @@ func sockGetpeername(fd int) (syscall.Sockaddr, error) {
 	return syscall.Getpeername(syscall.Handle(fd))
 }
 
-// send and recv ride ReadFile/WriteFile, which work on a blocking socket handle.
+// send and recv go through ws2_32 rather than ReadFile/WriteFile: WriteFile on a
+// winsock handle reports ERROR_INVALID_PARAMETER (87), so the socket calls
+// themselves are the reliable path.
 
-func sockSend(fd int, data []byte) (int, error) { return syscall.Write(syscall.Handle(fd), data) }
+func sockSend(fd int, data []byte) (int, error) {
+	var p unsafe.Pointer
+	if len(data) > 0 {
+		p = unsafe.Pointer(&data[0])
+	}
+	r0, _, _ := procSend.Call(
+		uintptr(fd),
+		uintptr(p),
+		uintptr(len(data)),
+		0,
+	)
+	if int32(r0) == -1 { // SOCKET_ERROR
+		return 0, wsaErr()
+	}
+	return int(r0), nil
+}
 
-func sockRecv(fd int, buf []byte) (int, error) { return syscall.Read(syscall.Handle(fd), buf) }
+func sockRecv(fd int, buf []byte) (int, error) {
+	var p unsafe.Pointer
+	if len(buf) > 0 {
+		p = unsafe.Pointer(&buf[0])
+	}
+	r0, _, _ := procRecv.Call(
+		uintptr(fd),
+		uintptr(p),
+		uintptr(len(buf)),
+		0,
+	)
+	if int32(r0) == -1 { // SOCKET_ERROR
+		return 0, wsaErr()
+	}
+	return int(r0), nil
+}
 
 // rawSockaddrIn is a winsock sockaddr_in: family (host order), port (network
 // order), the four address bytes, then eight zero pad bytes, sixteen bytes total.
