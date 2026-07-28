@@ -1,5 +1,3 @@
-//go:build !windows
-
 package runtime
 
 import (
@@ -28,6 +26,12 @@ import (
 // runs on the main thread between bytecodes; it is the honest model for
 // compiled code. SIG_IGN and SIG_DFL go straight to the OS through
 // signal.Ignore and signal.Reset and never call back into Python.
+//
+// The signal set and its numbers are per-OS: unix reads them from Go's syscall
+// constants (signalconst_darwin/linux/other.go), Windows pins the MS C runtime
+// values CPython reports (signalconst_windows.go), which do not match Go's
+// syscall numbers. raise_signal is the one OS call that is not portable
+// (Windows has no kill(2)), so it lives in signal_unix.go / signal_windows.go.
 
 // sigDfl and sigIgn are the two sentinel handler values, the integers CPython
 // exposes as SIG_DFL and SIG_IGN.
@@ -37,11 +41,22 @@ const (
 )
 
 // signalDef is one row of a per-host signal table: the Python name, the number
-// Go's syscall gives it on this host, and the description strsignal returns.
+// it has on this host, and the description strsignal returns. An empty desc
+// means the host names the signal but strsignal reports no text for it (None),
+// as Windows does for SIGBREAK.
 type signalDef struct {
 	name string
 	num  int
 	desc string
+}
+
+// signalConst is a plain name->number the module exposes that is not a
+// deliverable signal, so it is not in signalNames and never a valid signal or
+// handler target. Windows uses it for CTRL_C_EVENT and CTRL_BREAK_EVENT, the
+// console-control codes signal.py folds into its Signals enum; unix has none.
+type signalConst struct {
+	name string
+	num  int
 }
 
 func init() {
@@ -78,6 +93,13 @@ func initSignal(m *objects.Module) error {
 	}
 	for _, s := range signalNames {
 		if err := set(s.name, objects.NewInt(int64(s.num))); err != nil {
+			return err
+		}
+	}
+	// Non-signal control codes (Windows CTRL_C_EVENT/CTRL_BREAK_EVENT); empty
+	// off Windows.
+	for _, c := range signalExtraConsts {
+		if err := set(c.name, objects.NewInt(int64(c.num))); err != nil {
 			return err
 		}
 	}
@@ -303,10 +325,7 @@ func signalRaise(args []objects.Object) (objects.Object, error) {
 	if !knownSignal(sn) {
 		return nil, objects.Raise(objects.ValueError, "signal number out of range")
 	}
-	if err := syscall.Kill(syscall.Getpid(), syscall.Signal(sn)); err != nil {
-		return nil, objects.Raise("OSError", "[Errno %d] %s", int(err.(syscall.Errno)), err.Error())
-	}
-	return objects.None, nil
+	return raiseSignalOS(sn)
 }
 
 // signalStrsignal is signal.strsignal: the human description of a signal, or
@@ -321,6 +340,11 @@ func signalStrsignal(args []objects.Object) (objects.Object, error) {
 	sn := int(sig)
 	for _, s := range signalNames {
 		if s.num == sn {
+			// An empty description means the host names the signal but
+			// strsignal reports no text (Windows SIGBREAK), so return None.
+			if s.desc == "" {
+				return objects.None, nil
+			}
 			text := s.desc
 			if strsignalIncludesNumber {
 				text = fmt.Sprintf("%s: %d", s.desc, sn)
