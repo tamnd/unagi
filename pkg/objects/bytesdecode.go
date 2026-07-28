@@ -45,6 +45,9 @@ func decodeCodec(v []byte, encoding, errors string) (Object, error) {
 	case "latin1":
 		return decodeLatin1(v), nil
 	}
+	if CodecDecodeHook != nil {
+		return CodecDecodeHook(v, encoding, errors)
+	}
 	return nil, Raise("LookupError", "unknown encoding: %s", encoding)
 }
 

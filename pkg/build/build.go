@@ -197,7 +197,7 @@ type pymod struct {
 // eagerly whenever encodings is reached; codecs.lookup then finds them in the
 // table at runtime the way CPython's registry does on its first miss.
 var floorDynamicCore = map[string][]string{
-	"encodings": {"utf_8", "ascii", "latin_1"},
+	"encodings": {"utf_8", "utf_8_sig", "ascii", "latin_1"},
 }
 
 // shimmedFloorDeps lists floor modules a Go-shimmed module reaches only through
