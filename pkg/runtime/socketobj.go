@@ -1,5 +1,3 @@
-//go:build !windows
-
 package runtime
 
 import (
@@ -11,7 +9,7 @@ import (
 
 // The _socket.socket type. CPython's low-level socket is a C type the public
 // socket.py subclasses; here it is an ordinary class whose methods are Go
-// functions over the syscall package, so an instance holds a real file
+// functions over a per-GOOS socket backend, so an instance holds a real file
 // descriptor and fileno(), connect(), bind(), listen(), accept() and the
 // send/recv family behave the way the C socket does. socket.py subclasses this
 // class and calls _socket.socket.__init__(self, ...) explicitly, which the
@@ -19,8 +17,12 @@ import (
 //
 // The native state lives in a socketHandle stashed on the instance under a
 // private attribute, so the same methods serve a bare _socket.socket and a
-// socket.socket subclass instance. This slice implements the AF_INET path; the
-// AF_INET6 and AF_UNIX address encodings and name resolution are later slices.
+// socket.socket subclass instance. The raw calls go through the sock* functions,
+// implemented over syscall on unix (sockbackend_unix.go) and over ws2_32 on
+// Windows (sockbackend_windows.go), where syscall's Accept/Recvfrom/Sendto are
+// unimplemented stubs. This is the AF_INET path; the AF_INET6 and AF_UNIX
+// address encodings are a later slice. The fd is kept as an int on every host;
+// Windows widens it to a SOCKET handle only at the backend boundary.
 
 const socketHandleAttr = "_unagi_sock"
 
@@ -193,7 +195,7 @@ func socketInit(args []objects.Object) (objects.Object, error) {
 		}
 		fd = int(n)
 	} else {
-		f, err := syscall.Socket(family, socktype, proto)
+		f, err := sockSocket(family, socktype, proto)
 		if err != nil {
 			return nil, socketOSError(err)
 		}
@@ -231,7 +233,7 @@ func socketClose(args []objects.Object) (objects.Object, error) {
 		return objects.None, nil
 	}
 	h.closed = true
-	_ = syscall.Close(h.fd)
+	_ = sockClose(h.fd)
 	return objects.None, nil
 }
 
@@ -313,7 +315,7 @@ func socketConnect(args []objects.Object) (objects.Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Connect(h.fd, sa); err != nil {
+	if err := sockConnect(h.fd, sa); err != nil {
 		return nil, socketOSError(err)
 	}
 	return objects.None, nil
@@ -330,7 +332,7 @@ func socketConnectEx(args []objects.Object) (objects.Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	if cerr := syscall.Connect(h.fd, sa); cerr != nil {
+	if cerr := sockConnect(h.fd, sa); cerr != nil {
 		if errno, ok := cerr.(syscall.Errno); ok {
 			return objects.NewInt(int64(errno)), nil
 		}
@@ -348,7 +350,7 @@ func socketBind(args []objects.Object) (objects.Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Bind(h.fd, sa); err != nil {
+	if err := sockBind(h.fd, sa); err != nil {
 		return nil, socketOSError(err)
 	}
 	return objects.None, nil
@@ -365,7 +367,7 @@ func socketListen(args []objects.Object) (objects.Object, error) {
 			backlog = int(n)
 		}
 	}
-	if err := syscall.Listen(h.fd, backlog); err != nil {
+	if err := sockListen(h.fd, backlog); err != nil {
 		return nil, socketOSError(err)
 	}
 	return objects.None, nil
@@ -378,7 +380,7 @@ func socketAcceptRaw(args []objects.Object) (objects.Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	nfd, sa, aerr := syscall.Accept(h.fd)
+	nfd, sa, aerr := sockAccept(h.fd)
 	if aerr != nil {
 		return nil, socketOSError(aerr)
 	}
@@ -392,7 +394,7 @@ func socketAccept(args []objects.Object) (objects.Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	nfd, sa, aerr := syscall.Accept(h.fd)
+	nfd, sa, aerr := sockAccept(h.fd)
 	if aerr != nil {
 		return nil, socketOSError(aerr)
 	}
@@ -419,7 +421,7 @@ func socketSend(args []objects.Object) (objects.Object, error) {
 	if !ok {
 		return nil, objects.Raise(objects.TypeError, "a bytes-like object is required, not %s", args[1].TypeName())
 	}
-	n, werr := syscall.Write(h.fd, data)
+	n, werr := sockSend(h.fd, data)
 	if werr != nil {
 		return nil, socketOSError(werr)
 	}
@@ -436,7 +438,7 @@ func socketSendall(args []objects.Object) (objects.Object, error) {
 		return nil, objects.Raise(objects.TypeError, "a bytes-like object is required, not %s", args[1].TypeName())
 	}
 	for len(data) > 0 {
-		n, werr := syscall.Write(h.fd, data)
+		n, werr := sockSend(h.fd, data)
 		if werr != nil {
 			return nil, socketOSError(werr)
 		}
@@ -461,7 +463,7 @@ func socketSendto(args []objects.Object) (objects.Object, error) {
 	if aerr != nil {
 		return nil, aerr
 	}
-	if serr := syscall.Sendto(h.fd, data, 0, sa); serr != nil {
+	if serr := sockSendto(h.fd, data, 0, sa); serr != nil {
 		return nil, socketOSError(serr)
 	}
 	return objects.NewInt(int64(len(data))), nil
@@ -479,7 +481,7 @@ func socketRecv(args []objects.Object) (objects.Object, error) {
 		}
 	}
 	buf := make([]byte, bufsize)
-	n, rerr := syscall.Read(h.fd, buf)
+	n, rerr := sockRecv(h.fd, buf)
 	if rerr != nil {
 		return nil, socketOSError(rerr)
 	}
@@ -498,7 +500,7 @@ func socketRecvfrom(args []objects.Object) (objects.Object, error) {
 		}
 	}
 	buf := make([]byte, bufsize)
-	n, from, rerr := syscall.Recvfrom(h.fd, buf, 0)
+	n, from, rerr := sockRecvfrom(h.fd, buf, 0)
 	if rerr != nil {
 		return nil, socketOSError(rerr)
 	}
@@ -514,7 +516,7 @@ func socketShutdown(args []objects.Object) (objects.Object, error) {
 	if !ok {
 		return nil, objects.Raise(objects.TypeError, "how must be an integer")
 	}
-	if serr := syscall.Shutdown(h.fd, int(how)); serr != nil {
+	if serr := sockShutdown(h.fd, int(how)); serr != nil {
 		return nil, socketOSError(serr)
 	}
 	return objects.None, nil
@@ -531,7 +533,7 @@ func socketSetsockopt(args []objects.Object) (objects.Object, error) {
 	level, _ := objects.AsInt(args[1])
 	opt, _ := objects.AsInt(args[2])
 	if val, ok := objects.AsInt(args[3]); ok {
-		if serr := syscall.SetsockoptInt(h.fd, int(level), int(opt), int(val)); serr != nil {
+		if serr := sockSetsockoptInt(h.fd, int(level), int(opt), int(val)); serr != nil {
 			return nil, socketOSError(serr)
 		}
 		return objects.None, nil
@@ -549,7 +551,7 @@ func socketGetsockopt(args []objects.Object) (objects.Object, error) {
 	}
 	level, _ := objects.AsInt(args[1])
 	opt, _ := objects.AsInt(args[2])
-	v, gerr := syscall.GetsockoptInt(h.fd, int(level), int(opt))
+	v, gerr := sockGetsockoptInt(h.fd, int(level), int(opt))
 	if gerr != nil {
 		return nil, socketOSError(gerr)
 	}
@@ -561,7 +563,7 @@ func socketGetsockname(args []objects.Object) (objects.Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	sa, gerr := syscall.Getsockname(h.fd)
+	sa, gerr := sockGetsockname(h.fd)
 	if gerr != nil {
 		return nil, socketOSError(gerr)
 	}
@@ -573,7 +575,7 @@ func socketGetpeername(args []objects.Object) (objects.Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	sa, gerr := syscall.Getpeername(h.fd)
+	sa, gerr := sockGetpeername(h.fd)
 	if gerr != nil {
 		return nil, socketOSError(gerr)
 	}
