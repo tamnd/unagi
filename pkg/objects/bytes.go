@@ -211,6 +211,9 @@ func encodeStr(s, enc, errh string) ([]byte, error) {
 	case "latin1":
 		return encodeNarrow(s, "latin-1", 0x100, errh)
 	}
+	if CodecEncodeHook != nil {
+		return CodecEncodeHook(s, enc, errh)
+	}
 	return nil, Raise("LookupError", "unknown encoding: %s", enc)
 }
 

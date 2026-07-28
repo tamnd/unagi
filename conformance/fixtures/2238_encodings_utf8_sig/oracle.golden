@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+b'\xef\xbb\xbfcaf\xc3\xa9-\xe4\xb8\x96'
+café
+café
+CodecInfo utf-8-sig
+(b'\xef\xbb\xbfa\xc3\xa9', 2) ('aé', 6)
+b'\xef\xbb\xbfhi' hi
+b'\xef\xbb\xbfa' b'b' b'c'
+'' 'hi'
+encodings.utf_8_sig
+== exception:
+== stderr:

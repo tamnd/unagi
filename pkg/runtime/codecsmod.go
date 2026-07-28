@@ -50,6 +50,13 @@ var codecRegistry = struct {
 
 func init() {
 	moduleTable["_codecs"] = &moduleEntry{builtin: true, exec: initCodecs}
+	// Let the objects package's built-in codec paths (str.encode, bytes.decode,
+	// the bytes/str constructors) fall through to the registry for any codec
+	// beyond utf-8/ascii/latin-1, so they resolve the encodings package's codecs
+	// even before a program imports codecs itself. The hooks read only the
+	// process-global registry, which imports encodings lazily on first lookup.
+	objects.CodecEncodeHook = codecEncodeHook
+	objects.CodecDecodeHook = codecDecodeHook
 }
 
 // codecsExports lists every name `from _codecs import *` binds. It mirrors the
@@ -189,8 +196,11 @@ func codecLookup(args []objects.Object) (objects.Object, error) {
 // empty: the C _codecs.lookup imports encodings, whose __init__ registers a
 // search function that resolves every codec by importing encodings.<name>. The
 // import runs without the registry lock held because encodings.__init__ calls
-// back into register. It is attempted once; a failure leaves the registry empty
-// so the lookup that triggered it raises the ordinary unknown-encoding error.
+// back into register. It is attempted once; if encodings is not part of this
+// program (a build that reaches no non-core codec never compiles it in), the
+// ImportError is swallowed so the lookup that triggered it raises the ordinary
+// unknown-encoding LookupError rather than surfacing the missing package. Any
+// other failure — a genuine error in encodings.__init__ — propagates.
 func ensureEncodings() error {
 	codecRegistry.mu.Lock()
 	if codecRegistry.encTried || len(codecRegistry.search) > 0 {
@@ -201,6 +211,9 @@ func ensureEncodings() error {
 	codecRegistry.mu.Unlock()
 
 	if _, err := ImportModule("encodings"); err != nil {
+		if exc, ok := err.(*objects.Exception); ok && objects.Matches(exc.Kind, objects.ImportError) {
+			return nil
+		}
 		return err
 	}
 	return nil
@@ -238,6 +251,55 @@ func codecDecode(pos []objects.Object, kwNames []string, kwVals []objects.Object
 		return nil, objects.Raise(objects.TypeError, "decode() argument 'obj' must be bytes-like, not %s", obj.TypeName())
 	}
 	return objects.DecodeBytes(v, enc, errs)
+}
+
+// codecViaRegistry runs one stateless codec call for a name the objects
+// package's core switch does not handle. It resolves the codec through the
+// registry the way CPython's PyCodec_Encode/Decode do, calls the CodecInfo's
+// encode or decode with (obj, errors), and returns just the result from the
+// (result, length) pair the codec hands back. who is "encode" or "decode". It
+// backs the objects.CodecEncodeHook/CodecDecodeHook so str.encode, bytes.decode
+// and codecs.encode/decode all reach the encodings package's codecs.
+func codecViaRegistry(who string, obj objects.Object, enc, errs string) (objects.Object, error) {
+	info, err := codecLookup([]objects.Object{objects.NewStr(enc)})
+	if err != nil {
+		return nil, err
+	}
+	fn, err := objects.LoadAttr(info, who)
+	if err != nil {
+		return nil, err
+	}
+	res, err := objects.Call(fn, []objects.Object{obj, objects.NewStr(errs)})
+	if err != nil {
+		return nil, err
+	}
+	// CPython requires the codec to return a (result, length) tuple and hands
+	// back only the result; a codec that returns something else is a bug.
+	out, err := objects.GetItem(res, objects.NewInt(0))
+	if err != nil {
+		return nil, objects.Raise(objects.TypeError, "%s() codec must return a tuple (object, integer)", who)
+	}
+	return out, nil
+}
+
+// codecEncodeHook backs objects.CodecEncodeHook: encode a str through the codec
+// registry and hand back the raw bytes the core encoder path expects.
+func codecEncodeHook(s, enc, errh string) ([]byte, error) {
+	out, err := codecViaRegistry("encode", objects.NewStr(s), enc, errh)
+	if err != nil {
+		return nil, err
+	}
+	b, ok := objects.AsBytesLike(out)
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "'%s' encoder returned '%s' instead of 'bytes'", enc, out.TypeName())
+	}
+	return b, nil
+}
+
+// codecDecodeHook backs objects.CodecDecodeHook: decode bytes through the codec
+// registry and hand back the str the core decoder path expects.
+func codecDecodeHook(v []byte, enc, errh string) (objects.Object, error) {
+	return codecViaRegistry("decode", objects.NewBytes(v), enc, errh)
 }
 
 // codecApplyArgs reads the shared (obj, encoding='utf-8', errors='strict')
