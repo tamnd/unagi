@@ -111,8 +111,9 @@ func TestWinapiDuplicateHandle(t *testing.T) {
 		objects.NewInt(0), objects.NewInt(1), objects.NewInt(2)) // DUPLICATE_SAME_ACCESS
 	dh, _ := objects.AsInt(dup)
 
-	// The original read handle can be closed; the duplicate still reads the pipe.
-	winCall(t, "CloseHandle", objects.NewInt(int64(rh)))
+	// This is an inheritable same-process duplicate of a tracked pipe end, so
+	// DuplicateHandle already closed the original (the _make_inheritable close
+	// CPython does by refcount). The duplicate still reads the pipe.
 	if n, err := syscall.Write(wh, []byte("dup")); err != nil || n != 3 {
 		t.Fatalf("write after dup = %d, %v", n, err)
 	}
