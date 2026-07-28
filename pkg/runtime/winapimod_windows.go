@@ -3,6 +3,7 @@
 package runtime
 
 import (
+	"sync"
 	"syscall"
 	"unsafe"
 
@@ -96,6 +97,43 @@ var (
 	winProcNeedCurDir = winKernel32.NewProc("NeedCurrentDirectoryForExePathW")
 )
 
+// winPipeHandles tracks the handle ends this module's CreatePipe hands out, so
+// DuplicateHandle can close the one subprocess would otherwise leak. subprocess's
+// _make_inheritable duplicates a pipe end to an inheritable copy and then drops
+// the original, relying on the C runtime to close it when its refcount hits zero
+// (subprocess.Handle.__del__). unagi does not model GC finalizers (see
+// ioaccelmod.go), so that original non-inheritable write end would stay open in
+// the parent and the read end would never see EOF: subprocess.communicate would
+// hang forever. When DuplicateHandle is asked to make an inheritable same-process
+// copy of a handle we created with CreatePipe, we close and forget the source
+// after duplicating it, which is exactly the close CPython's refcounting does.
+// Standard, std- and file-backed handles are never in this set, so they are left
+// untouched; the FILE_TYPE_PIPE guard keeps a reused handle value from being
+// closed by mistake.
+var (
+	winPipeMu      sync.Mutex
+	winPipeHandles = map[syscall.Handle]bool{}
+)
+
+func winTrackPipe(h syscall.Handle) {
+	winPipeMu.Lock()
+	winPipeHandles[h] = true
+	winPipeMu.Unlock()
+}
+
+func winForgetPipe(h syscall.Handle) {
+	winPipeMu.Lock()
+	delete(winPipeHandles, h)
+	winPipeMu.Unlock()
+}
+
+func winIsTrackedPipe(h syscall.Handle) bool {
+	winPipeMu.Lock()
+	ok := winPipeHandles[h]
+	winPipeMu.Unlock()
+	return ok
+}
+
 func initWinapi(m *objects.Module) error {
 	set := func(name string, v objects.Object) error {
 		return objects.StoreAttr(m, name, v)
@@ -166,6 +204,8 @@ func winCreatePipe(args []objects.Object) (objects.Object, error) {
 	if serr := syscall.CreatePipe(&r, &w, nil, uint32(size)); serr != nil {
 		return nil, ntPathErr(serr)
 	}
+	winTrackPipe(r)
+	winTrackPipe(w)
 	return objects.NewTuple([]objects.Object{
 		objects.NewInt(int64(r)),
 		objects.NewInt(int64(w)),
@@ -239,6 +279,18 @@ func winDuplicateHandle(args []objects.Object) (objects.Object, error) {
 	if serr := syscall.DuplicateHandle(srcProc, src, tgtProc, &target, uint32(access), inherit, uint32(options)); serr != nil {
 		return nil, ntPathErr(serr)
 	}
+	// This is subprocess._make_inheritable: an inheritable, same-process copy of a
+	// pipe end. CPython drops the source here and lets refcounting close it; unagi
+	// has no such finalizer, so close it now if we own it and it is still a pipe,
+	// which is the parent's original non-inheritable end that would otherwise leak
+	// and wedge communicate(). The FILE_TYPE_PIPE check guards against a reused
+	// handle value that is no longer the pipe we tracked.
+	if inherit && srcProc == tgtProc && winIsTrackedPipe(src) {
+		if t, terr := syscall.GetFileType(src); terr == nil && t == 3 { // FILE_TYPE_PIPE
+			winForgetPipe(src)
+			_ = syscall.CloseHandle(src)
+		}
+	}
 	return objects.NewInt(int64(target)), nil
 }
 
@@ -251,6 +303,7 @@ func winCloseHandle(args []objects.Object) (objects.Object, error) {
 	if err != nil {
 		return nil, err
 	}
+	winForgetPipe(h)
 	if serr := syscall.CloseHandle(h); serr != nil {
 		return nil, ntPathErr(serr)
 	}
