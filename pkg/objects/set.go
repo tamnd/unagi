@@ -128,13 +128,20 @@ func cloneCore(c *setCore) setCore {
 	return out
 }
 
-// asSetCore extracts the shared core from a set or frozenset.
+// asSetCore extracts the shared core from a set or frozenset, or from a set
+// subclass instance, so the set operators, the membership tests and the update
+// methods treat a subclass operand like its base. A subclass that overrides a set
+// operator is answered through the ordinary dunder protocol before an operator
+// reaches here, so this unwrap does not shadow one for the common operations; the
+// direct-operator override case is the documented limitation.
 func asSetCore(o Object) (*setCore, bool) {
 	switch x := o.(type) {
 	case *setObject:
 		return &x.setCore, true
 	case *frozensetObject:
 		return &x.setCore, true
+	case *instanceObject:
+		return setBackedObj(x)
 	}
 	return nil, false
 }
@@ -143,12 +150,29 @@ func asSetCore(o Object) (*setCore, bool) {
 // Binary set operators follow the left operand's type; probed:
 // set | frozenset is a set, frozenset | set is a frozenset.
 func newLike(model Object) (Object, *setCore) {
-	if _, ok := model.(*frozensetObject); ok {
+	if isFrozenLike(model) {
 		f := &frozensetObject{newSetCore(0)}
 		return f, &f.setCore
 	}
 	s := &setObject{newSetCore(0)}
 	return s, &s.setCore
+}
+
+// isFrozenLike reports whether model is a frozenset or a frozenset subclass
+// instance, so a binary set operator on it returns a plain frozenset the way
+// CPython does: a frozenset subclass minus a set is a frozenset, not a set.
+func isFrozenLike(model Object) bool {
+	switch m := model.(type) {
+	case *frozensetObject:
+		return true
+	case *instanceObject:
+		payload, _, backed := setBacked(m)
+		if backed {
+			_, frozen := payload.(*frozensetObject)
+			return frozen
+		}
+	}
+	return false
 }
 
 // NewSet builds a set from elements, deduplicating on the canonical key

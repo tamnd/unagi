@@ -307,6 +307,13 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 					// the fill happens in list.__init__, so super().__new__(cls,
 					// iterable) leaves the payload empty for __init__ to populate.
 					inst.listData = &listObject{}
+				case "set":
+					// set.__new__ returns an empty set; the fill happens in
+					// set.__init__, so super().__new__(cls, iterable) leaves the
+					// payload empty for the inherited __init__ to populate.
+					inst.setData = &setObject{newSetCore(0)}
+				case "frozenset":
+					inst.setData = &frozensetObject{newSetCore(0)}
 				case "int", "str", "bytes", "tuple", "classmethod", "staticmethod", "property", "ref":
 					// A namedtuple subclass reaches super().__new__(cls, iterable)
 					// through the generated namedtuple __new__; it builds the tuple

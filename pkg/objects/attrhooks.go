@@ -143,6 +143,11 @@ func genericGetAttr(x *instanceObject, name string) (Object, error) {
 	if v, ok := listSubclassAttr(x, name); ok {
 		return v, nil
 	}
+	// A set subclass inherits set's own methods, bound to the instance's payload,
+	// so a subclass answers add(), union() and the rest from its store.
+	if v, ok := setSubclassAttr(x, name); ok {
+		return v, nil
+	}
 	// A value subclass inherits its builtin's methods bound to the payload, the
 	// way a str subclass answers x.upper() from the underlying str.
 	if v, ok := valueSubclassAttr(x, name); ok {
