@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin || freebsd
 
 package runtime
 
@@ -8,12 +8,15 @@ import (
 	"github.com/tamnd/unagi/pkg/objects"
 )
 
-// posixStatExtraNames are the stat_result fields darwin adds past the common
-// set, in repr order. They match the fields darwin CPython's stat_result exposes.
+// posixStatExtraNames are the stat_result fields the BSD family (darwin and
+// freebsd) adds past the common set, in repr order. They match the fields BSD
+// CPython's stat_result exposes.
 var posixStatExtraNames = []string{"st_flags", "st_gen", "st_birthtime", "st_birthtime_ns"}
 
-// statNormalize reads a darwin syscall.Stat_t into the host-independent carrier.
-// darwin names the time fields Atimespec/Mtimespec/Ctimespec/Birthtimespec.
+// statNormalize reads a BSD syscall.Stat_t into the host-independent carrier.
+// The BSD family names the time fields Atimespec/Mtimespec/Ctimespec/Birthtimespec
+// and carries the st_flags/st_gen/st_birthtime extras, so darwin and freebsd
+// share this reader.
 func statNormalize(st *syscall.Stat_t) statNormal {
 	birthSec, birthNsec := int64(st.Birthtimespec.Sec), int64(st.Birthtimespec.Nsec)
 	return statNormal{
