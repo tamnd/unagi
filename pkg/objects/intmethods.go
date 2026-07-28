@@ -78,6 +78,12 @@ func intMethod(o Object, name string, args []Object) (Object, error) {
 		f, _ := new(big.Float).SetInt(b).Float64()
 		return NewFloat(f), nil
 	}
+	// An operator dunder called with method syntax, (5).__add__(3), lowers to a
+	// fused method call that reaches here rather than through intLoadAttr, so the
+	// same slot surface has to answer in both places.
+	if bound := numericBoundDunder(o, name); bound != nil {
+		return Call(bound, args)
+	}
 	return nil, noAttr(o, name)
 }
 
@@ -118,6 +124,9 @@ func intLoadAttr(o Object, name string) (Object, error) {
 		return NewFunc(name, -1, func(args []Object) (Object, error) {
 			return intMethod(recv, method, args)
 		}), nil
+	}
+	if v := numericBoundDunder(o, name); v != nil {
+		return v, nil
 	}
 	if name == "__doc__" {
 		return None, nil

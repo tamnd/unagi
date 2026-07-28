@@ -1,0 +1,30 @@
+== exit: 0
+== stdout:
+8
+3
+42
+3
+1
+256
+16
+8
+2
+7
+5
+2.5
+8
+-3
+NotImplemented
+NotImplemented
+-5
+5
+-6
+2
+0
+8
+3
+__add__
+True
+True
+== exception:
+== stderr:
