@@ -24,6 +24,31 @@ func init() {
 	moduleTable["_imp"] = &moduleEntry{builtin: true, exec: initImp}
 }
 
+// setupBootstrap injects sys and _imp into importlib._bootstrap's namespace by
+// calling its _setup, the way CPython's interpreter startup does. Without it the
+// bootstrap's module-global sys stays unbound, so any code that drives the pure
+// import machinery through importlib.import_module (sysconfig._get_sysconfigdata,
+// and pydoc and zoneinfo through it) raises `NameError: name 'sys' is not
+// defined` in _find_and_load. _setup also seeds _blocking_on and the
+// _thread/_warnings/_weakref references the machinery reaches for. A build of the
+// bootstrap without _setup (a reduced form) is left untouched.
+func setupBootstrap(mod objects.Object) error {
+	setup, err := objects.LoadAttr(mod, "_setup")
+	if err != nil {
+		return nil
+	}
+	sysMod, err := ImportModule("sys")
+	if err != nil {
+		return err
+	}
+	impMod, err := ImportModule("_imp")
+	if err != nil {
+		return err
+	}
+	_, err = objects.Call(setup, []objects.Object{sysMod, impMod})
+	return err
+}
+
 func initImp(m *objects.Module) error {
 	set := func(name string, v objects.Object) error {
 		return objects.StoreAttr(m, name, v)

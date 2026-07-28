@@ -331,6 +331,17 @@ func importOne(name, seg string, parent objects.Object) (objects.Object, error) 
 		// is the single argument so str(e) is the repr of the name.
 		return nil, objects.NewException(objects.KeyError, []objects.Object{objects.NewStr(name)})
 	}
+	if name == "importlib._bootstrap" {
+		// CPython's interpreter startup runs _bootstrap._setup(sys, _imp) to bind
+		// sys and _imp into the bootstrap's namespace. unagi resolves imports in Go,
+		// so importlib/__init__.py takes its `import _frozen_importlib as _bootstrap`
+		// success branch and never reaches the _setup call in the ImportError branch.
+		// Run it here, once, right after the body, so the pure import machinery works.
+		if err := setupBootstrap(final); err != nil {
+			modulesDel(name)
+			return nil, err
+		}
+	}
 	if parent != nil {
 		if err := objects.StoreAttr(parent, seg, final); err != nil {
 			return nil, err

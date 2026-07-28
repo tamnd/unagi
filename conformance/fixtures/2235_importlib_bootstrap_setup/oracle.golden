@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+True
+True
+True
+textwrap
+collections.abc
+True
+== exception:
+== stderr:
