@@ -1814,6 +1814,23 @@ func instanceOfBuiltin(obj Object, name string) bool {
 	switch name {
 	case "type":
 		return isTypeArg(obj)
+	case "function":
+		// types.FunctionType is a Python function only. A builtin function reports
+		// the same "function" TypeName internally but is a distinct kind, so
+		// isinstance(len, types.FunctionType) is False the way CPython separates a
+		// def/lambda from a C builtin — inspect.isfunction keys on exactly this.
+		_, ok := obj.(*functionObject)
+		return ok
+	case "builtin_function_or_method":
+		// types.BuiltinFunctionType / BuiltinMethodType. A builtin function or
+		// bound builtin method matches; a builtin *type* constructor (int, list)
+		// does not, since it reports the `type` metatype, matching CPython's
+		// isinstance(int, types.BuiltinFunctionType) == False. This mirrors the
+		// TypeOf classification so isinstance and type() agree.
+		if fn, ok := BuiltinFuncName(obj); ok {
+			return !IsBuiltinTypeName(fn)
+		}
+		return false
 	case "int":
 		switch obj.(type) {
 		case *intObject, *boolObject:
