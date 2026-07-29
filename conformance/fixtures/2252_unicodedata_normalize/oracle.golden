@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+NFD e-acute True
+NFC e-acute True
+NFKC fi True
+NFKD fi True
+NFD han True
+NFC han True
+reorder True
+angstrom True
+is NFC True
+not NFC False
+combining 230 0
+decomp acute 0041 0300
+decomp fi <compat> 0066 0069
+decomp han 1100 1161 11A8
+bad form ValueError
+== exception:
+== stderr:
