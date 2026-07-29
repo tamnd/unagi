@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+pyfunc F L - - isfunc -
+lambda F L - - isfunc -
+len - - B M - isbuiltin
+bound_builtin - - B M - isbuiltin
+list.append - - B M - isbuiltin
+int_type - - - - - -
+disjoint True
+== exception:
+== stderr:
