@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+code 111111111111111
+generator 111111111111111
+function 111111111111111
+builtin_method 111111111111111
+code_init True
+gen_hook True
+== exception:
+== stderr:

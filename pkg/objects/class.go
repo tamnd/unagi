@@ -3133,6 +3133,16 @@ func LoadAttr(o Object, name string) (Object, error) {
 				}), nil
 			}
 		}
+		// Like the constructor-backed builtin types, a constructor-less builtin
+		// type inherits object's dunders at the tail of its (T, object) MRO, so
+		// code.__init__ and generator.__eq__ read back object's canonical builtin
+		// rather than raising — inspect.signature(partial(CodeType.__init__, None))
+		// (unittest.mock) reads code.__init__ off the type. The introspection and
+		// __repr__/__hash__/__doc__ cases above win first; a name object itself
+		// does not carry stays unresolved, matching a plain class.
+		if v, ok := objectDunders[name]; ok {
+			return v, nil
+		}
 		return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
 	case *namedTupleType:
 		return namedTupleTypeAttr(x, name)
