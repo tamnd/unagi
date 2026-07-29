@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+package test test.support
+requires_IEEE_754 True
+cpython_only True
+check_impl_detail True
+gc_collect True
+requires_resource True
+TestFailed True True
+verbose is int True
+has LOOPBACK_TIMEOUT True
+SHORT_TIMEOUT float True
+max_memuse int True
+== exception:
+== stderr:
