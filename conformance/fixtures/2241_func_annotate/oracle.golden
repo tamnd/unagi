@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+annotated has annotate True
+plain annotate None
+value {'x': <class 'int'>, 'y': <class 'str'>, 'return': <class 'bool'>}
+nie 3
+nie 4
+post-realize {'n': <class 'int'>, 'return': <class 'str'>}
+fresh dict True
+method {'n': <class 'int'>, 'return': None}
+plain method None
+return only {'return': <class 'int'>}
+get_annotations {'x': <class 'int'>, 'y': <class 'str'>, 'return': <class 'bool'>}
+dispatch int str default
+== exception:
+== stderr:
