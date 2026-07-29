@@ -98,6 +98,7 @@ const (
 	RuleDescriptorUnmodeled   = "descriptor-unmodeled"
 	RuleInheritBoxedBase      = "inherit-boxed-base"
 	RuleDecoratorOpaque       = "decorator-opaque"
+	RuleModuleNameRedefined   = "module-name-redefined"
 	RuleExcursionBudget       = "excursion-budget-exceeded"
 	RuleCostModel             = "cost-model-verdict"
 	RuleGuardBudget           = "guard-budget-exceeded"
@@ -167,6 +168,8 @@ var catalog = func() map[string]Rule {
 			"a subclass of a boxed class is boxed, since struct embedding cannot extend a compact-dict instance"},
 		{RuleDecoratorOpaque, "15", ScopeUnit, false, false,
 			"an unmodeled decorator binds the name to a boxed callable; the body may still be static behind it"},
+		{RuleModuleNameRedefined, "4.8", ScopeUnit, false, true,
+			"a module-level name defined more than once resolves through its module variable, so each def is boxed and the last binding to run wins"},
 		// 5.6 and 5.7 the soft cost verdicts.
 		{RuleExcursionBudget, "5.6", ScopeUnit, false, false,
 			"the unit's boxed excursions exceed the 25 percent budget"},

@@ -234,7 +234,80 @@ func (*boundMethod) TypeName() string { return "method" }
 // so an inconsistent base order raises the same TypeError CPython does at
 // class-creation time.
 func NewClass(name, qual string, bases []Object, names []string, vals []Object, kwNames []string, kwVals []Object) (Object, error) {
-	return newClassCore(nil, name, qual, bases, names, vals, kwNames, kwVals)
+	c, err := newClassCore(nil, name, qual, bases, names, vals, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	if co, ok := c.(*classObject); ok {
+		setNativeAbstractMethods(co)
+	}
+	return c, nil
+}
+
+// setNativeAbstractMethods gives a native class built over an abstract base its
+// own __abstractmethods__, the way ABCMeta.__new__ does for a Python class. A
+// native module builds a concrete class like collections.UserDict by
+// subclassing a real _collections_abc base (MutableMapping) and filling in the
+// abstract methods, but it never runs ABCMeta.__new__, so without this the class
+// inherits the base's non-empty __abstractmethods__ frozenset through the MRO
+// and the instantiation gate refuses to allocate it. Recomputing the residual —
+// the abstract names still unimplemented once this class's own methods resolve —
+// leaves a concrete subclass with an empty frozenset that instantiates, exactly
+// as CPython's abc does. A class with no abstract base and no abstract method of
+// its own is left untouched, so a plain native type keeps no __abstractmethods__
+// in its dict.
+func setNativeAbstractMethods(c *classObject) {
+	candidates := map[string]bool{}
+	relevant := false
+	for _, b := range c.bases {
+		v, ok := b.lookup("__abstractmethods__")
+		if !ok {
+			continue
+		}
+		fs, ok := v.(*frozensetObject)
+		if !ok {
+			continue
+		}
+		relevant = true
+		for _, e := range fs.elts {
+			if s, ok := AsStr(e); ok {
+				candidates[s] = true
+			}
+		}
+	}
+	for name, val := range c.dict {
+		if isAbstractValue(val) {
+			candidates[name] = true
+			relevant = true
+		}
+	}
+	if !relevant {
+		return
+	}
+	var kept []Object
+	for name := range candidates {
+		if v, ok := c.lookup(name); ok && isAbstractValue(v) {
+			kept = append(kept, NewStr(name))
+		}
+	}
+	fs, err := NewFrozenset(kept)
+	if err != nil {
+		return
+	}
+	if _, seen := c.dict["__abstractmethods__"]; !seen {
+		c.order = append(c.order, "__abstractmethods__")
+	}
+	c.dict["__abstractmethods__"] = fs
+}
+
+// isAbstractValue reports whether a class-namespace value is an abstract method,
+// i.e. it carries a truthy __isabstractmethod__, the flag @abstractmethod sets.
+func isAbstractValue(v Object) bool {
+	a, err := LoadAttr(v, "__isabstractmethod__")
+	if err != nil {
+		return false
+	}
+	return Truth(a)
 }
 
 // newClassCore builds a class object on a given metaclass, the shared body of

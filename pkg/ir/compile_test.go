@@ -93,10 +93,11 @@ func main() {
 	}
 }
 
-// writeSlimUnagi lays a dependency-free copy of pkg/objects, pkg/runtime, and
-// pkg/sre under dir/unagi-src with a minimal go.mod, the same slim module the
-// real build assembles, so a probe compiles the runtime without resolving the
-// CLI's dependencies or touching the network.
+// writeSlimUnagi lays a dependency-free copy of pkg/runtime and its in-module
+// dependency closure (pkg/objects, pkg/sre, and the pkg/pylexer + pkg/pytoken
+// the tokenize module reaches) under dir/unagi-src with a minimal go.mod, the
+// same slim module the real build assembles, so a probe compiles the runtime
+// without resolving the CLI's dependencies or touching the network.
 func writeSlimUnagi(t *testing.T, dir string) {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
@@ -112,7 +113,7 @@ func writeSlimUnagi(t *testing.T, dir string) {
 	if err := os.WriteFile(filepath.Join(slim, "go.mod"), []byte(slimMod), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for _, pkg := range []string{"objects", "runtime", "sre"} {
+	for _, pkg := range []string{"objects", "runtime", "sre", "pylexer", "pytoken"} {
 		copyGoPkg(t, filepath.Join(root, "pkg", pkg), filepath.Join(slim, "pkg", pkg))
 	}
 }

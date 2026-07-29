@@ -62,6 +62,53 @@ f = lambda z: z + 1
 	}
 }
 
+func TestDriveRedefinedDefBoxedUnderForceStatic(t *testing.T) {
+	// A name bound by two top-level defs resolves through its module variable, so
+	// each def must box: the static tier names one Go function per qualified name
+	// and cannot emit two of "static_pick". The redefinition census fires as a hard
+	// unit-scope disqualifier, so even the forced-static differential leaves both
+	// pick units boxed while the singly-defined solo is untouched.
+	src := `
+def pick():
+    return 1
+
+
+def pick():
+    return 2
+
+
+def solo():
+    return 3
+`
+	m, err := frontend.Parse([]byte(src), "app.py")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	ds := DriveWith("app", m, ModeForceStatic)
+	picks := 0
+	for _, d := range ds {
+		if d.Unit.Name != "<module>.pick" {
+			continue
+		}
+		picks++
+		if d.State.IsStatic() {
+			t.Errorf("redefined pick decided %v under forced-static, want boxed", d.State)
+		}
+		hasReason := false
+		for _, r := range d.Reasons {
+			if r.Rule == RuleModuleNameRedefined {
+				hasReason = true
+			}
+		}
+		if !hasReason {
+			t.Errorf("redefined pick missing %q census reason, got %+v", RuleModuleNameRedefined, d.Reasons)
+		}
+	}
+	if picks != 2 {
+		t.Fatalf("want 2 pick units, got %d: %v", picks, names(ds))
+	}
+}
+
 func TestDriveBoxesUnprovenUnits(t *testing.T) {
 	// A function the bridge cannot lower (an unannotated parameter) carries no
 	// static proof, so it boxes on the cost model. The module top level boxes too,

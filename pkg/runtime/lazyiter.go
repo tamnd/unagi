@@ -62,8 +62,16 @@ func Iter(args []objects.Object) (objects.Object, error) {
 	case 1:
 		// iter() is idempotent on an iterator: an object that is already its own
 		// iterator (it implements Next) comes back unchanged, so iter(it) is it,
-		// matching CPython. Only a plain iterable gets a fresh handle.
+		// matching CPython. Only a plain iterable gets a fresh handle. A coroutine
+		// or async generator is iterator-shaped (it can be driven by send) yet is
+		// not iterable: iter() over one is a TypeError, so honor the type's own
+		// Iterate guard before the idempotence shortcut hands it back.
 		if _, ok := args[0].(objects.Iterator); ok {
+			if ib, ok := args[0].(objects.Iterable); ok {
+				if _, err := ib.Iterate(); err != nil {
+					return nil, err
+				}
+			}
 			return args[0], nil
 		}
 		it, err := objects.Iter(args[0])
