@@ -1338,12 +1338,12 @@ func GetItem(o, key Object) (Object, error) {
 			}
 			return nil, Raise(TypeError, "string indices must be integers, not '%s'", key.TypeName())
 		}
-		runes := []rune(x.v)
+		runes := decodeStrRunes(x.v)
 		j, err := seqIndex(i, len(runes), "string index out of range")
 		if err != nil {
 			return nil, err
 		}
-		return NewStr(string(runes[j])), nil
+		return NewStr(encodeStrRunes([]rune{runes[j]})), nil
 	case *bytesObject:
 		i, ok, err := seqIndexKey(key)
 		if err != nil {
@@ -1614,7 +1614,7 @@ func Len(o Object) (int, error) {
 	case *memoryviewObject:
 		return x.length, nil
 	case *strObject:
-		return runeCount(x.v), nil
+		return strLen(x.v), nil
 	case *bytesObject:
 		return len(x.v), nil
 	case *bytearrayObject:
@@ -1698,14 +1698,6 @@ func Len(o Object) (int, error) {
 		}
 	}
 	return 0, Raise(TypeError, "object of type '%s' has no len()", o.TypeName())
-}
-
-func runeCount(s string) int {
-	n := 0
-	for range s {
-		n++
-	}
-	return n
 }
 
 // Iterator walks an iterable. Next returns ok=false when exhausted.
@@ -1799,9 +1791,10 @@ func Iter(o Object) (Iterator, error) {
 		elts := mvElements(x)
 		return &sliceIter{elts: elts}, nil
 	case *strObject:
-		elts := make([]Object, 0, len(x.v))
-		for _, r := range x.v {
-			elts = append(elts, NewStr(string(r)))
+		runes := decodeStrRunes(x.v)
+		elts := make([]Object, 0, len(runes))
+		for _, r := range runes {
+			elts = append(elts, NewStr(encodeStrRunes([]rune{r})))
 		}
 		return &sliceIter{elts: elts}, nil
 	case *bytesObject:

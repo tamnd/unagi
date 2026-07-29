@@ -155,7 +155,7 @@ func GetSlice(o, lo, hi, step Object) (Object, error) {
 		}
 		return &arrayObject{code: x.code, elts: pickSlice(x.elts, start, st, n)}, nil
 	case *strObject:
-		runes := []rune(x.v)
+		runes := decodeStrRunes(x.v)
 		start, st, n, err := sliceIndices(lo, hi, step, len(runes))
 		if err != nil {
 			return nil, err
@@ -164,7 +164,7 @@ func GetSlice(o, lo, hi, step Object) (Object, error) {
 		for i, j := 0, start; i < n; i, j = i+1, j+st {
 			out = append(out, runes[j])
 		}
-		return NewStr(string(out)), nil
+		return NewStr(encodeStrRunes(out)), nil
 	case *bytesObject:
 		start, st, n, err := sliceIndices(lo, hi, step, len(x.v))
 		if err != nil {

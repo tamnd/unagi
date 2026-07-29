@@ -3,6 +3,7 @@ package objects
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // bytesObject is an immutable bytes value. The bytes are held verbatim in
@@ -205,7 +206,7 @@ func bytesFromSource(o Object, typeName, rangeMsg string) ([]byte, error) {
 func encodeStr(s, enc, errh string) ([]byte, error) {
 	switch normalizeCodec(enc) {
 	case "utf8":
-		return []byte(s), nil
+		return encodeUTF8(s, errh)
 	case "ascii":
 		return encodeNarrow(s, "ascii", 0x80, errh)
 	case "latin1":
@@ -248,17 +249,83 @@ func normalizeCodec(enc string) string {
 	return b.String()
 }
 
+// encodeUTF8 encodes a str to UTF-8 bytes. Ordinary text is the raw bytes,
+// since the str already holds them; the work is a lone surrogate, held in WTF-8
+// form, which strict UTF-8 refuses. surrogatepass emits the surrogate's three
+// UTF-8 bytes (the stored bytes, verbatim), surrogateescape turns a low
+// surrogate U+DC80..U+DCFF back into its single byte (PEP 383, the inverse of
+// the decode escape) and refuses any other surrogate, and ignore/replace drop
+// or substitute it. strict and any unlisted handler raise.
+func encodeUTF8(s, errh string) ([]byte, error) {
+	// Fast path: with no WTF-8 surrogate present the stored bytes are already
+	// valid UTF-8 for every handler.
+	if !hasWTF8Surrogate(s) {
+		return []byte(s), nil
+	}
+	out := make([]byte, 0, len(s))
+	pos := 0
+	for i := 0; i < len(s); pos++ {
+		r, ok := isWTF8Surrogate(s, i)
+		if !ok {
+			_, size := utf8.DecodeRuneInString(s[i:])
+			out = append(out, s[i:i+size]...)
+			i += size
+			continue
+		}
+		i += 3
+		switch errh {
+		case "surrogatepass":
+			out = append(out, byte(0xE0|(r>>12)), byte(0x80|((r>>6)&0x3F)), byte(0x80|(r&0x3F)))
+		case "surrogateescape":
+			if r >= 0xDC80 && r <= 0xDCFF {
+				out = append(out, byte(r&0xFF))
+				continue
+			}
+			return nil, encodeUTF8SurrogateErr(r, pos)
+		case "ignore":
+		case "replace":
+			out = append(out, '?')
+		case "strict":
+			return nil, encodeUTF8SurrogateErr(r, pos)
+		default:
+			return nil, Raise("LookupError", "unknown error handler name '%s'", errh)
+		}
+	}
+	return out, nil
+}
+
+// encodeUTF8SurrogateErr is the UnicodeEncodeError strict UTF-8 raises for a
+// lone surrogate, with CPython's "surrogates not allowed" wording.
+func encodeUTF8SurrogateErr(r rune, pos int) error {
+	return Raise("UnicodeEncodeError",
+		"'utf-8' codec can't encode character %s in position %d: surrogates not allowed",
+		charEscape(r), pos)
+}
+
+// hasWTF8Surrogate reports whether s contains a WTF-8-encoded lone surrogate.
+func hasWTF8Surrogate(s string) bool {
+	for i := strings.IndexByte(s, 0xED); i >= 0; {
+		if _, ok := isWTF8Surrogate(s, i); ok {
+			return true
+		}
+		next := strings.IndexByte(s[i+1:], 0xED)
+		if next < 0 {
+			return false
+		}
+		i += 1 + next
+	}
+	return false
+}
+
 // encodeNarrow encodes a string under a single-byte codec whose code points
 // are the byte values below limit (0x80 for ascii, 0x100 for latin-1). A code
 // point at or above the limit is handed to the error handler: strict raises,
 // ignore drops it, replace emits '?', and surrogateescape rescues a lone low
 // surrogate (U+DC80..U+DCFF) back to its byte. surrogatepass and any other
 // handler raise, since they rescue only the utf codecs' surrogate code points.
-// (unagi's str cannot hold a lone surrogate, so surrogateescape here never
-// fires in practice; the branch keeps the semantics exact for the day it can.)
 func encodeNarrow(s, codec string, limit rune, errh string) ([]byte, error) {
 	out := make([]byte, 0, len(s))
-	for i, r := range []rune(s) {
+	for i, r := range decodeStrRunes(s) {
 		if r < limit {
 			out = append(out, byte(r))
 			continue
