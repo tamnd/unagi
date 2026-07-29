@@ -74,7 +74,7 @@ func DriveWith(module string, m *frontend.Module, mode Mode) []Decision {
 // its call and can itself be proven static.
 func driveOnce(module string, m *frontend.Module, resolve ir.CalleeResolver, mode Mode) []Decision {
 	p := New()
-	d := &driver{p: p, module: module, resolve: resolve, mode: mode, tracked: ir.TrackedGlobals(m), shapes: ir.TrackedShapes(m), gens: driveGenerators(m)}
+	d := &driver{p: p, module: module, resolve: resolve, mode: mode, tracked: ir.TrackedGlobals(m), shapes: ir.TrackedShapes(m), gens: driveGenerators(m), redefined: redefinedQuals(m)}
 	// The module top level is itself a unit, executed as boxed code at M4.
 	mu := d.enter(ModuleUnitName, frontend.Pos{Line: 1, Col: 1})
 	d.scanStmts(mu, m.Body)
@@ -107,6 +107,66 @@ type driver struct {
 	// generator, which is the common case. The generator's drivability needs no
 	// callee resolver, so this table is stable across the fixpoint rounds.
 	gens ir.GeneratorResolver
+	// redefined holds every qualified name a def statement binds more than once,
+	// keyed the way collectFuncs keys the build's emitted forms. A redefined name
+	// resolves through its module variable, and the static tier names one Go
+	// function per qualified name, so two defs of one name would emit two Go
+	// functions of the same name; boxing every such def keeps the tier honest and
+	// matches the last-def-wins semantics the boxed path already delivers.
+	redefined map[string]bool
+}
+
+// redefinedQuals returns the qualified names a def statement binds more than
+// once at the same scope, mirroring the traversal build.collectFuncs uses to name
+// the emitted static forms so the two agree on which names collide. A def descends
+// under its own name, a class body under the class name, and a conditional block
+// keeps its enclosing prefix, so two branches of an if that both define a name
+// count as the same qualified name, the guarded-fallback idiom the stdlib leans on.
+func redefinedQuals(m *frontend.Module) map[string]bool {
+	counts := map[string]int{}
+	var walk func(prefix string, body []frontend.Stmt)
+	walk = func(prefix string, body []frontend.Stmt) {
+		for _, s := range body {
+			switch s := s.(type) {
+			case *frontend.FuncDef:
+				child := prefix + "." + s.Name
+				counts[child]++
+				walk(child, s.Body)
+			case *frontend.ClassDef:
+				walk(prefix+"."+s.Name, s.Body)
+			case *frontend.If:
+				walk(prefix, s.Body)
+				walk(prefix, s.Else)
+			case *frontend.While:
+				walk(prefix, s.Body)
+				walk(prefix, s.Else)
+			case *frontend.For:
+				walk(prefix, s.Body)
+				walk(prefix, s.Else)
+			case *frontend.With:
+				walk(prefix, s.Body)
+			case *frontend.Try:
+				walk(prefix, s.Body)
+				for _, h := range s.Handlers {
+					walk(prefix, h.Body)
+				}
+				walk(prefix, s.OrElse)
+				walk(prefix, s.Final)
+			case *frontend.Match:
+				for _, c := range s.Cases {
+					walk(prefix, c.Body)
+				}
+			}
+		}
+	}
+	walk(ModuleUnitName, m.Body)
+	out := map[string]bool{}
+	for q, n := range counts {
+		if n > 1 {
+			out[q] = true
+		}
+	}
+	return out
 }
 
 // driveGenerators builds the module's drive-site generator resolver for the
@@ -353,6 +413,14 @@ func (d *driver) scanStmt(sc scope, s frontend.Stmt) {
 		d.scanExpr(sc, s.Returns)
 		prof, deopts, lowered := d.funcInput(s)
 		body := d.enterProfiled(sc.child(s.Name), s.Pos_, prof, deopts, lowered)
+		// A name bound by more than one def resolves through its module variable,
+		// so every def of it is boxed: the static tier names one Go function per
+		// qualified name and cannot emit two, and the boxed path already carries the
+		// last-def-wins semantics. Recording the fact here demotes each such unit at
+		// the census, so even the forced-static differential leaves it boxed.
+		if d.redefined[body.qual] {
+			d.record(body, RuleModuleNameRedefined, d.span(s.Pos_))
+		}
 		d.scanStmts(body, s.Body)
 	case *frontend.ClassDef:
 		for _, dec := range s.Decorators {
