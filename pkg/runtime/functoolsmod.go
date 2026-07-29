@@ -4,38 +4,52 @@ import (
 	"github.com/tamnd/unagi/pkg/objects"
 )
 
-// functools is a built-in module. CPython ships reduce, partial, and the
-// lru_cache machinery in the C _functools accelerator behind the pure-Python
-// functools package; the runtime owns those C-backed pieces directly under the
-// functools import name. This slice lands reduce and partial.
+// _functools is the C accelerator behind the pure-Python functools package.
+// CPython ships reduce, cmp_to_key, partial, and the lru_cache machinery here;
+// the vendored functools.py imports what it can from _functools and otherwise
+// falls back to its pure implementations. This runtime backs the pieces whose C
+// behavior the pure fallback cannot reproduce exactly — reduce's argument-count
+// error, cmp_to_key's rich-comparison wrapper, and partial with its Placeholder
+// (whose no-argument and trailing-Placeholder errors and functools.partial repr
+// the pure class words differently) — and lets the vendored _lru_cache_wrapper
+// and the rest of the surface stand as pure code.
 
-// partialType is the functools.partial constructor. It is a package-level
-// singleton so BuiltinFn resolves it and type(p) is functools.partial holds by
-// identity, the way array.array and collections.deque register their type.
+// partialType is the functools.partial constructor, a package-level singleton so
+// BuiltinFn resolves it and type(p) is functools.partial holds by identity. The
+// vendored functools.py rebinds functools.partial to it on import, so
+// inspect.signature's isinstance(obj, partial) branch treats it as a type.
 var partialType objects.Object
 
+// placeholderType is the _functools._PlaceholderType constructor, the type of
+// the Placeholder singleton. It is a singleton too so type(Placeholder) is
+// _PlaceholderType holds.
+var placeholderType objects.Object
+
 func init() {
-	moduleTable["functools"] = &moduleEntry{builtin: true, exec: initFunctools}
+	moduleTable["_functools"] = &moduleEntry{builtin: true, exec: initFunctools}
 
 	// partial(func, /, *args, **keywords): freeze leading positionals and
 	// keywords of func. func is positional-only, so the first positional is the
 	// callable and the rest are frozen; the star and starstar parameters give the
 	// impl the raw positionals and keyword dict, which keeps the no-argument and
-	// not-callable errors matching CPython. The name carries the module so it
-	// reprs as a class and inspect.signature's isinstance(obj, partial) treats it
-	// as a type.
+	// not-callable errors matching CPython's C accelerator. The name carries the
+	// module so it reprs as a class.
 	partialType = objects.NewFuncKw("functools.partial",
 		func(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
 			if len(pos) == 0 {
 				return nil, objects.Raise(objects.TypeError, "type 'partial' takes at least one argument")
 			}
-			fn := pos[0]
-			if !objects.Callable(fn) {
-				return nil, objects.Raise(objects.TypeError, "the first argument must be callable")
-			}
-			return objects.NewPartial(fn, pos[1:], kwNames, kwVals), nil
+			return objects.NewPartial(pos[0], pos[1:], kwNames, kwVals)
 		})
 	builtins["functools.partial"] = partialType
+
+	// _PlaceholderType(): the type of Placeholder, a singleton that always hands
+	// back the one Placeholder instance.
+	placeholderType = objects.NewFunc("functools._PlaceholderType", 0,
+		func([]objects.Object) (objects.Object, error) {
+			return objects.NewPlaceholder(), nil
+		})
+	builtins["functools._PlaceholderType"] = placeholderType
 }
 
 func initFunctools(m *objects.Module) error {
@@ -46,7 +60,8 @@ func initFunctools(m *objects.Module) error {
 	// and an empty iterable returns it; without one the first element seeds the
 	// fold and an empty iterable is the "no initial value" TypeError. The arity
 	// is checked by hand so a missing initializer stays distinct from an explicit
-	// None, which is a valid seed.
+	// None, which is a valid seed, and so the wording matches the C accelerator's
+	// rather than the pure fallback's.
 	reduce := objects.NewFunc("reduce", -1, func(a []objects.Object) (objects.Object, error) {
 		switch {
 		case len(a) < 2:
@@ -85,60 +100,12 @@ func initFunctools(m *objects.Module) error {
 		return err
 	}
 
-	// partial is the package-level constructor built in init, so the module
-	// attribute and BuiltinFn share identity and type(p) is functools.partial.
-	if err := set("partial", partialType); err != nil {
-		return err
-	}
-
-	// lru_cache(maxsize=128, typed=False): memoize a function, evicting the
-	// least recently used entry once the bound is reached. It carries two call
-	// shapes CPython supports. Used bare as @lru_cache the first positional is
-	// the function, wrapped at the default maxsize of 128. Used with arguments
-	// as @lru_cache(maxsize=None) it returns a decorator that later wraps the
-	// function; maxsize None means unbounded, an int bounds the cache, and 0
-	// disables it. A first positional that is not callable and not None is the
-	// same TypeError CPython raises.
-	lruCache := objects.NewFunction("lru_cache",
-		[]objects.Param{
-			{Name: "maxsize", Kind: objects.ParamPlain},
-			{Name: "typed", Kind: objects.ParamPlain},
-		},
-		[]objects.Object{objects.NewInt(128), objects.False},
-		func(a []objects.Object) (objects.Object, error) {
-			first, typed := a[0], objects.Truth(a[1])
-			if objects.Callable(first) {
-				return objects.NewLRUCache(first, 128, typed), nil
-			}
-			size, err := lruMaxsize(first)
-			if err != nil {
-				return nil, err
-			}
-			return objects.NewFunc("lru_cache_decorator", 1, func(d []objects.Object) (objects.Object, error) {
-				return objects.NewLRUCache(d[0], size, typed), nil
-			}), nil
-		})
-	if err := set("lru_cache", lruCache); err != nil {
-		return err
-	}
-
-	// cache(func): the unbounded shorthand for lru_cache(maxsize=None), added in
-	// 3.9. It always wraps its single callable argument with no bound.
-	cache := objects.NewFunc("cache", 1, func(a []objects.Object) (objects.Object, error) {
-		if !objects.Callable(a[0]) {
-			return nil, objects.Raise(objects.TypeError,
-				"the first argument to cache must be callable")
-		}
-		return objects.NewLRUCache(a[0], -1, false), nil
-	})
-	if err := set("cache", cache); err != nil {
-		return err
-	}
-
 	// cmp_to_key(mycmp): turn an old-style comparison function into a key
 	// function for sorted and friends. It returns an unbound wrapper over the
 	// comparison; sorted calls that wrapper on each element and orders the
-	// resulting bound wrappers through their rich comparisons.
+	// resulting bound wrappers through their rich comparisons, whose "other
+	// argument must be K instance" error is the C accelerator's, not the pure
+	// _CmpToKey fallback's AttributeError.
 	cmpToKey := objects.NewFunc("cmp_to_key", 1, func(a []objects.Object) (objects.Object, error) {
 		return objects.NewCmpKey(a[0]), nil
 	})
@@ -146,131 +113,18 @@ func initFunctools(m *objects.Module) error {
 		return err
 	}
 
-	// total_ordering(cls): fill in the ordering methods a class leaves out,
-	// deriving them from the one it defines. A class with no ordering operation
-	// is the ValueError.
-	totalOrdering := objects.NewFunc("total_ordering", 1, func(a []objects.Object) (objects.Object, error) {
-		return objects.TotalOrdering(a[0])
-	})
-	if err := set("total_ordering", totalOrdering); err != nil {
+	// partial, Placeholder, and _PlaceholderType: functools.py imports the three
+	// together, so all must resolve for it to take the C-backed partial rather
+	// than its pure fallback.
+	if err := set("partial", partialType); err != nil {
 		return err
 	}
-
-	// singledispatch(func): turn func into a generic function that dispatches on
-	// the type of its first argument. func is the default implementation and
-	// wrapper.register binds a more specific one to a type, with dispatch walking
-	// the registry by subclass so a base class also serves its subclasses.
-	singledispatch := objects.NewFunc("singledispatch", 1, func(a []objects.Object) (objects.Object, error) {
-		return objects.NewSingleDispatch(a[0]), nil
-	})
-	if err := set("singledispatch", singledispatch); err != nil {
+	if err := set("Placeholder", objects.NewPlaceholder()); err != nil {
 		return err
 	}
-
-	// cached_property(func): a non-data descriptor that computes its value from
-	// func the first time it is read off an instance and caches the result in the
-	// instance dict, so the function runs once per instance and later reads hit
-	// the dict directly.
-	if err := set("cached_property", objects.CachedPropertyBuiltin); err != nil {
-		return err
-	}
-
-	// update_wrapper(wrapper, wrapped, assigned=WRAPPER_ASSIGNMENTS,
-	// updated=WRAPPER_UPDATES): make wrapper look like wrapped by copying its
-	// module, name, qualname, annotations, and doc, merging wrapped's __dict__
-	// into wrapper's, and pointing wrapper.__wrapped__ at wrapped. A missing
-	// assigned attribute is skipped and a missing updated dict contributes
-	// nothing. The two tuple defaults are the CPython constants, exposed so a
-	// caller can pass narrower or wider sets.
-	assignedDefault := objects.NewTuple(strTuple(objects.WrapperAssignments))
-	updatedDefault := objects.NewTuple(strTuple(objects.WrapperUpdates))
-	updateWrapper := objects.NewFunction("update_wrapper",
-		[]objects.Param{
-			{Name: "wrapper", Kind: objects.ParamPlain},
-			{Name: "wrapped", Kind: objects.ParamPlain},
-			{Name: "assigned", Kind: objects.ParamPlain},
-			{Name: "updated", Kind: objects.ParamPlain},
-		},
-		[]objects.Object{nil, nil, assignedDefault, updatedDefault},
-		func(a []objects.Object) (objects.Object, error) {
-			return objects.UpdateWrapper(a[0], a[1], a[2], a[3])
-		})
-	if err := set("update_wrapper", updateWrapper); err != nil {
-		return err
-	}
-
-	// wraps(wrapped, assigned=..., updated=...): the decorator form, a partial
-	// of update_wrapper with wrapped frozen, so each decorated function arrives
-	// as the wrapper. It freezes the same three names by keyword, which is what
-	// CPython's wraps does.
-	wraps := objects.NewFunction("wraps",
-		[]objects.Param{
-			{Name: "wrapped", Kind: objects.ParamPlain},
-			{Name: "assigned", Kind: objects.ParamPlain},
-			{Name: "updated", Kind: objects.ParamPlain},
-		},
-		[]objects.Object{nil, assignedDefault, updatedDefault},
-		func(a []objects.Object) (objects.Object, error) {
-			return objects.NewPartial(updateWrapper, nil,
-				[]string{"wrapped", "assigned", "updated"},
-				[]objects.Object{a[0], a[1], a[2]}), nil
-		})
-	if err := set("wraps", wraps); err != nil {
-		return err
-	}
-
-	// _unwrap_partial(func): peel a partial chain down to the innermost wrapped
-	// callable. inspect calls it (through _unwrap_partialmethod) on the way to
-	// reading a function's code flags, which is how pdb's import reaches it.
-	unwrapPartial := objects.NewFunc("_unwrap_partial", 1,
-		func(a []objects.Object) (objects.Object, error) {
-			return objects.UnwrapPartial(a[0]), nil
-		})
-	if err := set("_unwrap_partial", unwrapPartial); err != nil {
-		return err
-	}
-
-	// _unwrap_partialmethod(func): CPython peels both partialmethod and partial
-	// wrappers to a fixpoint. This runtime has no partialmethod type, so the
-	// partialmethod arms are inert and the result is the partial-unwrapped
-	// callable, which is exactly CPython's answer for every value this runtime
-	// can represent (plain callables and partials). When a native partialmethod
-	// lands this grows the partialmethod arm.
-	unwrapPartialmethod := objects.NewFunc("_unwrap_partialmethod", 1,
-		func(a []objects.Object) (objects.Object, error) {
-			return objects.UnwrapPartial(a[0]), nil
-		})
-	if err := set("_unwrap_partialmethod", unwrapPartialmethod); err != nil {
+	if err := set("_PlaceholderType", placeholderType); err != nil {
 		return err
 	}
 
 	return nil
-}
-
-// strTuple lifts a slice of Go strings into a slice of string objects, the
-// elements of a names tuple like WRAPPER_ASSIGNMENTS.
-func strTuple(names []string) []objects.Object {
-	out := make([]objects.Object, len(names))
-	for i, n := range names {
-		out[i] = objects.NewStr(n)
-	}
-	return out
-}
-
-// lruMaxsize reads the maxsize argument lru_cache was given with arguments:
-// None is the unbounded cache (-1 internally), a non-negative int is the bound,
-// and anything else is the TypeError CPython raises for a bad maxsize.
-func lruMaxsize(v objects.Object) (int, error) {
-	if v == objects.None {
-		return -1, nil
-	}
-	n, ok := objects.AsInt(v)
-	if !ok {
-		return 0, objects.Raise(objects.TypeError,
-			"Expected first argument to be an integer, a callable, or None")
-	}
-	if n < 0 {
-		n = 0
-	}
-	return int(n), nil
 }

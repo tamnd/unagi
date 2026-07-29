@@ -1,0 +1,22 @@
+== exit: 0
+== stdout:
+10
+106
+(1, 2, 3) partial functools
+True (1,) ['c']
+('x', 'y')
+4 4 9 16 9
+2 3 2 2
+0
+27 27
+[1, 2, 3]
+True True True
+int str object
+int default
+orig the original docstring True
+42 42 1
+15
+True
+True
+== exception:
+== stderr:

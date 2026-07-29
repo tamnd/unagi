@@ -145,3 +145,13 @@ func astNodeInit(t *objects.Thread, pos []objects.Object, kwNames []string, kwVa
 	}
 	return objects.None, nil
 }
+
+// strTuple lifts a slice of Go strings into string objects, the elements of a
+// names tuple like an AST node's _fields or _attributes.
+func strTuple(names []string) []objects.Object {
+	out := make([]objects.Object, len(names))
+	for i, n := range names {
+		out[i] = objects.NewStr(n)
+	}
+	return out
+}

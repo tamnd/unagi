@@ -2958,14 +2958,22 @@ func LoadAttr(o Object, name string) (Object, error) {
 		// Builtin functions and the constructor-backed type objects carry a
 		// __name__/__qualname__, so type(5).__name__ and len.__name__ read back.
 		if name == "__name__" || name == "__qualname__" {
-			return NewStr(x.name), nil
+			// A module-qualified builtin type such as collections.deque or
+			// functools.partial carries its dotted path as the name, but Python reports
+			// the bare final component as __name__/__qualname__ (deque.__name__ is
+			// 'deque'), leaving the package to __module__.
+			_, short := splitBuiltinTypeName(x.name)
+			return NewStr(short), nil
 		}
-		// A builtin type constructor lives in the builtins module, so
-		// tuple.__module__ and int.__module__ read back "builtins", the way typing.py
-		// tests `origin.__module__ == 'builtins'`. A native-module callable carries
-		// its own module elsewhere, so this is scoped to the true builtins.
+		// A builtin type constructor reports its home module: the true builtins read
+		// back "builtins" (tuple.__module__, the way typing.py tests
+		// `origin.__module__ == 'builtins'`), while a module-qualified type such as
+		// collections.deque or functools.partial reports its package. A native-module
+		// callable that is not a type carries its own module elsewhere, so this is
+		// scoped to the registered builtin types.
 		if name == "__module__" && builtinTypeReprs[x.name] {
-			return NewStr("builtins"), nil
+			module, _ := splitBuiltinTypeName(x.name)
+			return NewStr(module), nil
 		}
 		// A builtin may attach its own attributes, such as chain.from_iterable.
 		if v, ok := x.attrs[name]; ok {
