@@ -3598,6 +3598,35 @@ var objectBaseDirNames = []string{
 	"__subclasshook__", "__weakref__",
 }
 
+// functionDirNames is dir() of a Python function object: the attribute set the
+// function type carries on 3.14, the tail of which is object's own names. A
+// function grows a __dict__ when code assigns arbitrary attributes to it, and
+// dir() folds those in, so create_autospec's `dir(spec)` over a def sees both the
+// slot names and any user-set attributes.
+var functionDirNames = []string{
+	"__annotate__", "__annotations__", "__builtins__", "__call__", "__class__",
+	"__closure__", "__code__", "__defaults__", "__delattr__", "__dict__", "__dir__",
+	"__doc__", "__eq__", "__format__", "__ge__", "__get__", "__getattribute__",
+	"__getstate__", "__globals__", "__gt__", "__hash__", "__init__",
+	"__init_subclass__", "__kwdefaults__", "__le__", "__lt__", "__module__",
+	"__name__", "__ne__", "__new__", "__qualname__", "__reduce__", "__reduce_ex__",
+	"__repr__", "__setattr__", "__sizeof__", "__str__", "__subclasshook__",
+	"__type_params__",
+}
+
+// builtinFunctionDirNames is dir() of a builtin function or bound builtin method
+// (builtin_function_or_method): the attribute set that type carries on 3.14. It
+// has no writable __dict__, so the list is fixed. __self__ and __text_signature__
+// are the two names beyond object's set that a C function exposes.
+var builtinFunctionDirNames = []string{
+	"__call__", "__class__", "__delattr__", "__dir__", "__doc__", "__eq__",
+	"__format__", "__ge__", "__getattribute__", "__getstate__", "__gt__", "__hash__",
+	"__init__", "__init_subclass__", "__le__", "__lt__", "__module__", "__name__",
+	"__ne__", "__new__", "__qualname__", "__reduce__", "__reduce_ex__", "__repr__",
+	"__self__", "__setattr__", "__sizeof__", "__str__", "__subclasshook__",
+	"__text_signature__",
+}
+
 // DirNames implements dir(o) for a user instance. A class that defines __dir__
 // anywhere in its MRO decides the whole list; otherwise the names are the
 // default object.__dir__ gathers: the instance's own attributes, every name
@@ -3610,6 +3639,18 @@ func DirNames(o Object) ([]string, bool, error) {
 	}
 	if cls, isCls := o.(*classObject); isCls {
 		return classDefaultDirNames(cls), true, nil
+	}
+	if fn, isFn := o.(*functionObject); isFn {
+		return functionDefaultDirNames(fn), true, nil
+	}
+	// A builtin function or bound builtin method enumerates the fixed C-function
+	// attribute set. A builtin type constructor (int, list) is also a funcObject
+	// but reports the `type` metatype, so it is excluded here — its dir() is a
+	// type's, handled elsewhere — the same split #817 draws for isinstance.
+	if name, ok := BuiltinFuncName(o); ok && !IsBuiltinTypeName(name) {
+		names := append([]string(nil), builtinFunctionDirNames...)
+		sort.Strings(names)
+		return names, true, nil
 	}
 	inst, isInst := o.(*instanceObject)
 	if !isInst {
@@ -3684,6 +3725,30 @@ func classDefaultDirNames(cls *classObject) []string {
 				continue
 			}
 			set[n] = true
+		}
+	}
+	names := make([]string, 0, len(set))
+	for n := range set {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// functionDefaultDirNames gathers dir() of a Python function: the function type's
+// canonical attribute set plus any names the function grew in its own __dict__,
+// sorted and de-duplicated, so `f.tag = 1` surfaces in dir(f) the way CPython
+// folds a function's __dict__ into its directory.
+func functionDefaultDirNames(fn *functionObject) []string {
+	set := map[string]bool{}
+	for _, n := range functionDirNames {
+		set[n] = true
+	}
+	if fn.attrs != nil && fn.attrs.dict != nil {
+		for _, k := range fn.attrs.dict.keySlice() {
+			if s, ok := AsStr(k); ok {
+				set[s] = true
+			}
 		}
 	}
 	names := make([]string, 0, len(set))
