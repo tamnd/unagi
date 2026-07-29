@@ -492,7 +492,7 @@ func Ord(o objects.Object) (objects.Object, error) {
 		return nil, objects.Raise(objects.TypeError,
 			"ord() expected string of length 1, but %s found", o.TypeName())
 	}
-	runes := []rune(s)
+	runes := objects.StrRunes(s)
 	if len(runes) != 1 {
 		return nil, objects.Raise(objects.TypeError,
 			"ord() expected a character, but string of length %d found", len(runes))
@@ -500,9 +500,9 @@ func Ord(o objects.Object) (objects.Object, error) {
 	return objects.NewInt(int64(runes[0])), nil
 }
 
-// Chr implements chr(o) for 0..0x10FFFF. CPython also allows lone
-// surrogates, but a Go string cannot hold one as valid UTF-8, so those
-// are refused honestly instead of silently encoding U+FFFD.
+// Chr implements chr(o) for 0..0x10FFFF. CPython allows lone surrogates, and a
+// str can now hold one in WTF-8 form, so chr(0xDC80) yields a one-code-point
+// surrogate string that round-trips instead of being refused.
 func Chr(o objects.Object) (objects.Object, error) {
 	if objects.IsBigInt(o) {
 		// Probed: chr(2**100) is the range ValueError, not an overflow.
@@ -515,11 +515,7 @@ func Chr(o objects.Object) (objects.Object, error) {
 	if i < 0 || i > 0x10FFFF {
 		return nil, objects.Raise(objects.ValueError, "chr() arg not in range(0x110000)")
 	}
-	if i >= 0xD800 && i <= 0xDFFF {
-		return nil, objects.Raise(objects.ValueError,
-			"chr() arg is a surrogate code point, not representable in this runtime")
-	}
-	return objects.NewStr(string(rune(i))), nil
+	return objects.NewStr(objects.StrFromRune(rune(i))), nil
 }
 
 // Sorted implements sorted(o) with no key or reverse: a stable

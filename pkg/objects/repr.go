@@ -65,7 +65,7 @@ func strRepr(s string) string {
 	}
 	var b strings.Builder
 	b.WriteByte(quote)
-	for _, r := range s {
+	for _, r := range decodeStrRunes(s) {
 		switch {
 		case r == rune(quote):
 			b.WriteByte('\\')
@@ -80,6 +80,9 @@ func strRepr(s string) string {
 			b.WriteString(`\t`)
 		case r < 0x20 || r == 0x7f:
 			fmt.Fprintf(&b, `\x%02x`, r)
+		case r >= 0xD800 && r <= 0xDFFF:
+			// A lone surrogate is not printable; CPython repr escapes it as \udcXX.
+			fmt.Fprintf(&b, `\u%04x`, r)
 		default:
 			b.WriteRune(r)
 		}

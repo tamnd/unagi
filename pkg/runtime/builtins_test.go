@@ -413,10 +413,9 @@ func TestOrdChr(t *testing.T) {
 		{"too-big", i(0x110000), "", "ValueError: chr() arg not in range(0x110000)"},
 		{"float", f(1), "", "TypeError: 'float' object cannot be interpreted as an integer"},
 		{"str", s("a"), "", "TypeError: 'str' object cannot be interpreted as an integer"},
-		// CPython allows lone surrogates; a Go string cannot, so this is
-		// an honest divergence rather than silent corruption.
-		{"surrogate", i(0xD800), "",
-			"ValueError: chr() arg is a surrogate code point, not representable in this runtime"},
+		// CPython allows lone surrogates; a str now holds one in WTF-8, so
+		// chr(0xD800) yields its three-byte encoding and round-trips.
+		{"surrogate", i(0xD800), "\xed\xa0\x80", ""},
 	}
 	for _, tt := range chrTests {
 		got, err := Chr(tt.in)

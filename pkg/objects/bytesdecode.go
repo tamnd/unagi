@@ -137,6 +137,17 @@ func decodeUTF8(v []byte, errors string) (Object, error) {
 			i++
 			continue
 		}
+		// surrogatepass accepts a surrogate code point encoded as its three raw
+		// UTF-8 bytes (0xED, 0xA0..0xBF, 0x80..0xBF), which the strict decoder
+		// rejects; the bytes are already the str's WTF-8 form, so pass them through.
+		if errors == "surrogatepass" && c == 0xED && i+2 < n &&
+			v[i+1] >= 0xA0 && v[i+1] <= 0xBF && v[i+2] >= 0x80 && v[i+2] <= 0xBF {
+			b.WriteByte(v[i])
+			b.WriteByte(v[i+1])
+			b.WriteByte(v[i+2])
+			i += 3
+			continue
+		}
 		size, lo, hi := utf8Lead(c)
 		if size == 0 {
 			repl, resume, err := decodeError(errors, "utf-8", v, i, i+1, "invalid start byte")
@@ -229,12 +240,24 @@ func utf8Codepoint(seq []byte, size int) rune {
 // matching CPython's lazy handler lookup.
 func decodeError(handler, codec string, v []byte, start, end int, reason string) (repl string, resume int, err error) {
 	switch handler {
-	case "strict":
+	// surrogatepass rescues only surrogate code points, handled in the decoders
+	// before an error is raised; a byte that reaches here under it is a real
+	// error, so it behaves like strict.
+	case "strict", "surrogatepass":
 		return "", 0, newUnicodeDecodeError(codec, v, start, end, reason)
 	case "ignore":
 		return "", end, nil
 	case "replace":
 		return "�", end, nil
+	case "surrogateescape":
+		// PEP 383: escape each undecodable byte to a lone low surrogate
+		// U+DC00+byte, held in the str's WTF-8 form, so os.fsencode can turn it
+		// back into the same byte.
+		var sb strings.Builder
+		for _, bb := range v[start:end] {
+			writeStrRune(&sb, 0xDC00+rune(bb))
+		}
+		return sb.String(), end, nil
 	}
 	return "", 0, Raise("LookupError", "unknown error handler name '%s'", handler)
 }

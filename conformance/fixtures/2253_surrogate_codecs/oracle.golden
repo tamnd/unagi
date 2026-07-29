@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+escape len 4
+escape ord 56575 56449
+escape round True
+ascii round True
+pass ord 56448
+pass round True
+strict UnicodeEncodeError
+fsdecode round True
+index 56575
+slice len 2
+iter len 4
+repr 'a\udcff\udc81b'
+== exception:
+== stderr:
