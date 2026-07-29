@@ -40,6 +40,24 @@ func funcAnnotations(fn *functionObject) (*dictObject, error) {
 	if o.annotations != nil {
 		return o.annotations, nil
 	}
+	// An explicitly assigned __annotate__ is the annotation source: None means no
+	// annotations, and a callable is invoked under the VALUE format to build them.
+	if o.annotate != nil {
+		if o.annotate == None {
+			o.annotations = newAttrs()
+			return o.annotations, nil
+		}
+		res, err := Call(o.annotate, []Object{NewInt(1)})
+		if err != nil {
+			return nil, err
+		}
+		d, ok := res.(*dictObject)
+		if !ok {
+			return nil, Raise(TypeError, "__annotate__ returned non-dict of type '%s'", res.TypeName())
+		}
+		o.annotations = d
+		return d, nil
+	}
 	d := newAttrs()
 	for _, la := range o.annLazy {
 		v, err := la.thunk()
@@ -66,6 +84,11 @@ func funcHasAnnotations(fn *functionObject) bool {
 	if a == nil {
 		return false
 	}
+	// An explicitly assigned __annotate__ decides: None means no annotations, a
+	// callable means annotations are present.
+	if a.annotate != nil {
+		return a.annotate != None
+	}
 	if len(a.annLazy) > 0 {
 		return true
 	}
@@ -81,6 +104,11 @@ func funcHasAnnotations(fn *functionObject) bool {
 // re-running the annotate under a fake-globals namespace. A fresh dict per call
 // keeps a caller from mutating the memoized __annotations__.
 func funcAnnotate(fn *functionObject) Object {
+	// An explicitly assigned __annotate__ reads back verbatim (the callable a
+	// caller set, or None), so functools.update_wrapper round-trips it.
+	if fn.attrs != nil && fn.attrs.annotate != nil {
+		return fn.attrs.annotate
+	}
 	if !funcHasAnnotations(fn) {
 		return None
 	}
@@ -260,6 +288,20 @@ func functionStoreAttr(fn *functionObject, name string, val Object) error {
 			return Raise(TypeError, "__annotations__ must be set to a dict object")
 		}
 		fn.overlay().annotations = d
+		return nil
+	case "__annotate__":
+		// __annotate__ is a slot, not a __dict__ entry: functools.update_wrapper
+		// copies it across (it is in WRAPPER_ASSIGNMENTS), and CPython stores it
+		// without polluting the wrapper's __dict__. A non-None value must be
+		// callable; assigning it shadows any def-time annotations so a later
+		// __annotations__ read derives from it.
+		if val != None && !Callable(val) {
+			return Raise(TypeError, "__annotate__ must be callable or None")
+		}
+		o := fn.overlay()
+		o.annotate = val
+		o.annotations = nil
+		o.annLazy = nil
 		return nil
 	case "__dict__":
 		d, ok := val.(*dictObject)

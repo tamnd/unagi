@@ -70,6 +70,13 @@ type funcAttrs struct {
 	// time and raises only on access. An explicit __annotations__ assignment sets
 	// annotations directly and shadows these.
 	annLazy []lazyAnn
+	// annotate holds an explicitly assigned __annotate__ (PEP 649): the callable
+	// (or None) a caller set with `func.__annotate__ = x`, which shadows annLazy
+	// and drives a later __annotations__ read. functools.update_wrapper copies a
+	// wrapped function's __annotate__ across, so it has to store to this slot the
+	// way CPython does rather than leak into __dict__. nil means unset, so the
+	// def's own annotations stand.
+	annotate Object
 }
 
 // lazyAnn is one deferred annotation: a parameter name (or "return") and the

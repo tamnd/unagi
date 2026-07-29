@@ -17,3 +17,5 @@
 # keep the caches out of the tree.
 __pycache__/
 *.pyc
+
+/unagi

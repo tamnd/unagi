@@ -6,6 +6,7 @@ package objects
 import (
 	"fmt"
 	"math/big"
+	"strings"
 )
 
 // Object is the universal boxed value.
@@ -544,6 +545,19 @@ func SetBuiltinAttr(fn Object, name string, v Object) error {
 // values by how CPython reprs them: the type constructors print as classes and
 // the plain builtins as built-in functions. A funcObject name in neither set is
 // an internal helper and keeps the generic function repr.
+// splitBuiltinTypeName separates a builtin type's registered name into its home
+// module and its bare class name. A plain builtin like "int" lives in
+// "builtins", while a module-qualified type carries its package in a dotted
+// prefix — "collections.deque" reports module "collections" and name "deque",
+// "functools.partial" reports "functools" and "partial" — matching how Python
+// derives a type's __module__ and __name__/__qualname__.
+func splitBuiltinTypeName(name string) (module, short string) {
+	if i := strings.LastIndexByte(name, '.'); i >= 0 {
+		return name[:i], name[i+1:]
+	}
+	return "builtins", name
+}
+
 var builtinTypeReprs = map[string]bool{
 	"range": true, "str": true, "int": true, "float": true, "bool": true,
 	"complex": true, "reversed": true, "enumerate": true, "zip": true,
@@ -568,6 +582,9 @@ var builtinTypeReprs = map[string]bool{
 	// isinstance(obj, functools.partial), so it has to answer as a class and its
 	// name carries the module the way CPython's tp_name does.
 	"functools.partial": true,
+	// functools._PlaceholderType is the type of the Placeholder singleton, so
+	// type(Placeholder) reads as a class rather than the plain function repr.
+	"functools._PlaceholderType": true,
 }
 
 var builtinFuncReprs = map[string]bool{

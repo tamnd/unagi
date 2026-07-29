@@ -2,42 +2,154 @@ package objects
 
 import "strings"
 
+// placeholderObject is functools.Placeholder: a sentinel a partial leaves in a
+// frozen positional slot for a later call to fill. It is a singleton, so an
+// identity test against Placeholder is how the partial machinery spots a hole.
+type placeholderObject struct{}
+
+// Placeholder is the single functools.Placeholder instance. _functools exposes
+// it and the vendored functools.py rebinds Placeholder to it, so user code and
+// the native partial share one sentinel.
+var Placeholder Object = &placeholderObject{}
+
+func (*placeholderObject) TypeName() string { return "functools._PlaceholderType" }
+
+// NewPlaceholder returns the Placeholder singleton, the body of the
+// _PlaceholderType constructor _functools exposes: the type is a singleton, so
+// every call hands back the same instance.
+func NewPlaceholder() Object { return Placeholder }
+
 // partialObject is functools.partial: a callable that freezes some leading
 // positional arguments and some keywords of another callable, then forwards
 // whatever a later call adds. func, args, and keywords are readable attributes,
-// matching CPython's _functools.partial.
+// matching CPython's _functools.partial. A frozen positional may be Placeholder,
+// a hole a later call fills; phcount counts them and order is the itemgetter
+// permutation that merges the call's leading positionals into the holes.
 type partialObject struct {
 	fn      Object
 	args    []Object
 	kwNames []string
 	kwVals  []Object
+	phcount int
+	order   []int
 }
 
 func (*partialObject) TypeName() string { return "functools.partial" }
 
-// NewPartial builds a partial over fn with the given frozen arguments. When fn
-// is itself a partial the two are flattened, the way CPython folds
-// partial(partial(f, 1), 2) into a single partial over f, with the outer
-// keywords overriding the inner ones.
-func NewPartial(fn Object, args []Object, kwNames []string, kwVals []Object) Object {
-	if inner, ok := fn.(*partialObject); ok {
-		mergedArgs := append(append([]Object(nil), inner.args...), args...)
-		mn, mv := mergeKeywords(inner.kwNames, inner.kwVals, kwNames, kwVals)
-		return &partialObject{fn: inner.fn, args: mergedArgs, kwNames: mn, kwVals: mv}
+// partialPrepareMerger inspects the frozen positionals and returns the count of
+// Placeholder holes and the itemgetter order that fills them, mirroring
+// functools._partial_prepare_merger. Non-hole slots map to themselves; each hole
+// maps past the frozen tail so a later call's leading positionals slot in by
+// position. With no holes the order is nil and the call takes the fast path.
+func partialPrepareMerger(args []Object) (int, []int) {
+	if len(args) == 0 {
+		return 0, nil
 	}
+	nargs := len(args)
+	order := make([]int, nargs)
+	j := nargs
+	for i, a := range args {
+		if a == Placeholder {
+			order[i] = j
+			j++
+		} else {
+			order[i] = i
+		}
+	}
+	phcount := j - nargs
+	if phcount == 0 {
+		return 0, nil
+	}
+	return phcount, order
+}
+
+// applyMerger permutes seq by order, the itemgetter(*order) the partial machinery
+// uses to weave a call's positionals into the frozen holes. order indexes into
+// seq, so seq must be at least as long as the largest index.
+func applyMerger(order []int, seq []Object) []Object {
+	out := make([]Object, len(order))
+	for i, k := range order {
+		out[i] = seq[k]
+	}
+	return out
+}
+
+// NewPartial builds a functools.partial over fn with the given frozen arguments,
+// the body of _functools.partial's constructor. It rejects a non-callable func, a
+// trailing Placeholder, and a Placeholder passed as a keyword the way CPython
+// does, and folds a partial-of-a-partial into a single partial over the innermost
+// callable, merging the frozen arguments (holes included) and letting the outer
+// keywords override the inner ones.
+func NewPartial(fn Object, args []Object, kwNames []string, kwVals []Object) (Object, error) {
+	if !Callable(fn) {
+		return nil, Raise(TypeError, "the first argument must be callable")
+	}
+	if len(args) > 0 && args[len(args)-1] == Placeholder {
+		return nil, Raise(TypeError, "trailing Placeholders are not allowed")
+	}
+	for _, v := range kwVals {
+		if v == Placeholder {
+			return nil, Raise(TypeError, "Placeholder cannot be passed as a keyword argument")
+		}
+	}
+
+	var totArgs []Object
+	var phcount int
+	var order []int
+	if inner, ok := fn.(*partialObject); ok {
+		totArgs = append([]Object(nil), inner.args...)
+		if len(args) > 0 {
+			totArgs = append(totArgs, args...)
+			if inner.phcount > 0 {
+				nargs := len(args)
+				for k := nargs; k < inner.phcount; k++ {
+					totArgs = append(totArgs, Placeholder)
+				}
+				totArgs = applyMerger(inner.order, totArgs)
+				if nargs > inner.phcount {
+					totArgs = append(totArgs, args[inner.phcount:]...)
+				}
+			}
+			phcount, order = partialPrepareMerger(totArgs)
+		} else {
+			phcount, order = inner.phcount, inner.order
+		}
+		kwNames, kwVals = mergeKeywords(inner.kwNames, inner.kwVals, kwNames, kwVals)
+		fn = inner.fn
+	} else {
+		totArgs = append([]Object(nil), args...)
+		phcount, order = partialPrepareMerger(totArgs)
+	}
+
 	return &partialObject{
 		fn:      fn,
-		args:    append([]Object(nil), args...),
+		args:    totArgs,
 		kwNames: append([]string(nil), kwNames...),
 		kwVals:  append([]Object(nil), kwVals...),
-	}
+		phcount: phcount,
+		order:   order,
+	}, nil
 }
 
 // partialCall forwards a call to the wrapped callable: the frozen positionals
-// come first, then the call's own, and the frozen keywords are overridden by
-// any the call repeats.
+// come first, then the call's own, and the frozen keywords are overridden by any
+// the call repeats. When the partial carries Placeholder holes the call's leading
+// positionals fill them first, and a call that supplies fewer than the hole count
+// is the CPython "missing positional arguments" TypeError.
 func partialCall(p *partialObject, args []Object, kwNames []string, kwVals []Object) (Object, error) {
-	finalArgs := append(append([]Object(nil), p.args...), args...)
+	ptoArgs := p.args
+	rest := args
+	if p.phcount > 0 {
+		if len(args) < p.phcount {
+			return nil, Raise(TypeError,
+				"missing positional arguments in 'partial' call; expected at least %d, got %d",
+				p.phcount, len(args))
+		}
+		combined := append(append([]Object(nil), p.args...), args...)
+		ptoArgs = applyMerger(p.order, combined)
+		rest = args[p.phcount:]
+	}
+	finalArgs := append(append([]Object(nil), ptoArgs...), rest...)
 	mn, mv := mergeKeywords(p.kwNames, p.kwVals, kwNames, kwVals)
 	return CallKw(p.fn, finalArgs, mn, mv)
 }
@@ -102,7 +214,8 @@ func partialAttr(p *partialObject, name string) (Object, error) {
 }
 
 // partialRepr spells functools.partial(func, args..., key=value...), the frozen
-// callable followed by the frozen positionals and keywords, matching CPython.
+// callable followed by the frozen positionals and keywords, matching CPython. A
+// Placeholder hole reprs as Placeholder through reprCore.
 func partialRepr(p *partialObject, strict bool) (string, error) {
 	var b strings.Builder
 	b.WriteString("functools.partial(")
