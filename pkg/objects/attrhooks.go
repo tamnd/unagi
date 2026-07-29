@@ -45,6 +45,27 @@ func init() {
 	}
 }
 
+// objectInheritedSlot returns object's default attribute for name — the value a
+// builtin type inherits at the object tail of its (T, object) MRO. It covers both
+// object's dunder methods (objectDunders: __repr__, __eq__, __init__, ...) and the
+// three attribute-protocol slot wrappers object carries in its own dict
+// (__getattribute__/__setattr__/__delattr__). A builtin type object has to expose
+// the latter as callables the same way it exposes the former, because CPython
+// inherits them too: unittest.mock's _Call subclasses tuple and reads self._mock_name
+// through an explicit tuple.__getattribute__(self, name), which must resolve to
+// object's generic read rather than raising and driving __getattr__ into recursion.
+func objectInheritedSlot(name string) (Object, bool) {
+	if v, ok := objectDunders[name]; ok {
+		return v, true
+	}
+	if objectSlotWrappers[name] {
+		if v, ok := objectClass.dict[name]; ok {
+			return v, true
+		}
+	}
+	return nil, false
+}
+
 // userAttrHook reports the type's override of an attribute slot, if any. It is a
 // miss when the type defines none, and also when the only value on the MRO is
 // object's own default wrapper, which an object() instance reaches because its
