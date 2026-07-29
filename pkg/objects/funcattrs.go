@@ -55,6 +55,56 @@ func funcAnnotations(fn *functionObject) (*dictObject, error) {
 	return d, nil
 }
 
+// funcHasAnnotations reports whether the def declared any parameter or return
+// annotations, before or after their lazy realization. CPython sets a function's
+// __annotate__ to a callable exactly when the def carried annotations and leaves
+// it None otherwise, so functools.singledispatch can tell a bare
+// `def _(x): ...` (no annotate, must supply the type explicitly) from an
+// annotated `def _(x: str): ...` (annotate recovers str).
+func funcHasAnnotations(fn *functionObject) bool {
+	a := fn.attrs
+	if a == nil {
+		return false
+	}
+	if len(a.annLazy) > 0 {
+		return true
+	}
+	return a.annotations != nil && len(a.annotations.entries) > 0
+}
+
+// funcAnnotate serves a function's PEP 649 __annotate__: None when the def
+// declared no annotations, otherwise the one-argument callable annotationlib and
+// typing.get_type_hints call to recover the {name: type} mapping. Like the
+// annotate the CPython compiler emits for a function, it supports only VALUE (1)
+// and raises NotImplementedError for every other format (including FORWARDREF and
+// STRING); annotationlib catches that and synthesizes the other formats by
+// re-running the annotate under a fake-globals namespace. A fresh dict per call
+// keeps a caller from mutating the memoized __annotations__.
+func funcAnnotate(fn *functionObject) Object {
+	if !funcHasAnnotations(fn) {
+		return None
+	}
+	return NewFunc("__annotate__", 1, func(args []Object) (Object, error) {
+		// annotationlib.Format is an IntEnum, so the argument is an int-subclass
+		// member; AsIntValue reaches through to its integer format code.
+		format, ok := AsIntValue(args[0])
+		if !ok || format != 1 {
+			return nil, Raise("NotImplementedError", "%s", Repr(args[0]))
+		}
+		anns, err := funcAnnotations(fn)
+		if err != nil {
+			return nil, err
+		}
+		d := newAttrs()
+		for _, e := range anns.entries {
+			if err := d.set(e.key, e.val); err != nil {
+				return nil, err
+			}
+		}
+		return d, nil
+	})
+}
+
 // WithFuncAnnotationsLazy records a def's parameter and return annotations as
 // unevaluated closures on a freshly built function object, in declaration order
 // with the names aligned to the thunks, and returns the function so the emit
@@ -108,6 +158,8 @@ func functionLoadAttr(fn *functionObject, name string) (Object, error) {
 		return functionKwDefaults(fn), nil
 	case "__annotations__":
 		return funcAnnotations(fn)
+	case "__annotate__":
+		return funcAnnotate(fn), nil
 	case "__dict__":
 		return funcDict(fn), nil
 	case "__get__":
