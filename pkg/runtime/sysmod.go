@@ -126,6 +126,23 @@ func sysImplementation(hex int64) objects.Object {
 	)
 }
 
+// buildSysJit builds the sys._jit namespace, PEP 744's introspection API for the
+// experimental JIT. A compiled program has no JIT tier, so is_available (was the
+// interpreter built with the JIT), is_enabled (is it turned on for this run), and
+// is_active (is the current frame running JIT-compiled code) all answer False,
+// each a no-argument predicate the way CPython exposes them.
+func buildSysJit() objects.Object {
+	no := func(name string) objects.Object {
+		return objects.NewFunc(name, 0, func([]objects.Object) (objects.Object, error) {
+			return objects.False, nil
+		})
+	}
+	return objects.NewSimpleNamespace(
+		[]string{"is_available", "is_enabled", "is_active"},
+		[]objects.Object{no("is_available"), no("is_enabled"), no("is_active")},
+	)
+}
+
 // sysFlagsType is the structseq class behind sys.flags. The first 18 fields are
 // the visible sequence CPython 3.14 exposes; gil, thread_inherit_context and
 // context_aware_warnings are named-only, past n_sequence_fields, the way the
@@ -362,6 +379,11 @@ func initSys(m *objects.Module) error {
 		// here: bdb/pdb/doctest read sys.monitoring.events at import and drive the
 		// tool-id and event calls, none of which fire in a compiled program.
 		{"monitoring", buildSysMonitoring()},
+		// sys._jit is PEP 744's introspection surface for the experimental copy-and-
+		// patch JIT. A compiled program is ahead-of-time Go with no such tier, so the
+		// three predicates all report False. test.support reads _JIT_ENABLED off
+		// is_enabled() at import, so its absence stopped test.support from importing.
+		{"_jit", buildSysJit()},
 		{"hash_info", sysHashInfo()},
 		{"float_info", sysFloatInfo()},
 		{"warnoptions", objects.NewList(nil)},

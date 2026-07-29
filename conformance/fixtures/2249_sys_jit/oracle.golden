@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+available False
+enabled False
+active False
+_JIT_ENABLED False
+bound False
+getattr False
+types bool bool bool
+== exception:
+== stderr:
