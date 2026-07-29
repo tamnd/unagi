@@ -300,6 +300,56 @@ func setNativeAbstractMethods(c *classObject) {
 	c.dict["__abstractmethods__"] = fs
 }
 
+// ComputeAbstractMethods installs cls.__abstractmethods__, the frozenset of
+// names that still resolve to an abstract method on cls. It is the _abc_init
+// step abc's C-backed ABCMeta.__new__ runs after type.__new__ builds the class:
+// gather the abstract names from cls's own namespace plus every base's
+// __abstractmethods__, then keep only those whose MRO resolution is still
+// abstract. Unlike setNativeAbstractMethods it always installs the attribute,
+// empty frozenset included, matching CPython where every ABC carries it.
+func ComputeAbstractMethods(cls Object) error {
+	c, ok := cls.(*classObject)
+	if !ok {
+		return Raise(TypeError, "_abc_init() argument must be a class")
+	}
+	candidates := map[string]bool{}
+	for _, b := range c.bases {
+		v, ok := b.lookup("__abstractmethods__")
+		if !ok {
+			continue
+		}
+		fs, ok := v.(*frozensetObject)
+		if !ok {
+			continue
+		}
+		for _, e := range fs.elts {
+			if s, ok := AsStr(e); ok {
+				candidates[s] = true
+			}
+		}
+	}
+	for name, val := range c.dict {
+		if isAbstractValue(val) {
+			candidates[name] = true
+		}
+	}
+	var kept []Object
+	for name := range candidates {
+		if v, ok := c.lookup(name); ok && isAbstractValue(v) {
+			kept = append(kept, NewStr(name))
+		}
+	}
+	fs, err := NewFrozenset(kept)
+	if err != nil {
+		return err
+	}
+	if _, seen := c.dict["__abstractmethods__"]; !seen {
+		c.order = append(c.order, "__abstractmethods__")
+	}
+	c.dict["__abstractmethods__"] = fs
+	return nil
+}
+
 // isAbstractValue reports whether a class-namespace value is an abstract method,
 // i.e. it carries a truthy __isabstractmethod__, the flag @abstractmethod sets.
 func isAbstractValue(v Object) bool {

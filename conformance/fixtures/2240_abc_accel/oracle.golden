@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+abstractmethods ['bar', 'foo']
+abstract refused
+residual abstract []
+impl 1 2
+register returns arg True
+token bumped True
+decorator subclass True
+isinstance virtual True
+issubclass virtual True
+unrelated False False
+register non-class Can only register classes
+cycle Refusing to create an inheritance cycle
+dump len 4
+cache is set True
+negcache is set True
+registry is set True
+ver is int True
+cached before reset True
+cached after reset True
+list Sized True
+int not Sized False
+== exception:
+== stderr:
