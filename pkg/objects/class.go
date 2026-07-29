@@ -3039,6 +3039,18 @@ func LoadAttr(o Object, name string) (Object, error) {
 				!strings.HasPrefix(name, "__") {
 				return builtinUnboundMethod(x.name, name), nil
 			}
+			// Last, a builtin type inherits object's dunders, the tail of every
+			// builtin type's MRO. The type's own slots above win; a name they leave
+			// unanswered — object.__init__, __eq__/__ne__, the ordering slots,
+			// __reduce__, __subclasshook__, __dir__, __getstate__ — reads back
+			// object's canonical builtin, so `int.__init__` and `code.__init__`
+			// resolve the way inspect.signature(partial(CodeType.__init__, None))
+			// expects, matching what a user-defined class already inherits. Names
+			// object itself does not carry as an attribute (__init_subclass__,
+			// __sizeof__, __setattr__) stay unresolved, the same as a plain class.
+			if v, ok := objectDunders[name]; ok {
+				return v, nil
+			}
 		}
 	case *typeObject:
 		if name == "__name__" || name == "__qualname__" {
