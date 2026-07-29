@@ -1,0 +1,33 @@
+== exit: 0
+== stdout:
+tuple __getattribute__ <slot wrapper '__getattribute__' of 'object' objects>
+tuple __setattr__ <slot wrapper '__setattr__' of 'object' objects>
+tuple __delattr__ <slot wrapper '__delattr__' of 'object' objects>
+list __getattribute__ <slot wrapper '__getattribute__' of 'object' objects>
+list __setattr__ <slot wrapper '__setattr__' of 'object' objects>
+list __delattr__ <slot wrapper '__delattr__' of 'object' objects>
+str __getattribute__ <slot wrapper '__getattribute__' of 'object' objects>
+str __setattr__ <slot wrapper '__setattr__' of 'object' objects>
+str __delattr__ <slot wrapper '__delattr__' of 'object' objects>
+int __getattribute__ <slot wrapper '__getattribute__' of 'object' objects>
+int __setattr__ <slot wrapper '__setattr__' of 'object' objects>
+int __delattr__ <slot wrapper '__delattr__' of 'object' objects>
+dict __getattribute__ <slot wrapper '__getattribute__' of 'object' objects>
+dict __setattr__ <slot wrapper '__setattr__' of 'object' objects>
+dict __delattr__ <slot wrapper '__delattr__' of 'object' objects>
+code __getattribute__ <slot wrapper '__getattribute__' of 'object' objects>
+code __setattr__ <slot wrapper '__setattr__' of 'object' objects>
+code __delattr__ <slot wrapper '__delattr__' of 'object' objects>
+read 10
+deleted False
+payload (1, 2)
+stored attr root
+in __dict__ True
+missing attr ('via __getattr__', 'absent')
+mock call 7
+call_args call(1, 2, k=3)
+magic len 3
+patched 4242
+call repr call(1, x=2)
+== exception:
+== stderr:

@@ -3064,8 +3064,12 @@ func LoadAttr(o Object, name string) (Object, error) {
 			// resolve the way inspect.signature(partial(CodeType.__init__, None))
 			// expects, matching what a user-defined class already inherits. Names
 			// object itself does not carry as an attribute (__init_subclass__,
-			// __sizeof__, __setattr__) stay unresolved, the same as a plain class.
-			if v, ok := objectDunders[name]; ok {
+			// __sizeof__) stay unresolved, the same as a plain class. The three
+			// attribute-protocol slot wrappers (__getattribute__/__setattr__/
+			// __delattr__) resolve here too, so tuple.__getattribute__(self, name)
+			// runs object's generic read — the explicit call unittest.mock's
+			// _Call(tuple) subclass makes to read its own instance attributes.
+			if v, ok := objectInheritedSlot(name); ok {
 				return v, nil
 			}
 		}
@@ -3156,8 +3160,11 @@ func LoadAttr(o Object, name string) (Object, error) {
 		// rather than raising — inspect.signature(partial(CodeType.__init__, None))
 		// (unittest.mock) reads code.__init__ off the type. The introspection and
 		// __repr__/__hash__/__doc__ cases above win first; a name object itself
-		// does not carry stays unresolved, matching a plain class.
-		if v, ok := objectDunders[name]; ok {
+		// does not carry stays unresolved, matching a plain class. The attribute-
+		// protocol slot wrappers (__getattribute__/__setattr__/__delattr__) resolve
+		// here too, so a constructor-less builtin type answers them as object's
+		// callables the same way a value type or user class does.
+		if v, ok := objectInheritedSlot(name); ok {
 			return v, nil
 		}
 		return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
