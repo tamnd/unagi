@@ -1,0 +1,27 @@
+== exit: 0
+== stdout:
+routed True
+5 6 12
+3.5 3 1 1024
+2 5 6
+16 8 -6 -6
+-3 -3 9
+True True False True True False
+True False True
+True True
+True False True
+20 True
+[1, 2, 3, 4] abcd
+3 2
+{'k': 9}
+{}
+1 1000000000000000000000000000000
+3 42 7
+((1, 2), [('x', 3), ('y', 4)])
+8 (9, 7)
+3.0 HI
+concat: True
+index: True
+indexOf: True
+== exception:
+== stderr:
