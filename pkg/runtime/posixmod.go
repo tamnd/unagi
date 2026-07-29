@@ -107,6 +107,12 @@ func initPosix(m *objects.Module) error {
 		return err
 	}
 
+	// terminal_size is the structseq get_terminal_size returns and
+	// shutil.get_terminal_size constructs from its fallback pair.
+	if err := set("terminal_size", posixTerminalSizeType); err != nil {
+		return err
+	}
+
 	// DirEntry and the scandir iterator are Go classObjects, built once and
 	// shared across imports. scandir yields DirEntry values; os.py re-exports
 	// DirEntry and os.walk drives scandir.
@@ -158,6 +164,7 @@ func initPosix(m *objects.Module) error {
 		{"ftruncate", posixFtruncate},
 		{"fsync", posixFsync},
 		{"isatty", posixIsatty},
+		{"get_terminal_size", posixGetTerminalSize},
 		{"cpu_count", posixCPUCount},
 		{"readlink", posixReadlink},
 		{"symlink", posixSymlink},

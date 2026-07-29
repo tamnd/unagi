@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+repr os.terminal_size(columns=80, lines=24)
+fields 80 24
+index 80 24
+name terminal_size
+counts 2 2 0
+query OSError
+shutil (120, 40)
+shutil-fallback (120, 40)
+== exception:
+== stderr:
