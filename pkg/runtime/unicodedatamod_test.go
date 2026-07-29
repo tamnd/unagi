@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/tamnd/unagi/pkg/objects"
@@ -84,10 +86,75 @@ func TestUnicodedataEastAsianWidth(t *testing.T) {
 	}
 }
 
-// TestUnicodedataNormalize checks the ASCII fast path returns the string
-// unchanged, an invalid form is a ValueError, and non-ASCII text is refused
-// rather than silently wrong.
+// hexRunes turns a comma-separated list of hex code points ("0065,0301") into
+// the string it denotes, for the oracle-captured normalize golden cases.
+func hexRunes(s string) string {
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	for h := range strings.SplitSeq(s, ",") {
+		n, err := strconv.ParseInt(h, 16, 32)
+		if err != nil {
+			panic(err)
+		}
+		b.WriteRune(rune(n))
+	}
+	return b.String()
+}
+
+// TestUnicodedataNormalize checks normalize against a corpus captured from the
+// pinned python3.14 (the conformance oracle), covering canonical precompose and
+// decompose, compatibility folding, Hangul compose/decompose by arithmetic,
+// canonical reordering of stacked marks, a singleton (U+212B), a blocked
+// composition, and a non-BMP code point. Each pair (in, want) is that form's
+// exact CPython output.
 func TestUnicodedataNormalize(t *testing.T) {
+	cases := []struct{ form, in, want string }{
+		{"NFC", "00E9", "00E9"},
+		{"NFD", "00E9", "0065,0301"},
+		{"NFKC", "FB01", "0066,0069"},
+		{"NFKD", "FB01", "0066,0069"},
+		{"NFC", "D55C", "D55C"},
+		{"NFD", "D55C", "1112,1161,11AB"},
+		{"NFC", "AC01", "AC01"},
+		{"NFD", "AC01", "1100,1161,11A8"},
+		{"NFD", "1161", "1161"},
+		{"NFC", "1112,1161,11AB", "D55C"},
+		{"NFC", "0071,0323,0307", "0071,0323,0307"},
+		{"NFD", "0071,0307,0323", "0071,0323,0307"},
+		{"NFC", "1E0B,0323", "1E0D,0307"},
+		{"NFD", "1E0B,0323", "0064,0323,0307"},
+		{"NFC", "00C5", "00C5"},
+		{"NFD", "00C5", "0041,030A"},
+		{"NFKC", "FF12", "0032"},
+		{"NFKD", "3300", "30A2,30CF,309A,30FC,30C8"},
+		{"NFC", "006F,0066,0066,0069,0063,0065", "006F,0066,0066,0069,0063,0065"},
+		{"NFC", "", ""},
+		{"NFC", "0061,0300,0301,0062", "00E0,0301,0062"},
+		{"NFC", "1D160", "1D158,1D165,1D16E"},
+		{"NFKC", "1E9B", "1E61"},
+	}
+	for _, c := range cases {
+		in, want := hexRunes(c.in), hexRunes(c.want)
+		got, err := udNormalize([]objects.Object{objects.NewStr(c.form), objects.NewStr(in)})
+		if err != nil {
+			t.Fatalf("normalize(%s, %s): %v", c.form, c.in, err)
+		}
+		if s, _ := objects.AsStr(got); s != want {
+			t.Errorf("normalize(%s, %s) = %q, want %q", c.form, c.in, s, want)
+		}
+		// is_normalized agrees with the fixed point of normalize.
+		norm, err := udIsNormalized([]objects.Object{objects.NewStr(c.form), objects.NewStr(want)})
+		if err != nil {
+			t.Fatalf("is_normalized(%s, want): %v", c.form, err)
+		}
+		if b, _ := objects.AsBool(norm); !b {
+			t.Errorf("is_normalized(%s, %q) = false, want true", c.form, want)
+		}
+	}
+
+	// A short ASCII string is unchanged and reported normalized in every form.
 	got, err := udNormalize([]objects.Object{objects.NewStr("NFC"), objects.NewStr("abc")})
 	if err != nil {
 		t.Fatalf("normalize('NFC', 'abc'): %v", err)
@@ -98,8 +165,48 @@ func TestUnicodedataNormalize(t *testing.T) {
 	if _, err := udNormalize([]objects.Object{objects.NewStr("NFX"), objects.NewStr("abc")}); err == nil {
 		t.Errorf("normalize with bad form should raise ValueError")
 	}
-	if _, err := udNormalize([]objects.Object{objects.NewStr("NFC"), objects.NewStr("é")}); err == nil {
-		t.Errorf("normalize on non-ASCII should raise rather than return wrong text")
+}
+
+// TestUnicodedataCombining checks combining() against the pinned class table:
+// a starter is 0, and stacked marks report their true classes.
+func TestUnicodedataCombining(t *testing.T) {
+	cases := []struct {
+		ch   string
+		want int64
+	}{
+		{"a", 0}, {"́", 230}, {"̣", 220}, {"्", 9}, {"゙", 8},
+	}
+	for _, c := range cases {
+		got, err := udCombining([]objects.Object{objects.NewStr(c.ch)})
+		if err != nil {
+			t.Fatalf("combining(%q): %v", c.ch, err)
+		}
+		if n, _ := objects.AsInt(got); n != c.want {
+			t.Errorf("combining(%q) = %d, want %d", c.ch, n, c.want)
+		}
+	}
+}
+
+// TestUnicodedataDecomposition checks decomposition() returns the raw one-level
+// string CPython does: a tagged compatibility mapping, an untagged canonical
+// mapping, arithmetic Hangul jamo, and "" for a character with none.
+func TestUnicodedataDecomposition(t *testing.T) {
+	cases := []struct{ ch, want string }{
+		{"À", "0041 0300"},
+		{"ﬁ", "<compat> 0066 0069"},
+		{" ", "<noBreak> 0020"},
+		{"각", "1100 1161 11A8"},
+		{"가", "1100 1161"},
+		{"a", ""},
+	}
+	for _, c := range cases {
+		got, err := udDecomposition([]objects.Object{objects.NewStr(c.ch)})
+		if err != nil {
+			t.Fatalf("decomposition(%q): %v", c.ch, err)
+		}
+		if s, _ := objects.AsStr(got); s != c.want {
+			t.Errorf("decomposition(%q) = %q, want %q", c.ch, s, c.want)
+		}
 	}
 }
 
