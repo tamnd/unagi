@@ -1,6 +1,7 @@
 package objects
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math"
 	"math/big"
@@ -77,6 +78,37 @@ func floatMethod(o Object, name string, args []Object) (Object, error) {
 		return floatToBigInt(f, math.Ceil)
 	}
 	return nil, noAttr(o, name)
+}
+
+// floatGetformat implements the float.__getformat__(typestr) classmethod, the
+// introspection test.support keys requires_IEEE_754 on. CPython reports the
+// storage format of C double ('double') or C float ('float') on the host; on
+// every platform unagi targets that is an IEEE 754 value whose byte order is the
+// machine's, so the answer is "IEEE, little-endian" or "IEEE, big-endian". Both
+// type arguments share the host order, and any other string is a ValueError,
+// matching CPython's float___getformat___impl.
+func floatGetformat(args []Object) (Object, error) {
+	if len(args) != 1 {
+		return nil, Raise(TypeError, "float.__getformat__() takes exactly one argument (%d given)", len(args))
+	}
+	s, ok := AsStr(args[0])
+	if !ok {
+		return nil, Raise(TypeError, "__getformat__() argument must be str, not %s", args[0].TypeName())
+	}
+	if s != "double" && s != "float" {
+		return nil, Raise(ValueError, "__getformat__() argument 1 must be 'double' or 'float'")
+	}
+	return NewStr(hostFloatFormat()), nil
+}
+
+// hostFloatFormat names the host's IEEE 754 byte order the way float.__getformat__
+// reports it. It reads the native endianness so the answer tracks the machine
+// the compiled program runs on rather than a fixed assumption.
+func hostFloatFormat() string {
+	if binary.NativeEndian.Uint16([]byte{1, 0}) == 1 {
+		return "IEEE, little-endian"
+	}
+	return "IEEE, big-endian"
 }
 
 // floatToBigInt applies round (trunc, floor, or ceil) and returns the exact

@@ -20,6 +20,9 @@ func builtinTypeClassmethod(typeName, name string) (Object, bool) {
 	if typeName == "float" && name == "fromhex" {
 		return NewFunc("fromhex", -1, floatFromhex), true
 	}
+	if typeName == "float" && name == "__getformat__" {
+		return NewFunc("__getformat__", -1, floatGetformat), true
+	}
 	if typeName == "bytes" || typeName == "bytearray" {
 		switch name {
 		case "maketrans":

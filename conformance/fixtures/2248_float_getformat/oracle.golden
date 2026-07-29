@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+double IEEE, little-endian
+float IEEE, little-endian
+agree True
+is IEEE True
+bound True
+getattr True
+ValueError __getformat__() argument 1 must be 'double' or 'float'
+TypeError0 float.__getformat__() takes exactly one argument (0 given)
+TypeError2 float.__getformat__() takes exactly one argument (2 given)
+== exception:
+== stderr:
