@@ -133,6 +133,57 @@ func TestPosixOpenMissing(t *testing.T) {
 	}
 }
 
+// TestPosixGetTerminalSizeNonTTY checks get_terminal_size on a pipe fd raises
+// OSError, the error shutil.get_terminal_size catches to fall back on.
+func TestPosixGetTerminalSizeNonTTY(t *testing.T) {
+	pipe, err := posixPipe(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, _ := objects.AsInt(mustItem(t, pipe, 0))
+	w, _ := objects.AsInt(mustItem(t, pipe, 1))
+	defer func() {
+		for _, fd := range []int64{r, w} {
+			_, _ = posixClose([]objects.Object{objects.NewInt(fd)})
+		}
+	}()
+
+	_, err = posixGetTerminalSize([]objects.Object{objects.NewInt(w)})
+	exc, ok := err.(*objects.Exception)
+	if !ok {
+		t.Fatalf("err = %v, want Exception", err)
+	}
+	if exc.Kind != "OSError" {
+		t.Fatalf("kind = %s, want OSError", exc.Kind)
+	}
+}
+
+// TestPosixTerminalSizeStructSeq checks os.terminal_size builds a (columns,
+// lines) structseq from a pair, with the field, index and repr surface.
+func TestPosixTerminalSizeStructSeq(t *testing.T) {
+	ts := posixTerminalSizeType.NewStructSeq(
+		[]objects.Object{objects.NewInt(80), objects.NewInt(24)},
+		[]objects.Object{objects.NewInt(80), objects.NewInt(24)},
+	)
+	cols, err := objects.LoadAttr(ts, "columns")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := objects.AsInt(cols); v != 80 {
+		t.Fatalf("columns = %d, want 80", v)
+	}
+	lines, err := objects.LoadAttr(ts, "lines")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := objects.AsInt(lines); v != 24 {
+		t.Fatalf("lines = %d, want 24", v)
+	}
+	if s := objects.Repr(ts); s != "os.terminal_size(columns=80, lines=24)" {
+		t.Fatalf("repr = %q", s)
+	}
+}
+
 // mustAttr reads a posix open flag by name from the shared flag table.
 func mustAttr(t *testing.T, name string) objects.Object {
 	t.Helper()

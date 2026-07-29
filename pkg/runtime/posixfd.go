@@ -270,3 +270,45 @@ func fdIsatty(fd int) bool {
 	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(ioctlReadTermios), uintptr(unsafe.Pointer(&t)))
 	return errno == 0
 }
+
+// posixTerminalSizeType is os.terminal_size, the (columns, lines) structseq
+// os.get_terminal_size returns. shutil.get_terminal_size also constructs it
+// directly from a fallback pair, os.terminal_size((80, 24)), which the structseq
+// constructor accepts.
+var posixTerminalSizeType = objects.NewStructSeqType(
+	"terminal_size", "os.terminal_size",
+	[]string{"columns", "lines"},
+	2, 0,
+)
+
+// winsize mirrors the kernel struct the TIOCGWINSZ ioctl fills: the row and
+// column counts come first (the two this uses), the pixel dimensions after.
+type winsize struct {
+	row, col, xpixel, ypixel uint16
+}
+
+// posixGetTerminalSize is os.get_terminal_size(fd=STDOUT_FILENO): the terminal's
+// column and row counts from the TIOCGWINSZ ioctl, returned as os.terminal_size.
+// fd defaults to stdout. A failed ioctl — fd is redirected to a file or pipe, or
+// is not a terminal — raises OSError, exactly the error shutil.get_terminal_size
+// catches to fall back on the COLUMNS/LINES environment or (80, 24).
+func posixGetTerminalSize(args []objects.Object) (objects.Object, error) {
+	if len(args) > 1 {
+		return nil, objects.Raise(objects.TypeError, "get_terminal_size() takes at most 1 argument (%d given)", len(args))
+	}
+	fd := 1 // STDOUT_FILENO
+	if len(args) == 1 {
+		v, err := posixArgInt("get_terminal_size", args, 0)
+		if err != nil {
+			return nil, err
+		}
+		fd = v
+	}
+	var ws winsize
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(&ws)))
+	if errno != 0 {
+		return nil, objects.Raise("OSError", "%s", errno.Error())
+	}
+	seq := []objects.Object{objects.NewInt(int64(ws.col)), objects.NewInt(int64(ws.row))}
+	return posixTerminalSizeType.NewStructSeq(seq, seq), nil
+}
