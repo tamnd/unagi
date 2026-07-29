@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+is str True
+year True
+date True
+month name True
+ext probe True
+fixed 2026-07-22 10:05:30 Tuesday
+== exception:
+== stderr:

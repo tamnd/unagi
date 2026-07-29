@@ -32,9 +32,9 @@ var (
 )
 
 // timeStrftime is time.strftime(format[, t]): render a struct_time or nine-tuple
-// through the C strftime directives. With no time given CPython reads the
-// current localtime, but every caller the floor drives passes one explicitly, so
-// the missing form is a plain error rather than a host-dependent clock read.
+// through the C strftime directives. With no time given CPython reads the current
+// localtime, which is the form test.support takes to probe strftime extensions,
+// so the one-argument call breaks down the current clock the same way.
 func timeStrftime(args []objects.Object) (objects.Object, error) {
 	if len(args) < 1 || len(args) > 2 {
 		return nil, objects.Raise(objects.TypeError, "strftime() takes at most 2 arguments (%d given)", len(args))
@@ -43,10 +43,15 @@ func timeStrftime(args []objects.Object) (objects.Object, error) {
 	if !ok {
 		return nil, objects.Raise(objects.TypeError, "strftime() argument 1 must be str, not %s", args[0].TypeName())
 	}
+	timeArg := args[1:]
 	if len(args) == 1 {
-		return nil, objects.Raise(objects.TypeError, "strftime() requires a time tuple")
+		now, err := timeLocaltime(nil)
+		if err != nil {
+			return nil, err
+		}
+		timeArg = []objects.Object{now}
 	}
-	tm, err := timeReadTuple(args[1])
+	tm, err := timeReadTuple(timeArg[0])
 	if err != nil {
 		return nil, err
 	}
