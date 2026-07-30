@@ -124,7 +124,7 @@ func dequeMethod(d *dequeObject, name string, args []Object) (Object, error) {
 			return nil, err
 		}
 		for i, e := range d.elts {
-			if equals(e, args[0]) {
+			if equalsIdentity(e, args[0]) {
 				d.elts = append(d.elts[:i], d.elts[i+1:]...)
 				return None, nil
 			}
@@ -136,7 +136,7 @@ func dequeMethod(d *dequeObject, name string, args []Object) (Object, error) {
 		}
 		n := 0
 		for _, e := range d.elts {
-			if equals(e, args[0]) {
+			if equalsIdentity(e, args[0]) {
 				n++
 			}
 		}
@@ -247,7 +247,7 @@ func (d *dequeObject) index(args []Object) (Object, error) {
 		stop = clampIndex(args[2], n)
 	}
 	for i := start; i < stop && i < n; i++ {
-		if equals(d.elts[i], args[0]) {
+		if equalsIdentity(d.elts[i], args[0]) {
 			return NewInt(int64(i)), nil
 		}
 	}

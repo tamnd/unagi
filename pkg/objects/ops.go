@@ -977,7 +977,11 @@ func seqEquals(a, b []Object) bool {
 		return false
 	}
 	for i := range a {
-		if !equals(a[i], b[i]) {
+		// Identity first, matching CPython's PyObject_RichCompareBool used by
+		// list, tuple, deque, and array equality: an element that is the same
+		// object as its counterpart counts as equal without calling __eq__, so
+		// two sequences holding the same NaN still compare equal.
+		if !equalsIdentity(a[i], b[i]) {
 			return false
 		}
 	}
@@ -1274,11 +1278,21 @@ func Contains(container, item Object) (Object, error) {
 
 func seqContains(elts []Object, item Object) Object {
 	for _, e := range elts {
-		if equals(e, item) {
+		if equalsIdentity(e, item) {
 			return True
 		}
 	}
 	return False
+}
+
+// equalsIdentity is CPython's PyObject_RichCompareBool(a, b, Py_EQ): two identical
+// objects compare equal without consulting __eq__, so a value that is not equal to
+// itself — a NaN — is still found by membership tests, index, count, and remove
+// when the very same object is present in the sequence. Any non-identical pair
+// falls back to ==, so this differs from plain equality only for that self-unequal
+// case, matching how CPython's list and tuple search their elements.
+func equalsIdentity(a, b Object) bool {
+	return a == b || equals(a, b)
 }
 
 // Is implements the `is` operator by object identity.

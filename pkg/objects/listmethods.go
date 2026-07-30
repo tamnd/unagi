@@ -83,7 +83,7 @@ func listMethod(x *listObject, name string, args []Object) (Object, error) {
 			return nil, Raise(TypeError, "list.remove() takes exactly one argument (%d given)", len(args))
 		}
 		for i, e := range x.elts {
-			if equals(e, args[0]) {
+			if equalsIdentity(e, args[0]) {
 				x.elts = append(x.elts[:i], x.elts[i+1:]...)
 				return None, nil
 			}
@@ -110,7 +110,7 @@ func listMethod(x *listObject, name string, args []Object) (Object, error) {
 		}
 		n := int64(0)
 		for _, e := range x.elts {
-			if equals(e, args[0]) {
+			if equalsIdentity(e, args[0]) {
 				n++
 			}
 		}
@@ -296,7 +296,7 @@ func seqIndexOf(seqType string, elts []Object, args []Object) (Object, error) {
 		}
 	}
 	for i := start; i < stop && i < n; i++ {
-		if equals(elts[i], args[0]) {
+		if equalsIdentity(elts[i], args[0]) {
 			return NewInt(i), nil
 		}
 	}
