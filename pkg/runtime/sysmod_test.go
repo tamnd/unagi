@@ -53,6 +53,35 @@ func TestSysIdentityAttrs(t *testing.T) {
 	}
 }
 
+// TestSysExit checks sys.exit raises SystemExit carrying the right code: None
+// when omitted, the argument verbatim otherwise, and the arity TypeError for
+// more than one argument.
+func TestSysExit(t *testing.T) {
+	codeOf := func(args []objects.Object) objects.Object {
+		_, err := sysExit(args)
+		exc, ok := err.(*objects.Exception)
+		if !ok || exc.Kind != "SystemExit" {
+			t.Fatalf("sysExit(%v) err = %v, want SystemExit", args, err)
+		}
+		code, cerr := objects.LoadAttr(exc, "code")
+		if cerr != nil {
+			t.Fatalf("SystemExit.code: %v", cerr)
+		}
+		return code
+	}
+	if c := codeOf(nil); c != objects.None {
+		t.Errorf("exit() code = %v, want None", objects.Repr(c))
+	}
+	if c := codeOf([]objects.Object{objects.NewInt(3)}); objects.Str(c) != "3" {
+		t.Errorf("exit(3) code = %v, want 3", objects.Repr(c))
+	}
+	_, err := sysExit([]objects.Object{objects.NewInt(1), objects.NewInt(2)})
+	exc, ok := err.(*objects.Exception)
+	if !ok || exc.Kind != "TypeError" {
+		t.Fatalf("exit(1, 2) err = %v, want TypeError", err)
+	}
+}
+
 func TestSysSwitchInterval(t *testing.T) {
 	// The interval is process-global, so save and restore it around the test.
 	switchIntervalMu.Lock()

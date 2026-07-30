@@ -266,6 +266,23 @@ func sysGetRecursionLimit(args []objects.Object) (objects.Object, error) {
 	return objects.NewInt(int64(RecursionLimit())), nil
 }
 
+// sysExit is sys.exit([code]): it raises SystemExit so the interpreter unwinds
+// to the top and turns the code into the process exit status. With no argument
+// the code is None (exit 0); one argument becomes the code verbatim — an int is
+// the status, any other object is printed to stderr and exits 1, which ReportExit
+// handles. More than one argument is the CPython arity error. unittest.main and
+// argparse both call it to end a run.
+func sysExit(args []objects.Object) (objects.Object, error) {
+	if len(args) > 1 {
+		return nil, objects.Raise(objects.TypeError, "exit expected at most 1 argument, got %d", len(args))
+	}
+	code := objects.None
+	if len(args) == 1 {
+		code = args[0]
+	}
+	return nil, objects.NewException("SystemExit", []objects.Object{code})
+}
+
 // sysAudit is sys.audit(event, *args): it raises an auditing event to every
 // installed hook. No hooks run in this tier, so with nothing listening it is a
 // no-op that returns None, which is exactly what CPython does when no hook is
@@ -484,6 +501,9 @@ func initSys(m *objects.Module) error {
 		return err
 	}
 	if err := set("_getframe", objects.NewFuncT("_getframe", -1, sysGetFrame)); err != nil {
+		return err
+	}
+	if err := set("exit", objects.NewFunc("exit", -1, sysExit)); err != nil {
 		return err
 	}
 	if err := set("audit", objects.NewFunc("audit", -1, sysAudit)); err != nil {

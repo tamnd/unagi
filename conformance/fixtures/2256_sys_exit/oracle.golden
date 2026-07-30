@@ -1,0 +1,10 @@
+== exit: 3
+== stdout:
+() -> None
+(0,) -> 0
+(3,) -> 3
+('bye',) -> 'bye'
+(None,) -> None
+arity: exit expected at most 1 argument, got 2
+== exception:
+== stderr:
