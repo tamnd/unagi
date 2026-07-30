@@ -1157,25 +1157,32 @@ func init() {
 	// resolves to the same object as object's is one the type inherited.
 	builtinTypeDunders = map[string]map[string]Object{
 		"int": {
-			"__new__":       NewFunc("__new__", -1, builtinNewDunder),
+			"__new__":       builtinTypeNew("int"),
 			"__repr__":      NewFunc("__repr__", 1, builtinReprDunder),
 			"__format__":    NewFunc("__format__", 2, builtinFormatDunder),
 			"__str__":       objectDunders["__str__"],
 			"__reduce_ex__": objectDunders["__reduce_ex__"],
 		},
 		"str": {
-			"__new__":       NewFunc("__new__", -1, builtinNewDunder),
+			"__new__":       builtinTypeNew("str"),
 			"__repr__":      NewFunc("__repr__", 1, builtinReprDunder),
 			"__str__":       NewFunc("__str__", 1, builtinStrDunder),
 			"__format__":    NewFunc("__format__", 2, builtinFormatDunder),
 			"__reduce_ex__": objectDunders["__reduce_ex__"],
+		},
+		// bool carries __new__ so bool.__new__(bool, x) resolves off the type object
+		// and returns the True/False singleton for bool(x). bool subclasses int but
+		// this lookup keys on the exact name, so the slot is spelled out here rather
+		// than inherited; the other dunders come from int/object.
+		"bool": {
+			"__new__": builtinTypeNew("bool"),
 		},
 		// tuple carries __new__ so tuple.__new__(cls, iterable) resolves off the
 		// type object and builds a value subclass instance, the allocator
 		// codecs.CodecInfo(tuple) calls in its __new__. Its repr prints the
 		// underlying tuple; the other dunders come from object.
 		"tuple": {
-			"__new__":       NewFunc("__new__", -1, builtinNewDunder),
+			"__new__":       builtinTypeNew("tuple"),
 			"__repr__":      NewFunc("__repr__", 1, builtinReprDunder),
 			"__reduce_ex__": objectDunders["__reduce_ex__"],
 		},
@@ -1202,7 +1209,7 @@ func init() {
 		// `class _Extra(bytes)` reaches through super().__new__(cls, val). Its repr
 		// prints the underlying bytes; the other dunders come from object.
 		"bytes": {
-			"__new__":  NewFunc("__new__", -1, builtinNewDunder),
+			"__new__":  builtinTypeNew("bytes"),
 			"__repr__": NewFunc("__repr__", 1, builtinReprDunder),
 		},
 		"bytearray": {
@@ -1222,7 +1229,7 @@ func init() {
 		// weakref.py reads at import. __new__ builds a ref subclass instance from
 		// the referent and optional callback, the allocator a ref subclass inherits.
 		"ref": {
-			"__new__": NewFunc("__new__", -1, builtinNewDunder),
+			"__new__": builtinTypeNew("ref"),
 			"__hash__": NewFunc("__hash__", 1, func(args []Object) (Object, error) {
 				h, err := PyHash(args[0])
 				if err != nil {
@@ -1265,6 +1272,40 @@ func markSelfBound(o Object) {
 // Called as str.__new__(subclass, value) it builds an instance of the subclass
 // carrying the payload, reusing the value-subclass allocation the cooperative
 // super().__new__ chain ends on.
+// builtinTypeNew builds the __new__ read off a builtin type object, closing over
+// the owning type name so it can apply CPython's tp_new safety rules, which the
+// shared builtinNewDunder cannot because it does not know which type it was read
+// from. Called as T.__new__(cls, *rest):
+//
+//   - cls is T itself: this is just the constructor, so build the value —
+//     int.__new__(int, 5) is int(5), bool.__new__(bool, 1) is the True singleton.
+//   - cls is a user subclass of T (a *classObject): allocate the subclass
+//     instance through the cooperative allocator, the super().__new__ path.
+//   - cls is another builtin type: a subtype with its own __new__ is "not safe"
+//     (int.__new__(bool)), and a non-subtype "is not a subtype of T"
+//     (bool.__new__(int), int.__new__(str)) — both the TypeError CPython raises.
+func builtinTypeNew(typeName string) Object {
+	return NewFunc("__new__", -1, func(args []Object) (Object, error) {
+		if len(args) < 1 {
+			return nil, Raise(TypeError, "%s.__new__(): not enough arguments", typeName)
+		}
+		if fn, ok := args[0].(*funcObject); ok && builtinTypeReprs[fn.name] {
+			if fn.name == typeName {
+				return Call(fn, args[1:])
+			}
+			// bool is the only builtin proper subtype (of int); every other builtin
+			// type descends only from itself and object. A subtype carries its own
+			// __new__, so borrowing the base's is unsafe; a non-subtype is rejected
+			// outright.
+			if fn.name == "bool" && typeName == "int" {
+				return nil, Raise(TypeError, "%s.__new__(%s) is not safe, use %s.__new__()", typeName, fn.name, fn.name)
+			}
+			return nil, Raise(TypeError, "%s.__new__(%s): %s is not a subtype of %s", typeName, fn.name, fn.name, typeName)
+		}
+		return builtinNewDunder(args)
+	})
+}
+
 func builtinNewDunder(args []Object) (Object, error) {
 	r, ok, err := objectDefaultCall(None, "__new__", args)
 	if err != nil {

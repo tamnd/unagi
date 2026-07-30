@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+5 0
+x ''
+b'ab'
+(1, 2, 3)
+True
+True
+True
+True
+True
+bool
+int.__new__(bool, 0) -> TypeError: int.__new__(bool) is not safe, use bool.__new__()
+bool.__new__(int, 0) -> TypeError: bool.__new__(int): int is not a subtype of bool
+int.__new__(str, 0) -> TypeError: int.__new__(str): str is not a subtype of int
+MyInt 7
+== exception:
+== stderr:
