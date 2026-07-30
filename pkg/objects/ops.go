@@ -820,9 +820,22 @@ func RShift(a, b Object) (Object, error) {
 
 // Invert implements unary ~. Probed: ~True is int -2, ~ on bool never
 // stays bool.
+// InvertBoolWarnHook, when set, is called by Invert on an exact bool operand to
+// raise CPython 3.14's DeprecationWarning that `~` on a bool returns the bitwise
+// inversion of the underlying int and is removed in 3.16. runtime wires it to
+// warnings.warn; it stays nil in objects-only builds and tests, where the
+// deprecation is simply not surfaced. A non-nil error (the filter turned the
+// warning into an exception) aborts the operation the way CPython does.
+var InvertBoolWarnHook func() error
+
 func Invert(o Object) (Object, error) {
 	if r, ok, err := builtinUnary(o, "__invert__", Invert); ok || err != nil {
 		return r, err
+	}
+	if _, ok := o.(*boolObject); ok && InvertBoolWarnHook != nil {
+		if err := InvertBoolWarnHook(); err != nil {
+			return nil, err
+		}
 	}
 	if i, ok := AsInt(o); ok {
 		return NewInt(-i - 1), nil
