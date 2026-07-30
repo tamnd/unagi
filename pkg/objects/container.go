@@ -180,6 +180,12 @@ func scanContains(it Iterator, item Object) (Object, error) {
 		if !ok {
 			return False, nil
 		}
+		// Identity first, matching CPython's PyObject_RichCompareBool: an
+		// element that is the item counts without calling __eq__, so a NaN
+		// stored in a container is found in it.
+		if item == v {
+			return True, nil
+		}
 		eq, err := Compare(OpEq, item, v)
 		if err != nil {
 			return nil, err

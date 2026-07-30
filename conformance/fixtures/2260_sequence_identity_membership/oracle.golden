@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+True True True
+False
+1 1
+1 1
+list True True True
+tuple True True True
+fromkeys True True True
+set True True True
+frozenset True True True
+deque True True True
+True
+False
+True
+[1, 2]
+ValueError: list.index(x): x not in list
+== exception:
+== stderr:

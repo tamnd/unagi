@@ -8,7 +8,7 @@ func tupleMethod(x *tupleObject, name string, args []Object) (Object, error) {
 		}
 		n := int64(0)
 		for _, e := range x.elts {
-			if equals(e, args[0]) {
+			if equalsIdentity(e, args[0]) {
 				n++
 			}
 		}

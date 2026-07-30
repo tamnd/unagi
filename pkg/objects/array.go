@@ -441,9 +441,20 @@ func arrayDelItem(a *arrayObject, key Object) error {
 
 // arrayEquals reports whether two arrays hold equal elements in order. Equality
 // is value based and crosses typecodes, so array('i', [1]) equals array('f',
-// [1.0]); an array is never equal to a list with the same contents.
+// [1.0]); an array is never equal to a list with the same contents. Unlike list
+// or tuple, an array stores raw C values rather than objects, so its comparison
+// is pure value equality with no identity shortcut: an array holding a NaN is not
+// even equal to itself, matching CPython.
 func arrayEquals(a, b *arrayObject) bool {
-	return seqEquals(a.elts, b.elts)
+	if len(a.elts) != len(b.elts) {
+		return false
+	}
+	for i := range a.elts {
+		if !equals(a.elts[i], b.elts[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // arrayConcat implements a + b, which needs two arrays of the same typecode.
