@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+bisect_left is C: True
+bisect is bisect_right: True
+insort is insort_right: True
+left: [0, 0, 1, 4, 5, 5, 6]
+right: [0, 1, 4, 5, 5, 6, 6]
+windowed left: 3
+windowed right: 3
+hi default spans all: 6
+keyed left: [0, 1, 2, 3, 4]
+keyed right: [1, 2, 3, 4, 5]
+insorted: [0, 1, 3, 3, 4, 5]
+keyed insort: ['a', 'bb', 'ccc', 'dddd']
+non-bool lt index: 3
+negative lo: lo must be non-negative
+too many positional: TypeError
+missing a: TypeError
+big bisect: 1099511627776
+== exception:
+== stderr:
