@@ -1,0 +1,24 @@
+== exit: 0
+== stdout:
+heappush is C: True
+heapify_max is C: True
+push invariant: True
+min drain sorted: True
+heapify invariant: True
+heapify drain sorted: True
+heapreplace old root: 0
+heappushpop keeps small: -100
+still a heap: True
+push_max invariant: True
+max drain desc: True
+heapify_max invariant: True
+heapreplace_max old root: 9
+heappushpop_max keeps large: 1000
+heappush -> TypeError
+heappush -> TypeError
+heappop -> TypeError
+heapify -> TypeError
+heapreplace -> IndexError
+heappush_max -> TypeError
+== exception:
+== stderr:
