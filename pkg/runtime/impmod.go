@@ -85,6 +85,7 @@ func initImp(m *objects.Module) error {
 		{"source_hash", -1, impSourceHash},
 		{"_fix_co_filename", -1, impNone},
 		{"_override_multi_interp_extensions_check", -1, impZero},
+		{"_override_frozen_modules_for_tests", -1, impNone},
 	}
 	for _, f := range fns {
 		if err := set(f.name, objects.NewFunc(f.name, f.arity, f.fn)); err != nil {
@@ -176,8 +177,12 @@ func impExecZero(args []objects.Object) (objects.Object, error) {
 
 // impNone backs the primitives whose result the caller ignores: the import lock
 // acquire and release (unagi runs the import machinery single-threaded, so the
-// lock is a no-op) and _fix_co_filename (nothing rewrites a code object's
-// filename here).
+// lock is a no-op), _fix_co_filename (nothing rewrites a code object's filename
+// here), and _override_frozen_modules_for_tests, which test.support's
+// frozen_modules() context manager toggles around a body. unagi freezes nothing,
+// so the override has no effect, but the function must exist and return None or
+// import_helper.frozen_modules raises AttributeError on entry -- a gate a broad
+// swath of Lib/test modules pass through via import_fresh_module.
 func impNone(args []objects.Object) (objects.Object, error) {
 	return objects.None, nil
 }
