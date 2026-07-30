@@ -294,6 +294,43 @@ func TestPlainBuiltinValueReadDoesNotMaterializeModule(t *testing.T) {
 	}
 }
 
+// An entry script that imports unittest materializes __main__ even without a
+// globals() call, so unittest.main() can discover the TestCase classes it
+// introspects off sys.modules['__main__'].
+func TestUnittestImportMaterializesMainModule(t *testing.T) {
+	got, err := lowerSrc(t, "import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n\nunittest.main()\n")
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	if !strings.Contains(got, "runtime.SetMainModule") {
+		t.Errorf("importing unittest did not materialize __main__:\n%s", got)
+	}
+}
+
+// Reading sys.modules names the registry __main__ lives in, so the entry
+// script binds its top-level names onto the module for a later lookup to see.
+func TestSysModulesReadMaterializesMainModule(t *testing.T) {
+	got, err := lowerSrc(t, "import sys\nx = 1\nprint('__main__' in sys.modules)\n")
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	if !strings.Contains(got, "runtime.SetMainModule") {
+		t.Errorf("reading sys.modules did not materialize __main__:\n%s", got)
+	}
+}
+
+// A plain `import sys` without touching sys.modules keeps the un-reified fast
+// path: only the module registry read, not any sys import, forces binding.
+func TestPlainSysImportDoesNotMaterializeMainModule(t *testing.T) {
+	got, err := lowerSrc(t, "import sys\nprint(sys.platform)\n")
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	if strings.Contains(got, "runtime.SetMainModule") {
+		t.Errorf("a plain sys import should not materialize __main__:\n%s", got)
+	}
+}
+
 // A builtin shadowed by a local binding reads the local slot, never the
 // builtin fallback.
 func TestShadowedBuiltinReadsLocal(t *testing.T) {

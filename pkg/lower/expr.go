@@ -406,6 +406,14 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 		f.fallible(tmp, f.e.obj("GetItem"), x, idx)
 		return ident(tmp), nil
 	case *frontend.Attribute:
+		// A read of sys.modules names the module registry __main__ lives in, so
+		// the entry script's top-level names must be bound onto the module object
+		// for a later sys.modules['__main__'] lookup to see them.
+		if e.Name == "modules" {
+			if base, ok := e.X.(*frontend.Name); ok && base.Id == "sys" {
+				f.e.reifyMain = true
+			}
+		}
 		x, err := f.expr(e.X)
 		if err != nil {
 			return nil, err

@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"strconv"
+	"strings"
 
 	"github.com/tamnd/unagi/pkg/frontend"
 )
@@ -232,6 +233,7 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 // whole chain executes, with as it binds the leaf, CPython's split.
 func (f *fnCtx) importStmt(s *frontend.Import) error {
 	for _, a := range s.Names {
+		f.noteMainRefImport(a.Name)
 		entry := "ImportModule"
 		if a.As == "" {
 			entry = "ImportRoot"
@@ -241,6 +243,17 @@ func (f *fnCtx) importStmt(s *frontend.Import) error {
 		f.bindImport(a.Bound(), ident(tmp))
 	}
 	return nil
+}
+
+// noteMainRefImport flags the compile to reify the __main__ module when the
+// entry script imports a module that will introspect it. unittest.main()
+// discovers TestCase classes off sys.modules['__main__'], and `import __main__`
+// names it outright; either way the top-level names must be bound onto the
+// module object, not left in Go variables the discovery cannot see.
+func (f *fnCtx) noteMainRefImport(name string) {
+	if name == "unittest" || strings.HasPrefix(name, "unittest.") || name == "__main__" {
+		f.e.reifyMain = true
+	}
 }
 
 // bindImport binds an imported name, into the class namespace through the
@@ -276,6 +289,7 @@ func (f *fnCtx) importFrom(s *frontend.ImportFrom) error {
 		}
 		module = abs
 	}
+	f.noteMainRefImport(module)
 	for _, a := range s.Names {
 		tmp := f.tmpVar()
 		f.fallible(tmp, sel("runtime", "ImportFrom"), strLit(module), strLit(a.Name))

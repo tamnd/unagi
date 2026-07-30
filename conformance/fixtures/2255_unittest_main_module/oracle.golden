@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+name __main__
+classes ['MathTests', 'StrTests']
+count 3
+run 3
+ok True
+failures 0 errors 0
+== exception:
+== stderr:

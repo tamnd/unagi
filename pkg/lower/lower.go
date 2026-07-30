@@ -581,7 +581,11 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 		}
 		out.WriteString("\t\"github.com/tamnd/unagi/pkg/runtime\"\n)\n\n")
 	}
-	if e.usedTB || pkgMode || e.usedGlobals {
+	// reifyMain forces the same __main__-binding entry point globals() does, for a
+	// script that names __main__ as a module (imports unittest / __main__, reads
+	// sys.modules) without calling globals() itself.
+	reifyMain := e.usedGlobals || e.reifyMain
+	if e.usedTB || pkgMode || reifyMain {
 		fmt.Fprintf(&out, "// pyFile is the source path traceback frames cite.\nconst pyFile = %s\n\n", strconv.Quote(file))
 		// A module package registers unconditionally: the init call is also
 		// what keeps the runtime import used when the body needs nothing else.
@@ -589,7 +593,7 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 			fmt.Fprintf(&out, "// pySource is the embedded source, so tracebacks can quote the line\n// under each frame the way CPython does.\nconst pySource = %s\n\nfunc init() { runtime.RegisterSource(pyFile, pySource) }\n\n", strconv.Quote(string(source)))
 		}
 	}
-	if pkgMode || e.usedGlobals {
+	if pkgMode || reifyMain {
 		out.WriteString("// thisModule is the module object, bound before the body runs. Reads of\n// names this compile never saw route through it, so an attribute an importer\n// sets on the module is visible inside it, and globals() reads its namespace.\nvar thisModule *objects.Module\n\n")
 	}
 	if len(e.slots) > 0 {
@@ -648,7 +652,7 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 		if err := writeDecl(&out, execDecl(sortedNames(e.moduleVars))); err != nil {
 			return nil, err
 		}
-	} else if e.usedGlobals {
+	} else if reifyMain {
 		// A plain top-level def keeps the static fast path and is not a module
 		// variable, so it is bound through its function-object slot; every other
 		// module-scope name is a checked module variable already.
@@ -770,6 +774,13 @@ type emitter struct {
 	usedObjects bool
 	usedTB      bool
 	usedGlobals bool // the body calls globals(), so main binds a __main__ module
+	// reifyMain records that the entry script names __main__ as a live module:
+	// it imports unittest (whose unittest.main() introspects sys.modules
+	// ['__main__'] to discover TestCase classes), imports __main__ directly, or
+	// reads sys.modules. Such a script needs main to bind its top-level names onto
+	// the __main__ module the same way globals() forces, even though the body
+	// never calls globals(); an ordinary script keeps the un-reified fast path.
+	reifyMain bool
 	// statics maps a top-level def name to the guard-free static callee the
 	// partitioner proved for it, so a boxed call to that name routes through the
 	// entry shim into the static tier. Empty when the build carries no static
