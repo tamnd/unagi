@@ -14,8 +14,21 @@ func builtinTypeClassmethod(typeName, name string) (Object, bool) {
 	if typeName == "str" && name == "maketrans" {
 		return NewFunc("maketrans", -1, strMaketrans), true
 	}
-	if (typeName == "int" || typeName == "bool") && name == "from_bytes" {
+	if typeName == "int" && name == "from_bytes" {
 		return NewFuncKw("from_bytes", intFromBytes), true
+	}
+	// bool.from_bytes is int.from_bytes narrowed to the class it is called on:
+	// bool constructs from the resulting int, so the answer is a True/False
+	// singleton, not a bare 0/1 int. base64 and the pickle machinery lean on the
+	// int form; the bool form keeps `bool.from_bytes(b'\x00', 'big') is False`.
+	if typeName == "bool" && name == "from_bytes" {
+		return NewFuncKw("from_bytes", func(pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+			n, err := intFromBytes(pos, kwNames, kwVals)
+			if err != nil {
+				return nil, err
+			}
+			return NewBool(Truth(n)), nil
+		}), true
 	}
 	if typeName == "float" && name == "fromhex" {
 		return NewFunc("fromhex", -1, floatFromhex), true
