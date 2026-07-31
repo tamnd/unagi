@@ -291,7 +291,7 @@ func runtimeFingerprint() (string, error) {
 			return
 		}
 		h := sha256.New()
-		for _, pkg := range []string{"objects", "runtime", "sre"} {
+		for _, pkg := range []string{"objects", "runtime", "sre", "frontend"} {
 			dir := filepath.Join(src, "pkg", pkg)
 			entries, err := os.ReadDir(dir)
 			if err != nil {
