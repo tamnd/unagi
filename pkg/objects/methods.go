@@ -460,6 +460,27 @@ func excLoadAttr(e *Exception, name string) (Object, error) {
 			}
 			return None, nil
 		}
+	case "errno", "strerror", "filename", "filename2":
+		// OSError exposes these four as instance attributes that default to None.
+		// The constructor split (parseOSErrorArgs) fills the slots when it ran; a
+		// value written onto the exception's dict afterwards wins, the ordinary
+		// instance-attribute precedence. Every non-OSError exception falls through
+		// to the AttributeError below.
+		if Matches(e.Kind, "OSError") {
+			if v, ok := e.Dict[name]; ok {
+				return v, nil
+			}
+			switch name {
+			case "errno":
+				return objOrNone(e.OSErrno), nil
+			case "strerror":
+				return objOrNone(e.OSStrError), nil
+			case "filename":
+				return objOrNone(e.OSFilename), nil
+			default:
+				return objOrNone(e.OSFilename2), nil
+			}
+		}
 	case "code":
 		// SystemExit carries a code slot alongside args: no argument reads
 		// None, one reads that argument, and several read the args tuple. Only

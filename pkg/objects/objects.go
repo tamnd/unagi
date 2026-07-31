@@ -77,6 +77,18 @@ type Exception struct {
 	// does.
 	Dict      map[string]Object
 	DictOrder []string
+	// OSError value slots. CPython's OSError splits 2..5 constructor arguments
+	// into the named attributes errno, strerror, filename and filename2, collapses
+	// args to the (errno, strerror) pair, and renders str() as
+	// "[Errno errno] strerror: 'filename' -> 'filename2'". These live in dedicated
+	// slots, not Dict, so they stay out of __dict__/vars() the way CPython's
+	// C-level members do. OSParsed marks that the split ran, so Text and the
+	// attribute reads use these rather than the raw args.
+	OSParsed    bool
+	OSErrno     Object
+	OSStrError  Object
+	OSFilename  Object
+	OSFilename2 Object
 }
 
 func (e *Exception) TypeName() string { return e.Kind }
@@ -85,6 +97,9 @@ func (e *Exception) TypeName() string { return e.Kind }
 // str(arg) except KeyError which gives repr(arg), more args give the
 // str of the args tuple. Groups append their sub-exception count.
 func (e *Exception) Text() string {
+	if e.OSParsed {
+		return osErrorText(e)
+	}
 	if e.Group != nil {
 		s := "s"
 		if len(e.Group) == 1 {
@@ -163,7 +178,9 @@ func Raise(kind, format string, a ...any) *Exception {
 // NewException builds an *Exception carrying explicit argument objects,
 // the ExceptionClass(args...) path.
 func NewException(kind string, args []Object) *Exception {
-	return &Exception{Kind: kind, Args: args}
+	e := &Exception{Kind: kind, Args: args}
+	parseOSErrorArgs(e)
+	return e
 }
 
 type noneObject struct{}
