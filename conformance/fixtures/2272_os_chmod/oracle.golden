@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+644: 0o644
+600: 0o600
+640 (bytes): 0o640
+mode-type TypeError 'str' object cannot be interpreted as an integer
+missing-mode TypeError chmod() missing required argument 'mode' (pos 2)
+null-str ValueError chmod: embedded null character in path
+null-bytes ValueError chmod: embedded null character in path
+removed: True
+== exception:
+== stderr:
