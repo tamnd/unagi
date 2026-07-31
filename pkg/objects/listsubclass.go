@@ -50,6 +50,14 @@ func listPayload(o Object) (*listObject, bool) {
 	return nil, false
 }
 
+// IsList reports whether o is a real list or a list subclass instance, the test
+// CPython's PyList_Check makes when a C accelerator (heapq, for one) insists its
+// argument be a list before it manipulates the underlying array in place.
+func IsList(o Object) bool {
+	_, ok := listPayload(o)
+	return ok
+}
+
 // listInit seeds a list subclass instance's store the way list(...) does: at
 // most one positional argument, an iterable whose items become the elements. It
 // is what runs when a list subclass inherits list.__init__ rather than
