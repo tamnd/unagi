@@ -101,6 +101,89 @@ func TestStatResultRepr(t *testing.T) {
 	}
 }
 
+// TestStatArgTypes checks os.stat/lstat/access accept the argument types CPython
+// does: a bytes path everywhere, an integer file descriptor for stat only, and a
+// float rejected with the type-specific message. os.PathLike is exercised end to
+// end by the conformance fixture, which reduces __fspath__ through the same
+// posixFsPath helper.
+func TestStatArgTypes(t *testing.T) {
+	f, err := os.CreateTemp("", "unagi-statargs-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Remove(f.Name()) }()
+	if _, err := f.WriteString("hello"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	name := f.Name()
+
+	// A bytes path stats the same file a str path does.
+	st, err := posixStat([]objects.Object{objects.NewBytes([]byte(name))})
+	if err != nil {
+		t.Fatalf("stat(bytes): %v", err)
+	}
+	if size, ok := objects.AsInt(statAttr(t, st, "st_size")); !ok || size != 5 {
+		t.Fatalf("stat(bytes) st_size = %v, want 5", size)
+	}
+
+	// An integer file descriptor stats through fstat: stat on the open fd reports
+	// the same size.
+	fd, oerr := os.Open(name)
+	if oerr != nil {
+		t.Fatal(oerr)
+	}
+	defer func() { _ = fd.Close() }()
+	stFd, err := posixStat([]objects.Object{objects.NewInt(int64(fd.Fd()))})
+	if err != nil {
+		t.Fatalf("stat(fd): %v", err)
+	}
+	if size, ok := objects.AsInt(statAttr(t, stFd, "st_size")); !ok || size != 5 {
+		t.Fatalf("stat(fd) st_size = %v, want 5", size)
+	}
+
+	// A bytes path also works through lstat and access.
+	if _, err := posixLstat([]objects.Object{objects.NewBytes([]byte(name))}); err != nil {
+		t.Fatalf("lstat(bytes): %v", err)
+	}
+	acc, err := posixAccess([]objects.Object{objects.NewBytes([]byte(name)), objects.NewInt(0)})
+	if err != nil {
+		t.Fatalf("access(bytes): %v", err)
+	}
+	if b, _ := objects.TruthOf(acc); !b {
+		t.Errorf("access(bytes, F_OK) = false, want true")
+	}
+
+	// A float is a TypeError with the call's own message; lstat has no fd form, so
+	// an integer is a TypeError there too.
+	for _, tc := range []struct {
+		name    string
+		call    func() (objects.Object, error)
+		wantSub string
+	}{
+		{"stat(float)", func() (objects.Object, error) { return posixStat([]objects.Object{objects.NewFloat(1.5)}) },
+			"stat: path should be string, bytes, os.PathLike or integer, not float"},
+		{"lstat(float)", func() (objects.Object, error) { return posixLstat([]objects.Object{objects.NewFloat(1.5)}) },
+			"lstat: path should be string, bytes or os.PathLike, not float"},
+		{"lstat(int)", func() (objects.Object, error) { return posixLstat([]objects.Object{objects.NewInt(0)}) },
+			"lstat: path should be string, bytes or os.PathLike, not int"},
+		{"access(float)", func() (objects.Object, error) {
+			return posixAccess([]objects.Object{objects.NewFloat(1.5), objects.NewInt(0)})
+		}, "access: path should be string, bytes or os.PathLike, not float"},
+	} {
+		_, err := tc.call()
+		if err == nil {
+			t.Errorf("%s did not raise", tc.name)
+			continue
+		}
+		if !strings.Contains(err.Error(), tc.wantSub) {
+			t.Errorf("%s error = %q, want substring %q", tc.name, err.Error(), tc.wantSub)
+		}
+	}
+}
+
 func statAttr(t *testing.T, o objects.Object, name string) objects.Object {
 	t.Helper()
 	v, err := objects.LoadAttr(o, name)

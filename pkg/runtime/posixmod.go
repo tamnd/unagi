@@ -513,13 +513,30 @@ func posixRename(args []objects.Object) (objects.Object, error) {
 	return objects.None, nil
 }
 
-// posixFsPath reads a filesystem path argument as a string, accepting both str
-// and bytes the way the POSIX calls do.
+// posixFsPath reads a filesystem path argument as a string through the os.fspath
+// protocol: a str or bytes path is taken directly, and a path-like object is
+// reduced through its __fspath__ (which itself returns str or bytes), the way the
+// POSIX calls accept os.PathLike. ok is false for anything else -- an int fd or a
+// non-path type -- which each caller reports with its own message.
 func posixFsPath(o objects.Object) (string, bool) {
 	if b, ok := objects.AsBytes(o); ok {
 		return string(b), true
 	}
-	return objects.AsStr(o)
+	if s, ok := objects.AsStr(o); ok {
+		return s, true
+	}
+	m, err := objects.LoadAttr(o, "__fspath__")
+	if err != nil {
+		return "", false
+	}
+	r, cerr := objects.Call(m, nil)
+	if cerr != nil {
+		return "", false
+	}
+	if b, ok := objects.AsBytes(r); ok {
+		return string(b), true
+	}
+	return objects.AsStr(r)
 }
 
 // posixGetuid is posix.getuid(): the process's real user id. posixpath.expanduser

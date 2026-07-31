@@ -91,34 +91,48 @@ func posixStatErr(err error) error {
 	return objects.Raise("OSError", "%s", err.Error())
 }
 
-// posixStatArgPath reads the single string path argument shared by stat/lstat.
-func posixStatArgPath(name string, args []objects.Object) (string, error) {
+// posixStatArgN enforces the single positional argument the stat family takes.
+func posixStatArgN(name string, args []objects.Object) error {
 	if len(args) != 1 {
-		return "", objects.Raise(objects.TypeError, "%s() takes exactly 1 argument (%d given)", name, len(args))
+		return objects.Raise(objects.TypeError, "%s() takes exactly 1 argument (%d given)", name, len(args))
 	}
-	p, ok := objects.AsStr(args[0])
-	if !ok {
-		return "", objects.Raise(objects.TypeError, "%s: path should be string, not %s", name, args[0].TypeName())
-	}
-	return p, nil
+	return nil
 }
 
+// posixStat is os.stat: it accepts a str, bytes or os.PathLike path, and also an
+// integer file descriptor, which it fstats the way CPython does (a bool counts as
+// the fd its int value names).
 func posixStat(args []objects.Object) (objects.Object, error) {
-	p, err := posixStatArgPath("stat", args)
-	if err != nil {
+	if err := posixStatArgN("stat", args); err != nil {
 		return nil, err
 	}
 	var st syscall.Stat_t
-	if serr := syscall.Stat(p, &st); serr != nil {
-		return nil, posixStatErr(serr)
+	if p, ok := posixFsPath(args[0]); ok {
+		if serr := syscall.Stat(p, &st); serr != nil {
+			return nil, posixStatErr(serr)
+		}
+		return statResult(statNormalize(&st)), nil
 	}
-	return statResult(statNormalize(&st)), nil
+	if fd, ok := objects.AsInt(args[0]); ok {
+		if serr := syscall.Fstat(int(fd), &st); serr != nil {
+			return nil, posixStatErr(serr)
+		}
+		return statResult(statNormalize(&st)), nil
+	}
+	return nil, objects.Raise(objects.TypeError,
+		"stat: path should be string, bytes, os.PathLike or integer, not %s", args[0].TypeName())
 }
 
+// posixLstat is os.lstat: like stat over a str, bytes or os.PathLike path, but
+// with no file-descriptor form, so a non-path argument is a TypeError.
 func posixLstat(args []objects.Object) (objects.Object, error) {
-	p, err := posixStatArgPath("lstat", args)
-	if err != nil {
+	if err := posixStatArgN("lstat", args); err != nil {
 		return nil, err
+	}
+	p, ok := posixFsPath(args[0])
+	if !ok {
+		return nil, objects.Raise(objects.TypeError,
+			"lstat: path should be string, bytes or os.PathLike, not %s", args[0].TypeName())
 	}
 	var st syscall.Stat_t
 	if serr := syscall.Lstat(p, &st); serr != nil {
@@ -149,9 +163,10 @@ func posixAccess(args []objects.Object) (objects.Object, error) {
 	if len(args) != 2 {
 		return nil, objects.Raise(objects.TypeError, "access() takes exactly 2 arguments (%d given)", len(args))
 	}
-	p, ok := objects.AsStr(args[0])
+	p, ok := posixFsPath(args[0])
 	if !ok {
-		return nil, objects.Raise(objects.TypeError, "access: path should be string, not %s", args[0].TypeName())
+		return nil, objects.Raise(objects.TypeError,
+			"access: path should be string, bytes or os.PathLike, not %s", args[0].TypeName())
 	}
 	mode, ok := objects.AsInt(args[1])
 	if !ok {
