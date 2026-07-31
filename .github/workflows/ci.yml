@@ -62,7 +62,8 @@ jobs:
   # so the warm cache is exercised in parallel. The child fixture builds are not
   # race-instrumented, so the corpus runs without -race; the compiler packages it
   # drives keep their race coverage in the test job above. Shard 0 also carries
-  # the emit/ir/build static-tier probes, which are few and not worth sharding.
+  # the emit/ir/build static-tier probes and the W0 stdlib gate, which each build
+  # a program end to end and are few, so they are not worth sharding.
   corpus:
     strategy:
       fail-fast: false
@@ -86,6 +87,11 @@ jobs:
         env:
           UNAGI_TEST_BUILD_JOBS: "4"
         run: go test -count=1 -timeout=20m ./pkg/emit/ ./pkg/ir/ ./pkg/build/
+      - name: W0 stdlib gate
+        if: matrix.shard == '0/4'
+        env:
+          UNAGI_TEST_BUILD_JOBS: "4"
+        run: go test -count=1 -timeout=20m ./pkg/stdlibgate/
 
   # Windows build, test, and run. The runtime compiles for windows/amd64 (#760),
   # so this lane builds the whole module, runs every package suite that is green
