@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+can_colorize: False
+stable: True
+write after probe 0
+write after probe 1
+write after probe 2
+done
+== exception:
+== stderr:

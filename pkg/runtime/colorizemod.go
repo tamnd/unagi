@@ -459,7 +459,14 @@ func colorizeCanColorizeKw(pos []objects.Object, kwNames []string, kwVals []obje
 	if !ok {
 		return objects.False, nil
 	}
-	return objects.NewBool(colorizeIsTerminal(os.NewFile(uintptr(fd), ""))), nil
+	// Stat the descriptor in place. Wrapping fd in os.NewFile would be simpler,
+	// but that File carries a finalizer that closes the descriptor when it is
+	// collected — and fd here is borrowed from a live Python file object, often
+	// fd 1 or 2 for sys.stdout/stderr. A GC any time after this probe would then
+	// close the caller's stream, so its next write fails with EBADF. unittest,
+	// traceback, logging and argparse all call can_colorize on sys.stderr, so the
+	// broken stream surfaced as an intermittent silent exit.
+	return objects.NewBool(colorizeFdIsCharDevice(int(fd))), nil
 }
 
 // colorizeIsTerminal reports whether f is a character device (a terminal),
