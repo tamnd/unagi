@@ -4,6 +4,7 @@ package runtime
 
 import (
 	"os"
+	"strings"
 	"syscall"
 
 	"github.com/tamnd/unagi/pkg/objects"
@@ -99,6 +100,45 @@ func posixStatArgN(name string, args []objects.Object) error {
 	return nil
 }
 
+// posixNullCheck rejects a path carrying an embedded NUL. CPython screens the
+// path before the syscall and raises ValueError — not the OSError("invalid
+// argument") the kernel would give — with the calling function's name, so a
+// caller matching on that text (os.path, test_genericpath) sees exactly it.
+func posixNullCheck(name, p string) error {
+	if strings.IndexByte(p, 0) >= 0 {
+		return objects.Raise(objects.ValueError, "%s: embedded null character in path", name)
+	}
+	return nil
+}
+
+// posixBoolFdWarn fires the RuntimeWarning CPython emits when a bool reaches a
+// file-descriptor slot: True and False silently work as the fds 1 and 0, but the
+// warning flags the near-certain mistake. It routes through the public warnings
+// module so it flows through the same filters and catch_warnings capture as any
+// other warning, and is skipped when nothing imported warnings (see
+// invertBoolWarn for the same best-effort contract).
+func posixBoolFdWarn() error {
+	w, err := ImportModule("warnings")
+	if err != nil {
+		if isModuleNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	fn, err := objects.LoadAttr(w, "warn")
+	if err != nil {
+		return err
+	}
+	cat, ok := objects.ExcClass("RuntimeWarning")
+	if !ok {
+		return objects.Raise(objects.RuntimeError, "RuntimeWarning class unavailable")
+	}
+	_, err = objects.CallKwT(objects.MainThread(), fn,
+		[]objects.Object{objects.NewStr("bool is used as a file descriptor"), cat},
+		[]string{"stacklevel"}, []objects.Object{objects.NewInt(2)})
+	return err
+}
+
 // posixStat is os.stat: it accepts a str, bytes or os.PathLike path, and also an
 // integer file descriptor, which it fstats the way CPython does (a bool counts as
 // the fd its int value names).
@@ -108,12 +148,20 @@ func posixStat(args []objects.Object) (objects.Object, error) {
 	}
 	var st syscall.Stat_t
 	if p, ok := posixFsPath(args[0]); ok {
+		if err := posixNullCheck("stat", p); err != nil {
+			return nil, err
+		}
 		if serr := syscall.Stat(p, &st); serr != nil {
 			return nil, posixStatErr(serr)
 		}
 		return statResult(statNormalize(&st)), nil
 	}
 	if fd, ok := objects.AsInt(args[0]); ok {
+		if _, isBool := objects.AsBool(args[0]); isBool {
+			if err := posixBoolFdWarn(); err != nil {
+				return nil, err
+			}
+		}
 		if serr := syscall.Fstat(int(fd), &st); serr != nil {
 			return nil, posixStatErr(serr)
 		}
@@ -133,6 +181,9 @@ func posixLstat(args []objects.Object) (objects.Object, error) {
 	if !ok {
 		return nil, objects.Raise(objects.TypeError,
 			"lstat: path should be string, bytes or os.PathLike, not %s", args[0].TypeName())
+	}
+	if err := posixNullCheck("lstat", p); err != nil {
+		return nil, err
 	}
 	var st syscall.Stat_t
 	if serr := syscall.Lstat(p, &st); serr != nil {
@@ -167,6 +218,9 @@ func posixAccess(args []objects.Object) (objects.Object, error) {
 	if !ok {
 		return nil, objects.Raise(objects.TypeError,
 			"access: path should be string, bytes or os.PathLike, not %s", args[0].TypeName())
+	}
+	if err := posixNullCheck("access", p); err != nil {
+		return nil, err
 	}
 	mode, ok := objects.AsInt(args[1])
 	if !ok {
