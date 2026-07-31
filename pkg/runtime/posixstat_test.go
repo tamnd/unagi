@@ -184,6 +184,36 @@ func TestStatArgTypes(t *testing.T) {
 	}
 }
 
+// TestStatNullPath checks the stat family screens an embedded NUL and raises the
+// ValueError CPython does, naming the call, rather than letting the syscall turn
+// it into an OSError. Both a str and a bytes path are covered.
+func TestStatNullPath(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		call func(objects.Object) (objects.Object, error)
+		want string
+	}{
+		{"stat", func(p objects.Object) (objects.Object, error) { return posixStat([]objects.Object{p}) },
+			"stat: embedded null character in path"},
+		{"lstat", func(p objects.Object) (objects.Object, error) { return posixLstat([]objects.Object{p}) },
+			"lstat: embedded null character in path"},
+		{"access", func(p objects.Object) (objects.Object, error) {
+			return posixAccess([]objects.Object{p, objects.NewInt(0)})
+		}, "access: embedded null character in path"},
+	} {
+		for _, p := range []objects.Object{objects.NewStr("a\x00b"), objects.NewBytes([]byte("a\x00b"))} {
+			_, err := tc.call(p)
+			if err == nil {
+				t.Errorf("%s(%s) did not raise", tc.name, p.TypeName())
+				continue
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("%s(%s) error = %q, want substring %q", tc.name, p.TypeName(), err.Error(), tc.want)
+			}
+		}
+	}
+}
+
 func statAttr(t *testing.T, o objects.Object, name string) objects.Object {
 	t.Helper()
 	v, err := objects.LoadAttr(o, name)

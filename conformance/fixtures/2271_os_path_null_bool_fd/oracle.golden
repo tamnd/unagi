@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+stat/str ValueError stat: embedded null character in path
+stat/bytes ValueError stat: embedded null character in path
+lstat/str ValueError lstat: embedded null character in path
+lstat/bytes ValueError lstat: embedded null character in path
+access/str ValueError access: embedded null character in path
+access/bytes ValueError access: embedded null character in path
+stat(True) ok: True
+warnings: [('RuntimeWarning', 'bool is used as a file descriptor')]
+== exception:
+== stderr:
