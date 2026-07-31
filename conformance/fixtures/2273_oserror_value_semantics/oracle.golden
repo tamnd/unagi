@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+FileNotFoundError | [Errno 2] No such file or directory | 2 No such file or directory None None | (2, 'No such file or directory')
+FileNotFoundError | [Errno 2] No such file or directory: 'x.txt' | 2 No such file or directory x.txt None | (2, 'No such file or directory')
+FileNotFoundError | [Errno 2] msg: 'src' -> 'dst' | 2 msg src dst | (2, 'msg')
+PermissionError | [Errno 13] Permission denied: 'y' | 13 Permission denied y None | (13, 'Permission denied')
+OSError | [Errno 9999] weird error | 9999 weird error None None | (9999, 'weird error')
+OSError | [Errno notanint] msg | notanint msg None None | ('notanint', 'msg')
+OSError |  | None None None None | ()
+OSError | boom | None None None None | ('boom',)
+OSError | (1, 2, 3, 4, 5, 6) | None None None None | (1, 2, 3, 4, 5, 6)
+FileNotFoundError | [Errno 2] nope: 'z' | 2 nope z None | (2, 'nope')
+ENOENT -> FileNotFoundError | [Errno 2] boom: 'f' | errno True
+EACCES -> PermissionError | [Errno 13] boom: 'f' | errno True
+EEXIST -> FileExistsError | [Errno 17] boom: 'f' | errno True
+ENOTDIR -> NotADirectoryError | [Errno 20] boom: 'f' | errno True
+EISDIR -> IsADirectoryError | [Errno 21] boom: 'f' | errno True
+EPERM -> PermissionError | [Errno 1] boom: 'f' | errno True
+FileNotFoundError(2, 'No such file or directory')
+== exception:
+== stderr:
