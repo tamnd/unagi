@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+stat str: 5
+stat bytes: 5
+stat pathlike: 5
+exists str/bytes/pathlike: True True True
+access: True True
+lstat pathlike: 5
+stat(fd) mode is int: True
+stat float -> stat: path should be string, bytes, os.PathLike or integer, not float
+lstat float -> lstat: path should be string, bytes or os.PathLike, not float
+lstat int -> lstat: path should be string, bytes or os.PathLike, not int
+access float -> access: path should be string, bytes or os.PathLike, not float
+OK
+== exception:
+== stderr:
