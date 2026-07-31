@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+imports: ['os', 'sys', 're', 'io', 'collections', 'functools', 'enum']
+chars written: 18
+roundtrip ok: True
+text: héllo, 世界 — grüße
+utf-8 bytes: True
+stdout encoding utf-8: True
+re: <size> <matters>
+deque: deque([2, 3], maxlen=2)
+reduce: 10
+enum: RED 2
+harness imports: TestCase True
+S0 EXIT OK
+== exception:
+== stderr:
