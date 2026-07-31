@@ -3,9 +3,12 @@
 package runtime
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"syscall"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/tamnd/unagi/pkg/objects"
 )
@@ -79,10 +82,34 @@ func statResult(n statNormal) objects.Object {
 	return posixStatResultType.NewStructSeq(seq, vals)
 }
 
-// posixStatErr maps a syscall error to the matching Python exception. stat and
-// friends raise FileNotFoundError / PermissionError as the special cases callers
-// catch, and plain OSError otherwise.
-func posixStatErr(err error) error {
+// posixStatErr maps a syscall error to the matching Python exception, structured
+// the way CPython raises it: a bare OSError built from the real errno and the
+// errno's message, which OSError's own constructor then remaps to the errno's
+// subclass (ENOENT -> FileNotFoundError, EACCES -> PermissionError, ...) and
+// renders as "[Errno N] Message: 'filename'". The optional filename is the path
+// the operation was on — a str, bytes, os.PathLike-reduced value, or an fd
+// integer — so a caller that has it (stat, chmod, ...) gets CPython's full
+// message; a caller that does not passes none and gets the message without the
+// trailing filename, exactly as CPython does for an fd it cannot name.
+func posixStatErr(err error, filename ...objects.Object) error {
+	var fn objects.Object
+	if len(filename) > 0 {
+		fn = filename[0]
+	}
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		args := []objects.Object{objects.NewInt(int64(errno)), objects.NewStr(posixErrnoMessage(errno))}
+		if fn != nil {
+			args = append(args, fn)
+		}
+		// NewException runs the OSError argument split and the errno->subclass
+		// remap; the context is chained on the way Raise does for an implicit link.
+		e := objects.NewException("OSError", args)
+		e.Context = objects.CurrentHandled()
+		return e
+	}
+	// A non-errno error keeps the portable predicates as a fallback; this path is
+	// unreachable for the raw syscalls but guards a wrapped error reaching here.
 	switch {
 	case os.IsNotExist(err):
 		return objects.Raise("FileNotFoundError", "%s", err.Error())
@@ -90,6 +117,23 @@ func posixStatErr(err error) error {
 		return objects.Raise("PermissionError", "%s", err.Error())
 	}
 	return objects.Raise("OSError", "%s", err.Error())
+}
+
+// posixErrnoMessage renders an errno's message the way CPython's C strerror does:
+// capitalized ("No such file or directory"). Go's syscall.Errno.Error() carries
+// the same text but lower-cases the leading word, so the first rune is upper-cased
+// to match. The rest of the wording is Go's errno table, close enough to libc for
+// the common file errnos the stat family raises.
+func posixErrnoMessage(errno syscall.Errno) string {
+	s := errno.Error()
+	if s == "" {
+		return s
+	}
+	r, size := utf8.DecodeRuneInString(s)
+	if r == utf8.RuneError {
+		return s
+	}
+	return string(unicode.ToUpper(r)) + s[size:]
 }
 
 // posixStatArgN enforces the single positional argument the stat family takes.
@@ -147,12 +191,12 @@ func posixStat(args []objects.Object) (objects.Object, error) {
 		return nil, err
 	}
 	var st syscall.Stat_t
-	if p, ok := posixFsPath(args[0]); ok {
+	if p, name, ok := posixFsPathName(args[0]); ok {
 		if err := posixNullCheck("stat", p); err != nil {
 			return nil, err
 		}
 		if serr := syscall.Stat(p, &st); serr != nil {
-			return nil, posixStatErr(serr)
+			return nil, posixStatErr(serr, name)
 		}
 		return statResult(statNormalize(&st)), nil
 	}
@@ -163,7 +207,8 @@ func posixStat(args []objects.Object) (objects.Object, error) {
 			}
 		}
 		if serr := syscall.Fstat(int(fd), &st); serr != nil {
-			return nil, posixStatErr(serr)
+			// CPython names the fd itself as the OSError filename for the fd form.
+			return nil, posixStatErr(serr, args[0])
 		}
 		return statResult(statNormalize(&st)), nil
 	}
@@ -177,7 +222,7 @@ func posixLstat(args []objects.Object) (objects.Object, error) {
 	if err := posixStatArgN("lstat", args); err != nil {
 		return nil, err
 	}
-	p, ok := posixFsPath(args[0])
+	p, name, ok := posixFsPathName(args[0])
 	if !ok {
 		return nil, objects.Raise(objects.TypeError,
 			"lstat: path should be string, bytes or os.PathLike, not %s", args[0].TypeName())
@@ -187,7 +232,7 @@ func posixLstat(args []objects.Object) (objects.Object, error) {
 	}
 	var st syscall.Stat_t
 	if serr := syscall.Lstat(p, &st); serr != nil {
-		return nil, posixStatErr(serr)
+		return nil, posixStatErr(serr, name)
 	}
 	return statResult(statNormalize(&st)), nil
 }
@@ -202,6 +247,8 @@ func posixFstat(args []objects.Object) (objects.Object, error) {
 	}
 	var st syscall.Stat_t
 	if serr := syscall.Fstat(int(fd), &st); serr != nil {
+		// os.fstat leaves the OSError filename None, unlike os.stat's fd form which
+		// names the fd; fstat is "stat this already-open fd", with no path to name.
 		return nil, posixStatErr(serr)
 	}
 	return statResult(statNormalize(&st)), nil

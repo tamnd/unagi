@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+stat/missing | FileNotFoundError | [Errno 2] No such file or directory: 'nope' | errno 2 | fn 'nope'
+stat/missing-bytes | FileNotFoundError | [Errno 2] No such file or directory: b'nope' | errno 2 | fn b'nope'
+lstat/missing | FileNotFoundError | [Errno 2] No such file or directory: 'nope' | errno 2 | fn 'nope'
+chmod/missing | FileNotFoundError | [Errno 2] No such file or directory: 'nope' | errno 2 | fn 'nope'
+stat/notdir | NotADirectoryError | [Errno 20] Not a directory: 'reg/child' | errno 20 | fn 'reg/child'
+stat/badfd | OSError | [Errno 9] Bad file descriptor: 99999 | errno 9 | fn 99999
+fstat/badfd | OSError | [Errno 9] Bad file descriptor | errno 9 | fn None
+catch FNF: 2 No such file or directory 'nope'
+stat/ok size: 1
+== exception:
+== stderr:
