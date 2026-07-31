@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+chdir ret: None
+basename: sub
+back: True
+fd basename: sub
+missing | FileNotFoundError | [Errno 2] No such file or directory: 'nope' | errno 2 | fn 'nope'
+missing-bytes | FileNotFoundError | [Errno 2] No such file or directory: b'nope' | errno 2 | fn b'nope'
+notdir | NotADirectoryError | [Errno 20] Not a directory: 'reg/child' | errno 20 | fn 'reg/child'
+nul: chdir: embedded null character in path
+catch FNF: 2 'nope'
+== exception:
+== stderr:

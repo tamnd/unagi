@@ -143,6 +143,7 @@ func initPosix(m *objects.Module) error {
 	}{
 		{"getcwd", posixGetcwd},
 		{"getcwdb", posixGetcwdb},
+		{"chdir", posixChdir},
 		{"getpid", posixGetpid},
 		{"getppid", posixGetppid},
 		{"strerror", posixStrerror},
@@ -249,6 +250,42 @@ func posixGetcwdb(args []objects.Object) (objects.Object, error) {
 		return nil, objects.Raise("OSError", "%s", err.Error())
 	}
 	return objects.NewBytes([]byte(wd)), nil
+}
+
+// posixChdir is posix.chdir(path), re-exported as os.chdir: it sets the process
+// working directory. Like os.stat it accepts a str, bytes or os.PathLike path and
+// also an integer file descriptor, which it fchdirs (a bool counts as the fd its
+// int value names, with the same RuntimeWarning). A failing call raises the
+// structured OSError CPython does — a missing target becomes FileNotFoundError
+// "[Errno 2] No such file or directory: '<path>'" naming the path, an fd that is
+// not a directory ENOTDIR — and a successful change returns None.
+func posixChdir(args []objects.Object) (objects.Object, error) {
+	if len(args) != 1 {
+		return nil, objects.Raise(objects.TypeError, "chdir() takes exactly 1 argument (%d given)", len(args))
+	}
+	if p, name, ok := posixFsPathName(args[0]); ok {
+		if err := posixNullCheck("chdir", p); err != nil {
+			return nil, err
+		}
+		if err := os.Chdir(p); err != nil {
+			return nil, posixStatErr(err, name)
+		}
+		return objects.None, nil
+	}
+	if fd, ok := objects.AsInt(args[0]); ok {
+		if _, isBool := objects.AsBool(args[0]); isBool {
+			if err := posixBoolFdWarn(); err != nil {
+				return nil, err
+			}
+		}
+		if err := syscall.Fchdir(int(fd)); err != nil {
+			// The fd form names the fd itself, the way os.stat's fd form does.
+			return nil, posixStatErr(err, args[0])
+		}
+		return objects.None, nil
+	}
+	return nil, objects.Raise(objects.TypeError,
+		"chdir: path should be string, bytes, os.PathLike or integer, not %s", args[0].TypeName())
 }
 
 // posixUrandom is os.urandom(size): it returns size cryptographically random
