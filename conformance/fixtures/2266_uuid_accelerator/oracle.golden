@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+generate_time_safe bytes len : 16
+decoded version / variant    : 1 specified in RFC 4122
+all version 1                : True
+all RFC 4122                 : True
+all unique                   : True
+supplied node                : 123456789abc
+supplied clock_seq           : 4660
+supplied version / variant   : 1 specified in RFC 4122
+uuid5 dns python.org         : 886313e1-3b8a-5372-9b90-0c9aee199e5d
+uuid3 dns python.org         : 6fa459ea-ee8a-3ca4-894e-db77e160355e
+== exception:
+== stderr:
