@@ -19,7 +19,7 @@ func TestChdirRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
 	}
-	defer os.Chdir(start)
+	defer func() { _ = os.Chdir(start) }()
 
 	// A temp dir resolves through symlinks (e.g. /var -> /private/var on macOS),
 	// so compare against the evaluated path the kernel reports back.
@@ -105,7 +105,7 @@ func TestChdirFd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
 	}
-	defer os.Chdir(start)
+	defer func() { _ = os.Chdir(start) }()
 
 	dir := t.TempDir()
 	real, err := filepath.EvalSymlinks(dir)
@@ -116,7 +116,7 @@ func TestChdirFd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	defer syscall.Close(fd)
+	defer func() { _ = syscall.Close(fd) }()
 
 	if _, err := posixChdir([]objects.Object{objects.NewInt(int64(fd))}); err != nil {
 		t.Fatalf("chdir(fd): %v", err)
