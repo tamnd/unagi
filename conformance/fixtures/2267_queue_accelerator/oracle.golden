@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+qsize: 3 empty: False
+get: 1 2
+get_nowait: 3
+empty now: True
+Empty raised on drained queue
+Empty identity: True
+SimpleQueue identity: True
+Empty is subclass of Exception: True
+Empty module: _queue
+Empty qualname: Empty
+== exception:
+== stderr:

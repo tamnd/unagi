@@ -16,6 +16,13 @@ func init() {
 	moduleTable["queue"] = &moduleEntry{builtin: true, exec: initQueue}
 }
 
+// queueSimpleQueueCtor is the single SimpleQueue constructor object shared by the
+// public queue module and the _queue accelerator. CPython's queue.py does
+// `from _queue import SimpleQueue`, so queue.SimpleQueue is _queue.SimpleQueue is
+// the same object; sharing one constructor here keeps that identity. Likewise
+// Empty is one class object (QueueEmptyClass, a singleton) exposed under both.
+var queueSimpleQueueCtor = objects.NewFuncKw("SimpleQueue", queueNewSimpleQueue)
+
 func initQueue(m *objects.Module) error {
 	for _, e := range []struct {
 		name string
@@ -24,7 +31,7 @@ func initQueue(m *objects.Module) error {
 		{"Queue", objects.NewFuncKw("Queue", queueNewQueue)},
 		{"LifoQueue", objects.NewFuncKw("LifoQueue", queueNewLifoQueue)},
 		{"PriorityQueue", objects.NewFuncKw("PriorityQueue", queueNewPriorityQueue)},
-		{"SimpleQueue", objects.NewFuncKw("SimpleQueue", queueNewSimpleQueue)},
+		{"SimpleQueue", queueSimpleQueueCtor},
 		{"Empty", objects.QueueEmptyClass()},
 		{"Full", objects.QueueFullClass()},
 		{"ShutDown", objects.QueueShutDownClass()},
