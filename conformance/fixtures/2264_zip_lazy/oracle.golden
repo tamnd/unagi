@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+pairs: [(0, 5), (1, 1), (2, 9)]
+tail remaining: [3, 7]
+shared remaining: [4, 5]
+bounded by range: [(0, 0), (1, 1), (2, 2), (3, 3)]
+pull count: 2
+three uneven: [(1, 'a', 9), (2, 'b', 8)]
+ValueError: zip() argument 2 is shorter than argument 1
+ValueError: zip() argument 2 is longer than argument 1
+ValueError: zip() argument 3 is shorter than arguments 1-2
+ValueError: zip() argument 2 is longer than argument 1
+strict equal: [(1, 3), (2, 4)]
+no args: []
+single: [('a',), ('b',), ('c',)]
+not iterable: 'int' object is not iterable
+== exception:
+== stderr:
