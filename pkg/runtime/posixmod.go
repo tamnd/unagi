@@ -571,7 +571,7 @@ func posixChmod(pos []objects.Object, kwNames []string, kwVals []objects.Object)
 	if !followSymlinks {
 		return nil, objects.Raise("NotImplementedError", "chmod: follow_symlinks unavailable on this platform")
 	}
-	p, ok := posixFsPath(pathArg)
+	p, name, ok := posixFsPathName(pathArg)
 	if !ok {
 		return nil, objects.Raise(objects.TypeError,
 			"chmod: path should be string, bytes or os.PathLike, not %s", pathArg.TypeName())
@@ -580,7 +580,7 @@ func posixChmod(pos []objects.Object, kwNames []string, kwVals []objects.Object)
 		return nil, err
 	}
 	if err := syscall.Chmod(p, uint32(mode)); err != nil {
-		return nil, posixStatErr(err)
+		return nil, posixStatErr(err, name)
 	}
 	return objects.None, nil
 }
@@ -609,6 +609,35 @@ func posixFsPath(o objects.Object) (string, bool) {
 		return string(b), true
 	}
 	return objects.AsStr(r)
+}
+
+// posixFsPathName is posixFsPath plus the filename object an OSError raised on the
+// path should carry. CPython's raised error names the fspath-reduced value, not
+// the original argument: a str or bytes stays itself, an os.PathLike reduces to
+// its __fspath__ result (str or bytes). Reducing once here avoids a second
+// __fspath__ call for the error path. The returned object is nil when ok is false.
+func posixFsPathName(o objects.Object) (string, objects.Object, bool) {
+	if b, ok := objects.AsBytes(o); ok {
+		return string(b), o, true
+	}
+	if s, ok := objects.AsStr(o); ok {
+		return s, o, true
+	}
+	m, err := objects.LoadAttr(o, "__fspath__")
+	if err != nil {
+		return "", nil, false
+	}
+	r, cerr := objects.Call(m, nil)
+	if cerr != nil {
+		return "", nil, false
+	}
+	if b, ok := objects.AsBytes(r); ok {
+		return string(b), r, true
+	}
+	if s, ok := objects.AsStr(r); ok {
+		return s, r, true
+	}
+	return "", nil, false
 }
 
 // posixGetuid is posix.getuid(): the process's real user id. posixpath.expanduser

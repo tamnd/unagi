@@ -613,7 +613,10 @@ func ioFileIORepr(args []objects.Object) (objects.Object, error) {
 // posixStatErr maps a syscall error to the matching Python exception. It mirrors
 // the unix helper of the same name (which lives in the tagged-out posixstat.go),
 // using only the portable os.Is* predicates so it is correct on Windows too.
-func posixStatErr(err error) error {
+// Windows keys OSError's message off winerror rather than the POSIX errno, so
+// this side keeps the portable-predicate form and ignores the optional filename
+// the unix helper threads into a structured [Errno N] message.
+func posixStatErr(err error, _ ...objects.Object) error {
 	switch {
 	case os.IsNotExist(err):
 		return objects.Raise("FileNotFoundError", "%s", err.Error())
