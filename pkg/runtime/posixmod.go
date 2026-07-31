@@ -184,6 +184,11 @@ func initPosix(m *objects.Module) error {
 			return err
 		}
 	}
+	// chmod takes the dir_fd / follow_symlinks keywords, so it is registered as a
+	// keyword-aware callable rather than through the positional table above.
+	if err := set("chmod", objects.NewFuncKw("chmod", posixChmod)); err != nil {
+		return err
+	}
 
 	// The process-wait surface (waitpid, the W* status macros,
 	// waitstatus_to_exitcode) and the fd-inheritance calls that subprocess.Popen
@@ -508,6 +513,73 @@ func posixRename(args []objects.Object) (objects.Object, error) {
 		return nil, objects.Raise(objects.TypeError, "rename: dst should be string or bytes, not %s", args[1].TypeName())
 	}
 	if err := os.Rename(src, dst); err != nil {
+		return nil, posixStatErr(err)
+	}
+	return objects.None, nil
+}
+
+// posixChmod is posix.chmod(path, mode, *, dir_fd=None, follow_symlinks=True),
+// re-exported as os.chmod: it sets the permission bits of a str, bytes or
+// os.PathLike path. unagi advertises no fd-relative or nofollow capability
+// (posix._have_functions is empty, so os.supports_dir_fd and
+// os.supports_follow_symlinks are empty), so a non-default dir_fd or
+// follow_symlinks=False raises NotImplementedError with CPython's exact text,
+// the response a program that honored those capability sets would never trigger.
+func posixChmod(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	var pathArg, modeArg, dirFd objects.Object
+	followSymlinks := true
+	if len(pos) >= 1 {
+		pathArg = pos[0]
+	}
+	if len(pos) >= 2 {
+		modeArg = pos[1]
+	}
+	if len(pos) > 2 {
+		return nil, objects.Raise(objects.TypeError, "chmod() takes at most 2 positional arguments (%d given)", len(pos))
+	}
+	for i, name := range kwNames {
+		switch name {
+		case "path":
+			pathArg = kwVals[i]
+		case "mode":
+			modeArg = kwVals[i]
+		case "dir_fd":
+			dirFd = kwVals[i]
+		case "follow_symlinks":
+			b, err := objects.TruthOf(kwVals[i])
+			if err != nil {
+				return nil, err
+			}
+			followSymlinks = b
+		default:
+			return nil, objects.Raise(objects.TypeError, "chmod() got an unexpected keyword argument '%s'", name)
+		}
+	}
+	if pathArg == nil {
+		return nil, objects.Raise(objects.TypeError, "chmod() missing required argument 'path' (pos 1)")
+	}
+	if modeArg == nil {
+		return nil, objects.Raise(objects.TypeError, "chmod() missing required argument 'mode' (pos 2)")
+	}
+	mode, ok := objects.AsInt(modeArg)
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", modeArg.TypeName())
+	}
+	if dirFd != nil && dirFd != objects.None {
+		return nil, objects.Raise("NotImplementedError", "chmod: dir_fd unavailable on this platform")
+	}
+	if !followSymlinks {
+		return nil, objects.Raise("NotImplementedError", "chmod: follow_symlinks unavailable on this platform")
+	}
+	p, ok := posixFsPath(pathArg)
+	if !ok {
+		return nil, objects.Raise(objects.TypeError,
+			"chmod: path should be string, bytes or os.PathLike, not %s", pathArg.TypeName())
+	}
+	if err := posixNullCheck("chmod", p); err != nil {
+		return nil, err
+	}
+	if err := syscall.Chmod(p, uint32(mode)); err != nil {
 		return nil, posixStatErr(err)
 	}
 	return objects.None, nil
