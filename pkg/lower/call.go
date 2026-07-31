@@ -38,12 +38,16 @@ var descriptorBuiltins = map[string]string{
 
 // siteBuiltins are the value-only builtins with no fast-path lowering: the
 // site-module exit/quit quitters and copyright/credits/license/help printers,
-// plus open, which io.open resolves to. A name here reads as the registered
-// runtime object and a call routes through the dynamic call path like any other
-// value, so open's keyword arguments (encoding, newline, ...) bind at runtime.
+// open (which io.open resolves to), and eval. A name here reads as the
+// registered runtime object and a call routes through the dynamic call path like
+// any other value, so open's keyword arguments (encoding, newline, ...) bind at
+// runtime. eval takes the same route: a call to it on a non-constant string is
+// already a hard partition disqualifier, so the program runs boxed and the
+// dynamic path is exactly right; the runtime object parses and evaluates the
+// expression (see pkg/runtime/evalbuiltin.go).
 var siteBuiltins = map[string]bool{
 	"exit": true, "quit": true, "copyright": true, "credits": true,
-	"license": true, "help": true, "open": true,
+	"license": true, "help": true, "open": true, "eval": true,
 }
 
 // call lowers a call expression. A name bound by a module-level def keeps

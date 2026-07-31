@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+7
+1023
+(3, 3.5, 1)
+True
+a
+[1, 2, 3]
+11
+abababc
+(True, True)
+34
+(1, 2, 3)
+(10, 20, 30)
+101
+3
+done
+== exception:
+== stderr:
