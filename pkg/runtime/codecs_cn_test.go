@@ -65,11 +65,91 @@ func TestGBKDecodeErrors(t *testing.T) {
 }
 
 // TestChineseGetcodecUnknown checks getcodec raises LookupError for a codec this
-// build does not carry yet.
+// build does not carry.
 func TestChineseGetcodecUnknown(t *testing.T) {
-	_, err := codecsCNGetcodec([]objects.Object{objects.NewStr("hz")})
+	_, err := codecsCNGetcodec([]objects.Object{objects.NewStr("gb12345")})
 	if err == nil {
-		t.Fatalf("getcodec hz: expected LookupError")
+		t.Fatalf("getcodec gb12345: expected LookupError")
+	}
+}
+
+// TestHZRoundtrip drives the shift-state engine through hz: every gb2312 pair
+// wrapped in the ~{ ~} escape decodes and re-encodes, and a mixed ascii/GB string
+// roundtrips byte for byte.
+func TestHZRoundtrip(t *testing.T) {
+	for key, cp := range gb2312DecodeTable {
+		lead, trail := byte(key>>8)&0x7f, byte(key)&0x7f
+		data := []byte{'~', '{', lead, trail, '~', '}'}
+		out, consumed, _, _, err := hzDecodeRun(data, "strict", true, hzModeASCII)
+		if err != nil || consumed != len(data) || out != string(cp) {
+			t.Fatalf("hz pair %04x: out=%q consumed=%d err=%v", key, out, consumed, err)
+		}
+	}
+	s := "中文 abc 十 Hello 锘 ~tilde~"
+	enc, _, _, err := hzEncodeRun([]rune(s), "strict", true, hzModeASCII)
+	if err != nil {
+		t.Fatalf("hz encode: %v", err)
+	}
+	out, _, _, _, err := hzDecodeRun(enc, "strict", true, hzModeASCII)
+	if err != nil || out != s {
+		t.Fatalf("hz roundtrip: enc=%x out=%q err=%v", enc, out, err)
+	}
+}
+
+// TestHZEncodeShift pins the exact bytes and the encoder mode transitions: a
+// gb2312 character opens GB mode with ~{, an ascii byte closes it with ~}, a
+// literal tilde is doubled, and a final flush closes an open GB mode.
+func TestHZEncodeShift(t *testing.T) {
+	enc, _, mode, err := hzEncodeRun([]rune("十"), "strict", false, hzModeASCII)
+	if err != nil || hex.EncodeToString(enc) != "7e7b4a2e" || mode != hzModeGB {
+		t.Fatalf("open GB: enc=%x mode=%d err=%v", enc, mode, err)
+	}
+	rest, _, mode, err := hzEncodeRun([]rune{}, "strict", true, mode)
+	if err != nil || hex.EncodeToString(rest) != "7e7d" || mode != hzModeASCII {
+		t.Fatalf("final close: rest=%x mode=%d err=%v", rest, mode, err)
+	}
+	tilde, _, _, err := hzEncodeRun([]rune("a~b"), "strict", true, hzModeASCII)
+	if err != nil || hex.EncodeToString(tilde) != "617e7e62" {
+		t.Fatalf("literal tilde: enc=%x err=%v", tilde, err)
+	}
+}
+
+// TestHZDecodeErrors pins the illegal and incomplete positions and wording against
+// the values probed from CPython: an unknown ascii-mode escape, a GB-mode escape
+// other than ~}, a bad GB pair, and a high byte are all illegal one byte wide, and
+// a trailing escape or lone GB lead is incomplete.
+func TestHZDecodeErrors(t *testing.T) {
+	cases := []struct {
+		data []byte
+		mode int
+		msg  string
+	}{
+		{[]byte{'~', 'x'}, hzModeASCII, "'hz' codec can't decode byte 0x7e in position 0: illegal multibyte sequence"},
+		{[]byte{'~', '{', '~', 'x'}, hzModeASCII, "'hz' codec can't decode byte 0x7e in position 2: illegal multibyte sequence"},
+		{[]byte{'~', '{', 0x6f, 0x20}, hzModeASCII, "'hz' codec can't decode byte 0x6f in position 2: illegal multibyte sequence"},
+		{[]byte{'~', '{', 0x80}, hzModeASCII, "'hz' codec can't decode byte 0x80 in position 2: illegal multibyte sequence"},
+		{[]byte{0x80}, hzModeASCII, "'hz' codec can't decode byte 0x80 in position 0: illegal multibyte sequence"},
+		{[]byte{'a', '~'}, hzModeASCII, "'hz' codec can't decode byte 0x7e in position 1: incomplete multibyte sequence"},
+		{[]byte{'~', '{', 0x6f}, hzModeASCII, "'hz' codec can't decode byte 0x6f in position 2: incomplete multibyte sequence"},
+	}
+	for _, tc := range cases {
+		_, _, _, _, err := hzDecodeRun(tc.data, "strict", true, tc.mode)
+		if err == nil || errString(err) != tc.msg {
+			t.Fatalf("hz decode %x: got %v want %q", tc.data, err, tc.msg)
+		}
+	}
+}
+
+// TestHZIncrementalNonFinal checks a GB pair split across a chunk boundary buffers
+// the lone lead byte and carries the GB mode forward.
+func TestHZIncrementalNonFinal(t *testing.T) {
+	out, consumed, pending, mode, err := hzDecodeRun([]byte{'~', '{', 0x6f}, "strict", false, hzModeASCII)
+	if err != nil || out != "" || consumed != 2 || string(pending) != "o" || mode != hzModeGB {
+		t.Fatalf("split GB pair: out=%q consumed=%d pending=%x mode=%d err=%v", out, consumed, pending, mode, err)
+	}
+	rest, _, pending, mode, err := hzDecodeRun(append(pending, ';'), "strict", true, mode)
+	if err != nil || rest != "锘" || len(pending) != 0 || mode != hzModeGB {
+		t.Fatalf("resume GB pair: rest=%q pending=%x mode=%d err=%v", rest, pending, mode, err)
 	}
 }
 

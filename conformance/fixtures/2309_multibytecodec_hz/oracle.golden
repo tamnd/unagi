@@ -1,0 +1,29 @@
+== exit: 0
+== stdout:
+encoded hex: 7e7b3a3a57567e7d20616263207e7b44633a434a403d677e7d207e7e74696c64657e7e207e7b4a2e7e7d207e7b377b3a457e7d
+decoded eq: True
+codecs.encode eq: True
+codecs.decode eq: True
+tilde hex: 617e7e62
+open close: 7e7b4a2e7e7d
+info name: hz
+info encode eq: True
+info decode eq: True
+incremental encode eq: True
+enc state ascii: 0
+enc state gb: 256
+incremental decode eq: True
+buffered partial: ''
+decoder state: (b'o', 1)
+completed pair: 锘
+setstate resumes gb: 锘
+stream read eq: True
+decode strict: 'hz' codec can't decode byte 0x7e in position 0: illegal multibyte sequence
+decode ignore: 'axb'
+decode replace: 'a�xb'
+decode gb escape: 'hz' codec can't decode byte 0x7e in position 2: illegal multibyte sequence
+decode bad pair: 'hz' codec can't decode byte 0x6f in position 2: illegal multibyte sequence
+encode strict: 'hz' codec can't encode character '\U0001f600' in position 0: illegal multibyte sequence
+encode replace hex: 7e7b4a2e7e7d3f
+== exception:
+== stderr:

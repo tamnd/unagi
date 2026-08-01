@@ -10,8 +10,8 @@ import (
 // codecs (gb2312, gbk, gb18030, hz). encodings.gb2312 and its siblings call
 // _codecs_cn.getcodec(name) at import time to get the MultibyteCodec the
 // _multibytecodec engine drives, so this module has to exist before any of those
-// encodings load. This slice provides getcodec for gb2312, the first real codec
-// on the engine; the rest of the family lands in a later slice.
+// encodings load. getcodec now hands back all four: gb2312, gbk and gb18030 on the
+// per-unit step engine, and hz on the shift-state driver.
 
 func init() {
 	moduleTable["_codecs_cn"] = &moduleEntry{builtin: true, exec: initCodecsCN}
@@ -37,6 +37,8 @@ func codecsCNGetcodec(args []objects.Object) (objects.Object, error) {
 		return newMultibyteCodec(gbkCodec())
 	case "gb18030":
 		return newMultibyteCodec(gb18030Codec)
+	case "hz":
+		return newMultibyteCodec(hzCodec)
 	default:
 		return nil, objects.Raise("LookupError", "no such codec is supported.")
 	}
@@ -170,6 +172,187 @@ func gb18030DecodeStep(p []byte) (rune, rune, int, int, int) {
 		return cp, -1, 2, 0, mbOK
 	}
 	return 0, -1, 0, 1, mbIllegal
+}
+
+// hz is a shift-state escape codec: the byte stream toggles between an ascii mode
+// and a GB mode with the escape pairs ~{ (enter GB) and ~} (return to ascii), ~~
+// stands for a literal tilde and ~\n is an ascii-mode line continuation that emits
+// nothing. In GB mode a byte pair (lead 0x21..0x77, trail 0x21..0x7e) is a gb2312
+// character, its bytes the gb2312 bytes with the high bit stripped. The mode is
+// carried across bytes and chunk boundaries, so hz rides the engine's stateful
+// hooks rather than the per-unit step functions.
+const (
+	hzModeASCII = 0
+	hzModeGB    = 1
+)
+
+// hzCodec is the engine codec for hz, driven entirely by the stateful run
+// functions below.
+var hzCodec = &mbCodec{
+	name:           "hz",
+	encodeStateful: hzEncodeRun,
+	decodeStateful: hzDecodeRun,
+}
+
+// hzEncodeRun encodes runes, opening GB mode with ~{ before the first gb2312
+// character and closing it with ~} before any ascii byte or at the end of a final
+// chunk. A literal tilde is doubled. An unmappable code point routes through the
+// error handler; replace emits '?' which, being ascii, closes GB mode first the
+// way CPython does. hz never holds a rune pending, so the pending return is always
+// empty.
+func hzEncodeRun(runes []rune, errors string, final bool, mode int) ([]byte, []rune, int, error) {
+	var out []byte
+	closeGB := func() {
+		if mode == hzModeGB {
+			out = append(out, '~', '}')
+			mode = hzModeASCII
+		}
+	}
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		if r < 0x80 {
+			closeGB()
+			if r == '~' {
+				out = append(out, '~', '~')
+			} else {
+				out = append(out, byte(r))
+			}
+			continue
+		}
+		if v, ok := gb2312EncodeTable[r]; ok {
+			if mode == hzModeASCII {
+				out = append(out, '~', '{')
+				mode = hzModeGB
+			}
+			out = append(out, byte((v>>8)&0x7f), byte(v&0x7f))
+			continue
+		}
+		switch errors {
+		case "strict":
+			return nil, nil, 0, mbUnicodeEncodeError("hz", r, i, "illegal multibyte sequence")
+		case "ignore":
+			// drop the code point, mode unchanged
+		case "replace":
+			closeGB()
+			out = append(out, '?')
+		default:
+			rep, err := mbEncodeHandler("hz", runes, i, errors)
+			if err != nil {
+				return nil, nil, 0, err
+			}
+			out = append(out, rep...)
+		}
+	}
+	if final {
+		closeGB()
+	}
+	return out, nil, mode, nil
+}
+
+// hzDecodeRun decodes bytes, tracking the ascii/GB mode. The escape byte ~ takes
+// one more byte: in ascii mode ~~ is a tilde, ~{ enters GB, ~\n is dropped, and
+// anything else is illegal at the ~; in GB mode only ~} (return to ascii) is
+// valid. A high byte (>=0x80) is illegal at once in either mode; a low byte is
+// ascii output in ascii mode, or the lead of a gb2312 pair in GB mode. An escape
+// or a GB lead with no following byte is incomplete (buffered when not final). A
+// bad GB pair is illegal one byte wide at the lead, matching CPython's hz decoder.
+func hzDecodeRun(data []byte, errors string, final bool, mode int) (string, int, []byte, int, error) {
+	var out []rune
+	i := 0
+	fail := func(start, end int, reason string) (int, error) {
+		rep, np, err := mbDecodeError("hz", data, start, end, reason, errors)
+		if err != nil {
+			return 0, err
+		}
+		out = append(out, rep...)
+		return np, nil
+	}
+	for i < len(data) {
+		c := data[i]
+		if c == '~' {
+			if i+1 >= len(data) {
+				if !final {
+					return string(out), i, append([]byte(nil), data[i:]...), mode, nil
+				}
+				np, err := fail(i, len(data), "incomplete multibyte sequence")
+				if err != nil {
+					return "", 0, nil, 0, err
+				}
+				i = np
+				continue
+			}
+			c2 := data[i+1]
+			if mode == hzModeASCII {
+				switch c2 {
+				case '~':
+					out = append(out, '~')
+					i += 2
+				case '{':
+					mode = hzModeGB
+					i += 2
+				case '\n':
+					i += 2
+				default:
+					np, err := fail(i, i+1, "illegal multibyte sequence")
+					if err != nil {
+						return "", 0, nil, 0, err
+					}
+					i = np
+				}
+			} else {
+				if c2 == '}' {
+					mode = hzModeASCII
+					i += 2
+				} else {
+					np, err := fail(i, i+1, "illegal multibyte sequence")
+					if err != nil {
+						return "", 0, nil, 0, err
+					}
+					i = np
+				}
+			}
+			continue
+		}
+		if c >= 0x80 {
+			np, err := fail(i, i+1, "illegal multibyte sequence")
+			if err != nil {
+				return "", 0, nil, 0, err
+			}
+			i = np
+			continue
+		}
+		if mode == hzModeASCII {
+			out = append(out, rune(c))
+			i++
+			continue
+		}
+		// GB mode: c is a potential lead byte, needing a trail.
+		if i+1 >= len(data) {
+			if !final {
+				return string(out), i, append([]byte(nil), data[i:]...), mode, nil
+			}
+			np, err := fail(i, len(data), "incomplete multibyte sequence")
+			if err != nil {
+				return "", 0, nil, 0, err
+			}
+			i = np
+			continue
+		}
+		c2 := data[i+1]
+		if c >= 0x21 && c <= 0x77 && c2 >= 0x21 && c2 <= 0x7e {
+			if cp, ok := gb2312DecodeTable[uint16(c|0x80)<<8|uint16(c2|0x80)]; ok {
+				out = append(out, cp)
+				i += 2
+				continue
+			}
+		}
+		np, err := fail(i, i+1, "illegal multibyte sequence")
+		if err != nil {
+			return "", 0, nil, 0, err
+		}
+		i = np
+	}
+	return string(out), i, nil, mode, nil
 }
 
 // gb2312Codec is the engine codec for gb2312: ascii bytes pass through, and a

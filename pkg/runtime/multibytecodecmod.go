@@ -58,6 +58,18 @@ type mbCodec struct {
 	decodeStep func(p []byte) (cp rune, cp2 rune, consumed int, esize int, status int)
 	encodePair func(a, b rune) ([]byte, bool)
 	encodeBase func(r rune) bool
+
+	// encodeStateful and decodeStateful drive the shift-state codecs (hz and, in a
+	// later slice, the iso-2022 family) whose meaning depends on a mode carried
+	// across bytes and chunk boundaries, so a single per-unit step function cannot
+	// express them. When set they replace the step loops entirely, threading an
+	// int mode (0 is the ground state) in and out. The plain codecs leave them nil.
+	// encodeStateful returns the bytes, any runes held pending for the next chunk,
+	// and the mode to carry forward. decodeStateful returns the decoded str, the
+	// number of bytes consumed, any trailing incomplete bytes buffered for the next
+	// chunk, and the mode to carry forward.
+	encodeStateful func(runes []rune, errors string, final bool, mode int) ([]byte, []rune, int, error)
+	decodeStateful func(data []byte, errors string, final bool, mode int) (string, int, []byte, int, error)
 }
 
 // mbTableCodec is a table-driven multibyte codec: some bytes decode on their
@@ -446,7 +458,12 @@ func mbCodecEncode(pos []objects.Object, kwNames []string, kwVals []objects.Obje
 		return nil, err
 	}
 	runes := objects.StrRunes(s)
-	out, _, err := mbEncodeRun(c, runes, errors, true)
+	var out []byte
+	if c.encodeStateful != nil {
+		out, _, _, err = c.encodeStateful(runes, errors, true, 0)
+	} else {
+		out, _, err = mbEncodeRun(c, runes, errors, true)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -465,7 +482,13 @@ func mbCodecDecode(pos []objects.Object, kwNames []string, kwVals []objects.Obje
 	if err != nil {
 		return nil, err
 	}
-	out, consumed, _, err := mbDecodeRun(c, data, errors, true)
+	var out string
+	var consumed int
+	if c.decodeStateful != nil {
+		out, consumed, _, _, err = c.decodeStateful(data, errors, true, 0)
+	} else {
+		out, consumed, _, err = mbDecodeRun(c, data, errors, true)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -505,6 +528,9 @@ func mbIncInit(pos []objects.Object, kwNames []string, kwVals []objects.Object) 
 		return nil, err
 	}
 	if err := objects.StoreAttr(self, "_pendingchar", objects.NewStr("")); err != nil {
+		return nil, err
+	}
+	if err := objects.StoreAttr(self, "_mbmode", objects.NewInt(0)); err != nil {
 		return nil, err
 	}
 	return objects.None, nil
@@ -547,9 +573,22 @@ func mbIncEncode(pos []objects.Object, kwNames []string, kwVals []objects.Object
 	}
 	errors := mbErrorsOf(self)
 	runes := append(append([]rune(nil), mbPendingOf(self)...), objects.StrRunes(s)...)
-	out, pending, err := mbEncodeRun(c, runes, errors, final)
-	if err != nil {
-		return nil, err
+	var out []byte
+	var pending []rune
+	if c.encodeStateful != nil {
+		var mode int
+		out, pending, mode, err = c.encodeStateful(runes, errors, final, mbModeOf(self))
+		if err != nil {
+			return nil, err
+		}
+		if err := objects.StoreAttr(self, "_mbmode", objects.NewInt(int64(mode))); err != nil {
+			return nil, err
+		}
+	} else {
+		out, pending, err = mbEncodeRun(c, runes, errors, final)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if err := objects.StoreAttr(self, "_pendingchar", objects.NewStr(string(pending))); err != nil {
 		return nil, err
@@ -593,9 +632,22 @@ func mbIncDecode(pos []objects.Object, kwNames []string, kwVals []objects.Object
 	}
 	errors := mbErrorsOf(self)
 	data := append(append([]byte(nil), mbBufferOf(self)...), v...)
-	out, _, pending, err := mbDecodeRun(c, data, errors, final)
-	if err != nil {
-		return nil, err
+	var out string
+	var pending []byte
+	if c.decodeStateful != nil {
+		var mode int
+		out, _, pending, mode, err = c.decodeStateful(data, errors, final, mbModeOf(self))
+		if err != nil {
+			return nil, err
+		}
+		if err := objects.StoreAttr(self, "_mbmode", objects.NewInt(int64(mode))); err != nil {
+			return nil, err
+		}
+	} else {
+		out, _, pending, err = mbDecodeRun(c, data, errors, final)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if err := objects.StoreAttr(self, "_buffer", objects.NewBytes(pending)); err != nil {
 		return nil, err
@@ -609,6 +661,9 @@ func mbIncEncReset(args []objects.Object) (objects.Object, error) {
 	if err := objects.StoreAttr(args[0], "_pendingchar", objects.NewStr("")); err != nil {
 		return nil, err
 	}
+	if err := objects.StoreAttr(args[0], "_mbmode", objects.NewInt(0)); err != nil {
+		return nil, err
+	}
 	return objects.None, nil
 }
 
@@ -616,24 +671,55 @@ func mbIncDecReset(args []objects.Object) (objects.Object, error) {
 	if err := objects.StoreAttr(args[0], "_buffer", objects.NewBytes(nil)); err != nil {
 		return nil, err
 	}
+	if err := objects.StoreAttr(args[0], "_mbmode", objects.NewInt(0)); err != nil {
+		return nil, err
+	}
 	return objects.None, nil
 }
 
 // mbIncEncGetstate / mbIncEncSetstate report and restore the encoder state. The
-// double-byte codecs have no shift state and never buffer, so the state is
-// always the integer 0, matching CPython's encoder_getstate for this family.
-func mbIncEncGetstate(args []objects.Object) (objects.Object, error) { return objects.NewInt(0), nil }
+// double-byte codecs have no shift state and never buffer, so the state is the
+// integer 0. A shift-state codec (hz) packs its mode into the state byte, so its
+// state is mode<<8, matching CPython's encoder_getstate for this family.
+func mbIncEncGetstate(args []objects.Object) (objects.Object, error) {
+	if c, err := mbCodecOfSelf(args[0]); err == nil && c.encodeStateful != nil {
+		return objects.NewInt(int64(mbModeOf(args[0])) << 8), nil
+	}
+	return objects.NewInt(0), nil
+}
 
-func mbIncEncSetstate(args []objects.Object) (objects.Object, error) { return objects.None, nil }
+func mbIncEncSetstate(args []objects.Object) (objects.Object, error) {
+	self := args[0]
+	c, err := mbCodecOfSelf(self)
+	if err != nil || c.encodeStateful == nil {
+		return objects.None, nil
+	}
+	if len(args) < 2 {
+		return objects.None, nil
+	}
+	v, ok := objects.AsInt(args[1])
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "setstate() argument must be an int")
+	}
+	if err := objects.StoreAttr(self, "_mbmode", objects.NewInt(int64(v>>8))); err != nil {
+		return nil, err
+	}
+	return objects.None, nil
+}
 
-// mbIncDecGetstate reports the decoder state as (pending_bytes, 0): the buffered
-// incomplete bytes and the codec's shift state, which is always 0 here.
+// mbIncDecGetstate reports the decoder state as (pending_bytes, flags): the
+// buffered incomplete bytes and the codec's shift mode, which is always 0 for the
+// stateless codecs and the live mode for a shift-state codec.
 func mbIncDecGetstate(args []objects.Object) (objects.Object, error) {
-	return objects.NewTuple([]objects.Object{objects.NewBytes(mbBufferOf(args[0])), objects.NewInt(0)}), nil
+	mode := 0
+	if c, err := mbCodecOfSelf(args[0]); err == nil && c.decodeStateful != nil {
+		mode = mbModeOf(args[0])
+	}
+	return objects.NewTuple([]objects.Object{objects.NewBytes(mbBufferOf(args[0])), objects.NewInt(int64(mode))}), nil
 }
 
 // mbIncDecSetstate restores the decoder state from a (pending_bytes, flags)
-// tuple, keeping the pending bytes for the next decode.
+// tuple, keeping the pending bytes and, for a shift-state codec, the mode.
 func mbIncDecSetstate(args []objects.Object) (objects.Object, error) {
 	self, state := args[0], args[1]
 	first, err := objects.GetItem(state, objects.NewInt(0))
@@ -646,6 +732,19 @@ func mbIncDecSetstate(args []objects.Object) (objects.Object, error) {
 	}
 	if err := objects.StoreAttr(self, "_buffer", objects.NewBytes(b)); err != nil {
 		return nil, err
+	}
+	if c, err := mbCodecOfSelf(self); err == nil && c.decodeStateful != nil {
+		flagsObj, err := objects.GetItem(state, objects.NewInt(1))
+		if err != nil {
+			return nil, err
+		}
+		flags, ok := objects.AsInt(flagsObj)
+		if !ok {
+			return nil, objects.Raise(objects.TypeError, "setstate() argument must be a (bytes, int) tuple")
+		}
+		if err := objects.StoreAttr(self, "_mbmode", objects.NewInt(int64(flags))); err != nil {
+			return nil, err
+		}
 	}
 	return objects.None, nil
 }
@@ -661,6 +760,20 @@ func mbErrorsOf(self objects.Object) string {
 		return s
 	}
 	return "strict"
+}
+
+// mbModeOf reads the incremental instance's shift mode, the state a shift-state
+// codec carries across chunks. It is 0 (the ground state) for every codec that
+// leaves the stateful hooks nil.
+func mbModeOf(self objects.Object) int {
+	v, err := objects.LoadAttr(self, "_mbmode")
+	if err != nil {
+		return 0
+	}
+	if n, ok := objects.AsInt(v); ok {
+		return int(n)
+	}
+	return 0
 }
 
 // mbBufferOf reads the decoder's pending-byte buffer.
