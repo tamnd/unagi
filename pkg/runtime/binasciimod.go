@@ -11,9 +11,9 @@ import (
 // between binary and the ASCII encodings on. base64.py imports it directly and
 // has no pure fallback, so `import base64` needs binascii to exist as a Go
 // builtin. This slice implements the base64 and hex codecs base64 drives, plus
-// the two CRC helpers, and the Error and Incomplete exceptions. The
-// quoted-printable and uuencode codecs (b2a_qp/a2b_qp, b2a_uu/a2b_uu) are a
-// later slice; they gate quopri and uu, not base64.
+// the two CRC helpers, the uuencode line codecs (b2a_uu/a2b_uu) that gate the
+// uu module, and the Error and Incomplete exceptions. The quoted-printable
+// codecs (b2a_qp/a2b_qp) are a later slice.
 
 // binasciiErrorClass is binascii.Error, a subclass of ValueError that the
 // codecs raise and base64 catches. It is built once and captured by the module
@@ -55,6 +55,8 @@ func initBinascii(m *objects.Module) error {
 		{"a2b_hex", objects.NewFunc("a2b_hex", 1, binasciiUnhexlify)},
 		{"b2a_base64", objects.NewFuncKw("b2a_base64", binasciiB2aBase64)},
 		{"a2b_base64", objects.NewFuncKw("a2b_base64", binasciiA2bBase64)},
+		{"b2a_uu", objects.NewFuncKw("b2a_uu", binasciiB2aUu)},
+		{"a2b_uu", objects.NewFunc("a2b_uu", 1, binasciiA2bUu)},
 		{"crc32", objects.NewFunc("crc32", -1, binasciiCRC32)},
 		{"crc_hqx", objects.NewFunc("crc_hqx", 2, binasciiCRCHqx)},
 	}
@@ -331,6 +333,106 @@ func binasciiA2bBase64(pos []objects.Object, kwNames []string, kwVals []objects.
 	}
 	if quadPos != 0 && quadPos+pads < 4 {
 		return nil, binasciiErrorf("Incorrect padding")
+	}
+	return objects.NewBytes(out), nil
+}
+
+// binasciiB2aUu implements b2a_uu(data, *, backtick=False): one uuencoded line
+// for at most 45 input bytes. The first character carries the length, each
+// 6-bit group maps to value+0x20, and a zero group becomes 0x60 (backtick) when
+// backtick is set instead of a space. A courtesy newline ends the line.
+func binasciiB2aUu(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if len(pos) != 1 {
+		return nil, objects.Raise(objects.TypeError, "b2a_uu() takes exactly 1 positional argument (%d given)", len(pos))
+	}
+	backtick := false
+	for i, k := range kwNames {
+		if k != "backtick" {
+			return nil, objects.Raise(objects.TypeError, "b2a_uu() got an unexpected keyword argument '%s'", k)
+		}
+		backtick = objects.Truth(kwVals[i])
+	}
+	data, err := binasciiData(pos[0])
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > 45 {
+		return nil, binasciiErrorf("At most 45 bytes at once")
+	}
+	var out []byte
+	if backtick && len(data) == 0 {
+		out = append(out, 0x60)
+	} else {
+		out = append(out, ' '+byte(len(data)&0x3f))
+	}
+	leftchar := 0
+	leftbits := 0
+	for i := 0; i < len(data) || leftbits != 0; i++ {
+		if i < len(data) {
+			leftchar = leftchar<<8 | int(data[i])
+		} else {
+			leftchar <<= 8
+		}
+		leftbits += 8
+		for leftbits >= 6 {
+			this := (leftchar >> (leftbits - 6)) & 0x3f
+			leftbits -= 6
+			if backtick && this == 0 {
+				out = append(out, 0x60)
+			} else {
+				out = append(out, byte(this)+' ')
+			}
+		}
+	}
+	out = append(out, '\n')
+	return objects.NewBytes(out), nil
+}
+
+// binasciiA2bUu implements a2b_uu(data): decode one uuencoded line. The first
+// character gives the byte length, the rest are 6-bit groups (space or backtick
+// meaning zero), and any characters past the length must be whitespace-only.
+func binasciiA2bUu(args []objects.Object) (objects.Object, error) {
+	data, err := binasciiData(args[0])
+	if err != nil {
+		return nil, err
+	}
+	binLen := 0
+	p := 0
+	if len(data) > 0 {
+		binLen = int(data[0]-' ') & 0x3f
+		p = 1
+	}
+	out := make([]byte, 0, binLen)
+	leftchar := 0
+	leftbits := 0
+	for len(out) < binLen {
+		var this int
+		if p >= len(data) {
+			this = 0
+		} else {
+			ch := data[p]
+			if ch == '\n' || ch == '\r' {
+				this = 0
+			} else if ch < ' ' || ch > ' '+64 {
+				return nil, binasciiErrorf("Illegal char")
+			} else {
+				this = int(ch-' ') & 0x3f
+			}
+			p++
+		}
+		leftchar = leftchar<<6 | this
+		leftbits += 6
+		if leftbits >= 8 {
+			leftbits -= 8
+			out = append(out, byte((leftchar>>leftbits)&0xff))
+			leftchar &= (1 << leftbits) - 1
+		}
+	}
+	for ; p < len(data); p++ {
+		ch := data[p]
+		if ch != ' ' && ch != ' '+64 && ch != '\n' && ch != '\r' {
+			return nil, binasciiErrorf("Trailing garbage")
+		}
 	}
 	return objects.NewBytes(out), nil
 }
