@@ -152,6 +152,9 @@ func iteratorSpecialAttr(o Object, name string) (Object, bool) {
 	}
 	switch name {
 	case "__next__":
+		// The wrapper carries __self__ back to the iterator, the way CPython's
+		// method-wrapper does; heapq.merge reads it.__next__.__self__ to drain the
+		// last surviving iterator with `yield from`.
 		return &funcObject{
 			name:  "__next__",
 			arity: -1,
@@ -161,6 +164,7 @@ func iteratorSpecialAttr(o Object, name string) (Object, bool) {
 				}
 				return NextValue([]Object{o})
 			},
+			attrs: map[string]Object{"__self__": o},
 		}, true
 	case "__iter__":
 		return &funcObject{

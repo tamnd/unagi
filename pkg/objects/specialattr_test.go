@@ -88,3 +88,30 @@ func objEq(t *testing.T, a, b Object) bool {
 	}
 	return r == True
 }
+
+// An iterator's __next__ wrapper carries __self__ back to the iterator, the way
+// CPython's method-wrapper does, so heapq.merge can drain the last iterator with
+// `yield from it.__next__.__self__`.
+func TestIteratorNextSelf(t *testing.T) {
+	lst := NewList([]Object{NewInt(1), NewInt(2)})
+	inner, err := Iter(lst)
+	if err != nil {
+		t.Fatalf("Iter: %v", err)
+	}
+	it := &builtinIterObject{name: "list_iterator", it: inner}
+	next, err := LoadAttr(it, "__next__")
+	if err != nil {
+		t.Fatalf("LoadAttr __next__: %v", err)
+	}
+	self, err := LoadAttr(next, "__self__")
+	if err != nil {
+		t.Fatalf("LoadAttr __self__: %v", err)
+	}
+	if self != it {
+		t.Fatalf("__next__.__self__ = %v, want the iterator itself", self)
+	}
+	// The wrapper still advances the cursor when called.
+	if v, err := Call(next, nil); err != nil || !objEq(t, v, NewInt(1)) {
+		t.Fatalf("next() = %v, %v; want 1", v, err)
+	}
+}
