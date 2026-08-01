@@ -86,7 +86,10 @@ func oneRune(fn string, o objects.Object) (rune, error) {
 		return 0, objects.Raise(objects.TypeError,
 			"%s() argument 1 must be a unicode character, not %s", fn, o.TypeName())
 	}
-	runes := []rune(s)
+	// StrRunes decodes WTF-8 so a lone surrogate stays one code point; []rune
+	// would split its three bytes into three U+FFFD runes and wrongly fail the
+	// single-character check. CPython accepts any single code point here.
+	runes := objects.StrRunes(s)
 	if len(runes) != 1 {
 		return 0, objects.Raise(objects.TypeError,
 			"%s() argument 1 must be a unicode character, not str", fn)
