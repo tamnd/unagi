@@ -62,17 +62,17 @@ func gb2312EncodeStep(cp rune) ([]byte, int) {
 // gb2312DecodeStep decodes the next unit: an ascii byte on its own, otherwise a
 // two-byte pair from the table. A high byte with nothing after it is incomplete;
 // a pair with no mapping is illegal, spanning one byte.
-func gb2312DecodeStep(p []byte) (rune, int, int, int) {
+func gb2312DecodeStep(p []byte) (rune, rune, int, int, int) {
 	c := p[0]
 	if c < 0x80 {
-		return rune(c), 1, 0, mbOK
+		return rune(c), -1, 1, 0, mbOK
 	}
 	if len(p) < 2 {
-		return 0, 0, 0, mbTooFew
+		return 0, -1, 0, 0, mbTooFew
 	}
 	key := uint16(c)<<8 | uint16(p[1])
 	if cp, ok := gb2312DecodeTable[key]; ok {
-		return cp, 2, 0, mbOK
+		return cp, -1, 2, 0, mbOK
 	}
-	return 0, 0, 1, mbIllegal
+	return 0, -1, 0, 1, mbIllegal
 }

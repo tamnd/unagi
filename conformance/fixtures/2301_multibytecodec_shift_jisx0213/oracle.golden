@@ -1,0 +1,28 @@
+== exit: 0
+== stdout:
+encoded hex: 93fa967b8cea2061626320b1b2b32082f520f040208365835883678142
+decoded eq: True
+codecs.encode eq: True
+codecs.decode eq: True
+info name: shift_jisx0213
+info encode eq: True
+info decode eq: True
+pair hex: 82f5
+pair roundtrip: True
+base alone hex: 82a9
+supp hex: f040
+base chunk empty: True
+pair on mark chunk: True
+incremental encode eq: True
+incremental decode eq: True
+stream bytes eq: True
+stream read eq: True
+decode bad trail: 'shift_jisx0213' codec can't decode byte 0x81 in position 0: illegal multibyte sequence
+decode incomplete: 'shift_jisx0213' codec can't decode byte 0x81 in position 1: incomplete multibyte sequence
+decode ignore eq: True
+decode replace eq: True
+encode strict: 'shift_jisx0213' codec can't encode character '\U0001f600' in position 1: illegal multibyte sequence
+encode ignore eq: True
+encode replace eq: True
+== exception:
+== stderr:

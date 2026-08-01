@@ -42,11 +42,22 @@ const (
 // mapping. decodeStep decodes the next unit from p (always at least one byte),
 // returning the code point and how many bytes it consumed on mbOK, mbTooFew when
 // p holds only the start of a longer sequence, or mbIllegal with esize set to
-// how many bytes the bad sequence spans.
+// how many bytes the bad sequence spans. cp2 is a second code point for the JIS
+// X 0213 sequences that decode to a base plus a combining mark, or -1 when the
+// unit decodes to a single code point (the common case).
+//
+// encodePair and encodeBase are set only by the combining codecs: encodePair is
+// tried before encodeStep and encodes a two-code-point sequence, returning
+// ok=false when the pair is not a combined one; encodeBase reports whether a code
+// point can begin such a pair, so the incremental encoder holds it pending across
+// a chunk boundary. Both are nil for the plain codecs, and the engine skips the
+// lookahead then.
 type mbCodec struct {
 	name       string
 	encodeStep func(cp rune) ([]byte, int)
-	decodeStep func(p []byte) (cp rune, consumed int, esize int, status int)
+	decodeStep func(p []byte) (cp rune, cp2 rune, consumed int, esize int, status int)
+	encodePair func(a, b rune) ([]byte, bool)
+	encodeBase func(r rune) bool
 }
 
 // mbTableCodec is a table-driven multibyte codec: some bytes decode on their
@@ -61,8 +72,11 @@ type mbTableCodec struct {
 	single    map[byte]rune
 	lead      [256]bool
 	double    map[uint16]rune
+	multi     map[uint16][2]rune // byte pair -> two code points, the JIS X 0213 combining decodes
 	encSingle map[rune]byte
 	encDouble map[rune]uint16
+	encPair   map[[2]rune]uint16 // (base, mark) -> two bytes
+	base      map[rune]bool      // code points that can begin a combining pair
 }
 
 // newMBTableCodec assembles a table-driven codec from the generated maps and the
@@ -75,31 +89,69 @@ func newMBTableCodec(name string, single map[byte]rune, leads []byte, double map
 	return tc
 }
 
-// codec adapts the table-driven codec to the engine's mbCodec interface.
+// withCombining attaches the JIS X 0213 combining tables to a table codec: the
+// two-byte sequences that decode to a base plus a mark, the encode map for those
+// pairs, and the set of code points that can begin one. It is what turns a plain
+// shift_jis-shaped codec into shift_jis_2004.
+func (tc *mbTableCodec) withCombining(multi map[uint16][2]rune, encPair map[[2]rune]uint16, bases []rune) *mbTableCodec {
+	tc.multi = multi
+	tc.encPair = encPair
+	tc.base = make(map[rune]bool, len(bases))
+	for _, r := range bases {
+		tc.base[r] = true
+	}
+	return tc
+}
+
+// codec adapts the table-driven codec to the engine's mbCodec interface. The
+// combining hooks are wired only when the codec carries a combining table, so a
+// plain codec leaves them nil and the engine skips the pair lookahead.
 func (tc *mbTableCodec) codec() *mbCodec {
-	return &mbCodec{name: tc.name, encodeStep: tc.encodeStep, decodeStep: tc.decodeStep}
+	c := &mbCodec{name: tc.name, encodeStep: tc.encodeStep, decodeStep: tc.decodeStep}
+	if len(tc.multi) > 0 {
+		c.encodePair = tc.encodePairStep
+		c.encodeBase = tc.encodeBaseStep
+	}
+	return c
 }
 
 // decodeStep decodes the next unit: a standalone byte, or a two-byte character
 // after a lead byte. A lead byte with nothing after it is incomplete; a lead
 // with an unmapped trail, or any non-lead non-standalone byte, is illegal and
-// spans one byte, matching CPython's decoders for this family.
-func (tc *mbTableCodec) decodeStep(p []byte) (rune, int, int, int) {
+// spans one byte, matching CPython's decoders for this family. A two-byte
+// sequence in the combining table decodes to a base plus a mark (cp2 >= 0).
+func (tc *mbTableCodec) decodeStep(p []byte) (rune, rune, int, int, int) {
 	c := p[0]
 	if r, ok := tc.single[c]; ok {
-		return r, 1, 0, mbOK
+		return r, -1, 1, 0, mbOK
 	}
 	if tc.lead[c] {
 		if len(p) < 2 {
-			return 0, 0, 0, mbTooFew
+			return 0, -1, 0, 0, mbTooFew
 		}
-		if r, ok := tc.double[uint16(c)<<8|uint16(p[1])]; ok {
-			return r, 2, 0, mbOK
+		key := uint16(c)<<8 | uint16(p[1])
+		if r, ok := tc.double[key]; ok {
+			return r, -1, 2, 0, mbOK
 		}
-		return 0, 0, 1, mbIllegal
+		if m, ok := tc.multi[key]; ok {
+			return m[0], m[1], 2, 0, mbOK
+		}
+		return 0, -1, 0, 1, mbIllegal
 	}
-	return 0, 0, 1, mbIllegal
+	return 0, -1, 0, 1, mbIllegal
 }
+
+// encodePairStep encodes a two-code-point combining sequence, or reports that
+// the pair is not a combined one.
+func (tc *mbTableCodec) encodePairStep(a, b rune) ([]byte, bool) {
+	if v, ok := tc.encPair[[2]rune{a, b}]; ok {
+		return []byte{byte(v >> 8), byte(v)}, true
+	}
+	return nil, false
+}
+
+// encodeBaseStep reports whether a code point can begin a combining pair.
+func (tc *mbTableCodec) encodeBaseStep(r rune) bool { return tc.base[r] }
 
 // encodeStep encodes one code point through the standalone-byte and two-byte
 // encode maps, or reports it unmappable.
@@ -154,31 +206,31 @@ func (ec *mbEUCJPCodec) codec() *mbCodec {
 // is incomplete and reported over the bytes in hand, and a lead whose trail does
 // not map is illegal and spans just the lead byte, so the decoder resyncs one
 // byte on and reports the following bytes separately, matching CPython.
-func (ec *mbEUCJPCodec) decodeStep(p []byte) (rune, int, int, int) {
+func (ec *mbEUCJPCodec) decodeStep(p []byte) (rune, rune, int, int, int) {
 	c := p[0]
 	if c < 0x80 {
-		return rune(c), 1, 0, mbOK
+		return rune(c), -1, 1, 0, mbOK
 	}
 	if !ec.lead[c] {
-		return 0, 0, 1, mbIllegal
+		return 0, -1, 0, 1, mbIllegal
 	}
 	width := 2
 	if c == eucJPSS3 {
 		width = 3
 	}
 	if len(p) < width {
-		return 0, 0, 0, mbTooFew
+		return 0, -1, 0, 0, mbTooFew
 	}
 	if width == 3 {
 		if r, ok := ec.triple[uint16(p[1])<<8|uint16(p[2])]; ok {
-			return r, 3, 0, mbOK
+			return r, -1, 3, 0, mbOK
 		}
-		return 0, 0, 1, mbIllegal
+		return 0, -1, 0, 1, mbIllegal
 	}
 	if r, ok := ec.double[uint16(c)<<8|uint16(p[1])]; ok {
-		return r, 2, 0, mbOK
+		return r, -1, 2, 0, mbOK
 	}
-	return 0, 0, 1, mbIllegal
+	return 0, -1, 0, 1, mbIllegal
 }
 
 // encodeStep encodes one code point: ascii as itself, a two-byte JIS X 0208 or
@@ -354,7 +406,7 @@ func mbCodecEncode(pos []objects.Object, kwNames []string, kwVals []objects.Obje
 		return nil, err
 	}
 	runes := objects.StrRunes(s)
-	out, err := mbEncodeRun(c, runes, errors)
+	out, _, err := mbEncodeRun(c, runes, errors, true)
 	if err != nil {
 		return nil, err
 	}
@@ -412,13 +464,17 @@ func mbIncInit(pos []objects.Object, kwNames []string, kwVals []objects.Object) 
 	if err := objects.StoreAttr(self, "_buffer", objects.NewBytes(nil)); err != nil {
 		return nil, err
 	}
+	if err := objects.StoreAttr(self, "_pendingchar", objects.NewStr("")); err != nil {
+		return nil, err
+	}
 	return objects.None, nil
 }
 
 // mbIncEncode is MultibyteIncrementalEncoder.encode(self, input, final=False):
-// it encodes the input and returns the bytes. The double-byte codecs carry no
-// encoder state across chunks (a lone surrogate is unmappable and errors at
-// once, matching CPython), so final does not change the result.
+// it prepends any combining base held from the last chunk, encodes as far as it
+// can, and holds a trailing combining base back unless final is set. The plain
+// double-byte codecs never hold a base (a lone surrogate is unmappable and
+// errors at once, matching CPython), so final does not change their result.
 func mbIncEncode(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
 	if len(pos) < 2 {
 		return nil, objects.Raise(objects.TypeError, "encode() missing required argument 'input'")
@@ -428,13 +484,34 @@ func mbIncEncode(pos []objects.Object, kwNames []string, kwVals []objects.Object
 	if !ok {
 		return nil, objects.Raise(objects.TypeError, "encode() argument 'input' must be str, not %s", pos[1].TypeName())
 	}
+	final := false
+	if len(pos) >= 3 {
+		f, err := objects.TruthOf(pos[2])
+		if err != nil {
+			return nil, err
+		}
+		final = f
+	}
+	for i, kn := range kwNames {
+		if kn == "final" {
+			f, err := objects.TruthOf(kwVals[i])
+			if err != nil {
+				return nil, err
+			}
+			final = f
+		}
+	}
 	c, err := mbCodecOfSelf(self)
 	if err != nil {
 		return nil, err
 	}
 	errors := mbErrorsOf(self)
-	out, err := mbEncodeRun(c, objects.StrRunes(s), errors)
+	runes := append(append([]rune(nil), mbPendingOf(self)...), objects.StrRunes(s)...)
+	out, pending, err := mbEncodeRun(c, runes, errors, final)
 	if err != nil {
+		return nil, err
+	}
+	if err := objects.StoreAttr(self, "_pendingchar", objects.NewStr(string(pending))); err != nil {
 		return nil, err
 	}
 	return objects.NewBytes(out), nil
@@ -486,9 +563,14 @@ func mbIncDecode(pos []objects.Object, kwNames []string, kwVals []objects.Object
 	return objects.NewStr(out), nil
 }
 
-// mbIncEncReset / mbIncDecReset clear the incremental state. The encoder has none
-// for the double-byte codecs; the decoder drops any buffered bytes.
-func mbIncEncReset(args []objects.Object) (objects.Object, error) { return objects.None, nil }
+// mbIncEncReset / mbIncDecReset clear the incremental state. The encoder drops
+// any combining base held pending; the decoder drops any buffered bytes.
+func mbIncEncReset(args []objects.Object) (objects.Object, error) {
+	if err := objects.StoreAttr(args[0], "_pendingchar", objects.NewStr("")); err != nil {
+		return nil, err
+	}
+	return objects.None, nil
+}
 
 func mbIncDecReset(args []objects.Object) (objects.Object, error) {
 	if err := objects.StoreAttr(args[0], "_buffer", objects.NewBytes(nil)); err != nil {
@@ -549,6 +631,19 @@ func mbBufferOf(self objects.Object) []byte {
 	}
 	b, _ := objects.AsBytesLike(v)
 	return b
+}
+
+// mbPendingOf reads the encoder's held combining base, the runes carried over
+// from the last non-final chunk. It is empty for the plain codecs.
+func mbPendingOf(self objects.Object) []rune {
+	v, err := objects.LoadAttr(self, "_pendingchar")
+	if err != nil {
+		return nil
+	}
+	if s, ok := objects.AsStr(v); ok {
+		return objects.StrRunes(s)
+	}
+	return nil
 }
 
 // mbCodecStrCall reads the (self, input:str, errors='strict') shape the stateless
@@ -616,18 +711,34 @@ func mbCodecBytesCall(who string, pos []objects.Object, kwNames []string, kwVals
 }
 
 // mbEncodeRun encodes runes through the codec, applying the error handler to any
-// unmappable code point. It returns the encoded bytes.
-func mbEncodeRun(c *mbCodec, runes []rune, errors string) ([]byte, error) {
+// unmappable code point. It returns the encoded bytes and, when not final, any
+// trailing combining base held back for the next chunk (empty for the plain
+// codecs, which have no encoder state). A combining codec is encoded with a
+// one-code-point lookahead: a base followed by its mark encodes as one unit, and
+// a lone trailing base at the end of a non-final chunk is held pending.
+func mbEncodeRun(c *mbCodec, runes []rune, errors string, final bool) ([]byte, []rune, error) {
 	var out []byte
-	for i := 0; i < len(runes); i++ {
+	i := 0
+	for i < len(runes) {
+		if !final && i == len(runes)-1 && c.encodeBase != nil && c.encodeBase(runes[i]) {
+			break
+		}
+		if c.encodePair != nil && i+1 < len(runes) {
+			if b, ok := c.encodePair(runes[i], runes[i+1]); ok {
+				out = append(out, b...)
+				i += 2
+				continue
+			}
+		}
 		b, status := c.encodeStep(runes[i])
 		if status == mbOK {
 			out = append(out, b...)
+			i++
 			continue
 		}
 		switch errors {
 		case "strict":
-			return nil, mbUnicodeEncodeError(c.name, runes[i], i, "illegal multibyte sequence")
+			return nil, nil, mbUnicodeEncodeError(c.name, runes[i], i, "illegal multibyte sequence")
 		case "ignore":
 			// drop the code point
 		case "replace":
@@ -637,12 +748,13 @@ func mbEncodeRun(c *mbCodec, runes []rune, errors string) ([]byte, error) {
 		default:
 			rep, err := mbEncodeHandler(c.name, runes, i, errors)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			out = append(out, rep...)
 		}
+		i++
 	}
-	return out, nil
+	return out, append([]rune(nil), runes[i:]...), nil
 }
 
 // mbDecodeRun decodes data through the codec, applying the error handler to any
@@ -653,10 +765,13 @@ func mbDecodeRun(c *mbCodec, data []byte, errors string, final bool) (string, in
 	var out []rune
 	i := 0
 	for i < len(data) {
-		cp, n, esize, status := c.decodeStep(data[i:])
+		cp, cp2, n, esize, status := c.decodeStep(data[i:])
 		switch status {
 		case mbOK:
 			out = append(out, cp)
+			if cp2 >= 0 {
+				out = append(out, cp2)
+			}
 			i += n
 		case mbTooFew:
 			if !final {

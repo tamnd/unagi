@@ -46,7 +46,7 @@ func TestKoreanRoundtrip(t *testing.T) {
 			seen[cp] = true
 		}
 		for cp := range seen {
-			enc, err := mbEncodeRun(c, []rune{cp}, "strict")
+			enc, _, err := mbEncodeRun(c, []rune{cp}, "strict", true)
 			if err != nil {
 				t.Fatalf("%s encode U+%04X: %v", kc.name, cp, err)
 			}
