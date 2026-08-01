@@ -34,6 +34,8 @@ func codecsJPGetcodec(args []objects.Object) (objects.Object, error) {
 	switch name {
 	case "shift_jis":
 		return newMultibyteCodec(shiftJISCodec())
+	case "cp932":
+		return newMultibyteCodec(cp932Codec())
 	default:
 		return nil, objects.Raise("LookupError", "no such codec is supported.")
 	}
@@ -54,4 +56,22 @@ func shiftJISCodec() *mbCodec {
 			shiftJISSingleEncode, shiftJISDoubleEncode)
 	})
 	return shiftJISTable.codec()
+}
+
+// cp932Codec builds the cp932 engine codec once from the generated tables. cp932
+// is Microsoft's shift_jis superset: it decodes ascii and half-width katakana as
+// single bytes and adds NEC and IBM extension rows on top of the shift_jis
+// two-byte space, so it carries a wider lead set and double map.
+var (
+	cp932Once  sync.Once
+	cp932Table *mbTableCodec
+)
+
+func cp932Codec() *mbCodec {
+	cp932Once.Do(func() {
+		cp932Table = newMBTableCodec("cp932",
+			cp932SingleDecode, cp932Leads, cp932DoubleDecode,
+			cp932SingleEncode, cp932DoubleEncode)
+	})
+	return cp932Table.codec()
 }
