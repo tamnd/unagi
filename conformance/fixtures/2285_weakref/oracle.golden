@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+ref alive: True
+ref eq: True True
+proxy: 1 10
+ws len: 3 True
+ws sorted: [1, 2, 3]
+ws after discard: [1, 2]
+ws subset: True
+wvd: 10 ['a', 'b'] [10, 20]
+wkd: x 2
+count: True
+refs: True
+weakmethod: hi
+finalize alive: True
+finalize after: ['done'] False
+== exception:
+== stderr:
