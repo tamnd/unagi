@@ -1,0 +1,24 @@
+== exit: 0
+== stdout:
+encoded hex: c7d1b1b9beee20616263203132332094ee20857220c6afbcf6b9aec0da20c5d7bdbac6ae2e
+decoded eq: True
+codecs.encode eq: True
+codecs.decode eq: True
+info name: cp949
+info encode eq: True
+info decode eq: True
+incremental encode eq: True
+incremental decode eq: True
+buffered lead: ''
+completed pair: True
+stream bytes eq: True
+stream read eq: True
+decode bad trail: 'cp949' codec can't decode byte 0xa1 in position 0: illegal multibyte sequence
+decode incomplete: 'cp949' codec can't decode byte 0xa1 in position 1: incomplete multibyte sequence
+decode ignore eq: True
+decode replace eq: True
+encode strict: 'cp949' codec can't encode character '\U0001f600' in position 1: illegal multibyte sequence
+encode ignore eq: True
+encode replace eq: True
+== exception:
+== stderr:
