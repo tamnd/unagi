@@ -13,18 +13,19 @@
 # A set of individual tests exercise codec-error machinery unagi does not carry
 # yet; they are excluded by method name below and tracked as follow-ups, so the
 # gate reflects "the codec tables and everything else must keep working" rather
-# than "every upstream test passes". The common thread across the excluded
-# codecencodings tests is the structured codec-error object: a runtime-raised
-# UnicodeEncodeError/UnicodeDecodeError does not carry start/end/object/reason
-# yet, and the xmlcharrefreplace error handler is not registered, so the error
-# callback and custom-replace paths cannot run.
+# than "every upstream test passes". The remaining excluded codecencodings tests
+# drive the error-callback path: a handler returning a custom replacement and
+# newpos, and the incremental/stream codec state around it, which the runtime
+# does not carry yet. The structured codec-error object and the standard
+# ignore/replace/xmlcharrefreplace/backslashreplace handlers are in place, so
+# test_xmlcharrefreplace and the multibyte issue5640 case now run in the gate.
 #
 # The other section 7 codec suites are not gated here yet and are tracked
 # separately:
 #   - test_codecs has a broad surface gap set (codecs.escape_decode/encode and
 #     readbuffer_encode are absent, the charmap encoding is not registered, the
-#     text/binary transform codecs raise, and the standard error handlers
-#     backslashreplace/surrogateescape are missing).
+#     text/binary transform codecs raise, and the namereplace/surrogateescape
+#     error handlers are missing).
 #   - test_unicodedata needs the full UCD property tables (category, numeric,
 #     decimal, bidirectional, east_asian_width, the name and decomposition
 #     data, and the function/method checksums) which are only partly present.
@@ -47,18 +48,18 @@ from test import test_multibytecodec
 # Known gaps, excluded by method name so the concrete per-encoding TestCase
 # class does not matter (each codecencodings module defines the same method set
 # across every encoding it covers). The codecencodings entries all trace to the
-# missing structured codec-error object and the unregistered xmlcharrefreplace
-# handler:
-#   - test_callback_* and test_customreplace_encode read .end/.object off the
-#     raised UnicodeEncodeError, which unagi does not populate yet.
+# error-callback path: a registered handler returning a (replacement, newpos)
+# pair the codec loop must honor, including the returned position:
+#   - test_callback_* and test_customreplace_encode register a handler and check
+#     that its returned replacement and newpos steer the codec loop, which the
+#     runtime does not honor yet.
 #   - test_incrementalencoder, test_incrementalencoder_error_callback,
 #     test_streamreader and test_streamwriter drive the incremental/stream
-#     error path through the same object.
+#     error path through the same callback.
 #   - test_incrementalencoder_del_segfault expects reading .errors on a
 #     half-initialized encoder to raise AttributeError; unagi does not.
-#   - test_xmlcharrefreplace needs the xmlcharrefreplace error handler.
 #   - test_errorhandle, test_chunkcoding and test_incrementaldecoder hit the
-#     same error-object/handler gaps on a subset of the encodings.
+#     same callback gaps on a subset of the encodings.
 # The test_multibytecodec entries track the getstate/setstate codec state
 # protocol and its validation, the custom error-callback handlers, and the
 # MultibyteStreamReader argument check, none of which unagi carries yet.
@@ -76,7 +77,6 @@ KNOWN_GAP_METHODS = {
     "test_incrementalencoder_error_callback",
     "test_streamreader",
     "test_streamwriter",
-    "test_xmlcharrefreplace",
     "test_errorhandle",
     "test_chunkcoding",
     "test_incrementaldecoder",
@@ -84,7 +84,6 @@ KNOWN_GAP_METHODS = {
     "test_errorcallback_longindex",
     "test_getstate_returns_expected_value",
     "test_init_segfault",
-    "test_issue5640",
     "test_setstate_validates_input",
     "test_setstate_validates_input_bytes",
     "test_setstate_validates_input_size",

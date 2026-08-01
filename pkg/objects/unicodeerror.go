@@ -1,6 +1,153 @@
 package objects
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
+
+// The standard non-strict codec error handlers CPython preregisters under
+// codecs.register_error. A codec loop hands each a UnicodeError and gets back a
+// (replacement, newpos) pair. They read the object and the bad [start,end) span
+// off the structured attributes, so they run for the errors the runtime codecs
+// raise as well as ones built from the constructor. strict, ignore and replace
+// are the codec-agnostic ones; xmlcharrefreplace, backslashreplace and
+// namereplace transform the offending text. surrogatepass and surrogateescape
+// need codec cooperation and stay placeholders in this tier.
+
+// ueHandlerError reports that a handler was handed something other than a parsed
+// unicode error, with CPython's error-callback wording.
+func ueHandlerError(o Object) error {
+	return Raise(TypeError, "don't know how to handle %s in error callback", o.TypeName())
+}
+
+// ueParsed pulls the parsed unicode error out of a one-argument handler call.
+func ueParsed(args []Object) (*Exception, bool) {
+	if len(args) == 1 {
+		if e, ok := args[0].(*Exception); ok && e.UEParsed {
+			return e, true
+		}
+	}
+	return nil, false
+}
+
+// ueResult builds the (replacement, newpos) tuple a handler returns.
+func ueResult(replacement string, newpos int) Object {
+	return NewTuple([]Object{NewStr(replacement), NewInt(int64(newpos))})
+}
+
+// IgnoreErrors is the "ignore" handler: drop the bad span and resume after it.
+func IgnoreErrors(args []Object) (Object, error) {
+	e, ok := ueParsed(args)
+	if !ok {
+		return nil, ueHandlerError(args[0])
+	}
+	_, end := ueSpan(e)
+	return ueResult("", end), nil
+}
+
+// ReplaceErrors is the "replace" handler: '?' per character on encode, one
+// U+FFFD on decode, and U+FFFD per character on translate.
+func ReplaceErrors(args []Object) (Object, error) {
+	e, ok := ueParsed(args)
+	if !ok {
+		return nil, ueHandlerError(args[0])
+	}
+	start, end := ueSpan(e)
+	switch {
+	case Matches(e.Kind, "UnicodeEncodeError"):
+		return ueResult(strings.Repeat("?", end-start), end), nil
+	case Matches(e.Kind, "UnicodeDecodeError"):
+		return ueResult("�", end), nil
+	case Matches(e.Kind, "UnicodeTranslateError"):
+		return ueResult(strings.Repeat("�", end-start), end), nil
+	}
+	return nil, ueHandlerError(args[0])
+}
+
+// XMLCharRefReplaceErrors is the "xmlcharrefreplace" handler: replace each
+// unencodable character with its decimal numeric character reference. Encode
+// only.
+func XMLCharRefReplaceErrors(args []Object) (Object, error) {
+	e, ok := ueParsed(args)
+	if !ok || !Matches(e.Kind, "UnicodeEncodeError") {
+		return nil, ueHandlerError(argAt(args))
+	}
+	start, end := ueSpan(e)
+	runes := ueObjectRunes(e)
+	var b strings.Builder
+	for i := start; i < end && i < len(runes); i++ {
+		b.WriteString(xmlCharRef(runes[i]))
+	}
+	return ueResult(b.String(), end), nil
+}
+
+// BackslashReplaceErrors is the "backslashreplace" handler: replace each bad
+// unit with its Python backslash escape. On decode the units are bytes (\xNN);
+// on encode and translate they are characters (\xNN, \uNNNN or \UNNNNNNNN).
+func BackslashReplaceErrors(args []Object) (Object, error) {
+	e, ok := ueParsed(args)
+	if !ok {
+		return nil, ueHandlerError(argAt(args))
+	}
+	start, end := ueSpan(e)
+	var b strings.Builder
+	switch {
+	case Matches(e.Kind, "UnicodeEncodeError") || Matches(e.Kind, "UnicodeTranslateError"):
+		runes := ueObjectRunes(e)
+		for i := start; i < end && i < len(runes); i++ {
+			b.WriteString(backslashEscape(runes[i]))
+		}
+	case Matches(e.Kind, "UnicodeDecodeError"):
+		data, _ := AsBytesLike(e.UEObject)
+		for i := start; i < end && i < len(data); i++ {
+			fmt.Fprintf(&b, `\x%02x`, data[i])
+		}
+	default:
+		return nil, ueHandlerError(args[0])
+	}
+	return ueResult(b.String(), end), nil
+}
+
+// xmlCharRef renders one code point as its decimal numeric character reference,
+// the replacement CPython's xmlcharrefreplace handler emits.
+func xmlCharRef(r rune) string {
+	return fmt.Sprintf("&#%d;", r)
+}
+
+// backslashEscape renders one code point the way CPython's backslashreplace
+// handler does: \xNN below 0x100, \uNNNN in the BMP, \UNNNNNNNN above it.
+func backslashEscape(r rune) string {
+	switch {
+	case r < 0x100:
+		return fmt.Sprintf(`\x%02x`, r)
+	case r < 0x10000:
+		return fmt.Sprintf(`\u%04x`, r)
+	default:
+		return fmt.Sprintf(`\U%08x`, r)
+	}
+}
+
+// ueSpan reads the [start,end) span off a parsed unicode error.
+func ueSpan(e *Exception) (start, end int) {
+	s, _ := AsInt(e.UEStart)
+	en, _ := AsInt(e.UEEnd)
+	return int(s), int(en)
+}
+
+// ueObjectRunes decodes the error object as a str into its code points.
+func ueObjectRunes(e *Exception) []rune {
+	s, _ := AsStr(e.UEObject)
+	return StrRunes(s)
+}
+
+// argAt returns the first handler argument, or None when the call was empty, so
+// the type-error path can name what it got.
+func argAt(args []Object) Object {
+	if len(args) == 1 {
+		return args[0]
+	}
+	return None
+}
 
 // UnicodeError value semantics. CPython gives UnicodeEncodeError and
 // UnicodeDecodeError a C-level constructor taking exactly five arguments

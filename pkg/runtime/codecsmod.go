@@ -90,8 +90,8 @@ func initCodecs(m *objects.Module) error {
 	codecRegistry.mu.Lock()
 	if !codecRegistry.seeded {
 		for _, name := range stdErrorNames {
-			if name == "strict" {
-				codecRegistry.errors[name] = objects.NewFunc("strict_errors", 1, codecStrictHandler)
+			if h := stdErrorHandler(name); h != nil {
+				codecRegistry.errors[name] = objects.NewFunc(name+"_errors", 1, h)
 				continue
 			}
 			codecRegistry.errors[name] = objects.NewFunc(name+"_errors", 1, codecPlaceholderHandler(name))
@@ -494,6 +494,28 @@ func codecStrictHandler(args []objects.Object) (objects.Object, error) {
 		}
 	}
 	return nil, objects.Raise(objects.TypeError, "codec must pass exception instance")
+}
+
+// stdErrorHandler returns the real implementation of a standard non-strict
+// error handler, or nil for the ones still stubbed. ignore, replace,
+// xmlcharrefreplace and backslashreplace are codec-agnostic and resolve the bad
+// span straight off the structured UnicodeError; namereplace needs the
+// unicodedata name database and surrogatepass/surrogateescape need codec
+// round-trip cooperation, so those stay placeholders for now.
+func stdErrorHandler(name string) func([]objects.Object) (objects.Object, error) {
+	switch name {
+	case "strict":
+		return codecStrictHandler
+	case "ignore":
+		return objects.IgnoreErrors
+	case "replace":
+		return objects.ReplaceErrors
+	case "xmlcharrefreplace":
+		return objects.XMLCharRefReplaceErrors
+	case "backslashreplace":
+		return objects.BackslashReplaceErrors
+	}
+	return nil
 }
 
 // codecPlaceholderHandler builds a non-strict error handler stub. The handler
