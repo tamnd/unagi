@@ -1,0 +1,33 @@
+== exit: 0
+== stdout:
+encoded hex: 4142201b244234411b2842201b24285124771b2842201b2428512e241b28422078
+decoded eq: True
+codecs.encode eq: True
+codecs.decode eq: True
+combining hex: 1b24285124771b2842
+jisx0208 hex: 1b244234411b2842
+plane1 single hex: 1b2428512e241b2842
+plane2 extra hex: 1b2428507d3b1b2842
+plane2 extra roundtrip: True
+plane2 decode: 𠂉
+info name: iso2022_jp_2004
+info encode eq: True
+info decode eq: True
+incremental encode eq: True
+base held: 
+mark completes: 1b24285124771b2842
+enc state plane1: 4378880
+incremental decode eq: True
+buffered partial: 'a'
+decoder state: (b'\x1b$(', 4342338)
+completed plane1: 丨
+stream read eq: True
+yen encode strict: 'iso2022_jp_2004' codec can't encode character '\xa5' in position 0: illegal multibyte sequence
+overline encode strict: 'iso2022_jp_2004' codec can't encode character '\u203e' in position 0: illegal multibyte sequence
+decode strict: 'iso2022_jp_2004' codec can't decode bytes in position 4-5: illegal multibyte sequence
+decode ignore: ''
+decode replace: '�'
+encode strict: 'iso2022_jp_2004' codec can't encode character '\U0001f600' in position 0: illegal multibyte sequence
+encode replace hex: 1b2428512e241b28423f
+== exception:
+== stderr:

@@ -47,6 +47,8 @@ func codecsISO2022Getcodec(args []objects.Object) (objects.Object, error) {
 		return newMultibyteCodec(iso2022JPExtCodec)
 	case "iso2022_jp_3":
 		return newMultibyteCodec(iso2022JP3Codec)
+	case "iso2022_jp_2004":
+		return newMultibyteCodec(iso2022JP2004Codec)
 	default:
 		return nil, objects.Raise("LookupError", "no such codec is supported.")
 	}
@@ -65,6 +67,7 @@ const (
 	iso2022ModeKana     = 0x49
 	iso2022Mode0213P1O  = 0xCF
 	iso2022Mode0213P2   = 0xD0
+	iso2022Mode0213P1Q  = 0xD1
 )
 
 // The roman charset differs from ascii only at 0x5c (yen) and 0x7e (overline).
@@ -153,6 +156,23 @@ var iso2022CS0213P2 = &iso2022Charset{
 	encode: iso2022JISX0213P2Encode, decode: iso2022JISX0213P2Decode,
 }
 
+// iso2022CS0213P1Q is JIS X 0213 plane 1 designated by ESC$(Q (the 2004 revision)
+// for iso2022_jp_2004, carrying the same 25 combining pairs as plane 1 O.
+// iso2022CS0213P2Q is plane 2 for iso2022_jp_2004: it decodes through the shared
+// plane 2 table but encodes through its own map, which routes one more code point
+// (U+9B1C) through the plane than the iso2022_jp_3 plane 2 map does.
+var iso2022CS0213P1Q = &iso2022Charset{
+	code: iso2022Mode0213P1Q, esc: []byte{'$', '(', 'Q'}, two: true,
+	encode: iso2022JISX0213P1QEncode, decode: iso2022JISX0213P1QDecode,
+	encode2: iso2022JISX0213P1QEncode2, decode2: iso2022JISX0213P1QDecode2,
+	base: iso2022JISX0213P1QBase,
+}
+
+var iso2022CS0213P2Q = &iso2022Charset{
+	code: iso2022Mode0213P2, esc: []byte{'$', '(', 'P'}, two: true,
+	encode: iso2022JISX0213P2QEncode, decode: iso2022JISX0213P2Decode,
+}
+
 var iso2022JPConfig = &iso2022Config{
 	name:        "iso2022_jp",
 	hasRoman:    true,
@@ -227,6 +247,26 @@ var iso2022JP3Config = &iso2022Config{
 	},
 }
 
+// iso2022_jp_2004 is the 2004 revision of iso2022_jp_3: same repertoire (ascii, JIS
+// X 0208, the two JIS X 0213 planes) but plane 1 is designated with ESC$(Q instead
+// of ESC$(O. It also routes one extra code point (U+9B1C) through plane 2. Like
+// iso2022_jp_3 it does not carry roman, the 1978 revision, kana or JIS X 0212.
+var iso2022JP2004Config = &iso2022Config{
+	name:        "iso2022_jp_2004",
+	encodeOrder: []*iso2022Charset{iso2022CS0208, iso2022CS0213P1Q, iso2022CS0213P2Q},
+	byCode: map[byte]*iso2022Charset{
+		iso2022Mode0208:    iso2022CS0208,
+		iso2022Mode0213P1Q: iso2022CS0213P1Q,
+		iso2022Mode0213P2:  iso2022CS0213P2Q,
+	},
+	desig: map[string]byte{
+		"(B":  iso2022ModeASCII,
+		"$B":  iso2022Mode0208,
+		"$(Q": iso2022Mode0213P1Q,
+		"$(P": iso2022Mode0213P2,
+	},
+}
+
 // decStateValue/decStateMode pack the decoder state the way CPython does: the low
 // byte holds the G0 designation code, so the decoder reports (pending, 0x4242_00 |
 // G0). encStateValue/encStateMode do the same for the encoder, which reports
@@ -260,6 +300,7 @@ var iso2022JPCodec = iso2022Codec(iso2022JPConfig)
 var iso2022JP1Codec = iso2022Codec(iso2022JP1Config)
 var iso2022JPExtCodec = iso2022Codec(iso2022JPExtConfig)
 var iso2022JP3Codec = iso2022Codec(iso2022JP3Config)
+var iso2022JP2004Codec = iso2022Codec(iso2022JP2004Config)
 
 // iso2022JPEncodeRun and iso2022JPDecodeRun are the base-config entry points the
 // unit tests drive directly.

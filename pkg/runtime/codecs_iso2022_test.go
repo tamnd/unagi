@@ -222,13 +222,47 @@ func TestISO2022JP3Planes(t *testing.T) {
 	}
 }
 
+// TestISO2022JP2004Planes checks iso2022_jp_2004: plane 1 is designated ESC$(Q, the
+// combining pairs roundtrip, U+9B1C is the one code point routed through plane 2
+// beyond the iso2022_jp_3 map, and the roman specials stay unencodable.
+func TestISO2022JP2004Planes(t *testing.T) {
+	for key, cp := range iso2022JISX0213P1QDecode {
+		data := []byte{0x1b, '$', '(', 'Q', byte(key >> 8), byte(key)}
+		out, consumed, _, mode, err := iso2022DecodeRun(iso2022JP2004Config, data, "strict", true, iso2022ModeASCII)
+		if err != nil || consumed != len(data) || out != string(cp) || mode != iso2022Mode0213P1Q {
+			t.Fatalf("plane1 %04x: out=%q consumed=%d mode=%#x err=%v", key, out, consumed, mode, err)
+		}
+	}
+	for key, pr := range iso2022JISX0213P1QDecode2 {
+		data := []byte{0x1b, '$', '(', 'Q', byte(key >> 8), byte(key)}
+		out, _, _, _, err := iso2022DecodeRun(iso2022JP2004Config, data, "strict", true, iso2022ModeASCII)
+		if err != nil || out != string([]rune{pr[0], pr[1]}) {
+			t.Fatalf("combining %04x: out=%q err=%v", key, out, err)
+		}
+		enc, _, _, err := iso2022EncodeRun(iso2022JP2004Config, []rune{pr[0], pr[1]}, "strict", true, iso2022ModeASCII)
+		want := append([]byte{0x1b, '$', '(', 'Q', byte(key >> 8), byte(key)}, 0x1b, '(', 'B')
+		if err != nil || string(enc) != string(want) {
+			t.Fatalf("combining encode %04x: enc=%x want=%x err=%v", key, enc, want, err)
+		}
+	}
+	// U+9B1C encodes through plane 2 here (it is decode-only under iso2022_jp_3).
+	enc, _, _, err := iso2022EncodeRun(iso2022JP2004Config, []rune("鬜"), "strict", true, iso2022ModeASCII)
+	want := []byte{0x1b, '$', '(', 'P', 0x7d, 0x3b, 0x1b, '(', 'B'}
+	if err != nil || string(enc) != string(want) {
+		t.Fatalf("U+9B1C encode: enc=%x want=%x err=%v", enc, want, err)
+	}
+	if _, _, _, err := iso2022EncodeRun(iso2022JP2004Config, []rune("¥"), "strict", true, iso2022ModeASCII); err == nil {
+		t.Fatalf("yen under jp_2004: expected encode error")
+	}
+}
+
 // TestISO2022GetcodecUnknown checks getcodec raises LookupError for a codec this
 // build does not carry yet, and returns a codec for the ones it does.
 func TestISO2022GetcodecUnknown(t *testing.T) {
 	if _, err := codecsISO2022Getcodec([]objects.Object{objects.NewStr("iso2022_jp_2")}); err == nil {
 		t.Fatalf("getcodec iso2022_jp_2: expected LookupError")
 	}
-	for _, name := range []string{"iso2022_jp_1", "iso2022_jp_ext", "iso2022_jp_3"} {
+	for _, name := range []string{"iso2022_jp_1", "iso2022_jp_ext", "iso2022_jp_3", "iso2022_jp_2004"} {
 		if _, err := codecsISO2022Getcodec([]objects.Object{objects.NewStr(name)}); err != nil {
 			t.Fatalf("getcodec %s: %v", name, err)
 		}
