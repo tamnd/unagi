@@ -69,6 +69,10 @@ var codecsExports = []string{
 	"ascii_encode", "ascii_decode",
 	"latin_1_encode", "latin_1_decode",
 	"charmap_encode", "charmap_decode", "charmap_build",
+	"utf_16_encode", "utf_16_le_encode", "utf_16_be_encode",
+	"utf_16_decode", "utf_16_le_decode", "utf_16_be_decode", "utf_16_ex_decode",
+	"utf_32_encode", "utf_32_le_encode", "utf_32_be_encode",
+	"utf_32_decode", "utf_32_le_decode", "utf_32_be_decode", "utf_32_ex_decode",
 }
 
 // stdErrorNames are the error handlers the C module preregisters. strict is the
@@ -110,6 +114,21 @@ func initCodecs(m *objects.Module) error {
 		"charmap_encode": objects.NewFuncKw("charmap_encode", codecCharmapEncode),
 		"charmap_decode": objects.NewFuncKw("charmap_decode", codecCharmapDecode),
 		"charmap_build":  objects.NewFunc("charmap_build", 1, codecCharmapBuild),
+
+		"utf_16_encode":    objects.NewFuncKw("utf_16_encode", codecUTF16Encode),
+		"utf_16_le_encode": objects.NewFuncKw("utf_16_le_encode", codecUTF16LEEncode),
+		"utf_16_be_encode": objects.NewFuncKw("utf_16_be_encode", codecUTF16BEEncode),
+		"utf_16_decode":    objects.NewFuncKw("utf_16_decode", codecUTF16Decode),
+		"utf_16_le_decode": objects.NewFuncKw("utf_16_le_decode", codecUTF16LEDecode),
+		"utf_16_be_decode": objects.NewFuncKw("utf_16_be_decode", codecUTF16BEDecode),
+		"utf_16_ex_decode": objects.NewFuncKw("utf_16_ex_decode", codecUTF16ExDecode),
+		"utf_32_encode":    objects.NewFuncKw("utf_32_encode", codecUTF32Encode),
+		"utf_32_le_encode": objects.NewFuncKw("utf_32_le_encode", codecUTF32LEEncode),
+		"utf_32_be_encode": objects.NewFuncKw("utf_32_be_encode", codecUTF32BEEncode),
+		"utf_32_decode":    objects.NewFuncKw("utf_32_decode", codecUTF32Decode),
+		"utf_32_le_decode": objects.NewFuncKw("utf_32_le_decode", codecUTF32LEDecode),
+		"utf_32_be_decode": objects.NewFuncKw("utf_32_be_decode", codecUTF32BEDecode),
+		"utf_32_ex_decode": objects.NewFuncKw("utf_32_ex_decode", codecUTF32ExDecode),
 	}
 	for _, name := range codecsExports {
 		if err := objects.StoreAttr(m, name, attrs[name]); err != nil {

@@ -1,0 +1,41 @@
+== exit: 0
+== stdout:
+le b'A\x00'
+be b'\x00A'
+32le b'A\x00\x00\x00'
+32be b'\x00\x00\x00A'
+plain16 b'\xff\xfeA\x00'
+plain32 b'\xff\xfe\x00\x00A\x00\x00\x00'
+emoji16 b'=\xd8\x00\xde'
+emoji32 b'\x00\xf6\x01\x00'
+roundtrip utf-16 True
+roundtrip utf-16-le True
+roundtrip utf-16-be True
+roundtrip utf-32 True
+roundtrip utf-32-le True
+roundtrip utf-32-be True
+declebom ('A', 4)
+decbebom ('A', 4)
+decnobom ('A', 2)
+dec32lebom ('A', 8)
+dec32bebom ('A', 8)
+exnobom ('A', 2, 0)
+exlebom ('A', 4, -1)
+exbebom ('A', 4, 1)
+ex32nobom ('A', 4, 0)
+inc1 s
+inc2 tream
+incenc1 b'\xff\xfea\x00b\x00'
+incenc2 b'c\x00d\x00'
+oddfinal ERR 'utf-16-le' codec can't decode byte 0x42 in position 2: truncated data
+oddnonfinal ('A', 2)
+badlow ERR 'utf-16-le' codec can't decode bytes in position 0-1: illegal UTF-16 surrogate
+lonelow ERR 'utf-16-le' codec can't decode bytes in position 0-1: illegal encoding
+u32surr ERR 'utf-32-le' codec can't decode bytes in position 0-3: code point in surrogate code point range(0xADDR, 0xADDR)
+u32big ERR 'utf-32-le' codec can't decode bytes in position 0-3: code point not in range(0xADDR)
+u32trunc ERR 'utf-32-le' codec can't decode bytes in position 0-2: truncated data
+lonehighreplace ('�', 2)
+lonehighignore ('', 2)
+lonehighhold ('', 0)
+== exception:
+== stderr:
