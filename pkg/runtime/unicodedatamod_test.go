@@ -36,36 +36,106 @@ func TestUnicodedataCategory(t *testing.T) {
 	}
 }
 
-// TestUnicodedataNumeric checks the ASCII digit paths and the ValueError a
-// character with no value and no default raises.
+// TestUnicodedataNumeric checks decimal/digit/numeric against values captured
+// from the pinned python3.14 (the conformance oracle), now that all three read
+// the pinned UCD tables rather than an ASCII-only path. It covers the three
+// nested properties (a superscript has a digit and numeric value but no decimal;
+// a fraction has a numeric value but no digit) and non-Latin scripts.
 func TestUnicodedataNumeric(t *testing.T) {
-	dec, err := udDecimal([]objects.Object{objects.NewStr("7")}, nil, nil)
-	if err != nil {
-		t.Fatalf("decimal('7'): %v", err)
+	// decimal(chr) -> int, "" means no decimal value (ValueError without default).
+	decimalCases := []struct{ ch, want string }{
+		{"7", "7"}, {"٥", "5"}, {"५", "5"}, {"７", "7"},
+		{"²", ""}, {"½", ""}, {"a", ""},
 	}
-	if objects.Repr(dec) != "7" {
-		t.Errorf("decimal('7') = %s, want 7", objects.Repr(dec))
+	for _, c := range decimalCases {
+		got, err := udDecimal([]objects.Object{objects.NewStr(c.ch)}, nil, nil)
+		if c.want == "" {
+			if ex, ok := err.(*objects.Exception); !ok || ex.Kind != objects.ValueError {
+				t.Errorf("decimal(%q) = %v, want ValueError", c.ch, err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("decimal(%q): %v", c.ch, err)
+		}
+		if objects.Repr(got) != c.want {
+			t.Errorf("decimal(%q) = %s, want %s", c.ch, objects.Repr(got), c.want)
+		}
 	}
-	num, err := udNumeric([]objects.Object{objects.NewStr("5")}, nil, nil)
-	if err != nil {
-		t.Fatalf("numeric('5'): %v", err)
+
+	// digit(chr) -> int; the superscripts and subscripts carry a digit value.
+	digitCases := []struct{ ch, want string }{
+		{"7", "7"}, {"²", "2"}, {"³", "3"}, {"₉", "9"},
+		{"½", ""}, {"Ⅹ", ""},
 	}
-	if objects.Repr(num) != "5.0" {
-		t.Errorf("numeric('5') = %s, want 5.0", objects.Repr(num))
+	for _, c := range digitCases {
+		got, err := udDigit([]objects.Object{objects.NewStr(c.ch)}, nil, nil)
+		if c.want == "" {
+			if ex, ok := err.(*objects.Exception); !ok || ex.Kind != objects.ValueError {
+				t.Errorf("digit(%q) = %v, want ValueError", c.ch, err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("digit(%q): %v", c.ch, err)
+		}
+		if objects.Repr(got) != c.want {
+			t.Errorf("digit(%q) = %s, want %s", c.ch, objects.Repr(got), c.want)
+		}
 	}
-	// A letter has no decimal value, so with no default it raises ValueError.
-	if _, err := udDecimal([]objects.Object{objects.NewStr("a")}, nil, nil); err == nil {
-		t.Errorf("decimal('a') without default should raise")
-	} else if ex, ok := err.(*objects.Exception); !ok || ex.Kind != objects.ValueError {
-		t.Errorf("decimal('a') = %v, want ValueError", err)
+
+	// numeric(chr) -> float; the fractions, Roman numerals and CJK numerals carry
+	// a numeric value with no digit value.
+	numericCases := []struct{ ch, want string }{
+		{"5", "5.0"}, {"½", "0.5"}, {"¼", "0.25"}, {"²", "2.0"},
+		{"Ⅹ", "10.0"}, {"万", "10000.0"}, {"a", ""},
 	}
-	// With a default, the default comes back.
+	for _, c := range numericCases {
+		got, err := udNumeric([]objects.Object{objects.NewStr(c.ch)}, nil, nil)
+		if c.want == "" {
+			if ex, ok := err.(*objects.Exception); !ok || ex.Kind != objects.ValueError {
+				t.Errorf("numeric(%q) = %v, want ValueError", c.ch, err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("numeric(%q): %v", c.ch, err)
+		}
+		if objects.Repr(got) != c.want {
+			t.Errorf("numeric(%q) = %s, want %s", c.ch, objects.Repr(got), c.want)
+		}
+	}
+
+	// With a default, a character that has no value returns the default.
 	got, err := udDecimal([]objects.Object{objects.NewStr("a"), objects.NewInt(-1)}, nil, nil)
 	if err != nil {
 		t.Fatalf("decimal('a', -1): %v", err)
 	}
 	if objects.Repr(got) != "-1" {
 		t.Errorf("decimal('a', -1) = %s, want -1", objects.Repr(got))
+	}
+}
+
+// TestUnicodedataMirrored checks mirrored() against the pinned Bidi_Mirrored
+// table: the brackets, angle quotes and math relations that flip under a
+// right-to-left run report 1, and everything else reports 0.
+func TestUnicodedataMirrored(t *testing.T) {
+	cases := []struct {
+		ch   string
+		want int64
+	}{
+		{"(", 1}, {")", 1}, {"[", 1}, {"]", 1}, {"{", 1}, {"}", 1},
+		{"<", 1}, {">", 1}, {"«", 1}, {"»", 1}, {"∫", 1},
+		{"A", 0}, {"5", 0}, {"中", 0}, {" ", 0},
+	}
+	for _, c := range cases {
+		got, err := udMirrored([]objects.Object{objects.NewStr(c.ch)})
+		if err != nil {
+			t.Fatalf("mirrored(%q): %v", c.ch, err)
+		}
+		if n, _ := objects.AsInt(got); n != c.want {
+			t.Errorf("mirrored(%q) = %d, want %d", c.ch, n, c.want)
+		}
 	}
 }
 

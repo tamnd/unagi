@@ -1,0 +1,22 @@
+== exit: 0
+== stdout:
+decimal 7: 7
+decimal arabic 5: 5
+decimal deva 5: 5
+decimal fullwidth 7: 7
+decimal super2 default: -1
+digit super2: 2
+digit sub9: 9
+digit half default: -1
+numeric 5: 5.0
+numeric half: 0.5
+numeric quarter: 0.25
+numeric roman X: 10.0
+numeric cjk wan: 10000.0
+decimal A: ValueError
+digit A: ValueError
+numeric A: ValueError
+mirrored set: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+mirrored plain: [0, 0, 0, 0]
+== exception:
+== stderr:
