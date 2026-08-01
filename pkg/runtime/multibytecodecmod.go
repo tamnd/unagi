@@ -49,6 +49,70 @@ type mbCodec struct {
 	decodeStep func(p []byte) (cp rune, consumed int, esize int, status int)
 }
 
+// mbTableCodec is a table-driven multibyte codec: some bytes decode on their
+// own (ascii and, for the JP/KR codecs, half-width katakana), a lead byte begins
+// a two-byte character looked up in the double map, and everything else is
+// illegal. The encode maps are built from the oracle encoder so a code point
+// with more than one decoding still encodes to the canonical bytes. It covers
+// the fixed-width double-byte codecs (shift_jis and its relatives); the codecs
+// with three-byte or shift-state sequences carry their own step functions.
+type mbTableCodec struct {
+	name      string
+	single    map[byte]rune
+	lead      [256]bool
+	double    map[uint16]rune
+	encSingle map[rune]byte
+	encDouble map[rune]uint16
+}
+
+// newMBTableCodec assembles a table-driven codec from the generated maps and the
+// lead-byte list.
+func newMBTableCodec(name string, single map[byte]rune, leads []byte, double map[uint16]rune, encSingle map[rune]byte, encDouble map[rune]uint16) *mbTableCodec {
+	tc := &mbTableCodec{name: name, single: single, double: double, encSingle: encSingle, encDouble: encDouble}
+	for _, b := range leads {
+		tc.lead[b] = true
+	}
+	return tc
+}
+
+// codec adapts the table-driven codec to the engine's mbCodec interface.
+func (tc *mbTableCodec) codec() *mbCodec {
+	return &mbCodec{name: tc.name, encodeStep: tc.encodeStep, decodeStep: tc.decodeStep}
+}
+
+// decodeStep decodes the next unit: a standalone byte, or a two-byte character
+// after a lead byte. A lead byte with nothing after it is incomplete; a lead
+// with an unmapped trail, or any non-lead non-standalone byte, is illegal and
+// spans one byte, matching CPython's decoders for this family.
+func (tc *mbTableCodec) decodeStep(p []byte) (rune, int, int, int) {
+	c := p[0]
+	if r, ok := tc.single[c]; ok {
+		return r, 1, 0, mbOK
+	}
+	if tc.lead[c] {
+		if len(p) < 2 {
+			return 0, 0, 0, mbTooFew
+		}
+		if r, ok := tc.double[uint16(c)<<8|uint16(p[1])]; ok {
+			return r, 2, 0, mbOK
+		}
+		return 0, 0, 1, mbIllegal
+	}
+	return 0, 0, 1, mbIllegal
+}
+
+// encodeStep encodes one code point through the standalone-byte and two-byte
+// encode maps, or reports it unmappable.
+func (tc *mbTableCodec) encodeStep(cp rune) ([]byte, int) {
+	if b, ok := tc.encSingle[cp]; ok {
+		return []byte{b}, mbOK
+	}
+	if v, ok := tc.encDouble[cp]; ok {
+		return []byte{byte(v >> 8), byte(v)}, mbOK
+	}
+	return nil, mbIllegal
+}
+
 // mbCodecCarrier smuggles a Go *mbCodec onto a Python MultibyteCodec instance as
 // a hidden attribute. The Object surface is only the type name; the engine reads
 // the pointer back off it and never exposes it to Python.
