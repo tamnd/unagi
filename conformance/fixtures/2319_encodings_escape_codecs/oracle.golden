@@ -1,0 +1,30 @@
+== exit: 0
+== stdout:
+enc (b'A B~\\n\\t\\r\\\\\\x00\\x7f\\x01\\x80\\xe9\\u4e2d\\U0001f600\'"', 17)
+dec ('A\n\t\r\\\'"\x07\x08\x0c\x0bA中😀A\x00a', 71)
+bslashnl ('ab', 4)
+badx ERR 'unicodeescape' codec can't decode bytes in position 0-1: truncated \xXX escape
+xshort ERR 'unicodeescape' codec can't decode bytes in position 0-2: truncated \xXX escape
+truncu ERR 'unicodeescape' codec can't decode bytes in position 0-3: truncated \uXXXX escape
+truncU ERR 'unicodeescape' codec can't decode bytes in position 0-8: truncated \UXXXXXXXX escape
+Ubig ERR 'unicodeescape' codec can't decode bytes in position 0-9: illegal Unicode character
+Nnobrace ERR 'unicodeescape' codec can't decode bytes in position 0-1: malformed \N character escape
+Nunknown ERR 'unicodeescape' codec can't decode bytes in position 0-12: unknown Unicode character name
+Nunterm ERR 'unicodeescape' codec can't decode bytes in position 0-7: malformed \N character escape
+trailbs ERR 'unicodeescape' codec can't decode byte 0x5c in position 2: \ at end of string
+badxrep ('�ZZ', 4)
+badxignore ('ZZ', 4)
+nftrail ('ab', 2)
+nfmidu ('ab', 2)
+nfmidN ('ab', 2)
+renc (b'A\\\xe9\\u4e2d\\U0001f600\n', 6)
+rdec ('A\\\\中😀\\x41', 23)
+r3bs ('\\\\A', 8)
+rUbig ERR 'rawunicodeescape' codec can't decode bytes in position 0-9: \Uxxxxxxxx out of range
+rtruncu ERR 'rawunicodeescape' codec can't decode bytes in position 0-3: truncated \uXXXX escape
+rt_ue True
+rt_rue True
+inc1 ab
+inc2 中!
+== exception:
+== stderr:

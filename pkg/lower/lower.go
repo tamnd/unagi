@@ -133,6 +133,8 @@ var BuiltinStarExports = map[string]StarExports{
 		"utf_16_decode", "utf_16_le_decode", "utf_16_be_decode", "utf_16_ex_decode",
 		"utf_32_encode", "utf_32_le_encode", "utf_32_be_encode",
 		"utf_32_decode", "utf_32_le_decode", "utf_32_be_decode", "utf_32_ex_decode",
+		"unicode_escape_encode", "unicode_escape_decode",
+		"raw_unicode_escape_encode", "raw_unicode_escape_decode",
 	}},
 }
 
