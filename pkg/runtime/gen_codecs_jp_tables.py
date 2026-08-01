@@ -11,7 +11,7 @@
 #     python3.14 pkg/runtime/gen_codecs_jp_tables.py
 # then `gofmt -w pkg/runtime/codecs_jp_tables.go`.
 
-CODECS = [("shift_jis", "shiftJIS")]
+CODECS = [("shift_jis", "shiftJIS"), ("cp932", "cp932")]
 
 
 def build(codec):
@@ -25,11 +25,24 @@ def build(codec):
             raise SystemExit("%s: multi-char single byte %02x" % (codec, b))
         single[b] = ord(s)
 
+    # The lead-byte set is decided by byte range, not by whether a mapping
+    # exists: a byte in the lead range with no assigned character still reports
+    # "incomplete multibyte sequence" when it stands alone (it wants a trail) and
+    # "illegal multibyte sequence" once a trail follows. CPython's classification
+    # of a lone byte tells us which bytes are leads, so we read the lead set off
+    # that, and only the pairs that actually map go in the double table.
     leads = set()
-    double = {}
-    for lead in range(256):
-        if lead in single:
+    for b in range(256):
+        if b in single:
             continue
+        try:
+            bytes([b]).decode(codec)
+        except UnicodeDecodeError as e:
+            if "incomplete" in str(e):
+                leads.add(b)
+
+    double = {}
+    for lead in sorted(leads):
         for trail in range(256):
             try:
                 s = bytes([lead, trail]).decode(codec)
@@ -37,7 +50,6 @@ def build(codec):
                 continue
             if len(s) != 1:
                 raise SystemExit("%s: multi-char pair %02x%02x" % (codec, lead, trail))
-            leads.add(lead)
             double[(lead, trail)] = ord(s)
 
     # Build the encoder straight from the oracle so a code point with more than

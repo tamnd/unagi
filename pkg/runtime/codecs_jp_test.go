@@ -69,6 +69,83 @@ func TestShiftJISDecodeErrors(t *testing.T) {
 	}
 }
 
+// TestShiftJISUnmappedLead pins the range-lead behaviour: a byte in the lead
+// range that carries no assigned character is "incomplete" when it stands alone
+// (it still wants a trail) and "illegal" once a trail follows, matching CPython.
+func TestShiftJISUnmappedLead(t *testing.T) {
+	c := shiftJISCodec()
+	if _, _, _, err := mbDecodeRun(c, []byte{0x85}, "strict", true); err == nil ||
+		errString(err) != "'shift_jis' codec can't decode byte 0x85 in position 0: incomplete multibyte sequence" {
+		t.Fatalf("0x85 alone: got %v", err)
+	}
+	if _, _, _, err := mbDecodeRun(c, []byte{0x85, 0x40}, "strict", true); err == nil ||
+		errString(err) != "'shift_jis' codec can't decode byte 0x85 in position 0: illegal multibyte sequence" {
+		t.Fatalf("0x85 0x40: got %v", err)
+	}
+}
+
+// TestCP932Roundtrip drives the engine through cp932, shift_jis's Microsoft
+// superset: every standalone byte and every mapped pair must decode, and every
+// code point the decoder can produce must re-encode to bytes that decode back.
+func TestCP932Roundtrip(t *testing.T) {
+	c := cp932Codec()
+	for b, cp := range cp932SingleDecode {
+		out, consumed, _, err := mbDecodeRun(c, []byte{b}, "strict", true)
+		if err != nil || consumed != 1 || out != string(cp) {
+			t.Fatalf("single %#02x: out=%q consumed=%d err=%v", b, out, consumed, err)
+		}
+	}
+	for key, cp := range cp932DoubleDecode {
+		data := []byte{byte(key >> 8), byte(key)}
+		out, consumed, _, err := mbDecodeRun(c, data, "strict", true)
+		if err != nil || consumed != 2 || out != string(cp) {
+			t.Fatalf("pair %04x: out=%q consumed=%d err=%v", key, out, consumed, err)
+		}
+	}
+	seen := map[rune]bool{}
+	for _, cp := range cp932SingleDecode {
+		seen[cp] = true
+	}
+	for _, cp := range cp932DoubleDecode {
+		seen[cp] = true
+	}
+	for cp := range seen {
+		enc, err := mbEncodeRun(c, []rune{cp}, "strict")
+		if err != nil {
+			t.Fatalf("encode U+%04X: %v", cp, err)
+		}
+		out, _, _, err := mbDecodeRun(c, enc, "strict", true)
+		if err != nil || out != string(cp) {
+			t.Fatalf("roundtrip U+%04X: enc=%x out=%q err=%v", cp, enc, out, err)
+		}
+	}
+}
+
+// TestCP932DecodeErrors pins cp932's illegal and incomplete positions and
+// wording against the values probed from CPython. cp932 has no illegal
+// standalone byte (every high byte is a single or a lead), so the cases here
+// exercise the range-lead paths.
+func TestCP932DecodeErrors(t *testing.T) {
+	c := cp932Codec()
+	cases := []struct {
+		data []byte
+		msg  string
+	}{
+		{[]byte{0x81, 0x20}, "'cp932' codec can't decode byte 0x81 in position 0: illegal multibyte sequence"},
+		{[]byte{0x85, 0x40}, "'cp932' codec can't decode byte 0x85 in position 0: illegal multibyte sequence"},
+		{[]byte{0xeb, 0x40}, "'cp932' codec can't decode byte 0xeb in position 0: illegal multibyte sequence"},
+		{[]byte{0x81}, "'cp932' codec can't decode byte 0x81 in position 0: incomplete multibyte sequence"},
+		{[]byte{0x85}, "'cp932' codec can't decode byte 0x85 in position 0: incomplete multibyte sequence"},
+		{[]byte{0x41, 0x85}, "'cp932' codec can't decode byte 0x85 in position 1: incomplete multibyte sequence"},
+	}
+	for _, tc := range cases {
+		_, _, _, err := mbDecodeRun(c, tc.data, "strict", true)
+		if err == nil || errString(err) != tc.msg {
+			t.Fatalf("decode %x: got %v want %q", tc.data, err, tc.msg)
+		}
+	}
+}
+
 // TestShiftJISGetcodecUnknown checks getcodec raises LookupError for a codec this
 // build does not carry yet.
 func TestShiftJISGetcodecUnknown(t *testing.T) {
