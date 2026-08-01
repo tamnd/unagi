@@ -57,6 +57,24 @@ func callTypeObject(t *typeObject, args []Object) (Object, error) {
 	if t.name == "types.SimpleNamespace" {
 		return newSimpleNamespace(args, nil, nil)
 	}
+	if t.name == "method" {
+		// types.MethodType(func, obj) binds obj as the first argument of func, the
+		// explicit constructor for what reading a function off an instance builds.
+		// weakref.WeakMethod calls it to rebuild a bound method from the stored
+		// __func__ and referent. A plain function binds directly; any other callable
+		// is wrapped so obj is prepended at call time.
+		if len(args) != 2 {
+			return nil, Raise(TypeError, "method() takes 2 arguments (%d given)", len(args))
+		}
+		if fn, ok := args[0].(*functionObject); ok {
+			return &boundMethod{fn: fn, self: args[1]}, nil
+		}
+		self := args[1]
+		fn := args[0]
+		return NewFunc("method", -1, func(a []Object) (Object, error) {
+			return Call(fn, append([]Object{self}, a...))
+		}), nil
+	}
 	if t.name == "types.GenericAlias" {
 		// types.GenericAlias(origin, args) is the explicit constructor for what
 		// origin[args] builds, so _collections_abc's classmethod(GenericAlias)
