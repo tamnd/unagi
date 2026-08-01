@@ -299,13 +299,59 @@ func TestISO2022JP2(t *testing.T) {
 	}
 }
 
+// TestISO2022KR checks the iso2022_kr shift-state machine: KSC 5601 is designated
+// into G1 once with ESC$)C and SO/SI toggle the shift, a newline resets it, and the
+// getstate hooks reproduce CPython's packing.
+func TestISO2022KR(t *testing.T) {
+	// A KSC 5601 character designates G1, shifts in with SO, emits its pair, and the
+	// final chunk shifts back to ascii with SI.
+	for cp, key := range iso2022KRKSCEncode {
+		enc, _, mode, err := iso2022KREncodeRun([]rune{cp}, "strict", true, iso2022ModeASCII)
+		want := []byte{0x1b, '$', ')', 'C', 0x0e, byte(key >> 8), byte(key), 0x0f}
+		if err != nil || string(enc) != string(want) || mode != int(iso2022ModeKSC5601) {
+			t.Fatalf("ksc encode %04x: enc=%x want=%x mode=%#x err=%v", cp, enc, want, mode, err)
+		}
+		// The pair roundtrips back to the same code point.
+		out, _, _, _, derr := iso2022KRDecodeRun(want, "strict", true, iso2022ModeASCII)
+		if derr != nil || out != string(cp) {
+			t.Fatalf("ksc decode %04x: out=%q err=%v", cp, out, derr)
+		}
+	}
+	// A newline in the KSC shift emits '\n' and resets the shift so the bytes after it
+	// read as ascii.
+	out, _, _, mode, err := iso2022KRDecodeRun([]byte{0x1b, '$', ')', 'C', 0x0e, 'E', '0', 0x0a, 'E', '0', 0x0f}, "strict", true, iso2022ModeASCII)
+	if err != nil || out != "키\nE0" {
+		t.Fatalf("newline reset: out=%q mode=%#x err=%v", out, mode, err)
+	}
+	// getstate packs G1 and the shift the way CPython does: encoder 0x4200 | G1<<16 |
+	// shift<<40, decoder 0x420042 | G1<<8 | shift<<32.
+	kscShift := int(iso2022ModeKSC5601) | 1<<8
+	if got := iso2022KREncStateValue(kscShift); got != 1099524424192 {
+		t.Fatalf("enc state: got %#x", got)
+	}
+	if got := iso2022KRDecStateValue(kscShift); got != 4299342658 {
+		t.Fatalf("dec state: got %#x", got)
+	}
+	if iso2022KREncStateMode(iso2022KREncStateValue(kscShift)) != kscShift {
+		t.Fatalf("enc state roundtrip")
+	}
+	if iso2022KRDecStateMode(iso2022KRDecStateValue(kscShift)) != kscShift {
+		t.Fatalf("dec state roundtrip")
+	}
+	// A bad pair is illegal two bytes wide; a high byte in the KSC shift is illegal one
+	// byte wide.
+	if _, _, _, _, err := iso2022KRDecodeRun([]byte{0x1b, '$', ')', 'C', 0x0e, 0x21, 0x20}, "strict", true, iso2022ModeASCII); err == nil {
+		t.Fatalf("bad pair: expected error")
+	}
+}
+
 // TestISO2022GetcodecUnknown checks getcodec raises LookupError for a codec this
 // build does not carry yet, and returns a codec for the ones it does.
 func TestISO2022GetcodecUnknown(t *testing.T) {
-	if _, err := codecsISO2022Getcodec([]objects.Object{objects.NewStr("iso2022_kr")}); err == nil {
-		t.Fatalf("getcodec iso2022_kr: expected LookupError")
+	if _, err := codecsISO2022Getcodec([]objects.Object{objects.NewStr("iso2022_cn")}); err == nil {
+		t.Fatalf("getcodec iso2022_cn: expected LookupError")
 	}
-	for _, name := range []string{"iso2022_jp_1", "iso2022_jp_ext", "iso2022_jp_3", "iso2022_jp_2004", "iso2022_jp_2"} {
+	for _, name := range []string{"iso2022_jp_1", "iso2022_jp_ext", "iso2022_jp_3", "iso2022_jp_2004", "iso2022_jp_2", "iso2022_kr"} {
 		if _, err := codecsISO2022Getcodec([]objects.Object{objects.NewStr(name)}); err != nil {
 			t.Fatalf("getcodec %s: %v", name, err)
 		}

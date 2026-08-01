@@ -1,0 +1,29 @@
+== exit: 0
+== stdout:
+encoded hex: 4142201b2429430e475131393e6e0f2078
+decoded eq: True
+codecs.encode eq: True
+codecs.decode eq: True
+single hex: 1b2429430e47510f
+mixed hex: 1b2429430e47510f410e47510f
+ascii only hex: 4142
+newline reset: '키\nE0'
+info name: iso2022_kr
+info encode eq: True
+info decode eq: True
+incremental encode eq: True
+enc state ksc: 1099524424192
+enc state ascii: 4342272
+incremental decode eq: True
+designate partial: ''
+dec state shifted: (b'', 4299342658)
+dec completes: 한
+stream read eq: True
+decode strict: 'iso2022_kr' codec can't decode bytes in position 5-6: illegal multibyte sequence
+decode ignore: ''
+decode replace: '�'
+decode high byte: 'iso2022_kr' codec can't decode byte 0x80 in position 0: illegal multibyte sequence
+encode strict: 'iso2022_kr' codec can't encode character '\U0001f600' in position 0: illegal multibyte sequence
+encode replace hex: 1b2429430e47510f3f
+== exception:
+== stderr:
