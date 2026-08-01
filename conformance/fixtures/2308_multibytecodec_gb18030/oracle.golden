@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+encoded hex: babad7d62061626320c4e3bac3cac0bde7209439fc36209632c23220b7fbbac5
+decoded eq: True
+codecs.encode eq: True
+codecs.decode eq: True
+gbk rejects emoji: 'gbk' codec can't encode character '\U0001f600' in position 0: illegal multibyte sequence
+emoji four-byte hex: 9439fc36
+supp four-byte hex: 9632c232
+info name: gb18030
+info encode eq: True
+info decode eq: True
+incremental encode eq: True
+incremental decode eq: True
+buffered partial: ''
+completed quad: True
+stream bytes eq: True
+stream read eq: True
+decode strict: 'gb18030' codec can't decode byte 0x81 in position 0: illegal multibyte sequence
+decode ignore eq: True
+decode replace eq: True
+decode bad quad: 'gb18030' codec can't decode byte 0x81 in position 0: illegal multibyte sequence
+decode incomplete: 'gb18030' codec can't decode bytes in position 0-2: incomplete multibyte sequence
+== exception:
+== stderr:
