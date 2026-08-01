@@ -172,13 +172,63 @@ func TestISO2022JPExtKana(t *testing.T) {
 	}
 }
 
+// TestISO2022JP3Planes checks iso2022_jp_3 designates the two JIS X 0213 planes,
+// decodes every plane pair (single and combining) back, encodes a combining
+// sequence as one plane 1 pair, holds a combining base pending across a non-final
+// chunk, and refuses the roman specials the base codec accepts.
+func TestISO2022JP3Planes(t *testing.T) {
+	// Every plane 1 single pair and plane 2 pair roundtrips its code point.
+	for key, cp := range iso2022JISX0213P1ODecode {
+		data := []byte{0x1b, '$', '(', 'O', byte(key >> 8), byte(key)}
+		out, consumed, _, mode, err := iso2022DecodeRun(iso2022JP3Config, data, "strict", true, iso2022ModeASCII)
+		if err != nil || consumed != len(data) || out != string(cp) || mode != iso2022Mode0213P1O {
+			t.Fatalf("plane1 %04x: out=%q consumed=%d mode=%#x err=%v", key, out, consumed, mode, err)
+		}
+	}
+	for key, cp := range iso2022JISX0213P2Decode {
+		data := []byte{0x1b, '$', '(', 'P', byte(key >> 8), byte(key)}
+		out, _, _, mode, err := iso2022DecodeRun(iso2022JP3Config, data, "strict", true, iso2022ModeASCII)
+		if err != nil || out != string(cp) || mode != iso2022Mode0213P2 {
+			t.Fatalf("plane2 %04x: out=%q mode=%#x err=%v", key, out, mode, err)
+		}
+	}
+	// A combining pair decodes to two code points and re-encodes as one pair.
+	for key, pr := range iso2022JISX0213P1ODecode2 {
+		data := []byte{0x1b, '$', '(', 'O', byte(key >> 8), byte(key)}
+		out, _, _, _, err := iso2022DecodeRun(iso2022JP3Config, data, "strict", true, iso2022ModeASCII)
+		if err != nil || out != string([]rune{pr[0], pr[1]}) {
+			t.Fatalf("combining %04x: out=%q err=%v", key, out, err)
+		}
+		enc, _, _, err := iso2022EncodeRun(iso2022JP3Config, []rune{pr[0], pr[1]}, "strict", true, iso2022ModeASCII)
+		want := append([]byte{0x1b, '$', '(', 'O', byte(key >> 8), byte(key)}, 0x1b, '(', 'B')
+		if err != nil || string(enc) != string(want) {
+			t.Fatalf("combining encode %04x: enc=%x want=%x err=%v", key, enc, want, err)
+		}
+	}
+	// A combining base at the end of a non-final chunk is held pending.
+	var base rune
+	for r := range iso2022JISX0213P1OBase {
+		base = r
+		break
+	}
+	out, pending, _, err := iso2022EncodeRun(iso2022JP3Config, []rune{base}, "strict", false, iso2022ModeASCII)
+	if err != nil || len(out) != 0 || string(pending) != string(base) {
+		t.Fatalf("held base: out=%x pending=%q err=%v", out, string(pending), err)
+	}
+	// The roman specials the base codec folds into ESC(J are unencodable here.
+	_, _, _, err = iso2022EncodeRun(iso2022JP3Config, []rune("¥"), "strict", true, iso2022ModeASCII)
+	if err == nil {
+		t.Fatalf("yen under jp_3: expected encode error")
+	}
+}
+
 // TestISO2022GetcodecUnknown checks getcodec raises LookupError for a codec this
 // build does not carry yet, and returns a codec for the ones it does.
 func TestISO2022GetcodecUnknown(t *testing.T) {
 	if _, err := codecsISO2022Getcodec([]objects.Object{objects.NewStr("iso2022_jp_2")}); err == nil {
 		t.Fatalf("getcodec iso2022_jp_2: expected LookupError")
 	}
-	for _, name := range []string{"iso2022_jp_1", "iso2022_jp_ext"} {
+	for _, name := range []string{"iso2022_jp_1", "iso2022_jp_ext", "iso2022_jp_3"} {
 		if _, err := codecsISO2022Getcodec([]objects.Object{objects.NewStr(name)}); err != nil {
 			t.Fatalf("getcodec %s: %v", name, err)
 		}
