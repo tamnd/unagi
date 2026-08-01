@@ -485,10 +485,18 @@ func baseRepr(o objects.Object, base int, prefix string) (objects.Object, error)
 	return objects.NewStr(prefix + s), nil
 }
 
-// Ord implements ord(o) for a one-character str, by code point.
+// Ord implements ord(o) for a one-character str or a one-byte bytes/bytearray,
+// by code point. CPython accepts either and reports the length the same way.
 func Ord(o objects.Object) (objects.Object, error) {
 	s, ok := objects.AsStr(o)
 	if !ok {
+		if b, isBytes := objects.AsBytesLike(o); isBytes {
+			if len(b) != 1 {
+				return nil, objects.Raise(objects.TypeError,
+					"ord() expected a character, but string of length %d found", len(b))
+			}
+			return objects.NewInt(int64(b[0])), nil
+		}
 		return nil, objects.Raise(objects.TypeError,
 			"ord() expected string of length 1, but %s found", o.TypeName())
 	}

@@ -383,6 +383,9 @@ func TestOrdChr(t *testing.T) {
 		{"2char", s("ab"), "", "TypeError: ord() expected a character, but string of length 2 found"},
 		{"0char", s(""), "", "TypeError: ord() expected a character, but string of length 0 found"},
 		{"int", i(1), "", "TypeError: ord() expected string of length 1, but int found"},
+		{"bytes1", objects.NewBytes([]byte("A")), "65", ""},
+		{"bytes2", objects.NewBytes([]byte("ab")), "", "TypeError: ord() expected a character, but string of length 2 found"},
+		{"bytes0", objects.NewBytes(nil), "", "TypeError: ord() expected a character, but string of length 0 found"},
 	}
 	for _, tt := range ordTests {
 		got, err := Ord(tt.in)

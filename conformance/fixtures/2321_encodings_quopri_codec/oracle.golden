@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+ord_bytes 65 122
+enc b'a=3Db=20c=09d\n=80=81=82=83=84=85=86=87=88=89=8A=8B=8C=8D=8E=8F=20trailing=20'
+rt True
+dec b'a=b c'
+plain b'plain=20ascii=20text'
+softbreak b'longline'
+== exception:
+== stderr:

@@ -204,8 +204,8 @@ var floorDynamicCore = map[string][]string{
 		"cp037", "cp273", "cp424", "cp437", "cp500", "cp720", "cp737", "cp775", "cp850", "cp852", "cp855", "cp856", "cp857", "cp858", "cp860", "cp861", "cp862", "cp863", "cp864", "cp865", "cp866", "cp869", "cp874", "cp875", "cp1006", "cp1026", "cp1125", "cp1140", "cp1250", "cp1251", "cp1252", "cp1253", "cp1254", "cp1255", "cp1256", "cp1257", "cp1258",
 		"koi8_r", "koi8_t", "koi8_u", "kz1048", "ptcp154", "tis_620", "hp_roman8", "palmos",
 		"mac_arabic", "mac_croatian", "mac_cyrillic", "mac_farsi", "mac_greek", "mac_iceland", "mac_latin2", "mac_roman", "mac_romanian", "mac_turkish",
-		// The bytes-to-bytes transform codecs, thin wrappers over base64, binascii and zlib.
-		"base64_codec", "hex_codec", "zlib_codec"},
+		// The bytes-to-bytes transform codecs, thin wrappers over base64, binascii, quopri and zlib.
+		"base64_codec", "hex_codec", "quopri_codec", "zlib_codec"},
 }
 
 // shimmedFloorDeps lists floor modules a Go-shimmed module reaches only through
