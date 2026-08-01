@@ -139,6 +139,27 @@ func TestUnicodedataMirrored(t *testing.T) {
 	}
 }
 
+// TestUnicodedataBidirectional checks bidirectional() against the pinned
+// Bidi_Class range table: Latin is L, Hebrew is R, Arabic is AL, a combining
+// mark is NSM, a space is WS, the digits are EN, and an unassigned code point
+// with no bidi class answers "".
+func TestUnicodedataBidirectional(t *testing.T) {
+	cases := []struct{ ch, want string }{
+		{"A", "L"}, {"א", "R"}, {"ا", "AL"}, {"́", "NSM"},
+		{" ", "WS"}, {"5", "EN"}, {"٠", "AN"}, {"(", "ON"},
+		{"\U0003fffd", ""},
+	}
+	for _, c := range cases {
+		got, err := udBidirectional([]objects.Object{objects.NewStr(c.ch)})
+		if err != nil {
+			t.Fatalf("bidirectional(%q): %v", c.ch, err)
+		}
+		if s, _ := objects.AsStr(got); s != c.want {
+			t.Errorf("bidirectional(%q) = %q, want %q", c.ch, s, c.want)
+		}
+	}
+}
+
 // TestUnicodedataEastAsianWidth checks the wide-block heuristic: CJK is Wide,
 // fullwidth forms are Fullwidth, ASCII is Narrow, and other text is Neutral.
 func TestUnicodedataEastAsianWidth(t *testing.T) {

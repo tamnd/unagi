@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+latin              'L'
+latin              'L'
+hebrew             'R'
+arabic letter      'AL'
+arabic-indic zero  'AN'
+ascii digit        'EN'
+superscript two    'EN'
+combining acute    'NSM'
+space              'WS'
+tab                'S'
+open paren         'ON'
+plus               'ES'
+comma              'CS'
+cjk                'L'
+lri                'LRI'
+unassigned         ''
+ascii: WOOEEEOOOOOECECCEEEEEEEEEECOOOOOOLLLLLLLLLLLLLLLLLLLLLLLLLLOOOOOOLLLLLLLLLLLLLLLLLLLLLLLLLLOOOO
+== exception:
+== stderr:
