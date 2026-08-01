@@ -481,6 +481,19 @@ func excLoadAttr(e *Exception, name string) (Object, error) {
 				return objOrNone(e.OSFilename2), nil
 			}
 		}
+	case "encoding", "object", "start", "end", "reason":
+		// The three unicode errors expose these as instance attributes filled from
+		// the structured constructor. A value written onto the dict afterwards wins;
+		// otherwise the parsed slot answers (encoding reads None on a translate
+		// error). Every other exception falls through to the AttributeError below.
+		if e.UEParsed {
+			if v, ok := e.Dict[name]; ok {
+				return v, nil
+			}
+			if v, ok := unicodeErrorAttr(e, name); ok {
+				return v, nil
+			}
+		}
 	case "code":
 		// SystemExit carries a code slot alongside args: no argument reads
 		// None, one reads that argument, and several read the args tuple. Only

@@ -2376,6 +2376,7 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 				return nil, Raise(TypeError, "%s() takes no keyword arguments", c.name)
 			}
 			parseOSErrorArgs(e)
+			parseUnicodeErrorArgs(e)
 			return e, nil
 		}
 		if err := initSelf(init, e, pos, kwNames, kwVals); err != nil {
