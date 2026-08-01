@@ -257,9 +257,13 @@ func codecEncode(pos []objects.Object, kwNames []string, kwVals []objects.Object
 	if err != nil {
 		return nil, err
 	}
+	// A str takes the core encoder fast path. Anything else (bytes for the
+	// bytes-to-bytes transform codecs like base64_codec and zlib_codec) is
+	// dispatched straight through the registry the way CPython's PyCodec_Encode
+	// is, returning whatever object the codec hands back rather than forcing bytes.
 	s, ok := objects.AsStr(obj)
 	if !ok {
-		return nil, objects.Raise(objects.TypeError, "encode() argument 'obj' must be str, not %s", obj.TypeName())
+		return codecViaRegistry("encode", obj, enc, errs)
 	}
 	b, err := objects.EncodeStr(s, enc, errs)
 	if err != nil {
