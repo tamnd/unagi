@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+d_str 'utf-8' codec can't decode byte 0x62 in position 1: reason
+d_attrs utf-8 b'abcdef' 1 2 reason
+d_args ('utf-8', b'abcdef', 1, 2, 'reason')
+d_span 'utf-8' codec can't decode bytes in position 1-3: reason
+e_str 'ascii' codec can't encode character '\xe9' in position 1: why
+e_attrs ascii aéc 1 2 why
+e_bmp 'ascii' codec can't encode character '\u4e2d' in position 1: why
+e_astral 'ascii' codec can't encode character '\U0001f600' in position 1: why
+e_span 'ascii' codec can't encode characters in position 1-3: why
+t_str can't translate character '\xe9' in position 1: no
+t_attrs None aéc 1 2 no
+t_span can't translate characters in position 1-3: no
+hier True True True
+d_repr UnicodeDecodeError('utf-8', b'abcdef', 1, 2, 'reason')
+e_repr UnicodeEncodeError('ascii', 'aéc', 1, 2, 'why')
+== exception:
+== stderr:

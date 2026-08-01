@@ -89,6 +89,18 @@ type Exception struct {
 	OSStrError  Object
 	OSFilename  Object
 	OSFilename2 Object
+	// UnicodeError value slots. CPython's UnicodeEncodeError/UnicodeDecodeError take
+	// exactly (encoding, object, start, end, reason) and UnicodeTranslateError takes
+	// (object, start, end, reason); it exposes each as a named attribute and renders
+	// str() as the "'enc' codec can't decode byte ..." form. These live in dedicated
+	// slots, not Dict, matching CPython's C members. UEParsed marks that the split
+	// ran, so Text and the attribute reads use these rather than the raw args.
+	UEParsed   bool
+	UEEncoding Object
+	UEObject   Object
+	UEStart    Object
+	UEEnd      Object
+	UEReason   Object
 }
 
 func (e *Exception) TypeName() string { return e.Kind }
@@ -99,6 +111,9 @@ func (e *Exception) TypeName() string { return e.Kind }
 func (e *Exception) Text() string {
 	if e.OSParsed {
 		return osErrorText(e)
+	}
+	if e.UEParsed {
+		return unicodeErrorText(e)
 	}
 	if e.Group != nil {
 		s := "s"
@@ -180,6 +195,7 @@ func Raise(kind, format string, a ...any) *Exception {
 func NewException(kind string, args []Object) *Exception {
 	e := &Exception{Kind: kind, Args: args}
 	parseOSErrorArgs(e)
+	parseUnicodeErrorArgs(e)
 	return e
 }
 
