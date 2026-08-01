@@ -88,6 +88,55 @@ func containerSpecialAttr(o Object, name string) (Object, bool) {
 	}, true
 }
 
+// containerSurfaceByName reports the protocol dunder surface a builtin container
+// TYPE object exposes as unbound method-wrappers, mirroring
+// containerDunderSurface which keys off an instance. Reading dict.__setitem__ or
+// tuple.__getitem__ off the type hands back an unbound wrapper the way CPython's
+// wrapper_descriptors do, so collections/__init__.py can bind
+// dict_setitem=dict.__setitem__ at class-body time and call it as
+// dict_setitem(self, key, value). The named/struct-sequence tuple distinction is
+// an instance property, so it does not apply to the plain tuple type here.
+func containerSurfaceByName(typeName string) (map[string]bool, bool) {
+	switch typeName {
+	case "list", "bytearray", "dict":
+		return subscriptMutDunders, true
+	case "tuple", "str", "bytes", "range":
+		return subscriptRODunders, true
+	case "set", "frozenset":
+		return setDunders, true
+	}
+	return nil, false
+}
+
+// containerUnboundSpecial resolves a container protocol dunder read off the type
+// object, returning an unbound method-wrapper. T.__setitem__(self, key, value)
+// guards that self is a T (or a subclass, the layout instanceOfBuiltin checks)
+// then runs the same operator the bound d.__setitem__ path does through
+// applyContainerSpecial, so the bound read and the unbound read agree on the
+// result and the errors. ok is false when the type is not a builtin container or
+// the name is not one it exposes, leaving the ordinary lookup to continue.
+func containerUnboundSpecial(typeName, name string) (Object, bool) {
+	surface, ok := containerSurfaceByName(typeName)
+	if !ok || !surface[name] {
+		return nil, false
+	}
+	return &funcObject{
+		name:  name,
+		arity: -1,
+		fn: func(args []Object) (Object, error) {
+			if len(args) == 0 {
+				return nil, Raise(TypeError, "unbound method %s.%s() needs an argument", typeName, name)
+			}
+			if !instanceOfBuiltin(args[0], typeName) {
+				return nil, Raise(TypeError,
+					"descriptor '%s' requires a '%s' object but received a '%s'",
+					name, typeName, args[0].TypeName())
+			}
+			return applyContainerSpecial(args[0], name, args[1:])
+		},
+	}, true
+}
+
 // iteratorSpecialAttr resolves the two dunders every iterator answers: __next__
 // binds a method-wrapper that advances the cursor and raises StopIteration when
 // it is spent, and __iter__ returns the iterator itself, the way CPython's

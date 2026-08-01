@@ -1192,10 +1192,17 @@ func init() {
 		// per-type builtin, so the registration object and the lookup object are the
 		// same and the dispatch hits. Each reprs the underlying value, matching the
 		// type's own wrapper_descriptor rather than object's inherited __repr__.
+		// list and dict carry __new__ so list.__new__(cls) and dict.__new__(cls)
+		// resolve off the type object and allocate the container-backed subclass
+		// instance, the empty payload objectDefaultCall's __new__ path builds for a
+		// dict/list subclass. The vendored collections OrderedDict reaches
+		// dict.__new__(cls) in its own __new__ before setting up its linked list.
 		"list": {
+			"__new__":  builtinTypeNew("list"),
 			"__repr__": NewFunc("__repr__", 1, builtinReprDunder),
 		},
 		"dict": {
+			"__new__":  builtinTypeNew("dict"),
 			"__repr__": NewFunc("__repr__", 1, builtinReprDunder),
 		},
 		"set": {
@@ -3088,6 +3095,17 @@ func LoadAttr(o Object, name string) (Object, error) {
 			// number-protocol slots, handled here rather than left to the __-prefix
 			// guard below that reserves __-names for the descriptor table.
 			if v, ok := builtinNumericUnboundDunder(x.name, name); ok {
+				return v, nil
+			}
+			// A container type exposes its subscript protocol dunders off the type as
+			// unbound method-wrappers, so dict.__setitem__(d, k, v) and the read-only
+			// tuple.__getitem__(t, i) resolve the way CPython's wrapper_descriptors
+			// do. The vendored collections/__init__.py binds dict_setitem=
+			// dict.__setitem__ and dict_delitem=dict.__delitem__ as default arguments
+			// at class-body time; the wrapper runs the same operator the bound
+			// d.__setitem__ read does, so the two agree. Handled here, ahead of the
+			// __-prefix guard below that reserves dunders for the descriptor tables.
+			if v, ok := containerUnboundSpecial(x.name, name); ok {
 				return v, nil
 			}
 			// A plain method read off the type is the unbound method: int.bit_length

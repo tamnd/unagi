@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+1 2 True
+False [('b', 2)]
+[10, 99, 30] 30 3
+5 3 True
+5 True
+3 True
+guarded: True
+MyDict True 0
+Pair(1, 2)
+3-4-5
+(1, 100, 200) (1, 2, 200) (1, 2, 3)
+(100, 200)
+None
+done
+== exception:
+== stderr:
