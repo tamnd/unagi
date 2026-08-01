@@ -1,0 +1,42 @@
+== exit: 0
+== stdout:
+name utf-7
+alias u7 utf-7
+alias utf7 utf-7
+alias unicode-1-1-utf-7 utf-7
+enc b'' True
+enc b'Hello, World!' True
+enc b'1 +- 1 = 2' True
+enc b'a\tb\nc\rd' True
+enc b'cost: 100+IKw-' True
+enc b'Hi Mom -+Jjo--!' True
+enc b'+AFw and +AH4 shift too' True
+enc b'+AOkA6QDp-' True
+enc b'mix +Ti1lhw text' True
+enc b'emoji +2D3eAA end' True
+enc b'+-+---' True
+lone b'+2AA-x' True
+dec b'' ''
+dec b'plain text' 'plain text'
+dec b'+-' '+'
+dec b'a+ACY-b' 'a&b'
+dec b'+Jjo-' '☺'
+dec b'+AGkAaQ' 'ii'
+dec b'+AGk-x' 'ix'
+dec b'1 +- 1' '1 + 1'
+dec-err b'+IK.' 'utf7' codec can't decode bytes in position 0-3: partial character in shift sequence
+dec-err b'+@' 'utf7' codec can't decode bytes in position 0-1: ill-formed sequence
+dec-err b'+//' 'utf7' codec can't decode bytes in position 0-2: unterminated shift sequence
+dec-err b'+AGkA' 'utf7' codec can't decode bytes in position 0-4: unterminated shift sequence
+dec-err b'++' 'utf7' codec can't decode bytes in position 0-1: unterminated shift sequence
+dec-err b'\x80' 'utf7' codec can't decode byte 0x80 in position 0: unexpected special character
+dec-err b'+AAAA-' 'utf7' codec can't decode bytes in position 0-5: partial character in shift sequence
+ign b'+IK.rest' 'rest'
+rep b'+IK.rest' '�rest'
+ign b'\x80abc' 'abc'
+rep b'\x80abc' '�abc'
+ign b'good+@bad' 'goodbad'
+rep b'good+@bad' 'good�bad'
+incremental True
+== exception:
+== stderr:

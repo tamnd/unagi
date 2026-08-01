@@ -84,6 +84,12 @@ func writeStrRune(b *strings.Builder, r rune) {
 // as a single code point rather than three RuneError bytes.
 func StrRunes(s string) []rune { return decodeStrRunes(s) }
 
+// StrFromRunes builds a str from code points, writing any lone surrogate in its
+// WTF-8 form so a decoder that yields surrogates as ordinary output (utf-7, and
+// utf-16/utf-32 under surrogatepass) round-trips through str. It is the exported
+// form of encodeStrRunes for callers outside this package.
+func StrFromRunes(rs []rune) string { return encodeStrRunes(rs) }
+
 // StrFromRune builds a one-code-point str, writing a lone surrogate in WTF-8 so
 // chr() can produce a surrogate string that round-trips. It is the exported form
 // of writeStrRune for a single rune.
