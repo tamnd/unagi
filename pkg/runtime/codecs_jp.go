@@ -36,6 +36,8 @@ func codecsJPGetcodec(args []objects.Object) (objects.Object, error) {
 		return newMultibyteCodec(shiftJISCodec())
 	case "cp932":
 		return newMultibyteCodec(cp932Codec())
+	case "euc_jp":
+		return newMultibyteCodec(eucJPCodec())
 	default:
 		return nil, objects.Raise("LookupError", "no such codec is supported.")
 	}
@@ -74,4 +76,23 @@ func cp932Codec() *mbCodec {
 			cp932SingleEncode, cp932DoubleEncode)
 	})
 	return cp932Table.codec()
+}
+
+// eucJPCodec builds the euc_jp engine codec once from the generated tables.
+// euc_jp is variable-width: ascii single bytes, 0x8e plus one byte for
+// half-width katakana, 0x8f plus two bytes for JIS X 0212, and any other high
+// byte as a two-byte JIS X 0208 lead, so it uses the mbEUCJPCodec rather than the
+// fixed-width table codec.
+var (
+	eucJPOnce  sync.Once
+	eucJPTable *mbEUCJPCodec
+)
+
+func eucJPCodec() *mbCodec {
+	eucJPOnce.Do(func() {
+		eucJPTable = newMBEUCJPCodec("euc_jp",
+			eucJPLeads, eucJPDoubleDecode, eucJPTripleDecode,
+			eucJPDoubleEncode, eucJPTripleEncode)
+	})
+	return eucJPTable.codec()
 }

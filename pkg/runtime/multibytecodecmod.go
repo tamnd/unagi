@@ -113,6 +113,90 @@ func (tc *mbTableCodec) encodeStep(cp rune) ([]byte, int) {
 	return nil, mbIllegal
 }
 
+// mbEUCJPCodec is the table-driven codec for euc_jp, a variable-width EUC codec
+// the fixed-width mbTableCodec cannot express. It decodes ascii on its own, 0x8e
+// (SS2) followed by one byte as a half-width katakana, 0x8f (SS3) followed by two
+// bytes as a JIS X 0212 character, and any other high byte as the lead of a
+// two-byte JIS X 0208 character. Every high byte begins a multibyte sequence, so
+// a lone high byte is incomplete and a bad trail is illegal one byte wide,
+// matching CPython. The euc_jis_2004 variants share this byte structure and can
+// reuse it once the engine also carries their multi-character decodes.
+type mbEUCJPCodec struct {
+	name      string
+	lead      [256]bool
+	double    map[uint16]rune // lead<<8|trail: 0x8e katakana and the JIS X 0208 plane
+	triple    map[uint16]rune // the two bytes after 0x8f: b2<<8|b3
+	encDouble map[rune]uint16
+	encTriple map[rune]uint16
+}
+
+// eucJPSS3 is the single-shift byte that introduces a three-byte JIS X 0212
+// sequence; 0x8e introduces a two-byte katakana and is handled as a plain lead.
+const eucJPSS3 = 0x8F
+
+// newMBEUCJPCodec assembles the euc_jp codec from the generated maps and the
+// lead-byte list.
+func newMBEUCJPCodec(name string, leads []byte, double, triple map[uint16]rune, encDouble, encTriple map[rune]uint16) *mbEUCJPCodec {
+	ec := &mbEUCJPCodec{name: name, double: double, triple: triple, encDouble: encDouble, encTriple: encTriple}
+	for _, b := range leads {
+		ec.lead[b] = true
+	}
+	return ec
+}
+
+// codec adapts the euc_jp codec to the engine's mbCodec interface.
+func (ec *mbEUCJPCodec) codec() *mbCodec {
+	return &mbCodec{name: ec.name, encodeStep: ec.encodeStep, decodeStep: ec.decodeStep}
+}
+
+// decodeStep decodes the next unit. ascii decodes on its own; a lead needs two
+// bytes, or three when it is the 0x8f single-shift; too few bytes for the width
+// is incomplete and reported over the bytes in hand, and a lead whose trail does
+// not map is illegal and spans just the lead byte, so the decoder resyncs one
+// byte on and reports the following bytes separately, matching CPython.
+func (ec *mbEUCJPCodec) decodeStep(p []byte) (rune, int, int, int) {
+	c := p[0]
+	if c < 0x80 {
+		return rune(c), 1, 0, mbOK
+	}
+	if !ec.lead[c] {
+		return 0, 0, 1, mbIllegal
+	}
+	width := 2
+	if c == eucJPSS3 {
+		width = 3
+	}
+	if len(p) < width {
+		return 0, 0, 0, mbTooFew
+	}
+	if width == 3 {
+		if r, ok := ec.triple[uint16(p[1])<<8|uint16(p[2])]; ok {
+			return r, 3, 0, mbOK
+		}
+		return 0, 0, 1, mbIllegal
+	}
+	if r, ok := ec.double[uint16(c)<<8|uint16(p[1])]; ok {
+		return r, 2, 0, mbOK
+	}
+	return 0, 0, 1, mbIllegal
+}
+
+// encodeStep encodes one code point: ascii as itself, a two-byte JIS X 0208 or
+// 0x8e katakana value straight, and a JIS X 0212 value behind the 0x8f
+// single-shift, or reports it unmappable.
+func (ec *mbEUCJPCodec) encodeStep(cp rune) ([]byte, int) {
+	if cp < 0x80 {
+		return []byte{byte(cp)}, mbOK
+	}
+	if v, ok := ec.encDouble[cp]; ok {
+		return []byte{byte(v >> 8), byte(v)}, mbOK
+	}
+	if v, ok := ec.encTriple[cp]; ok {
+		return []byte{eucJPSS3, byte(v >> 8), byte(v)}, mbOK
+	}
+	return nil, mbIllegal
+}
+
 // mbCodecCarrier smuggles a Go *mbCodec onto a Python MultibyteCodec instance as
 // a hidden attribute. The Object surface is only the type name; the engine reads
 // the pointer back off it and never exposes it to Python.
