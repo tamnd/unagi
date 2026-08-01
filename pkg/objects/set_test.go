@@ -619,3 +619,52 @@ func TestSetMisc(t *testing.T) {
 	_, err = NewSet([]Object{T(S(t))})
 	checkErr(t, "tuple of set elt", err, "TypeError: cannot use 'tuple' as a set element (unhashable type: 'set')")
 }
+
+// TestSetReduce checks set and frozenset expose the copy/pickle reduce protocol:
+// __reduce__ and __reduce_ex__ hand back (cls, (list(self),), None) so copy and
+// pickle rebuild the collection by applying its type to the element list. The
+// class slot is resolved through BuiltinTypeResolver, which the runtime installs;
+// the test stands in a sentinel resolver so the shape can be read with Repr.
+func TestSetReduce(t *testing.T) {
+	saved := BuiltinTypeResolver
+	defer func() { BuiltinTypeResolver = saved }()
+	BuiltinTypeResolver = func(name string) (Object, bool) {
+		switch name {
+		case "set":
+			return NewStr("SET"), true
+		case "frozenset":
+			return NewStr("FROZ"), true
+		}
+		return nil, false
+	}
+
+	for _, name := range []string{"__reduce__", "__reduce_ex__"} {
+		s := S(t, NewInt(1), NewInt(2), NewInt(3))
+		got, err := CallMethod(s, name, nil)
+		if err != nil {
+			t.Fatalf("set %s: %v", name, err)
+		}
+		if r := Repr(got); r != "('SET', ([1, 2, 3],), None)" {
+			t.Errorf("set %s = %s, want ('SET', ([1, 2, 3],), None)", name, r)
+		}
+
+		f := FS(t, NewInt(1), NewInt(2))
+		got, err = CallMethod(f, name, nil)
+		if err != nil {
+			t.Fatalf("frozenset %s: %v", name, err)
+		}
+		if r := Repr(got); r != "('FROZ', ([1, 2],), None)" {
+			t.Errorf("frozenset %s = %s, want ('FROZ', ([1, 2],), None)", name, r)
+		}
+	}
+
+	// __reduce_ex__ takes the protocol argument copy passes and ignores it.
+	s := S(t, NewInt(5))
+	got, err := CallMethod(s, "__reduce_ex__", []Object{NewInt(4)})
+	if err != nil {
+		t.Fatalf("set __reduce_ex__(4): %v", err)
+	}
+	if r := Repr(got); r != "('SET', ([5],), None)" {
+		t.Errorf("set __reduce_ex__(4) = %s, want ('SET', ([5],), None)", r)
+	}
+}

@@ -1071,16 +1071,22 @@ func init() {
 			// runs when it calls enum_member.__init__(*args) on a value-only member.
 			return None, nil
 		}),
-		"__reduce_ex__": NewFunc("__reduce_ex__", 2, func(args []Object) (Object, error) {
-			// Pickling support is not on the floor yet. The name has to resolve so
-			// EnumType.__new__ can read and reassign it, but a real call is out of
-			// scope until copyreg lands.
-			return nil, Raise(TypeError, "cannot pickle '%s' object yet", func() string {
-				if len(args) > 0 {
-					return args[0].TypeName()
+		"__reduce_ex__": NewFunc("__reduce_ex__", -1, func(args []Object) (Object, error) {
+			// object.__reduce_ex__(self, protocol). If the instance's type overrides
+			// __reduce__, that override wins and drives the reduction, the way copy and
+			// pickle read a class's custom __reduce__. Otherwise fall back to the
+			// default copyreg-shaped reduction. The protocol number does not change the
+			// shape this produces, so it is accepted and ignored.
+			if len(args) < 1 {
+				return nil, Raise(TypeError, "__reduce_ex__() takes at least 1 argument (0 given)")
+			}
+			self := args[0]
+			if inst, ok := self.(*instanceObject); ok {
+				if _, overridden := inst.cls.lookup("__reduce__"); overridden {
+					return CallMethod(self, "__reduce__", nil)
 				}
-				return "object"
-			}())
+			}
+			return objectReduceNewobj(self)
 		}),
 		"__subclasshook__": NewFunc("__subclasshook__", -1, func([]Object) (Object, error) {
 			// object.__subclasshook__ is the default a class inherits when it does
@@ -1126,15 +1132,13 @@ func init() {
 			return objectDefaultGetState(args[0])
 		}),
 		"__reduce__": NewFunc("__reduce__", 1, func(args []Object) (Object, error) {
-			// Like __reduce_ex__, the copyreg-shaped reduction is not on the floor
-			// yet. The name resolves so hasattr and reassignment see it, but a real
-			// call is out of scope until copyreg lands.
-			return nil, Raise(TypeError, "cannot pickle '%s' object yet", func() string {
-				if len(args) > 0 {
-					return args[0].TypeName()
-				}
-				return "object"
-			}())
+			// object.__reduce__(self) hands back the same default copyreg-shaped
+			// reduction, (object.__new__, (cls,), state), that a plain instance rebuilds
+			// from. A class with its own __reduce__ shadows this through its class dict.
+			if len(args) != 1 {
+				return nil, Raise(TypeError, "__reduce__() takes no arguments (%d given)", len(args)-1)
+			}
+			return objectReduceNewobj(args[0])
 		}),
 	}
 
@@ -3878,6 +3882,26 @@ func objectDefaultGetState(o Object) (Object, error) {
 		return nil, err
 	}
 	return NewTuple([]Object{dictState, slotState}), nil
+}
+
+// objectReduceNewobj builds the protocol-2 reduction object.__reduce_ex__ and
+// object.__reduce__ hand back for a plain instance: (object.__new__, (cls,),
+// state), where cls is type(self) and state is the default __getstate__. The
+// pure copy module and the pickler rebuild the instance by calling
+// object.__new__(cls) to get a blank object, then restoring state onto its
+// __dict__. This mirrors CPython's reduce_newobj for the common case with no
+// __getnewargs__ and no list/dict items, which is every plain Python class.
+func objectReduceNewobj(self Object) (Object, error) {
+	cls := self
+	if ClassOfResolver != nil {
+		cls = ClassOfResolver(self)
+	}
+	state, err := objectDefaultGetState(self)
+	if err != nil {
+		return nil, err
+	}
+	newArgs := NewTuple([]Object{cls})
+	return NewTuple([]Object{objectNewBuiltin, newArgs, state}), nil
 }
 
 // dirFromResult turns the value a user __dir__ returned into the sorted string
