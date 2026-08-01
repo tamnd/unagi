@@ -1,0 +1,24 @@
+== exit: 0
+== stdout:
+encoded hex: d0658a82b4e1206162632031323320b465917720b9a1d073d17720c941af61cb612e
+decoded eq: True
+codecs.encode eq: True
+codecs.decode eq: True
+info name: johab
+info encode eq: True
+info decode eq: True
+incremental encode eq: True
+incremental decode eq: True
+buffered lead: ''
+completed pair: True
+stream bytes eq: True
+stream read eq: True
+decode bad trail: 'johab' codec can't decode byte 0xd8 in position 0: illegal multibyte sequence
+decode incomplete: 'johab' codec can't decode byte 0x84 in position 1: incomplete multibyte sequence
+decode ignore eq: True
+decode replace eq: True
+encode strict: 'johab' codec can't encode character '\U0001f600' in position 1: illegal multibyte sequence
+encode ignore eq: True
+encode replace eq: True
+== exception:
+== stderr:
