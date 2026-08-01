@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+null 'hello' 'one' 'many'
+null 'hi' 'many'
+mod 'world' 'x'
+mod 'a' 'b'
+c2py 'n != 1' [1, 0, 1]
+c2py 'n>1' [0, 0, 1, 1]
+c2py 'n%10==1 && n%100!=11 ? 0 : 1' [0, 1, 0, 1]
+c2py '(n==0 ? 0 : n==1 ? 1 : 2)' [0, 1, 2]
+gnu 'hola' 'mundo' 'missing'
+gnu 'manzana' 'manzanas'
+gnu 'menú' 'absent'
+gnu 'text/plain; charset=UTF-8'
+alias 'hola' 'missing'
+== exception:
+== stderr:
