@@ -1,0 +1,28 @@
+== exit: 0
+== stdout:
+encoded hex: 414243201b244234411b2842201b24284430291b2842201b284a5c1b28422078
+decoded eq: True
+codecs.encode eq: True
+codecs.decode eq: True
+jisx0212 hex: 1b24284430291b2842
+jisx0208 hex: 1b244234411b2842
+jis1978 eq: True
+roman yen eq: True
+info name: iso2022_jp_1
+info encode eq: True
+info decode eq: True
+incremental encode eq: True
+enc state 0212: 4375552
+incremental decode eq: True
+buffered partial: 'a'
+decoder state: (b'\x1b$(', 4342338)
+completed 0212: 丨
+setstate resumes 0212: 丨
+stream read eq: True
+decode strict: 'iso2022_jp_1' codec can't decode bytes in position 4-5: illegal multibyte sequence
+decode ignore: ''
+decode replace: '�'
+encode strict: 'iso2022_jp_1' codec can't encode character '\U0001f600' in position 0: illegal multibyte sequence
+encode replace hex: 1b24284430291b28423f
+== exception:
+== stderr:

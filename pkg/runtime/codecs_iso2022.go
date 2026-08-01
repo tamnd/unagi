@@ -8,14 +8,18 @@ import (
 // codecs (iso2022_jp and its variants, iso2022_kr). encodings.iso2022_jp and its
 // siblings call _codecs_iso2022.getcodec(name) at import time to get the
 // MultibyteCodec the _multibytecodec engine drives, so this module has to exist
-// before any of those encodings load. This slice provides getcodec for
-// iso2022_jp, the base of the family; the variants land in later slices.
+// before any of those encodings load.
 //
 // ISO-2022 is a shift-state codec: ESC sequences designate the G0 charset and the
 // bytes that follow are read in that charset until the next designation. The
 // engine's stateful hooks carry the current G0 designation across bytes and chunk
 // boundaries, and the state-packing hooks reproduce CPython's getstate layout, in
 // which the low byte holds the G0 designation code.
+//
+// The escape state machine is one config-driven encode run and one decode run; each
+// codec supplies an iso2022Config naming the two-byte and single-byte charsets it
+// can designate. iso2022_jp is the base (ascii, JIS X 0201 roman, JIS X 0208) and
+// the variants add charsets on top: iso2022_jp_1 adds JIS X 0212.
 
 func init() {
 	moduleTable["_codecs_iso2022"] = &moduleEntry{builtin: true, exec: initCodecsISO2022}
@@ -37,44 +41,148 @@ func codecsISO2022Getcodec(args []objects.Object) (objects.Object, error) {
 	switch name {
 	case "iso2022_jp":
 		return newMultibyteCodec(iso2022JPCodec)
+	case "iso2022_jp_1":
+		return newMultibyteCodec(iso2022JP1Codec)
 	default:
 		return nil, objects.Raise("LookupError", "no such codec is supported.")
 	}
 }
 
 // The G0 designation codes CPython packs into the codec state. ascii and roman are
-// single-byte charsets, the two 0208 revisions are two-byte; both 0208 codes
-// decode through the same JIS X 0208 table and the encoder always designates the
-// 1983 revision.
+// single-byte charsets; the two 0208 revisions and 0212 are two-byte. Both 0208
+// codes decode through the same JIS X 0208 table and the encoder always designates
+// the 1983 revision.
 const (
 	iso2022ModeASCII    = 0x42
 	iso2022ModeRoman    = 0x4A
 	iso2022Mode02081978 = 0xC0
 	iso2022Mode0208     = 0xC2
+	iso2022Mode0212     = 0xC4
 )
 
-// iso2022JPCodec is the engine codec for iso2022_jp. The stateful hooks drive the
-// escape machine, and the state-packing hooks reproduce CPython's getstate: the
-// decoder reports (pending, 0x4242_00 | G0) and the encoder reports 0x42_0000 |
-// (G0 << 8), G0 being the current designation code.
-var iso2022JPCodec = &mbCodec{
-	name:           "iso2022_jp",
-	initMode:       iso2022ModeASCII,
-	encodeStateful: iso2022JPEncodeRun,
-	decodeStateful: iso2022JPDecodeRun,
-	decStateValue:  func(mode int) int64 { return 0x424200 | int64(mode) },
-	decStateMode:   func(v int64) int { return int(v & 0xFF) },
-	encStateValue:  func(mode int) int64 { return 0x420000 | int64(mode)<<8 },
-	encStateMode:   func(v int64) int { return int((v >> 8) & 0xFF) },
+// The roman charset differs from ascii only at 0x5c (yen) and 0x7e (overline).
+const (
+	iso2022Yen      = 0xA5
+	iso2022Overline = 0x203E
+)
+
+// iso2022Charset is one designatable charset: its G0 designation code, the escape
+// bytes (after 0x1b) that switch into it, whether it is a GL pair or a single GL
+// byte, and the encode/decode maps. For a two-byte charset the map key/value is the
+// GL pair lead<<8 | trail; for a single-byte charset it is the low byte.
+type iso2022Charset struct {
+	code   byte
+	esc    []byte
+	two    bool
+	encode map[rune]uint16
+	decode map[uint16]rune
 }
 
-// iso2022JPEncodeRun encodes runes, designating the G0 charset with an ESC
-// sequence whenever it changes and returning to ascii before any ascii byte and at
-// the end of a final chunk, the way CPython's iso2022 encoder does. An ascii code
-// point uses the ascii charset, U+00A5 (yen) and U+203E (overline) use JIS X 0201
-// roman, and everything else uses JIS X 0208. A code point none of these can
-// represent routes through the error handler. iso2022_jp holds no rune pending.
+// iso2022Config describes one codec's repertoire. encodeOrder is the list of
+// charsets the encoder tries for a non-ascii, non-roman rune, in priority order.
+// byCode maps a designation code to the charset that decodes in that mode (ascii
+// and roman are handled implicitly and are not listed). desig maps an escape tail
+// (the bytes after 0x1b) to the mode it designates, and is what the decoder
+// recognizes; an escape not in desig is illegal over its whole width.
+type iso2022Config struct {
+	name        string
+	encodeOrder []*iso2022Charset
+	byCode      map[byte]*iso2022Charset
+	desig       map[string]byte
+}
+
+var iso2022CS0208 = &iso2022Charset{
+	code: iso2022Mode0208, esc: []byte{'$', 'B'}, two: true,
+	encode: iso2022JISX0208Encode, decode: iso2022JISX0208Decode,
+}
+
+var iso2022CS0212 = &iso2022Charset{
+	code: iso2022Mode0212, esc: []byte{'$', '(', 'D'}, two: true,
+	encode: iso2022JISX0212Encode, decode: iso2022JISX0212Decode,
+}
+
+var iso2022JPConfig = &iso2022Config{
+	name:        "iso2022_jp",
+	encodeOrder: []*iso2022Charset{iso2022CS0208},
+	byCode: map[byte]*iso2022Charset{
+		iso2022Mode02081978: iso2022CS0208,
+		iso2022Mode0208:     iso2022CS0208,
+	},
+	desig: map[string]byte{
+		"(B": iso2022ModeASCII,
+		"(J": iso2022ModeRoman,
+		"$@": iso2022Mode02081978,
+		"$B": iso2022Mode0208,
+	},
+}
+
+var iso2022JP1Config = &iso2022Config{
+	name:        "iso2022_jp_1",
+	encodeOrder: []*iso2022Charset{iso2022CS0208, iso2022CS0212},
+	byCode: map[byte]*iso2022Charset{
+		iso2022Mode02081978: iso2022CS0208,
+		iso2022Mode0208:     iso2022CS0208,
+		iso2022Mode0212:     iso2022CS0212,
+	},
+	desig: map[string]byte{
+		"(B":  iso2022ModeASCII,
+		"(J":  iso2022ModeRoman,
+		"$@":  iso2022Mode02081978,
+		"$B":  iso2022Mode0208,
+		"$(D": iso2022Mode0212,
+	},
+}
+
+// decStateValue/decStateMode pack the decoder state the way CPython does: the low
+// byte holds the G0 designation code, so the decoder reports (pending, 0x4242_00 |
+// G0). encStateValue/encStateMode do the same for the encoder, which reports
+// 0x42_0000 | (G0 << 8).
+func iso2022DecStateValue(mode int) int64 { return 0x424200 | int64(mode) }
+func iso2022DecStateMode(v int64) int     { return int(v & 0xFF) }
+func iso2022EncStateValue(mode int) int64 { return 0x420000 | int64(mode)<<8 }
+func iso2022EncStateMode(v int64) int     { return int((v >> 8) & 0xFF) }
+
+// iso2022Codec builds the engine codec for a config: the stateful hooks drive the
+// escape machine and the state-packing hooks reproduce CPython's getstate. The
+// ground state is ascii (0x42), not 0.
+func iso2022Codec(cfg *iso2022Config) *mbCodec {
+	return &mbCodec{
+		name:     cfg.name,
+		initMode: iso2022ModeASCII,
+		encodeStateful: func(runes []rune, errors string, final bool, mode int) ([]byte, []rune, int, error) {
+			return iso2022EncodeRun(cfg, runes, errors, final, mode)
+		},
+		decodeStateful: func(data []byte, errors string, final bool, mode int) (string, int, []byte, int, error) {
+			return iso2022DecodeRun(cfg, data, errors, final, mode)
+		},
+		decStateValue: iso2022DecStateValue,
+		decStateMode:  iso2022DecStateMode,
+		encStateValue: iso2022EncStateValue,
+		encStateMode:  iso2022EncStateMode,
+	}
+}
+
+var iso2022JPCodec = iso2022Codec(iso2022JPConfig)
+var iso2022JP1Codec = iso2022Codec(iso2022JP1Config)
+
+// iso2022JPEncodeRun and iso2022JPDecodeRun are the base-config entry points the
+// unit tests drive directly.
 func iso2022JPEncodeRun(runes []rune, errors string, final bool, mode int) ([]byte, []rune, int, error) {
+	return iso2022EncodeRun(iso2022JPConfig, runes, errors, final, mode)
+}
+
+func iso2022JPDecodeRun(data []byte, errors string, final bool, mode int) (string, int, []byte, int, error) {
+	return iso2022DecodeRun(iso2022JPConfig, data, errors, final, mode)
+}
+
+// iso2022EncodeRun encodes runes, designating the G0 charset with an ESC sequence
+// whenever it changes and returning to ascii before any ascii byte and at the end
+// of a final chunk, the way CPython's iso2022 encoder does. An ascii code point
+// uses the ascii charset, U+00A5 (yen) and U+203E (overline) use JIS X 0201 roman,
+// and everything else is tried against the config's charsets in order. A code point
+// none of them can represent routes through the error handler. iso2022 holds no
+// rune pending.
+func iso2022EncodeRun(cfg *iso2022Config, runes []rune, errors string, final bool, mode int) ([]byte, []rune, int, error) {
 	var out []byte
 	toASCII := func() {
 		if mode != iso2022ModeASCII {
@@ -89,36 +197,42 @@ func iso2022JPEncodeRun(runes []rune, errors string, final bool, mode int) ([]by
 			out = append(out, byte(r))
 			continue
 		}
-		if r == 0xA5 || r == 0x203E {
+		if r == iso2022Yen || r == iso2022Overline {
 			if mode != iso2022ModeRoman {
 				out = append(out, 0x1b, '(', 'J')
 				mode = iso2022ModeRoman
 			}
-			if r == 0xA5 {
+			if r == iso2022Yen {
 				out = append(out, 0x5C)
 			} else {
 				out = append(out, 0x7E)
 			}
 			continue
 		}
-		if v, ok := iso2022JISX0208Encode[r]; ok {
-			if mode != iso2022Mode0208 {
-				out = append(out, 0x1b, '$', 'B')
-				mode = iso2022Mode0208
+		if cs := iso2022EncodeLookup(cfg, r); cs != nil {
+			v := cs.encode[r]
+			if int(mode) != int(cs.code) {
+				out = append(out, 0x1b)
+				out = append(out, cs.esc...)
+				mode = int(cs.code)
 			}
-			out = append(out, byte(v>>8), byte(v))
+			if cs.two {
+				out = append(out, byte(v>>8), byte(v))
+			} else {
+				out = append(out, byte(v))
+			}
 			continue
 		}
 		switch errors {
 		case "strict":
-			return nil, nil, 0, mbUnicodeEncodeError("iso2022_jp", r, i, "illegal multibyte sequence")
+			return nil, nil, 0, mbUnicodeEncodeError(cfg.name, r, i, "illegal multibyte sequence")
 		case "ignore":
 			// drop the code point, designation unchanged
 		case "replace":
 			toASCII()
 			out = append(out, '?')
 		default:
-			rep, err := mbEncodeHandler("iso2022_jp", runes, i, errors)
+			rep, err := mbEncodeHandler(cfg.name, runes, i, errors)
 			if err != nil {
 				return nil, nil, 0, err
 			}
@@ -131,20 +245,31 @@ func iso2022JPEncodeRun(runes []rune, errors string, final bool, mode int) ([]by
 	return out, nil, mode, nil
 }
 
-// iso2022JPDecodeRun decodes bytes under the current G0 designation. ESC ( B, ESC
-// ( J, ESC $ @ and ESC $ B redesignate G0; an ESC not starting a known sequence is
-// a passthrough control byte. A byte below 0x21 is a control passed through in any
+// iso2022EncodeLookup returns the first charset in encode order that can represent
+// r, or nil.
+func iso2022EncodeLookup(cfg *iso2022Config, r rune) *iso2022Charset {
+	for _, cs := range cfg.encodeOrder {
+		if _, ok := cs.encode[r]; ok {
+			return cs
+		}
+	}
+	return nil
+}
+
+// iso2022DecodeRun decodes bytes under the current G0 designation. An ESC sequence
+// listed in the config redesignates G0; an ESC not starting a known sequence is a
+// passthrough control byte. A byte below 0x21 is a control passed through in any
 // mode, a byte 0x80 or above is illegal one byte wide, and a byte 0x21..0x7f is
-// ascii/roman output in a single-byte mode or the lead of a JIS X 0208 pair in the
+// ascii/roman output in a single-byte mode or the lead of a two-byte pair in a
 // two-byte mode. A bad two-byte pair is illegal two bytes wide, an escape with a
 // bad final byte is illegal over the whole sequence, and a truncated escape or a
 // lone pair lead is incomplete (buffered when not final), matching CPython's
 // iso2022 decoder.
-func iso2022JPDecodeRun(data []byte, errors string, final bool, mode int) (string, int, []byte, int, error) {
+func iso2022DecodeRun(cfg *iso2022Config, data []byte, errors string, final bool, mode int) (string, int, []byte, int, error) {
 	var out []rune
 	i := 0
 	fail := func(start, end int, reason string) (int, error) {
-		rep, np, err := mbDecodeError("iso2022_jp", data, start, end, reason, errors)
+		rep, np, err := mbDecodeError(cfg.name, data, start, end, reason, errors)
 		if err != nil {
 			return 0, err
 		}
@@ -179,7 +304,6 @@ func iso2022JPDecodeRun(data []byte, errors string, final bool, mode int) (strin
 				i++
 				continue
 			}
-			// ESC ( F and ESC $ F are three-byte; ESC $ ( F is four-byte.
 			if i+2 >= len(data) {
 				if s, ci, buf, m, err, ok := buffer(i); ok {
 					return s, ci, buf, m, err
@@ -192,33 +316,9 @@ func iso2022JPDecodeRun(data []byte, errors string, final bool, mode int) (strin
 				continue
 			}
 			c2 := data[i+2]
-			if c1 == '(' {
-				switch c2 {
-				case 'B':
-					mode = iso2022ModeASCII
-				case 'J':
-					mode = iso2022ModeRoman
-				default:
-					np, err := fail(i, i+3, "illegal multibyte sequence")
-					if err != nil {
-						return "", 0, nil, 0, err
-					}
-					i = np
-					continue
-				}
-				i += 3
-				continue
-			}
-			// c1 == '$'
-			switch c2 {
-			case '@':
-				mode = iso2022Mode02081978
-				i += 3
-			case 'B':
-				mode = iso2022Mode0208
-				i += 3
-			case '(':
-				// Four-byte designation (jisx0212/0213); the base codec has none.
+			// ESC $ ( x is a four-byte designation; every other recognized form is
+			// three bytes (ESC ( x or ESC $ x).
+			if c1 == '$' && c2 == '(' {
 				if i+3 >= len(data) {
 					if s, ci, buf, m, err, ok := buffer(i); ok {
 						return s, ci, buf, m, err
@@ -230,18 +330,28 @@ func iso2022JPDecodeRun(data []byte, errors string, final bool, mode int) (strin
 					i = np
 					continue
 				}
+				if code, ok := cfg.desig[string([]byte{'$', '(', data[i+3]})]; ok {
+					mode = int(code)
+					i += 4
+					continue
+				}
 				np, err := fail(i, i+4, "illegal multibyte sequence")
 				if err != nil {
 					return "", 0, nil, 0, err
 				}
 				i = np
-			default:
-				np, err := fail(i, i+3, "illegal multibyte sequence")
-				if err != nil {
-					return "", 0, nil, 0, err
-				}
-				i = np
+				continue
 			}
+			if code, ok := cfg.desig[string([]byte{c1, c2})]; ok {
+				mode = int(code)
+				i += 3
+				continue
+			}
+			np, err := fail(i, i+3, "illegal multibyte sequence")
+			if err != nil {
+				return "", 0, nil, 0, err
+			}
+			i = np
 			continue
 		}
 		if c < 0x21 {
@@ -257,24 +367,40 @@ func iso2022JPDecodeRun(data []byte, errors string, final bool, mode int) (strin
 			i = np
 			continue
 		}
-		// c is 0x21..0x7f.
-		if mode < 0xC0 {
-			if mode == iso2022ModeRoman {
-				switch c {
-				case 0x5C:
-					out = append(out, 0xA5)
-				case 0x7E:
-					out = append(out, 0x203E)
-				default:
-					out = append(out, rune(c))
-				}
-			} else {
+		// c is 0x21..0x7f. ascii and roman are single-byte; a designated charset is
+		// two-byte or single-byte per its config.
+		if mode == iso2022ModeASCII {
+			out = append(out, rune(c))
+			i++
+			continue
+		}
+		if mode == iso2022ModeRoman {
+			switch c {
+			case 0x5C:
+				out = append(out, iso2022Yen)
+			case 0x7E:
+				out = append(out, iso2022Overline)
+			default:
 				out = append(out, rune(c))
 			}
 			i++
 			continue
 		}
-		// Two-byte JIS X 0208 mode: c is a pair lead.
+		cs := cfg.byCode[byte(mode)]
+		if cs != nil && !cs.two {
+			if cp, ok := cs.decode[uint16(c)]; ok {
+				out = append(out, cp)
+				i++
+				continue
+			}
+			np, err := fail(i, i+1, "illegal multibyte sequence")
+			if err != nil {
+				return "", 0, nil, 0, err
+			}
+			i = np
+			continue
+		}
+		// Two-byte mode: c is a pair lead.
 		if i+1 >= len(data) {
 			if s, ci, buf, m, err, ok := buffer(i); ok {
 				return s, ci, buf, m, err
@@ -287,8 +413,8 @@ func iso2022JPDecodeRun(data []byte, errors string, final bool, mode int) (strin
 			continue
 		}
 		c2 := data[i+1]
-		if c >= 0x21 && c <= 0x7e && c2 >= 0x21 && c2 <= 0x7e {
-			if cp, ok := iso2022JISX0208Decode[uint16(c)<<8|uint16(c2)]; ok {
+		if cs != nil && c >= 0x21 && c <= 0x7e && c2 >= 0x21 && c2 <= 0x7e {
+			if cp, ok := cs.decode[uint16(c)<<8|uint16(c2)]; ok {
 				out = append(out, cp)
 				i += 2
 				continue

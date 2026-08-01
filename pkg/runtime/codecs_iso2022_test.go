@@ -103,11 +103,47 @@ func TestISO2022JPIncrementalNonFinal(t *testing.T) {
 	}
 }
 
+// TestISO2022JP1JISX0212 checks iso2022_jp_1 designates JIS X 0212 with ESC$(D for
+// a character that JIS X 0208 lacks, keeps 0208 for characters it has, and decodes
+// the 0212 pair back. The two-byte machine is shared with the base codec, driven by
+// the config's extra charset.
+func TestISO2022JP1JISX0212(t *testing.T) {
+	// U+4E28 is in JIS X 0212 but not JIS X 0208; it must designate ESC$(D.
+	enc, _, mode, err := iso2022EncodeRun(iso2022JP1Config, []rune("丨"), "strict", true, iso2022ModeASCII)
+	if err != nil || string(enc) != "\x1b$(D0)\x1b(B" || mode != iso2022ModeASCII {
+		t.Fatalf("0212 encode: enc=%x mode=%#x err=%v", enc, mode, err)
+	}
+	// A kanji in JIS X 0208 still designates ESC$B, not ESC$(D.
+	enc, _, _, err = iso2022EncodeRun(iso2022JP1Config, []rune("漢"), "strict", true, iso2022ModeASCII)
+	if err != nil || string(enc) != "\x1b$B4A\x1b(B" {
+		t.Fatalf("0208 encode: enc=%x err=%v", enc, err)
+	}
+	// Every JIS X 0212 pair decodes and the mixed string roundtrips.
+	for key, cp := range iso2022JISX0212Decode {
+		data := []byte{0x1b, '$', '(', 'D', byte(key >> 8), byte(key)}
+		out, consumed, _, mode, err := iso2022DecodeRun(iso2022JP1Config, data, "strict", true, iso2022ModeASCII)
+		if err != nil || consumed != len(data) || out != string(cp) || mode != iso2022Mode0212 {
+			t.Fatalf("iso2022_jp_1 pair %04x: out=%q consumed=%d mode=%#x err=%v", key, out, consumed, mode, err)
+		}
+	}
+	s := "ABC 漢 丨 ¥ x"
+	full, _, _, err := iso2022EncodeRun(iso2022JP1Config, []rune(s), "strict", true, iso2022ModeASCII)
+	if err != nil {
+		t.Fatalf("iso2022_jp_1 encode: %v", err)
+	}
+	out, _, _, _, err := iso2022DecodeRun(iso2022JP1Config, full, "strict", true, iso2022ModeASCII)
+	if err != nil || out != s {
+		t.Fatalf("iso2022_jp_1 roundtrip: enc=%x out=%q err=%v", full, out, err)
+	}
+}
+
 // TestISO2022GetcodecUnknown checks getcodec raises LookupError for a codec this
-// build does not carry yet.
+// build does not carry yet, and returns a codec for the ones it does.
 func TestISO2022GetcodecUnknown(t *testing.T) {
-	_, err := codecsISO2022Getcodec([]objects.Object{objects.NewStr("iso2022_kr")})
-	if err == nil {
-		t.Fatalf("getcodec iso2022_kr: expected LookupError")
+	if _, err := codecsISO2022Getcodec([]objects.Object{objects.NewStr("iso2022_jp_2")}); err == nil {
+		t.Fatalf("getcodec iso2022_jp_2: expected LookupError")
+	}
+	if _, err := codecsISO2022Getcodec([]objects.Object{objects.NewStr("iso2022_jp_1")}); err != nil {
+		t.Fatalf("getcodec iso2022_jp_1: %v", err)
 	}
 }
