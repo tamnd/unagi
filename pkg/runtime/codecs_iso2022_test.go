@@ -256,13 +256,56 @@ func TestISO2022JP2004Planes(t *testing.T) {
 	}
 }
 
+// TestISO2022JP2 checks iso2022_jp_2: the GB 2312 and KSC 5601 G0 charsets encode
+// and decode, the decoder accepts the short ESC$A form for GB 2312, the decode-only
+// G2 sets decode through SS2 (ESC N), and the G2 designation packs into the decoder
+// state above the G0 byte.
+func TestISO2022JP2(t *testing.T) {
+	// A GB 2312 pair roundtrips through ESC$(A and a KSC 5601 pair through ESC$(C.
+	for cp, key := range iso2022GB2312Encode {
+		enc, _, _, err := iso2022EncodeRun(iso2022JP2Config, []rune{cp}, "strict", true, iso2022ModeASCII)
+		want := []byte{0x1b, '$', '(', 'A', byte(key >> 8), byte(key), 0x1b, '(', 'B'}
+		if err != nil || string(enc) != string(want) {
+			t.Fatalf("gb encode %04x: enc=%x want=%x err=%v", cp, enc, want, err)
+		}
+	}
+	for cp, key := range iso2022KSC5601Encode {
+		enc, _, _, err := iso2022EncodeRun(iso2022JP2Config, []rune{cp}, "strict", true, iso2022ModeASCII)
+		want := []byte{0x1b, '$', '(', 'C', byte(key >> 8), byte(key), 0x1b, '(', 'B'}
+		if err != nil || string(enc) != string(want) {
+			t.Fatalf("ksc encode %04x: enc=%x want=%x err=%v", cp, enc, want, err)
+		}
+	}
+	// The decoder accepts the short ESC$A designation for GB 2312.
+	out, _, _, mode, err := iso2022DecodeRun(iso2022JP2Config, []byte{0x1b, '$', 'A', 0x57, 0x28, 0x1b, '(', 'B'}, "strict", true, iso2022ModeASCII)
+	if err != nil || out != "专" || mode != iso2022ModeASCII {
+		t.Fatalf("gb short: out=%q mode=%#x err=%v", out, mode, err)
+	}
+	// SS2 invokes one character from the designated G2 set; the state carries the G2
+	// designation above the G0 byte.
+	g2ground := int(iso2022ModeASCII) | int(iso2022ModeG2None)<<8
+	out, _, _, _, err = iso2022DecodeRun(iso2022JP2Config, []byte{0x1b, '.', 'A', 0x1b, 'N', 0x69, 0x1b, '(', 'B'}, "strict", true, g2ground)
+	if err != nil || out != "é" {
+		t.Fatalf("ss2 latin1: out=%q err=%v", out, err)
+	}
+	out, _, _, _, err = iso2022DecodeRun(iso2022JP2Config, []byte{0x1b, '.', 'F', 0x1b, 'N', 0x61, 0x1b, '(', 'B'}, "strict", true, g2ground)
+	if err != nil || out != "α" {
+		t.Fatalf("ss2 latin7: out=%q err=%v", out, err)
+	}
+	// A G2 designation leaves G0 alone and packs into bits 16..23 of the decoder state.
+	_, _, _, mode, err = iso2022DecodeRun(iso2022JP2Config, []byte{0x1b, '.', 'A'}, "strict", true, g2ground)
+	if err != nil || iso2022JP2DecStateValue(mode) != 0x414242 {
+		t.Fatalf("g2 designation state: mode=%#x value=%#x err=%v", mode, iso2022JP2DecStateValue(mode), err)
+	}
+}
+
 // TestISO2022GetcodecUnknown checks getcodec raises LookupError for a codec this
 // build does not carry yet, and returns a codec for the ones it does.
 func TestISO2022GetcodecUnknown(t *testing.T) {
-	if _, err := codecsISO2022Getcodec([]objects.Object{objects.NewStr("iso2022_jp_2")}); err == nil {
-		t.Fatalf("getcodec iso2022_jp_2: expected LookupError")
+	if _, err := codecsISO2022Getcodec([]objects.Object{objects.NewStr("iso2022_kr")}); err == nil {
+		t.Fatalf("getcodec iso2022_kr: expected LookupError")
 	}
-	for _, name := range []string{"iso2022_jp_1", "iso2022_jp_ext", "iso2022_jp_3", "iso2022_jp_2004"} {
+	for _, name := range []string{"iso2022_jp_1", "iso2022_jp_ext", "iso2022_jp_3", "iso2022_jp_2004", "iso2022_jp_2"} {
 		if _, err := codecsISO2022Getcodec([]objects.Object{objects.NewStr(name)}); err != nil {
 			t.Fatalf("getcodec %s: %v", name, err)
 		}
