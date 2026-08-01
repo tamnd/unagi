@@ -149,8 +149,82 @@ func TestCP932DecodeErrors(t *testing.T) {
 // TestShiftJISGetcodecUnknown checks getcodec raises LookupError for a codec this
 // build does not carry yet.
 func TestShiftJISGetcodecUnknown(t *testing.T) {
-	_, err := codecsJPGetcodec([]objects.Object{objects.NewStr("euc_jp")})
+	_, err := codecsJPGetcodec([]objects.Object{objects.NewStr("euc_jis_2004")})
 	if err == nil {
-		t.Fatalf("getcodec euc_jp: expected LookupError")
+		t.Fatalf("getcodec euc_jis_2004: expected LookupError")
+	}
+}
+
+// TestEUCJPRoundtrip drives the engine through euc_jp, the variable-width
+// Japanese codec: ascii and every mapped two-byte and three-byte sequence must
+// decode, and every code point the decoder can produce must re-encode to bytes
+// that decode back to it.
+func TestEUCJPRoundtrip(t *testing.T) {
+	c := eucJPCodec()
+	for key, cp := range eucJPDoubleDecode {
+		data := []byte{byte(key >> 8), byte(key)}
+		out, consumed, _, err := mbDecodeRun(c, data, "strict", true)
+		if err != nil || consumed != 2 || out != string(cp) {
+			t.Fatalf("pair %04x: out=%q consumed=%d err=%v", key, out, consumed, err)
+		}
+	}
+	for key, cp := range eucJPTripleDecode {
+		data := []byte{eucJPSS3, byte(key >> 8), byte(key)}
+		out, consumed, _, err := mbDecodeRun(c, data, "strict", true)
+		if err != nil || consumed != 3 || out != string(cp) {
+			t.Fatalf("triple 8f%04x: out=%q consumed=%d err=%v", key, out, consumed, err)
+		}
+	}
+	for b := 0; b < 0x80; b++ {
+		out, consumed, _, err := mbDecodeRun(c, []byte{byte(b)}, "strict", true)
+		if err != nil || consumed != 1 || out != string(rune(b)) {
+			t.Fatalf("ascii %#02x: out=%q consumed=%d err=%v", b, out, consumed, err)
+		}
+	}
+	seen := map[rune]bool{}
+	for _, cp := range eucJPDoubleDecode {
+		seen[cp] = true
+	}
+	for _, cp := range eucJPTripleDecode {
+		seen[cp] = true
+	}
+	for cp := range seen {
+		enc, err := mbEncodeRun(c, []rune{cp}, "strict")
+		if err != nil {
+			t.Fatalf("encode U+%04X: %v", cp, err)
+		}
+		out, _, _, err := mbDecodeRun(c, enc, "strict", true)
+		if err != nil || out != string(cp) {
+			t.Fatalf("roundtrip U+%04X: enc=%x out=%q err=%v", cp, enc, out, err)
+		}
+	}
+}
+
+// TestEUCJPDecodeErrors pins the illegal and incomplete positions and wording
+// against the values probed from CPython, including the three-byte 0x8f paths
+// where a truncated sequence reports the bytes in hand and a bad trail resyncs
+// one byte on.
+func TestEUCJPDecodeErrors(t *testing.T) {
+	c := eucJPCodec()
+	cases := []struct {
+		data []byte
+		msg  string
+	}{
+		{[]byte{0x8e}, "'euc_jp' codec can't decode byte 0x8e in position 0: incomplete multibyte sequence"},
+		{[]byte{0x8e, 0x20}, "'euc_jp' codec can't decode byte 0x8e in position 0: illegal multibyte sequence"},
+		{[]byte{0x8f}, "'euc_jp' codec can't decode byte 0x8f in position 0: incomplete multibyte sequence"},
+		{[]byte{0x8f, 0xa1}, "'euc_jp' codec can't decode bytes in position 0-1: incomplete multibyte sequence"},
+		{[]byte{0x8f, 0x20}, "'euc_jp' codec can't decode bytes in position 0-1: incomplete multibyte sequence"},
+		{[]byte{0x8f, 0xa1, 0x20}, "'euc_jp' codec can't decode byte 0x8f in position 0: illegal multibyte sequence"},
+		{[]byte{0xa1, 0x20}, "'euc_jp' codec can't decode byte 0xa1 in position 0: illegal multibyte sequence"},
+		{[]byte{0xa1}, "'euc_jp' codec can't decode byte 0xa1 in position 0: incomplete multibyte sequence"},
+		{[]byte{0x80, 0x20}, "'euc_jp' codec can't decode byte 0x80 in position 0: illegal multibyte sequence"},
+		{[]byte{0x41, 0x8f, 0xa1}, "'euc_jp' codec can't decode bytes in position 1-2: incomplete multibyte sequence"},
+	}
+	for _, tc := range cases {
+		_, _, _, err := mbDecodeRun(c, tc.data, "strict", true)
+		if err == nil || errString(err) != tc.msg {
+			t.Fatalf("decode %x: got %v want %q", tc.data, err, tc.msg)
+		}
 	}
 }
