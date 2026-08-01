@@ -17,6 +17,8 @@ package runtime
 // starred call arguments are deliberately out of scope and reported as such.
 
 import (
+	"strings"
+
 	"github.com/tamnd/unagi/pkg/frontend"
 	"github.com/tamnd/unagi/pkg/objects"
 )
@@ -201,6 +203,8 @@ func evalExpr(node frontend.Expr, env *evalEnv) (objects.Object, error) {
 		return evalCall(n, env)
 	case *frontend.Lambda:
 		return evalLambda(n, env)
+	case *frontend.FStr:
+		return evalFString(n.Parts, env)
 	default:
 		return nil, objects.Raise(syntaxError, "eval: unsupported expression (%T)", node)
 	}
@@ -248,7 +252,13 @@ func evalBinOp(n *frontend.BinOp, env *evalEnv) (objects.Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	switch n.Op {
+	return applyBinOp(n.Op, l, r)
+}
+
+// applyBinOp dispatches a binary operator to the objects operation, shared by the
+// eval() expression path and the exec() augmented-assignment path.
+func applyBinOp(op frontend.BinKind, l, r objects.Object) (objects.Object, error) {
+	switch op {
 	case frontend.BinAdd:
 		return objects.Add(l, r)
 	case frontend.BinSub:
@@ -486,6 +496,59 @@ func evalLambda(n *frontend.Lambda, env *evalEnv) (objects.Object, error) {
 		return evalExpr(body, &evalEnv{fast: fast, locals: captured.locals, globals: captured.globals})
 	}
 	return objects.NewFunction("<lambda>", params, defaults, impl), nil
+}
+
+// evalFString renders an f-string: literal text runs are copied through and each
+// {expr} interpolation is evaluated, converted by an optional !r/!s/!a, and run
+// through format() with its spec. The spec itself may hold nested interpolations
+// (f"{x:{width}}"), so it renders the same way. This is the interpolation the
+// vendored codegen leans on, most immediately dataclasses building __repr__.
+func evalFString(parts []frontend.FPart, env *evalEnv) (objects.Object, error) {
+	var b strings.Builder
+	for _, part := range parts {
+		switch p := part.(type) {
+		case *frontend.FText:
+			b.WriteString(p.Text)
+		case *frontend.FInterp:
+			val, err := evalExpr(p.X, env)
+			if err != nil {
+				return nil, err
+			}
+			switch p.Conv {
+			case 'r':
+				val = objects.NewStr(objects.Repr(val))
+			case 's':
+				val = objects.NewStr(objects.Str(val))
+			case 'a':
+				s, err := objects.Ascii(val)
+				if err != nil {
+					return nil, err
+				}
+				val = objects.NewStr(s)
+			}
+			spec := ""
+			if p.HasSpec {
+				rendered, err := evalFString(p.Spec, env)
+				if err != nil {
+					return nil, err
+				}
+				spec, _ = objects.AsStr(rendered)
+			}
+			formatted, err := objects.Format(val, spec)
+			if err != nil {
+				return nil, err
+			}
+			s, ok := objects.AsStr(formatted)
+			if !ok {
+				return nil, objects.Raise(objects.TypeError,
+					"__format__ must return a str, not %s", formatted.TypeName())
+			}
+			b.WriteString(s)
+		default:
+			return nil, objects.Raise(syntaxError, "eval: unsupported f-string part (%T)", part)
+		}
+	}
+	return objects.NewStr(b.String()), nil
 }
 
 // evalParamKind maps a frontend parameter kind to the objects one. The two enums

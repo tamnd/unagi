@@ -1,0 +1,20 @@
+== exit: 0
+== stdout:
+repr: Point(x=1, y=0)
+eq: True False
+is_dataclass: True True
+fields: ['x', 'y']
+factory independent: [1] []
+order: True True
+sorted: [Ver(major=1, minor=2), Ver(major=1, minor=5), Ver(major=2, minor=0)]
+frozen repr: Const(name='pi', value=3)
+frozen blocks assignment
+asdict: {'start': {'x': 0, 'y': 0}, 'end': {'x': 1, 'y': 1}}
+astuple: ((0, 0), (1, 1))
+replace: Point(x=1, y=9) Point(x=1, y=0)
+repr hides field: Meta(a=5)
+metadata: m
+post_init: 212.0
+inherited fields: ['a', 'b'] Derived(a=1, b=2)
+== exception:
+== stderr:
