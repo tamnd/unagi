@@ -75,6 +75,7 @@ var codecsExports = []string{
 	"utf_32_decode", "utf_32_le_decode", "utf_32_be_decode", "utf_32_ex_decode",
 	"unicode_escape_encode", "unicode_escape_decode",
 	"raw_unicode_escape_encode", "raw_unicode_escape_decode",
+	"utf_7_encode", "utf_7_decode",
 }
 
 // stdErrorNames are the error handlers the C module preregisters. strict is the
@@ -136,6 +137,9 @@ func initCodecs(m *objects.Module) error {
 		"unicode_escape_decode":     objects.NewFuncKw("unicode_escape_decode", codecUnicodeEscapeDecode),
 		"raw_unicode_escape_encode": objects.NewFuncKw("raw_unicode_escape_encode", codecRawUnicodeEscapeEncode),
 		"raw_unicode_escape_decode": objects.NewFuncKw("raw_unicode_escape_decode", codecRawUnicodeEscapeDecode),
+
+		"utf_7_encode": objects.NewFuncKw("utf_7_encode", codecUTF7Encode),
+		"utf_7_decode": objects.NewFuncKw("utf_7_decode", codecUTF7Decode),
 	}
 	for _, name := range codecsExports {
 		if err := objects.StoreAttr(m, name, attrs[name]); err != nil {
