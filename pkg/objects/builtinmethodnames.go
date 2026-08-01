@@ -62,6 +62,7 @@ var setMethodNames = map[string]bool{
 	"add": true, "clear": true, "difference_update": true, "discard": true,
 	"intersection_update": true, "pop": true, "remove": true,
 	"symmetric_difference_update": true, "update": true,
+	"__reduce__": true, "__reduce_ex__": true,
 }
 
 // frozensetMethodNames is commonSetMethod, the non-mutating surface a frozenset
@@ -69,6 +70,7 @@ var setMethodNames = map[string]bool{
 var frozensetMethodNames = map[string]bool{
 	"copy": true, "union": true, "intersection": true, "difference": true,
 	"symmetric_difference": true, "issubset": true, "issuperset": true, "isdisjoint": true,
+	"__reduce__": true, "__reduce_ex__": true,
 }
 
 // dictMethodNames tracks dictMethod, the surface every dict kind carries.

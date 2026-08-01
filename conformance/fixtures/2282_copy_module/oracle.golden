@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+shallow new outer: True
+shallow shares inner: True
+mutation seen by original: [1, 2, 99]
+deep new inner: True
+deep leaves original: [1, 2]
+dict deep inner: True True
+set deepcopy: [1, 2, 3]
+atomic int: True
+atomic str: True
+atomic None: True
+tuple shallow same: True
+tuple deep new: True True True
+class shallow shares attr: True
+class deep copies attr: True True
+class repr: Point([1], 2)
+hook copy: shallow-of-x
+hook deepcopy: deep-of-x
+reduce deep new: True True True
+memo shares: True True
+cycle rebuilt: True True 1
+explicit memo populated: True
+== exception:
+== stderr:

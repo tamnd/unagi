@@ -468,6 +468,23 @@ func noArgs(recv Object, name string, args []Object) error {
 // second return reports whether the name was one of them.
 func commonSetMethod(recv Object, c *setCore, name string, args []Object) (Object, bool, error) {
 	switch name {
+	case "__reduce__", "__reduce_ex__":
+		// copy.deepcopy and pickle rebuild a set from (cls, (list(self),), None):
+		// the type applied to its elements as a single list argument. __reduce_ex__
+		// carries a protocol number that this reduction does not vary on, so both
+		// names share the tuple. The class comes from the runtime type table, the
+		// same object type(self) yields, so set([...]) and frozenset([...]) rebuild.
+		if BuiltinTypeResolver == nil {
+			return nil, false, nil
+		}
+		cls, ok := BuiltinTypeResolver(recv.TypeName())
+		if !ok {
+			return nil, false, nil
+		}
+		elts := make([]Object, len(c.elts))
+		copy(elts, c.elts)
+		rv := NewTuple([]Object{cls, NewTuple([]Object{NewList(elts)}), None})
+		return rv, true, nil
 	case "copy":
 		if err := noArgs(recv, name, args); err != nil {
 			return nil, true, err
