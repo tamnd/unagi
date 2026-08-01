@@ -1,0 +1,45 @@
+== exit: 0
+== stdout:
+currency_symbol ''
+decimal_point '.'
+frac_digits 127
+grouping []
+int_curr_symbol ''
+int_frac_digits 127
+mon_decimal_point ''
+mon_grouping []
+mon_thousands_sep ''
+n_cs_precedes 127
+n_sep_by_space 127
+n_sign_posn 127
+negative_sign ''
+p_cs_precedes 127
+p_sep_by_space 127
+p_sign_posn 127
+positive_sign ''
+thousands_sep ''
+LC_CTYPE -> 'C'
+LC_COLLATE -> 'C'
+LC_TIME -> 'C'
+LC_MONETARY -> 'C'
+LC_NUMERIC -> 'C'
+strcoll -1 1 0
+strxfrm 'hello'
+atoi 12345 -9
+atof 3.14 -0.5
+str '1234.5' '-0' '100'
+delocalize '1234.5'
+1000000
+-1234.50
+n=42
+currency ValueError Currency formatting is not possible using the 'C' locale.
+normalize en_US -> en_US.ISO8859-1
+normalize en -> en_US.ISO8859-1
+normalize de_DE.UTF-8 -> de_DE.UTF-8
+normalize zh_CN.gb2312 -> zh_CN.gb2312
+normalize uk_UA.KOI8-U -> uk_UA.KOI8-U
+normalize C -> C
+getlocale (None, None)
+setlocale Error unsupported locale setting
+== exception:
+== stderr:
