@@ -53,11 +53,16 @@ func tupleGetterAttr(g *tupleGetterObject, name string) (Object, error) {
 			if args[0] == None {
 				return g, nil
 			}
-			t, ok := args[0].(*tupleObject)
-			if !ok || g.index >= len(t.elts) {
-				return nil, Raise(TypeError, "descriptor for index %d is for a tuple", g.index)
+			// The field is read by index out of the instance, which is a tuple for a
+			// Go-native namedtuple and a tuple subclass for the vendored package's
+			// type(name, (tuple,), ns); GetItem answers both, so the descriptor works
+			// regardless of which path built the class.
+			if !instanceOfBuiltin(args[0], "tuple") {
+				if _, ok := args[0].(*tupleObject); !ok {
+					return nil, Raise(TypeError, "descriptor for index %d is for a tuple", g.index)
+				}
 			}
-			return t.elts[g.index], nil
+			return GetItem(args[0], NewInt(int64(g.index)))
 		}), nil
 	}
 	return nil, Raise(AttributeError, "'_tuplegetter' object has no attribute '%s'", name)
@@ -80,6 +85,14 @@ func tupleGetterRepr(g *tupleGetterObject, strict bool) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("_tuplegetter(%d, %s)", g.index, d), nil
+}
+
+// NewTupleGetter builds a _tuplegetter descriptor for field index with the given
+// doc string, the constructor the vendored collections package imports from
+// _collections to install each namedtuple field. It is the seam the pure-Python
+// namedtuple uses in place of the Go-native path's own getters.
+func NewTupleGetter(index int, doc Object) Object {
+	return &tupleGetterObject{index: index, doc: doc}
 }
 
 // namedTupleType is the class object namedtuple() returns: a callable that

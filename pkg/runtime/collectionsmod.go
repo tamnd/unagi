@@ -110,6 +110,17 @@ func init() {
 // initCollectionsAccel populates _collections, the accelerator surface the
 // vendored collections package imports its container types from.
 func initCollectionsAccel(m *objects.Module) error {
+	// _tuplegetter(index, doc) builds the field descriptor the vendored namedtuple
+	// installs on each generated class; without it the pure package falls back to a
+	// property whose __doc__ it cannot then set, the way dis.py documents its
+	// _Instruction fields.
+	tupleGetter := objects.NewFunc("_tuplegetter", 2, func(a []objects.Object) (objects.Object, error) {
+		idx, ok := objects.AsIntValue(a[0])
+		if !ok {
+			return nil, objects.Raise(objects.TypeError, "_tuplegetter(): index must be an integer")
+		}
+		return objects.NewTupleGetter(int(idx), a[1]), nil
+	})
 	for _, e := range []struct {
 		name string
 		v    objects.Object
@@ -117,6 +128,7 @@ func initCollectionsAccel(m *objects.Module) error {
 		{"deque", dequeType},
 		{"defaultdict", defaultdictType},
 		{"OrderedDict", orderedDictType},
+		{"_tuplegetter", tupleGetter},
 	} {
 		if err := objects.StoreAttr(m, e.name, e.v); err != nil {
 			return err

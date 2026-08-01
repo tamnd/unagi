@@ -1,0 +1,11 @@
+== exit: 0
+== stdout:
+type _tuplegetter
+repr _tuplegetter(0, 'the first field')
+doc the first field
+doc2 rewritten
+attr 10 20
+get 20
+class-read is descriptor _tuplegetter
+== exception:
+== stderr:
