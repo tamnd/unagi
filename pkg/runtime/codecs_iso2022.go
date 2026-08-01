@@ -45,6 +45,8 @@ func codecsISO2022Getcodec(args []objects.Object) (objects.Object, error) {
 		return newMultibyteCodec(iso2022JP1Codec)
 	case "iso2022_jp_ext":
 		return newMultibyteCodec(iso2022JPExtCodec)
+	case "iso2022_jp_3":
+		return newMultibyteCodec(iso2022JP3Codec)
 	default:
 		return nil, objects.Raise("LookupError", "no such codec is supported.")
 	}
@@ -61,6 +63,8 @@ const (
 	iso2022Mode0208     = 0xC2
 	iso2022Mode0212     = 0xC4
 	iso2022ModeKana     = 0x49
+	iso2022Mode0213P1O  = 0xCF
+	iso2022Mode0213P2   = 0xD0
 )
 
 // The roman charset differs from ascii only at 0x5c (yen) and 0x7e (overline).
@@ -79,6 +83,14 @@ type iso2022Charset struct {
 	two    bool
 	encode map[rune]uint16
 	decode map[uint16]rune
+	// A charset with combining sequences (JIS X 0213 plane 1) also carries the
+	// two-code-point maps: decode2 turns a GL pair into a base plus a combining
+	// mark, encode2 turns that base and mark back into the pair, and base is the
+	// set of code points that can begin such a pair. The other charsets leave
+	// these nil.
+	decode2 map[uint16][2]rune
+	encode2 map[[2]rune]uint16
+	base    map[rune]bool
 }
 
 // iso2022Config describes one codec's repertoire. encodeOrder is the list of
@@ -92,6 +104,10 @@ type iso2022Config struct {
 	encodeOrder []*iso2022Charset
 	byCode      map[byte]*iso2022Charset
 	desig       map[string]byte
+	// hasRoman is set when the codec carries JIS X 0201 roman: the encoder folds
+	// U+00A5 and U+203E into ESC(J. The stricter JIS X 0213 variants leave it
+	// false, so those two code points route through the error handler instead.
+	hasRoman bool
 }
 
 var iso2022CS0208 = &iso2022Charset{
@@ -122,8 +138,24 @@ func iso2022MakeKana() *iso2022Charset {
 	}
 }
 
+// iso2022CS0213P1O is JIS X 0213 plane 1 designated by ESC$(O (the iso2022_jp_3
+// revision), carrying the 25 combining pairs. iso2022CS0213P2 is plane 2 (ESC$(P),
+// shared by iso2022_jp_3 and iso2022_jp_2004, with no combining.
+var iso2022CS0213P1O = &iso2022Charset{
+	code: iso2022Mode0213P1O, esc: []byte{'$', '(', 'O'}, two: true,
+	encode: iso2022JISX0213P1OEncode, decode: iso2022JISX0213P1ODecode,
+	encode2: iso2022JISX0213P1OEncode2, decode2: iso2022JISX0213P1ODecode2,
+	base: iso2022JISX0213P1OBase,
+}
+
+var iso2022CS0213P2 = &iso2022Charset{
+	code: iso2022Mode0213P2, esc: []byte{'$', '(', 'P'}, two: true,
+	encode: iso2022JISX0213P2Encode, decode: iso2022JISX0213P2Decode,
+}
+
 var iso2022JPConfig = &iso2022Config{
 	name:        "iso2022_jp",
+	hasRoman:    true,
 	encodeOrder: []*iso2022Charset{iso2022CS0208},
 	byCode: map[byte]*iso2022Charset{
 		iso2022Mode02081978: iso2022CS0208,
@@ -139,6 +171,7 @@ var iso2022JPConfig = &iso2022Config{
 
 var iso2022JP1Config = &iso2022Config{
 	name:        "iso2022_jp_1",
+	hasRoman:    true,
 	encodeOrder: []*iso2022Charset{iso2022CS0208, iso2022CS0212},
 	byCode: map[byte]*iso2022Charset{
 		iso2022Mode02081978: iso2022CS0208,
@@ -156,6 +189,7 @@ var iso2022JP1Config = &iso2022Config{
 
 var iso2022JPExtConfig = &iso2022Config{
 	name:        "iso2022_jp_ext",
+	hasRoman:    true,
 	encodeOrder: []*iso2022Charset{iso2022CS0208, iso2022CS0212, iso2022CSKana},
 	byCode: map[byte]*iso2022Charset{
 		iso2022Mode02081978: iso2022CS0208,
@@ -170,6 +204,26 @@ var iso2022JPExtConfig = &iso2022Config{
 		"$@":  iso2022Mode02081978,
 		"$B":  iso2022Mode0208,
 		"$(D": iso2022Mode0212,
+	},
+}
+
+// iso2022_jp_3 is stricter than the base codec: it carries only ascii, JIS X 0208
+// and the two JIS X 0213 planes (plane 1 by ESC$(O, plane 2 by ESC$(P). It does not
+// designate roman, the 1978 revision, kana or JIS X 0212, so those escapes are
+// illegal and U+00A5 / U+203E do not encode.
+var iso2022JP3Config = &iso2022Config{
+	name:        "iso2022_jp_3",
+	encodeOrder: []*iso2022Charset{iso2022CS0208, iso2022CS0213P1O, iso2022CS0213P2},
+	byCode: map[byte]*iso2022Charset{
+		iso2022Mode0208:    iso2022CS0208,
+		iso2022Mode0213P1O: iso2022CS0213P1O,
+		iso2022Mode0213P2:  iso2022CS0213P2,
+	},
+	desig: map[string]byte{
+		"(B":  iso2022ModeASCII,
+		"$B":  iso2022Mode0208,
+		"$(O": iso2022Mode0213P1O,
+		"$(P": iso2022Mode0213P2,
 	},
 }
 
@@ -205,6 +259,7 @@ func iso2022Codec(cfg *iso2022Config) *mbCodec {
 var iso2022JPCodec = iso2022Codec(iso2022JPConfig)
 var iso2022JP1Codec = iso2022Codec(iso2022JP1Config)
 var iso2022JPExtCodec = iso2022Codec(iso2022JPExtConfig)
+var iso2022JP3Codec = iso2022Codec(iso2022JP3Config)
 
 // iso2022JPEncodeRun and iso2022JPDecodeRun are the base-config entry points the
 // unit tests drive directly.
@@ -231,6 +286,14 @@ func iso2022EncodeRun(cfg *iso2022Config, runes []rune, errors string, final boo
 			mode = iso2022ModeASCII
 		}
 	}
+	// switchTo emits the escape for cs if the mode is not already there.
+	switchTo := func(cs *iso2022Charset) {
+		if int(mode) != int(cs.code) {
+			out = append(out, 0x1b)
+			out = append(out, cs.esc...)
+			mode = int(cs.code)
+		}
+	}
 	for i := 0; i < len(runes); i++ {
 		r := runes[i]
 		if r < 0x80 {
@@ -238,7 +301,7 @@ func iso2022EncodeRun(cfg *iso2022Config, runes []rune, errors string, final boo
 			out = append(out, byte(r))
 			continue
 		}
-		if r == iso2022Yen || r == iso2022Overline {
+		if cfg.hasRoman && (r == iso2022Yen || r == iso2022Overline) {
 			if mode != iso2022ModeRoman {
 				out = append(out, 0x1b, '(', 'J')
 				mode = iso2022ModeRoman
@@ -250,13 +313,21 @@ func iso2022EncodeRun(cfg *iso2022Config, runes []rune, errors string, final boo
 			}
 			continue
 		}
+		// A base followed by its combining mark encodes as one plane 1 pair.
+		if cs, v, ok := iso2022EncodePair(cfg, runes, i); ok {
+			switchTo(cs)
+			out = append(out, byte(v>>8), byte(v))
+			i++
+			continue
+		}
+		// A combining base at the end of a non-final chunk is held for the next
+		// call, in case its mark arrives in the following chunk.
+		if !final && i == len(runes)-1 && iso2022IsBase(cfg, r) {
+			return out, append([]rune(nil), runes[i:]...), mode, nil
+		}
 		if cs := iso2022EncodeLookup(cfg, r); cs != nil {
 			v := cs.encode[r]
-			if int(mode) != int(cs.code) {
-				out = append(out, 0x1b)
-				out = append(out, cs.esc...)
-				mode = int(cs.code)
-			}
+			switchTo(cs)
 			if cs.two {
 				out = append(out, byte(v>>8), byte(v))
 			} else {
@@ -295,6 +366,35 @@ func iso2022EncodeLookup(cfg *iso2022Config, r rune) *iso2022Charset {
 		}
 	}
 	return nil
+}
+
+// iso2022EncodePair returns the charset and GL pair for a two-code-point combining
+// sequence starting at runes[i], or ok=false when runes[i] and its successor are
+// not a combining pair in any charset.
+func iso2022EncodePair(cfg *iso2022Config, runes []rune, i int) (*iso2022Charset, uint16, bool) {
+	if i+1 >= len(runes) {
+		return nil, 0, false
+	}
+	key := [2]rune{runes[i], runes[i+1]}
+	for _, cs := range cfg.encodeOrder {
+		if cs.encode2 == nil {
+			continue
+		}
+		if v, ok := cs.encode2[key]; ok {
+			return cs, v, true
+		}
+	}
+	return nil, 0, false
+}
+
+// iso2022IsBase reports whether r can begin a combining pair in any charset.
+func iso2022IsBase(cfg *iso2022Config, r rune) bool {
+	for _, cs := range cfg.encodeOrder {
+		if cs.base != nil && cs.base[r] {
+			return true
+		}
+	}
+	return false
 }
 
 // iso2022DecodeRun decodes bytes under the current G0 designation. An ESC sequence
@@ -455,8 +555,15 @@ func iso2022DecodeRun(cfg *iso2022Config, data []byte, errors string, final bool
 		}
 		c2 := data[i+1]
 		if cs != nil && c >= 0x21 && c <= 0x7e && c2 >= 0x21 && c2 <= 0x7e {
-			if cp, ok := cs.decode[uint16(c)<<8|uint16(c2)]; ok {
+			key := uint16(c)<<8 | uint16(c2)
+			if cp, ok := cs.decode[key]; ok {
 				out = append(out, cp)
+				i += 2
+				continue
+			}
+			// A JIS X 0213 plane 1 pair may decode to a base plus a combining mark.
+			if pr, ok := cs.decode2[key]; ok {
+				out = append(out, pr[0], pr[1])
 				i += 2
 				continue
 			}
