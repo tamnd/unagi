@@ -267,6 +267,13 @@ func codecEncode(pos []objects.Object, kwNames []string, kwVals []objects.Object
 	}
 	b, err := objects.EncodeStr(s, enc, errs)
 	if err != nil {
+		// A str-to-str codec such as rot_13 hands back a str, which the
+		// bytes-forcing core path rejects. codecs.encode, unlike str.encode,
+		// returns whatever the codec produces, so fall back to the registry and
+		// return its object when it succeeds; otherwise keep the original error.
+		if res, rerr := codecViaRegistry("encode", obj, enc, errs); rerr == nil {
+			return res, nil
+		}
 		return nil, err
 	}
 	return objects.NewBytes(b), nil
@@ -282,6 +289,12 @@ func codecDecode(pos []objects.Object, kwNames []string, kwVals []objects.Object
 	}
 	v, ok := objects.AsBytesLike(obj)
 	if !ok {
+		// A str-to-str codec such as rot_13 decodes a str. CPython lets the codec
+		// itself decide whether it accepts a str rather than pre-rejecting here,
+		// so dispatch through the registry and let it raise if the codec does not.
+		if _, isStr := objects.AsStr(obj); isStr {
+			return codecViaRegistry("decode", obj, enc, errs)
+		}
 		return nil, objects.Raise(objects.TypeError, "decode() argument 'obj' must be bytes-like, not %s", obj.TypeName())
 	}
 	return objects.DecodeBytes(v, enc, errs)
