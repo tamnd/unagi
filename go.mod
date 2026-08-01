@@ -6,7 +6,7 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/charmbracelet/fang v1.0.0
 	github.com/spf13/cobra v1.10.2
-	github.com/tamnd/unagi-stdlib v0.0.0-20260801095642-95e9dc959e06
+	github.com/tamnd/unagi-stdlib v0.0.0-20260801224905-163a728d1c8a
 )
 
 require (
