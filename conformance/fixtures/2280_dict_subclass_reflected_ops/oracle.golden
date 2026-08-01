@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+c == dict: True
+dict == c: True
+c != dict: True
+dict != c: True
+c | dict: {'a': 2, 'b': 3} dict
+c | C: C-union
+plain == dict: True
+dict == plain: True
+plain != dict: True
+plain == other: False
+== exception:
+== stderr:

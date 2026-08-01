@@ -295,6 +295,21 @@ func dictBacked(x *instanceObject) (*dictObject, bool) {
 	return nil, false
 }
 
+// dictPayload accepts either a real dict or a dict subclass instance and returns
+// the underlying dictObject, so an equality or union treats a subclass operand
+// like its base dict. It is the mapping analogue of listPayload, letting the
+// native dict operators reach a Counter-style subclass's store once the
+// subclass's own dunder has declined. ok is false for anything else.
+func dictPayload(o Object) (*dictObject, bool) {
+	switch v := o.(type) {
+	case *dictObject:
+		return v, true
+	case *instanceObject:
+		return dictBacked(v)
+	}
+	return nil, false
+}
+
 // dictInit seeds a dict subclass instance's store the way dict(...) does: at
 // most one positional argument, a mapping merged by its keys or any other value
 // read as an iterable of key-value pairs, then the keyword items in order. It is

@@ -38,10 +38,41 @@ func binFallback(op string, a, b Object) (Object, error) {
 	if res, ok, err := binaryDunder(names[0], names[1], a, b); ok || err != nil {
 		return res, err
 	}
+	if res, ok, err := dictSubclassBinary(op, a, b); ok || err != nil {
+		return res, err
+	}
 	if res, ok, err := valueSubclassBinary(op, a, b); ok || err != nil {
 		return res, err
 	}
 	return nil, unsupported(op, a, b)
+}
+
+// dictSubclassBinary handles dict's | when the builtin fast path and the dunder
+// protocol have both declined because a dict subclass instance sat on one side.
+// It mirrors dict.__or__/__ror__: merge the two mappings by contents into a
+// fresh plain dict, so Counter(a=1) | {"a": 2} yields the {'a': 2} dict once
+// Counter.__or__ returns NotImplemented against a non-Counter. At least one
+// operand must be a subclass instance, since two native dicts already merged on
+// the fast path. ok is false for any other operator or a non-mapping operand.
+func dictSubclassBinary(op string, a, b Object) (Object, bool, error) {
+	if op != "|" {
+		return nil, false, nil
+	}
+	_, aInst := a.(*instanceObject)
+	_, bInst := b.(*instanceObject)
+	if !aInst && !bInst {
+		return nil, false, nil
+	}
+	da, aok := dictPayload(a)
+	db, bok := dictPayload(b)
+	if !aok || !bok {
+		return nil, false, nil
+	}
+	res, err := dictOr(da, db)
+	if err != nil {
+		return nil, true, err
+	}
+	return res, true, nil
 }
 
 // binOp returns the concrete binary function for an operator symbol, so a value
