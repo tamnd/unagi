@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+rot_enc Uryyb, Jbeyq! 123
+rot_dec Hello, World! 123
+rot_rt Attack at dawn
+puny b'munchen-' True
+puny b'mnchen-3ya' True
+puny b'bcher-kva' True
+puny b'--dqo34k' True
+puny b'wgv71a119e' True
+puny b'mxacd' True
+puny_method b'mnchen-3ya'
+puny_decmethod münchen
+idna b'xn--mnchen-3ya.de' münchen.de
+idna b'xn--bcher-kva.example.com' bücher.example.com
+idna b'example.org' example.org
+idna b'aaa.bbb.ccc' aaa.bbb.ccc
+== exception:
+== stderr:
