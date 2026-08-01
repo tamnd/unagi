@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+name 'A'      LATIN CAPITAL LETTER A
+name '中'      CJK UNIFIED IDEOGRAPH-4E2D
+name '㐀'      CJK UNIFIED IDEOGRAPH-3400
+name '𠀀'      CJK UNIFIED IDEOGRAPH-20000
+name '가'      HANGUL SYLLABLE GA
+name '힣'      HANGUL SYLLABLE HIH
+name '𐵀'      GARAY DIGIT ZERO
+default: NONE
+name error: no such name
+lookup LATIN CAPITAL LETTER A                         0041
+lookup CJK UNIFIED IDEOGRAPH-4E2D                     4E2D
+lookup HANGUL SYLLABLE GA                             AC00
+lookup HANGUL SYLLABLE HIH                            D7A3
+lookup NULL                                           0000
+lookup BELL                                           1F514
+lookup LATIN SMALL LETTER GHA                         01A3
+lookup LATIN CAPITAL LETTER A WITH MACRON AND GRAVE   0100 0300
+lookup error: "undefined character name 'CJK UNIFIED IDEOGRAPH-04E2D'"
+lookup error: "undefined character name 'NO SUCH CHARACTER NAME'"
+== exception:
+== stderr:
