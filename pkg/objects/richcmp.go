@@ -68,6 +68,22 @@ func richCompare(op CmpOp, a, b Object) (Object, error) {
 func richSlot(x Object, op CmpOp, other Object) (res Object, ok bool, err error) {
 	inst, isInst := x.(*instanceObject)
 	if !isInst {
+		// A native dict is dict.__eq__'s reflected operand against a dict subclass
+		// instance: it compares by contents against the subclass's mapping store,
+		// the way Counter(a=1) == {"a": 1} settles once Counter.__eq__ declines a
+		// non-Counter. Only == and != are defined; an ordering has no dict slot.
+		if d, ok := x.(*dictObject); ok {
+			if oi, ok := other.(*instanceObject); ok {
+				if od, ok := dictBacked(oi); ok {
+					switch op {
+					case OpEq:
+						return NewBool(dictEquals(d, od)), true, nil
+					case OpNe:
+						return NewBool(!dictEquals(d, od)), true, nil
+					}
+				}
+			}
+		}
 		// A builtin does not know how to compare against a user instance; it
 		// yields NotImplemented so the instance's slot decides.
 		return nil, false, nil
@@ -125,6 +141,21 @@ func richSlot(x Object, op CmpOp, other Object) (res Object, ok bool, err error)
 		}
 		if oc, ok := asSetCore(other); ok {
 			return NewBool(setOrder(op, c, oc)), true, nil
+		}
+		return nil, false, nil
+	}
+	// A dict subclass with no comparison override compares as its mapping, so a
+	// bare `class D(dict): pass` instance equals a plain dict (or another dict
+	// subclass) by keys and values. The other operand unwraps too when it is a
+	// dict or dict subclass; == and != are the only defined comparisons.
+	if d, ok := dictBacked(inst); ok {
+		if od, ok := dictPayload(other); ok {
+			switch op {
+			case OpEq:
+				return NewBool(dictEquals(d, od)), true, nil
+			case OpNe:
+				return NewBool(!dictEquals(d, od)), true, nil
+			}
 		}
 		return nil, false, nil
 	}

@@ -222,3 +222,55 @@ func TestDictSubclassDunderAttrs(t *testing.T) {
 		t.Fatalf("len after __delitem__ = %d; want 0", n)
 	}
 }
+
+// TestDictSubclassReflectedEqAndOr covers a bare dict subclass instance meeting a
+// plain dict across == , != and |: with no operator override the instance
+// compares by contents and its union merges into a fresh plain dict, matching
+// dict.__eq__/__ror__ once the subclass side declines.
+func TestDictSubclassReflectedEqAndOr(t *testing.T) {
+	c := buildDictSubclass(t, "Plain", nil, nil)
+	inst, err := Instantiate(c, nil, []string{"a"}, []Object{NewInt(1)})
+	if err != nil {
+		t.Fatalf("instantiate: %v", err)
+	}
+	native, err := NewDict([]Object{NewStr("a")}, []Object{NewInt(1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Equality holds by contents in both operand orders, and != negates it.
+	for _, tc := range []struct {
+		name string
+		a, b Object
+	}{
+		{"inst == dict", inst, native},
+		{"dict == inst", native, inst},
+	} {
+		r, err := Compare(OpEq, tc.a, tc.b)
+		if err != nil || r != True {
+			t.Fatalf("%s = %v, %v; want True", tc.name, r, err)
+		}
+	}
+	other, _ := NewDict([]Object{NewStr("a")}, []Object{NewInt(2)})
+	if r, err := Compare(OpNe, inst, other); err != nil || r != True {
+		t.Fatalf("inst != {a:2} = %v, %v; want True", r, err)
+	}
+	if r, err := Compare(OpEq, inst, other); err != nil || r != False {
+		t.Fatalf("inst == {a:2} = %v, %v; want False", r, err)
+	}
+
+	// inst | dict merges right-wins into a fresh plain dict, not the subclass.
+	u, err := BitOr(inst, other)
+	if err != nil {
+		t.Fatalf("inst | dict: %v", err)
+	}
+	if _, ok := u.(*dictObject); !ok {
+		t.Fatalf("inst | dict type = %s; want a plain dict", u.TypeName())
+	}
+	if v, err := GetItem(u, NewStr("a")); err != nil || !objEq(t, v, NewInt(2)) {
+		t.Fatalf("(inst | {a:2})[a] = %v, %v; want 2", v, err)
+	}
+	// The original instance is not mutated by the union.
+	if v, _ := GetItem(inst, NewStr("a")); !objEq(t, v, NewInt(1)) {
+		t.Fatalf("inst[a] after union = %v; want 1 unchanged", v)
+	}
+}
