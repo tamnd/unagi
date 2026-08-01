@@ -24,6 +24,10 @@ func TestUnicodedataCategory(t *testing.T) {
 		{" ", "Zs"}, {" ", "Zl"}, {" ", "Zp"},
 		{"\x00", "Cc"}, {"\u200b", "Cf"}, {"\U000f0000", "Co"},
 		{"\U0003fffd", "Cn"},
+		// Lone surrogates are single code points stored as WTF-8; category()
+		// must decode them without splitting into replacement runes. CPython
+		// reports the whole surrogate block as Cs.
+		{objects.StrFromRune(0xD800), "Cs"}, {objects.StrFromRune(0xDFFF), "Cs"},
 	}
 	for _, c := range cases {
 		got, err := udCategory([]objects.Object{objects.NewStr(c.ch)})
