@@ -73,6 +73,8 @@ var codecsExports = []string{
 	"utf_16_decode", "utf_16_le_decode", "utf_16_be_decode", "utf_16_ex_decode",
 	"utf_32_encode", "utf_32_le_encode", "utf_32_be_encode",
 	"utf_32_decode", "utf_32_le_decode", "utf_32_be_decode", "utf_32_ex_decode",
+	"unicode_escape_encode", "unicode_escape_decode",
+	"raw_unicode_escape_encode", "raw_unicode_escape_decode",
 }
 
 // stdErrorNames are the error handlers the C module preregisters. strict is the
@@ -129,6 +131,11 @@ func initCodecs(m *objects.Module) error {
 		"utf_32_le_decode": objects.NewFuncKw("utf_32_le_decode", codecUTF32LEDecode),
 		"utf_32_be_decode": objects.NewFuncKw("utf_32_be_decode", codecUTF32BEDecode),
 		"utf_32_ex_decode": objects.NewFuncKw("utf_32_ex_decode", codecUTF32ExDecode),
+
+		"unicode_escape_encode":     objects.NewFuncKw("unicode_escape_encode", codecUnicodeEscapeEncode),
+		"unicode_escape_decode":     objects.NewFuncKw("unicode_escape_decode", codecUnicodeEscapeDecode),
+		"raw_unicode_escape_encode": objects.NewFuncKw("raw_unicode_escape_encode", codecRawUnicodeEscapeEncode),
+		"raw_unicode_escape_decode": objects.NewFuncKw("raw_unicode_escape_decode", codecRawUnicodeEscapeDecode),
 	}
 	for _, name := range codecsExports {
 		if err := objects.StoreAttr(m, name, attrs[name]); err != nil {
