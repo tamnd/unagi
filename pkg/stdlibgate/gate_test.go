@@ -21,25 +21,44 @@ import (
 //go:embed w0gate.py
 var w0gate []byte
 
+//go:embed s1gate.py
+var s1gate []byte
+
 // TestW0Gate compiles w0gate.py and runs it, requiring exit 0. The driver runs
 // test_genericpath and test_posixpath (minus a small tracked gap list) through
 // unittest; a non-zero exit means a selected test failed, which surfaces here
 // as the driver's captured output.
 func TestW0Gate(t *testing.T) {
+	runGate(t, "w0gate.py", w0gate)
+}
+
+// TestS1Gate compiles s1gate.py and runs it, requiring exit 0. The driver runs
+// the pure-module suites S1 lights up (test_graphlib, test_heapq, test_bisect,
+// test_textwrap) minus a small tracked gap list through unittest; a non-zero
+// exit means a selected test failed, which surfaces here as the driver's
+// captured output.
+func TestS1Gate(t *testing.T) {
+	runGate(t, "s1gate.py", s1gate)
+}
+
+// runGate stages a gate driver, builds it with the real toolchain, and runs it,
+// requiring exit 0.
+func runGate(t *testing.T, name string, src []byte) {
+	t.Helper()
 	// The gate compiles a whole stdlib program and runs it; under -race the
 	// build orchestration is minutes, not seconds, so it is skipped in the fast
 	// -short test lane and runs in its own corpus-side step instead.
 	if testing.Short() {
-		t.Skip("W0 gate builds a full program; runs in the corpus lane, not -short")
+		t.Skip("stdlib gate builds a full program; runs in the corpus lane, not -short")
 	}
 	dir := t.TempDir()
-	src := filepath.Join(dir, "w0gate.py")
-	if err := os.WriteFile(src, w0gate, 0o644); err != nil {
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, src, 0o644); err != nil {
 		t.Fatalf("stage driver: %v", err)
 	}
-	bin := filepath.Join(dir, "w0gate")
-	if _, err := build.Build(context.Background(), src, build.Options{Out: bin}); err != nil {
-		t.Fatalf("build w0gate: %v", err)
+	bin := filepath.Join(dir, "gate")
+	if _, err := build.Build(context.Background(), path, build.Options{Out: bin}); err != nil {
+		t.Fatalf("build %s: %v", name, err)
 	}
 
 	var out bytes.Buffer
@@ -53,6 +72,6 @@ func TestW0Gate(t *testing.T) {
 		"NO_COLOR=1",
 	)
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("W0 gate exited non-zero: %v\n%s", err, out.String())
+		t.Fatalf("%s exited non-zero: %v\n%s", name, err, out.String())
 	}
 }
