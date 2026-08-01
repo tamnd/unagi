@@ -1,0 +1,27 @@
+== exit: 0
+== stdout:
+encoded hex: babad7d62061626320c4e3bac3cac0bde720a1bea1bfb7fbbac520e946
+decoded eq: True
+codecs.encode eq: True
+codecs.decode eq: True
+gb2312 rejects gbk-only: 'gb2312' codec can't encode character '\u9555' in position 0: illegal multibyte sequence
+gbk-only hex: e946
+info name: gbk
+info encode eq: True
+info decode eq: True
+alias cp936: gbk
+incremental encode eq: True
+incremental decode eq: True
+buffered lead: ''
+completed pair: True
+stream bytes eq: True
+stream read eq: True
+decode strict: 'gbk' codec can't decode byte 0x81 in position 0: illegal multibyte sequence
+decode ignore eq: True
+decode replace eq: True
+decode incomplete: 'gbk' codec can't decode byte 0x81 in position 1: incomplete multibyte sequence
+encode strict: 'gbk' codec can't encode character '\xff' in position 1: illegal multibyte sequence
+encode ignore eq: True
+encode replace eq: True
+== exception:
+== stderr:

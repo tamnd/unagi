@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"sync"
+
 	"github.com/tamnd/unagi/pkg/objects"
 )
 
@@ -31,9 +33,29 @@ func codecsCNGetcodec(args []objects.Object) (objects.Object, error) {
 	switch name {
 	case "gb2312":
 		return newMultibyteCodec(gb2312Codec)
+	case "gbk":
+		return newMultibyteCodec(gbkCodec())
 	default:
 		return nil, objects.Raise("LookupError", "no such codec is supported.")
 	}
+}
+
+// gbkCodec builds the gbk engine codec once from the generated tables. gbk is a
+// fixed-width two-byte table codec, the full GBK repertoire on top of the gb2312
+// subset, so it uses the generic mbTableCodec: ascii decodes on its own and a
+// lead byte selects a two-byte character.
+var (
+	gbkOnce  sync.Once
+	gbkTable *mbTableCodec
+)
+
+func gbkCodec() *mbCodec {
+	gbkOnce.Do(func() {
+		gbkTable = newMBTableCodec("gbk",
+			gbkSingleDecode, gbkLeads, gbkDoubleDecode,
+			gbkSingleEncode, gbkDoubleEncode)
+	})
+	return gbkTable.codec()
 }
 
 // gb2312Codec is the engine codec for gb2312: ascii bytes pass through, and a

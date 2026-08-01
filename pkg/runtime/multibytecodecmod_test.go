@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/tamnd/unagi/pkg/objects"
@@ -107,15 +106,6 @@ func TestGB2312IncrementalDecodeSplit(t *testing.T) {
 	out, _, pending, err = mbDecodeRun(gb2312Codec, data, "strict", true)
 	if err != nil || out != "　" || pending != nil {
 		t.Fatalf("complete: out=%q pending=%x err=%v", out, pending, err)
-	}
-}
-
-// TestGB2312GetcodecUnknown checks getcodec raises LookupError for a name this
-// build does not carry.
-func TestGB2312GetcodecUnknown(t *testing.T) {
-	_, err := codecsCNGetcodec([]objects.Object{objects.NewStr("gbk")})
-	if err == nil || !strings.Contains(errString(err), "no such codec is supported") {
-		t.Fatalf("getcodec gbk: %v", err)
 	}
 }
 
