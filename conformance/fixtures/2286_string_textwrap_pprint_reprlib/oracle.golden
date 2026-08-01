@@ -1,0 +1,35 @@
+== exit: 0
+== stdout:
+substitute: Ann scored 9
+safe: one then $b
+braced: hi!
+capwords: The Quick Brown Fox
+digits: 0123456789
+ascii_lowercase: abcdefghijklmnopqrstuvwxyz
+punctuation set: True False
+format: a / b /    42
+vformat: 1-2
+wrap: ['the quick', 'brown fox', 'jumps over']
+fill: 'alpha beta\ngamma delta'
+shorten: one two [...]
+indent: '| a\n| b\n| c\n'
+dedent: 'x\ny\n'
+wrapper: ['>>aa bb', '..cc dd']
+{'alpha': 1, 'beta': 2, 'gamma': 3}
+pformat:
+{'nums': [0,
+          1,
+          2,
+          3,
+          4,
+          5],
+ 'pair': {'k': 'v'}}
+readable: True
+recursive: False
+saferepr: {'a': 2, 'z': 1}
+long list: [0, 1, 2, 3, 4, 5, ...]
+long str: 'yyyyyyyyyyyy...yyyyyyyyyyyyy'
+nested depth: [[[[[[1]]]]]]
+recursive_repr: Node(...)
+== exception:
+== stderr:
