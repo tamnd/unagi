@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+b64_enc b'SGVsbG8sIFdvcmxkISBIZWxsbywgV29ybGQhIEhlbGxvLCBXb3JsZCEg\n'
+b64_rt True
+b64_small b'YWJj\n'
+b64_dec b'abc'
+hex_enc b'48656c6c6f2c20576f726c64212048656c6c6f2c20576f726c64212048656c6c6f2c20576f726c642120'
+hex_bytes b'00ff107f'
+hex_dec b'Hello'
+hex_rt True
+zlib_dec b'unagi zlib codec sample payload'
+zlib_rt True
+zlib_empty b''
+== exception:
+== stderr:
