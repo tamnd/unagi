@@ -176,7 +176,7 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 		return bz2CompressMethod(x, name, args)
 	case *bz2DecompressObject:
 		return bz2DecompressMethod(x, name, args)
-	case *boundMethod, *functionObject, *funcObject, *namedTupleType, *lruCacheObject, *singleDispatchObject, *propertyObject, *genericAliasObject, *typeObject, *noDefaultObject, *typeVarObject, *paramSpecObject, *typeVarTupleObject:
+	case *boundMethod, *functionObject, *funcObject, *namedTupleType, *lruCacheObject, *singleDispatchObject, *propertyObject, *genericAliasObject, *typeObject, *noDefaultObject, *typeVarObject, *paramSpecObject, *typeVarTupleObject, *tupleGetterObject:
 		// A function or bound method has no method surface of its own, so
 		// obj.attr(args) reads the attribute and calls it, the way CPython does
 		// for b.__func__(self) or a builtin that carries a helper such as

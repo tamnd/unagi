@@ -157,6 +157,11 @@ func instanceGet(x *instanceObject, name string, v Object) (Object, error) {
 		return Call(d.fget, []Object{x})
 	case *cachedPropertyObject:
 		return cachedPropertyGet(x, name, d)
+	case *tupleGetterObject:
+		// A namedtuple field descriptor reads its field out of the instance by
+		// index, the way _tuplegetter.__get__(instance, owner) does; the vendored
+		// package installs these on the tuple subclass it builds with type().
+		return GetItem(x, NewInt(int64(d.index)))
 	case *memberDescriptor:
 		return slotGet(x, d)
 	case *superObject:
