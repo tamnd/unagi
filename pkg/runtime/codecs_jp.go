@@ -38,6 +38,10 @@ func codecsJPGetcodec(args []objects.Object) (objects.Object, error) {
 		return newMultibyteCodec(cp932Codec())
 	case "euc_jp":
 		return newMultibyteCodec(eucJPCodec())
+	case "shift_jis_2004":
+		return newMultibyteCodec(shiftJIS2004Codec())
+	case "shift_jisx0213":
+		return newMultibyteCodec(shiftJISX0213Codec())
 	default:
 		return nil, objects.Raise("LookupError", "no such codec is supported.")
 	}
@@ -95,4 +99,42 @@ func eucJPCodec() *mbCodec {
 			eucJPDoubleEncode, eucJPTripleEncode)
 	})
 	return eucJPTable.codec()
+}
+
+// shiftJIS2004Codec builds the shift_jis_2004 engine codec once from the
+// generated tables. It has the fixed-width shift_jis byte structure with the JIS
+// X 0213 combining tables attached: 25 two-byte sequences decode to a base plus a
+// combining mark, and the encoder folds a base and its mark back with a
+// two-code-point lookahead.
+var (
+	shiftJIS2004Once  sync.Once
+	shiftJIS2004Table *mbTableCodec
+)
+
+func shiftJIS2004Codec() *mbCodec {
+	shiftJIS2004Once.Do(func() {
+		shiftJIS2004Table = newMBTableCodec("shift_jis_2004",
+			shiftJIS2004SingleDecode, shiftJIS2004Leads, shiftJIS2004DoubleDecode,
+			shiftJIS2004SingleEncode, shiftJIS2004DoubleEncode).
+			withCombining(shiftJIS2004MultiDecode, shiftJIS2004PairEncode, shiftJIS2004Bases)
+	})
+	return shiftJIS2004Table.codec()
+}
+
+// shiftJISX0213Codec builds the shift_jisx0213 engine codec once from the
+// generated tables. It is the JIS X 0213:2000 sibling of shift_jis_2004, the same
+// shape over a table that differs by a handful of code points.
+var (
+	shiftJISX0213Once  sync.Once
+	shiftJISX0213Table *mbTableCodec
+)
+
+func shiftJISX0213Codec() *mbCodec {
+	shiftJISX0213Once.Do(func() {
+		shiftJISX0213Table = newMBTableCodec("shift_jisx0213",
+			shiftJISX0213SingleDecode, shiftJISX0213Leads, shiftJISX0213DoubleDecode,
+			shiftJISX0213SingleEncode, shiftJISX0213DoubleEncode).
+			withCombining(shiftJISX0213MultiDecode, shiftJISX0213PairEncode, shiftJISX0213Bases)
+	})
+	return shiftJISX0213Table.codec()
 }

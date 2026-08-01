@@ -35,7 +35,7 @@ func TestShiftJISRoundtrip(t *testing.T) {
 		seen[cp] = true
 	}
 	for cp := range seen {
-		enc, err := mbEncodeRun(c, []rune{cp}, "strict")
+		enc, _, err := mbEncodeRun(c, []rune{cp}, "strict", true)
 		if err != nil {
 			t.Fatalf("encode U+%04X: %v", cp, err)
 		}
@@ -110,7 +110,7 @@ func TestCP932Roundtrip(t *testing.T) {
 		seen[cp] = true
 	}
 	for cp := range seen {
-		enc, err := mbEncodeRun(c, []rune{cp}, "strict")
+		enc, _, err := mbEncodeRun(c, []rune{cp}, "strict", true)
 		if err != nil {
 			t.Fatalf("encode U+%04X: %v", cp, err)
 		}
@@ -155,6 +155,88 @@ func TestShiftJISGetcodecUnknown(t *testing.T) {
 	}
 }
 
+// TestShiftJIS2004Roundtrip drives the engine through the JIS X 0213 shift_jis
+// variants: every standalone byte, single-code-point pair, and combining pair
+// must decode, and every code point (including the supplementary plane) must
+// re-encode to bytes that decode back to it.
+func TestShiftJIS2004Roundtrip(t *testing.T) {
+	for _, jc := range []struct {
+		codec  func() *mbCodec
+		single map[byte]rune
+		double map[uint16]rune
+		multi  map[uint16][2]rune
+	}{
+		{shiftJIS2004Codec, shiftJIS2004SingleDecode, shiftJIS2004DoubleDecode, shiftJIS2004MultiDecode},
+		{shiftJISX0213Codec, shiftJISX0213SingleDecode, shiftJISX0213DoubleDecode, shiftJISX0213MultiDecode},
+	} {
+		c := jc.codec()
+		for b, cp := range jc.single {
+			out, consumed, _, err := mbDecodeRun(c, []byte{b}, "strict", true)
+			if err != nil || consumed != 1 || out != string(cp) {
+				t.Fatalf("%s single %#02x: out=%q consumed=%d err=%v", c.name, b, out, consumed, err)
+			}
+		}
+		for key, cp := range jc.double {
+			data := []byte{byte(key >> 8), byte(key)}
+			out, consumed, _, err := mbDecodeRun(c, data, "strict", true)
+			if err != nil || consumed != 2 || out != string(cp) {
+				t.Fatalf("%s pair %04x: out=%q consumed=%d err=%v", c.name, key, out, consumed, err)
+			}
+		}
+		// The combining pairs decode to two code points and re-encode as one unit.
+		for key, pair := range jc.multi {
+			data := []byte{byte(key >> 8), byte(key)}
+			want := string(pair[0]) + string(pair[1])
+			out, consumed, _, err := mbDecodeRun(c, data, "strict", true)
+			if err != nil || consumed != 2 || out != want {
+				t.Fatalf("%s multi %04x: out=%q consumed=%d err=%v", c.name, key, out, consumed, err)
+			}
+			enc, _, err := mbEncodeRun(c, []rune(want), "strict", true)
+			if err != nil || len(enc) != 2 || enc[0] != data[0] || enc[1] != data[1] {
+				t.Fatalf("%s multi encode %04x: enc=%x err=%v", c.name, key, enc, err)
+			}
+		}
+		seen := map[rune]bool{}
+		for _, cp := range jc.single {
+			seen[cp] = true
+		}
+		for _, cp := range jc.double {
+			seen[cp] = true
+		}
+		for cp := range seen {
+			enc, _, err := mbEncodeRun(c, []rune{cp}, "strict", true)
+			if err != nil {
+				t.Fatalf("%s encode U+%04X: %v", c.name, cp, err)
+			}
+			out, _, _, err := mbDecodeRun(c, enc, "strict", true)
+			if err != nil || out != string(cp) {
+				t.Fatalf("%s roundtrip U+%04X: enc=%x out=%q err=%v", c.name, cp, enc, out, err)
+			}
+		}
+	}
+}
+
+// TestShiftJIS2004IncrementalBase pins the combining-base hold: a base at the end
+// of a non-final chunk is kept pending and folds with the mark that opens the
+// next chunk, matching CPython's incremental encoder byte for byte.
+func TestShiftJIS2004IncrementalBase(t *testing.T) {
+	c := shiftJIS2004Codec()
+	// "か゚" (U+304B U+309A) is one two-byte unit, 0x82F5.
+	first, pending, err := mbEncodeRun(c, []rune("か"), "strict", false)
+	if err != nil || len(first) != 0 || string(pending) != "か" {
+		t.Fatalf("hold base: first=%x pending=%q err=%v", first, string(pending), err)
+	}
+	rest, pending, err := mbEncodeRun(c, append(pending, '゚'), "strict", true)
+	if err != nil || len(pending) != 0 || len(rest) != 2 || rest[0] != 0x82 || rest[1] != 0xF5 {
+		t.Fatalf("fold mark: rest=%x pending=%q err=%v", rest, string(pending), err)
+	}
+	// A base with no following mark still encodes on its own when final.
+	alone, _, err := mbEncodeRun(c, []rune("か"), "strict", true)
+	if err != nil || len(alone) != 2 || alone[0] != 0x82 || alone[1] != 0xA9 {
+		t.Fatalf("base alone: enc=%x err=%v", alone, err)
+	}
+}
+
 // TestEUCJPRoundtrip drives the engine through euc_jp, the variable-width
 // Japanese codec: ascii and every mapped two-byte and three-byte sequence must
 // decode, and every code point the decoder can produce must re-encode to bytes
@@ -189,7 +271,7 @@ func TestEUCJPRoundtrip(t *testing.T) {
 		seen[cp] = true
 	}
 	for cp := range seen {
-		enc, err := mbEncodeRun(c, []rune{cp}, "strict")
+		enc, _, err := mbEncodeRun(c, []rune{cp}, "strict", true)
 		if err != nil {
 			t.Fatalf("encode U+%04X: %v", cp, err)
 		}

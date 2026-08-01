@@ -23,7 +23,7 @@ func TestGB2312Roundtrip(t *testing.T) {
 		if len(runes) != 1 || runes[0] != cp {
 			t.Fatalf("decode %04x: got %q want U+%04X", key, out, cp)
 		}
-		enc, err := mbEncodeRun(gb2312Codec, []rune{cp}, "strict")
+		enc, _, err := mbEncodeRun(gb2312Codec, []rune{cp}, "strict", true)
 		if err != nil {
 			t.Fatalf("encode U+%04X: %v", cp, err)
 		}
@@ -81,16 +81,16 @@ func TestGB2312DecodeErrorHandlers(t *testing.T) {
 // TestGB2312EncodeErrors checks strict raises the right message and ignore and
 // replace behave like CPython (drop, or emit '?').
 func TestGB2312EncodeErrors(t *testing.T) {
-	_, err := mbEncodeRun(gb2312Codec, []rune("aÿb"), "strict")
+	_, _, err := mbEncodeRun(gb2312Codec, []rune("aÿb"), "strict", true)
 	want := "'gb2312' codec can't encode character '\\xff' in position 1: illegal multibyte sequence"
 	if err == nil || errString(err) != want {
 		t.Fatalf("strict: got %v want %q", err, want)
 	}
-	ign, err := mbEncodeRun(gb2312Codec, []rune("aÿb"), "ignore")
+	ign, _, err := mbEncodeRun(gb2312Codec, []rune("aÿb"), "ignore", true)
 	if err != nil || string(ign) != "ab" {
 		t.Fatalf("ignore: got %q err=%v", ign, err)
 	}
-	rep, err := mbEncodeRun(gb2312Codec, []rune("aÿb"), "replace")
+	rep, _, err := mbEncodeRun(gb2312Codec, []rune("aÿb"), "replace", true)
 	if err != nil || string(rep) != "a?b" {
 		t.Fatalf("replace: got %q err=%v", rep, err)
 	}
