@@ -165,6 +165,73 @@ func TestUnicodedataVersion(t *testing.T) {
 	}
 }
 
+// TestUnicodedataName checks name() against the pinned name database: an explicit
+// name, an algorithmic CJK-ideograph name (min four hex digits, five for a
+// supplementary code point) and an algorithmic Hangul syllable name, plus the
+// ValueError a character with no name raises and the default that suppresses it.
+func TestUnicodedataName(t *testing.T) {
+	cases := []struct{ ch, want string }{
+		{"A", "LATIN CAPITAL LETTER A"},
+		{"中", "CJK UNIFIED IDEOGRAPH-4E2D"},
+		{"㐀", "CJK UNIFIED IDEOGRAPH-3400"},
+		{"\U00020000", "CJK UNIFIED IDEOGRAPH-20000"},
+		{"가", "HANGUL SYLLABLE GA"},
+		{"힣", "HANGUL SYLLABLE HIH"},
+		{"\U00010D40", "GARAY DIGIT ZERO"},
+	}
+	for _, c := range cases {
+		got, err := udName([]objects.Object{objects.NewStr(c.ch)}, nil, nil)
+		if err != nil {
+			t.Fatalf("name(%q): %v", c.ch, err)
+		}
+		if s, _ := objects.AsStr(got); s != c.want {
+			t.Errorf("name(%q) = %q, want %q", c.ch, s, c.want)
+		}
+	}
+	// a control character has no name: ValueError without a default, the default
+	// with one.
+	if _, err := udName([]objects.Object{objects.NewStr("\x00")}, nil, nil); err == nil {
+		t.Errorf("name(U+0000) = no error, want ValueError")
+	}
+	got, err := udName([]objects.Object{objects.NewStr("\x00"), objects.NewStr("none")}, nil, nil)
+	if err != nil {
+		t.Fatalf("name(U+0000, 'none'): %v", err)
+	}
+	if s, _ := objects.AsStr(got); s != "none" {
+		t.Errorf("name(U+0000, 'none') = %q, want none", s)
+	}
+}
+
+// TestUnicodedataLookup checks lookup() against the pinned reverse of the name
+// database: an explicit name, an algorithmic CJK and Hangul name, a name alias
+// (NULL for U+0000, which has no name()), and a named sequence (which resolves to
+// more than one character), plus the KeyError an undefined name raises and the
+// rejection of a wrongly zero-padded algorithmic name.
+func TestUnicodedataLookup(t *testing.T) {
+	cases := []struct{ name, want string }{
+		{"LATIN CAPITAL LETTER A", "A"},
+		{"CJK UNIFIED IDEOGRAPH-4E2D", "中"},
+		{"HANGUL SYLLABLE GA", "가"},
+		{"NULL", "\x00"},
+		{"LATIN CAPITAL LETTER A WITH MACRON AND GRAVE", "Ā̀"},
+	}
+	for _, c := range cases {
+		got, err := udLookup([]objects.Object{objects.NewStr(c.name)})
+		if err != nil {
+			t.Fatalf("lookup(%q): %v", c.name, err)
+		}
+		if s, _ := objects.AsStr(got); s != c.want {
+			t.Errorf("lookup(%q) = %q, want %q", c.name, s, c.want)
+		}
+	}
+	for _, bad := range []string{"NO SUCH NAME", "CJK UNIFIED IDEOGRAPH-04E2D"} {
+		_, err := udLookup([]objects.Object{objects.NewStr(bad)})
+		if ex, ok := err.(*objects.Exception); !ok || ex.Kind != objects.KeyError {
+			t.Errorf("lookup(%q) = %v, want KeyError", bad, err)
+		}
+	}
+}
+
 // TestUnicodedataBidirectional checks bidirectional() against the pinned
 // Bidi_Class range table: Latin is L, Hebrew is R, Arabic is AL, a combining
 // mark is NSM, a space is WS, the digits are EN, and an unassigned code point
