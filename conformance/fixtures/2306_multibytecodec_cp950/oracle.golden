@@ -1,0 +1,26 @@
+== exit: 0
+== stdout:
+encoded hex: a4a4a4e52061626320a741a66e20a578c65720a3e1b2c5b8b9
+decoded eq: True
+codecs.encode eq: True
+codecs.decode eq: True
+big5 rejects cp950-only: 'big5' codec can't encode character '\u20ac' in position 0: illegal multibyte sequence
+cp950-only hex: a3e1
+info name: cp950
+info encode eq: True
+info decode eq: True
+incremental encode eq: True
+incremental decode eq: True
+buffered lead: ''
+completed pair: True
+stream bytes eq: True
+stream read eq: True
+decode strict: 'cp950' codec can't decode byte 0x81 in position 0: illegal multibyte sequence
+decode ignore eq: True
+decode replace eq: True
+decode incomplete: 'cp950' codec can't decode byte 0x81 in position 1: incomplete multibyte sequence
+encode strict: 'cp950' codec can't encode character '\xff' in position 1: illegal multibyte sequence
+encode ignore eq: True
+encode replace eq: True
+== exception:
+== stderr:
