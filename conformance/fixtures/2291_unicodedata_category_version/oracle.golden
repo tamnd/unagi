@@ -1,0 +1,24 @@
+== exit: 0
+== stdout:
+version: 16.0.0
+upper letter     Lu
+lower letter     Ll
+title letter     Lt
+other letter     Lo
+nonspacing mark  Mn
+decimal digit    Nd
+letter number    Nl
+other number     No
+open punct       Ps
+other punct      Po
+math symbol      Sm
+currency         Sc
+space sep        Zs
+control          Cc
+private use      Co
+unassigned       Cn
+garay digit: Nd
+ol onal letter: Lo
+tulu-tigalari: Lo
+== exception:
+== stderr:
