@@ -285,6 +285,10 @@ func encodeUTF8(s, errh string) ([]byte, error) {
 		case "ignore":
 		case "replace":
 			out = append(out, '?')
+		case "xmlcharrefreplace":
+			out = append(out, xmlCharRef(r)...)
+		case "backslashreplace":
+			out = append(out, backslashEscape(r)...)
 		case "strict":
 			return nil, encodeUTF8SurrogateErr(r, pos)
 		default:
@@ -336,6 +340,10 @@ func encodeNarrow(s, codec string, limit rune, errh string) ([]byte, error) {
 		case "ignore":
 		case "replace":
 			out = append(out, '?')
+		case "xmlcharrefreplace":
+			out = append(out, xmlCharRef(r)...)
+		case "backslashreplace":
+			out = append(out, backslashEscape(r)...)
 		case "surrogateescape":
 			if r >= 0xDC80 && r <= 0xDCFF {
 				out = append(out, byte(r&0xFF))

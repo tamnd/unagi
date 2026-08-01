@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+ignore b'abcdefghi'
+replace b'abc?def?ghi'
+xmlcharrefreplace b'abc&#4660;def&#128512;ghi'
+backslashreplace b'abc\\u1234def\\U0001f600ghi'
+latin-1 xml b'abc&#4660;def&#128512;ghi'
+latin-1 bs b'abc\\u1234def\\U0001f600ghi'
+decode ignore ab
+decode replace a��b
+decode backslashreplace a\xff\xfeb
+euc_jp ignore b'\xa1\xa6\xb0\xecxyz'
+euc_jp replace b'\xa1\xa6\xb0\xecxyz?'
+euc_jp xmlcharrefreplace b'\xa1\xa6\xb0\xecxyz&#65535;'
+euc_jp backslashreplace b'\xa1\xa6\xb0\xecxyz\\uffff'
+lookup ignore True
+lookup replace True
+lookup xmlcharrefreplace True
+lookup backslashreplace True
+== exception:
+== stderr:

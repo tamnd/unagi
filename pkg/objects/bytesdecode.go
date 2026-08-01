@@ -1,6 +1,9 @@
 package objects
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // This file holds bytes.decode and bytearray.decode: turning raw bytes back
 // into a str under the utf-8, ascii and latin-1 codecs, with the strict,
@@ -249,6 +252,14 @@ func decodeError(handler, codec string, v []byte, start, end int, reason string)
 		return "", end, nil
 	case "replace":
 		return "�", end, nil
+	case "backslashreplace":
+		// Escape each undecodable byte as \xNN, the decode-side of CPython's
+		// backslashreplace handler.
+		var sb strings.Builder
+		for _, bb := range v[start:end] {
+			fmt.Fprintf(&sb, `\x%02x`, bb)
+		}
+		return sb.String(), end, nil
 	case "surrogateescape":
 		// PEP 383: escape each undecodable byte to a lone low surrogate
 		// U+DC00+byte, held in the str's WTF-8 form, so os.fsencode can turn it

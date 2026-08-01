@@ -202,3 +202,56 @@ func TestNewUnicodeErrorConstructors(t *testing.T) {
 		t.Errorf("encode object[3] = %U ok=%v", r, ok)
 	}
 }
+
+// TestStdErrorHandlers checks the standard non-strict codec error handlers
+// resolve a UnicodeError into the (replacement, newpos) pair CPython's
+// registered handlers produce: ignore drops the span, replace substitutes '?'
+// or U+FFFD by direction, xmlcharrefreplace emits decimal character references,
+// and backslashreplace escapes characters on encode and bytes on decode. The
+// handlers read the bad span straight off the structured attributes.
+func TestStdErrorHandlers(t *testing.T) {
+	enc := NewUnicodeEncodeError("ascii", "aሴ\U0001F600b", 1, 3, "ordinal not in range(128)")
+	dec := NewUnicodeDecodeError("ascii", []byte("a\xff\xfeb"), 1, 3, "ordinal not in range(128)")
+
+	check := func(name string, got Object, err error, wantRepl string, wantPos int64) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("%s: err %v", name, err)
+		}
+		tup, ok := got.(*tupleObject)
+		if !ok || len(tup.elts) != 2 {
+			t.Fatalf("%s: not a 2-tuple: %v", name, got)
+		}
+		if s, _ := AsStr(tup.elts[0]); s != wantRepl {
+			t.Errorf("%s: replacement = %q, want %q", name, s, wantRepl)
+		}
+		if p, _ := AsInt(tup.elts[1]); p != wantPos {
+			t.Errorf("%s: newpos = %d, want %d", name, p, wantPos)
+		}
+	}
+
+	g, err := IgnoreErrors([]Object{enc})
+	check("ignore encode", g, err, "", 3)
+
+	g, err = ReplaceErrors([]Object{enc})
+	check("replace encode", g, err, "??", 3)
+	g, err = ReplaceErrors([]Object{dec})
+	check("replace decode", g, err, "�", 3)
+
+	g, err = XMLCharRefReplaceErrors([]Object{enc})
+	check("xmlcharrefreplace encode", g, err, "&#4660;&#128512;", 3)
+
+	g, err = BackslashReplaceErrors([]Object{enc})
+	check("backslashreplace encode", g, err, `\u1234\U0001f600`, 3)
+	g, err = BackslashReplaceErrors([]Object{dec})
+	check("backslashreplace decode", g, err, `\xff\xfe`, 3)
+
+	// xmlcharrefreplace is encode-only: a decode error is a TypeError.
+	if _, err := XMLCharRefReplaceErrors([]Object{dec}); err == nil {
+		t.Error("xmlcharrefreplace on decode error: want TypeError, got nil")
+	}
+	// A non-unicode-error argument is a TypeError for every handler.
+	if _, err := IgnoreErrors([]Object{NewInt(1)}); err == nil {
+		t.Error("ignore on non-unicode-error: want TypeError, got nil")
+	}
+}
