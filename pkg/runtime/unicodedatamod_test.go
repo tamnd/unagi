@@ -139,6 +139,32 @@ func TestUnicodedataMirrored(t *testing.T) {
 	}
 }
 
+// TestUnicodedataVersion checks unidata_version reports the pinned UCD version
+// and that category() answers from that same data: a code point assigned in
+// Unicode 16.0 (the Garay script, new in this version) reports its real category
+// rather than the Cn an older UCD would give.
+func TestUnicodedataVersion(t *testing.T) {
+	mo, err := ImportModule("unicodedata")
+	if err != nil {
+		t.Fatalf("import unicodedata: %v", err)
+	}
+	ver, err := objects.LoadAttr(mo, "unidata_version")
+	if err != nil {
+		t.Fatalf("unidata_version: %v", err)
+	}
+	if s, _ := objects.AsStr(ver); s != "16.0.0" {
+		t.Errorf("unidata_version = %q, want 16.0.0", s)
+	}
+	// U+10D40 GARAY DIGIT ZERO is a decimal digit assigned in Unicode 16.0.
+	got, err := udCategory([]objects.Object{objects.NewStr("\U00010D40")})
+	if err != nil {
+		t.Fatalf("category(U+10D40): %v", err)
+	}
+	if s, _ := objects.AsStr(got); s != "Nd" {
+		t.Errorf("category(U+10D40) = %q, want Nd", s)
+	}
+}
+
 // TestUnicodedataBidirectional checks bidirectional() against the pinned
 // Bidi_Class range table: Latin is L, Hebrew is R, Arabic is AL, a combining
 // mark is NSM, a space is WS, the digits are EN, and an unassigned code point
