@@ -1,0 +1,29 @@
+== exit: 0
+== stdout:
+encoded hex: c6fccbdcb8ec20616263208eb18eb28eb320a4f7208fa1a120a5c6a5b9a5c8a1a3
+decoded eq: True
+codecs.encode eq: True
+codecs.decode eq: True
+info name: euc_jisx0213
+info encode eq: True
+info decode eq: True
+pair hex: a4f7
+pair roundtrip: True
+base alone hex: a4ab
+supp hex: 8fa1a1
+base chunk empty: True
+pair on mark chunk: True
+incremental encode eq: True
+incremental decode eq: True
+stream bytes eq: True
+stream read eq: True
+decode bad trail: 'euc_jisx0213' codec can't decode byte 0xa1 in position 0: illegal multibyte sequence
+decode incomplete: 'euc_jisx0213' codec can't decode byte 0xa1 in position 1: incomplete multibyte sequence
+decode ss3 short: 'euc_jisx0213' codec can't decode bytes in position 0-1: incomplete multibyte sequence
+decode ignore eq: True
+decode replace eq: True
+encode strict: 'euc_jisx0213' codec can't encode character '\U0001f600' in position 1: illegal multibyte sequence
+encode ignore eq: True
+encode replace eq: True
+== exception:
+== stderr:

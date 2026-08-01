@@ -147,11 +147,12 @@ func TestCP932DecodeErrors(t *testing.T) {
 }
 
 // TestShiftJISGetcodecUnknown checks getcodec raises LookupError for a codec this
-// build does not carry yet.
+// module does not carry. iso2022_jp is a real codec but lives in _codecs_iso2022,
+// so _codecs_jp rejects it the way CPython does.
 func TestShiftJISGetcodecUnknown(t *testing.T) {
-	_, err := codecsJPGetcodec([]objects.Object{objects.NewStr("euc_jis_2004")})
+	_, err := codecsJPGetcodec([]objects.Object{objects.NewStr("iso2022_jp")})
 	if err == nil {
-		t.Fatalf("getcodec euc_jis_2004: expected LookupError")
+		t.Fatalf("getcodec iso2022_jp: expected LookupError")
 	}
 }
 
@@ -308,5 +309,100 @@ func TestEUCJPDecodeErrors(t *testing.T) {
 		if err == nil || errString(err) != tc.msg {
 			t.Fatalf("decode %x: got %v want %q", tc.data, err, tc.msg)
 		}
+	}
+}
+
+// TestEUCJIS2004Roundtrip drives the engine through the JIS X 0213 euc variants:
+// ascii, every mapped two-byte and three-byte sequence, and every combining pair
+// must decode, and every code point the encoder carries must re-encode to bytes
+// that decode back to it.
+func TestEUCJIS2004Roundtrip(t *testing.T) {
+	for _, ec := range []struct {
+		codec     func() *mbCodec
+		double    map[uint16]rune
+		triple    map[uint16]rune
+		multi     map[uint16][2]rune
+		encDouble map[rune]uint16
+		encTriple map[rune]uint16
+	}{
+		{eucJIS2004Codec, eucJIS2004DoubleDecode, eucJIS2004TripleDecode, eucJIS2004MultiDecode, eucJIS2004DoubleEncode, eucJIS2004TripleEncode},
+		{eucJISX0213Codec, eucJISX0213DoubleDecode, eucJISX0213TripleDecode, eucJISX0213MultiDecode, eucJISX0213DoubleEncode, eucJISX0213TripleEncode},
+	} {
+		c := ec.codec()
+		for key, cp := range ec.double {
+			data := []byte{byte(key >> 8), byte(key)}
+			out, consumed, _, err := mbDecodeRun(c, data, "strict", true)
+			if err != nil || consumed != 2 || out != string(cp) {
+				t.Fatalf("%s pair %04x: out=%q consumed=%d err=%v", c.name, key, out, consumed, err)
+			}
+		}
+		for key, cp := range ec.triple {
+			data := []byte{eucJPSS3, byte(key >> 8), byte(key)}
+			out, consumed, _, err := mbDecodeRun(c, data, "strict", true)
+			if err != nil || consumed != 3 || out != string(cp) {
+				t.Fatalf("%s triple 8f%04x: out=%q consumed=%d err=%v", c.name, key, out, consumed, err)
+			}
+		}
+		// The combining pairs decode to two code points and re-encode as one unit.
+		for key, pair := range ec.multi {
+			data := []byte{byte(key >> 8), byte(key)}
+			want := string(pair[0]) + string(pair[1])
+			out, consumed, _, err := mbDecodeRun(c, data, "strict", true)
+			if err != nil || consumed != 2 || out != want {
+				t.Fatalf("%s multi %04x: out=%q consumed=%d err=%v", c.name, key, out, consumed, err)
+			}
+			enc, _, err := mbEncodeRun(c, []rune(want), "strict", true)
+			if err != nil || len(enc) != 2 || enc[0] != data[0] || enc[1] != data[1] {
+				t.Fatalf("%s multi encode %04x: enc=%x err=%v", c.name, key, enc, err)
+			}
+		}
+		for b := 0; b < 0x80; b++ {
+			out, consumed, _, err := mbDecodeRun(c, []byte{byte(b)}, "strict", true)
+			if err != nil || consumed != 1 || out != string(rune(b)) {
+				t.Fatalf("%s ascii %#02x: out=%q consumed=%d err=%v", c.name, b, out, consumed, err)
+			}
+		}
+		// Drive the encode roundtrip off the encode side: the decode tables hold a
+		// few code points the encoder drops (non-roundtrip mappings), so only the
+		// code points the encoder actually carries are expected to round-trip.
+		encoded := map[rune]bool{}
+		for cp := range ec.encDouble {
+			encoded[cp] = true
+		}
+		for cp := range ec.encTriple {
+			encoded[cp] = true
+		}
+		for cp := range encoded {
+			enc, _, err := mbEncodeRun(c, []rune{cp}, "strict", true)
+			if err != nil {
+				t.Fatalf("%s encode U+%04X: %v", c.name, cp, err)
+			}
+			out, _, _, err := mbDecodeRun(c, enc, "strict", true)
+			if err != nil || out != string(cp) {
+				t.Fatalf("%s roundtrip U+%04X: enc=%x out=%q err=%v", c.name, cp, enc, out, err)
+			}
+		}
+	}
+}
+
+// TestEUCJIS2004IncrementalBase pins the combining-base hold on the euc side: a
+// base at the end of a non-final chunk is kept pending and folds with the mark
+// that opens the next chunk, matching CPython's incremental encoder byte for
+// byte.
+func TestEUCJIS2004IncrementalBase(t *testing.T) {
+	c := eucJIS2004Codec()
+	// "か゚" (U+304B U+309A) is one two-byte unit, 0xA4F7.
+	first, pending, err := mbEncodeRun(c, []rune("か"), "strict", false)
+	if err != nil || len(first) != 0 || string(pending) != "か" {
+		t.Fatalf("hold base: first=%x pending=%q err=%v", first, string(pending), err)
+	}
+	rest, pending, err := mbEncodeRun(c, append(pending, '゚'), "strict", true)
+	if err != nil || len(pending) != 0 || len(rest) != 2 || rest[0] != 0xA4 || rest[1] != 0xF7 {
+		t.Fatalf("fold mark: rest=%x pending=%q err=%v", rest, string(pending), err)
+	}
+	// A base with no following mark still encodes on its own when final.
+	alone, _, err := mbEncodeRun(c, []rune("か"), "strict", true)
+	if err != nil || len(alone) != 2 || alone[0] != 0xA4 || alone[1] != 0xAB {
+		t.Fatalf("base alone: enc=%x err=%v", alone, err)
 	}
 }

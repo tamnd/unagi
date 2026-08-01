@@ -176,10 +176,13 @@ func (tc *mbTableCodec) encodeStep(cp rune) ([]byte, int) {
 type mbEUCJPCodec struct {
 	name      string
 	lead      [256]bool
-	double    map[uint16]rune // lead<<8|trail: 0x8e katakana and the JIS X 0208 plane
-	triple    map[uint16]rune // the two bytes after 0x8f: b2<<8|b3
+	double    map[uint16]rune    // lead<<8|trail: 0x8e katakana and the JIS X 0208 plane
+	triple    map[uint16]rune    // the two bytes after 0x8f: b2<<8|b3
+	multi     map[uint16][2]rune // lead<<8|trail -> two code points, the JIS X 0213 combining decodes
 	encDouble map[rune]uint16
 	encTriple map[rune]uint16
+	encPair   map[[2]rune]uint16 // (base, mark) -> two bytes in the double space
+	base      map[rune]bool      // code points that can begin a combining pair
 }
 
 // eucJPSS3 is the single-shift byte that introduces a three-byte JIS X 0212
@@ -196,10 +199,43 @@ func newMBEUCJPCodec(name string, leads []byte, double, triple map[uint16]rune, 
 	return ec
 }
 
-// codec adapts the euc_jp codec to the engine's mbCodec interface.
-func (ec *mbEUCJPCodec) codec() *mbCodec {
-	return &mbCodec{name: ec.name, encodeStep: ec.encodeStep, decodeStep: ec.decodeStep}
+// withCombining attaches the JIS X 0213 combining tables to a euc codec: the
+// two-byte sequences in the double space that decode to a base plus a mark, the
+// encode map for those pairs, and the set of code points that can begin one. It
+// is what turns euc_jp into euc_jis_2004.
+func (ec *mbEUCJPCodec) withCombining(multi map[uint16][2]rune, encPair map[[2]rune]uint16, bases []rune) *mbEUCJPCodec {
+	ec.multi = multi
+	ec.encPair = encPair
+	ec.base = make(map[rune]bool, len(bases))
+	for _, r := range bases {
+		ec.base[r] = true
+	}
+	return ec
 }
+
+// codec adapts the euc_jp codec to the engine's mbCodec interface. The combining
+// hooks are wired only when the codec carries a combining table, so euc_jp leaves
+// them nil and the engine skips the pair lookahead.
+func (ec *mbEUCJPCodec) codec() *mbCodec {
+	c := &mbCodec{name: ec.name, encodeStep: ec.encodeStep, decodeStep: ec.decodeStep}
+	if len(ec.multi) > 0 {
+		c.encodePair = ec.encodePairStep
+		c.encodeBase = ec.encodeBaseStep
+	}
+	return c
+}
+
+// encodePairStep encodes a two-code-point combining sequence to its two bytes in
+// the double space, or reports that the pair is not a combined one.
+func (ec *mbEUCJPCodec) encodePairStep(a, b rune) ([]byte, bool) {
+	if v, ok := ec.encPair[[2]rune{a, b}]; ok {
+		return []byte{byte(v >> 8), byte(v)}, true
+	}
+	return nil, false
+}
+
+// encodeBaseStep reports whether a code point can begin a combining pair.
+func (ec *mbEUCJPCodec) encodeBaseStep(r rune) bool { return ec.base[r] }
 
 // decodeStep decodes the next unit. ascii decodes on its own; a lead needs two
 // bytes, or three when it is the 0x8f single-shift; too few bytes for the width
@@ -227,8 +263,12 @@ func (ec *mbEUCJPCodec) decodeStep(p []byte) (rune, rune, int, int, int) {
 		}
 		return 0, -1, 0, 1, mbIllegal
 	}
-	if r, ok := ec.double[uint16(c)<<8|uint16(p[1])]; ok {
+	key := uint16(c)<<8 | uint16(p[1])
+	if r, ok := ec.double[key]; ok {
 		return r, -1, 2, 0, mbOK
+	}
+	if m, ok := ec.multi[key]; ok {
+		return m[0], m[1], 2, 0, mbOK
 	}
 	return 0, -1, 0, 1, mbIllegal
 }
