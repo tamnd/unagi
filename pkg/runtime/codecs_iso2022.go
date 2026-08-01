@@ -43,6 +43,8 @@ func codecsISO2022Getcodec(args []objects.Object) (objects.Object, error) {
 		return newMultibyteCodec(iso2022JPCodec)
 	case "iso2022_jp_1":
 		return newMultibyteCodec(iso2022JP1Codec)
+	case "iso2022_jp_ext":
+		return newMultibyteCodec(iso2022JPExtCodec)
 	default:
 		return nil, objects.Raise("LookupError", "no such codec is supported.")
 	}
@@ -58,6 +60,7 @@ const (
 	iso2022Mode02081978 = 0xC0
 	iso2022Mode0208     = 0xC2
 	iso2022Mode0212     = 0xC4
+	iso2022ModeKana     = 0x49
 )
 
 // The roman charset differs from ascii only at 0x5c (yen) and 0x7e (overline).
@@ -101,6 +104,24 @@ var iso2022CS0212 = &iso2022Charset{
 	encode: iso2022JISX0212Encode, decode: iso2022JISX0212Decode,
 }
 
+// iso2022CSKana is JIS X 0201 katakana, a single-byte G0 charset designated by
+// ESC(I. The GL byte 0x21..0x5f maps linearly to halfwidth katakana U+FF61..U+FF9F.
+var iso2022CSKana = iso2022MakeKana()
+
+func iso2022MakeKana() *iso2022Charset {
+	dec := make(map[uint16]rune, 63)
+	enc := make(map[rune]uint16, 63)
+	for b := 0x21; b <= 0x5f; b++ {
+		cp := rune(0xFF61 + b - 0x21)
+		dec[uint16(b)] = cp
+		enc[cp] = uint16(b)
+	}
+	return &iso2022Charset{
+		code: iso2022ModeKana, esc: []byte{'(', 'I'}, two: false,
+		encode: enc, decode: dec,
+	}
+}
+
 var iso2022JPConfig = &iso2022Config{
 	name:        "iso2022_jp",
 	encodeOrder: []*iso2022Charset{iso2022CS0208},
@@ -127,6 +148,25 @@ var iso2022JP1Config = &iso2022Config{
 	desig: map[string]byte{
 		"(B":  iso2022ModeASCII,
 		"(J":  iso2022ModeRoman,
+		"$@":  iso2022Mode02081978,
+		"$B":  iso2022Mode0208,
+		"$(D": iso2022Mode0212,
+	},
+}
+
+var iso2022JPExtConfig = &iso2022Config{
+	name:        "iso2022_jp_ext",
+	encodeOrder: []*iso2022Charset{iso2022CS0208, iso2022CS0212, iso2022CSKana},
+	byCode: map[byte]*iso2022Charset{
+		iso2022Mode02081978: iso2022CS0208,
+		iso2022Mode0208:     iso2022CS0208,
+		iso2022Mode0212:     iso2022CS0212,
+		iso2022ModeKana:     iso2022CSKana,
+	},
+	desig: map[string]byte{
+		"(B":  iso2022ModeASCII,
+		"(J":  iso2022ModeRoman,
+		"(I":  iso2022ModeKana,
 		"$@":  iso2022Mode02081978,
 		"$B":  iso2022Mode0208,
 		"$(D": iso2022Mode0212,
@@ -164,6 +204,7 @@ func iso2022Codec(cfg *iso2022Config) *mbCodec {
 
 var iso2022JPCodec = iso2022Codec(iso2022JPConfig)
 var iso2022JP1Codec = iso2022Codec(iso2022JP1Config)
+var iso2022JPExtCodec = iso2022Codec(iso2022JPExtConfig)
 
 // iso2022JPEncodeRun and iso2022JPDecodeRun are the base-config entry points the
 // unit tests drive directly.

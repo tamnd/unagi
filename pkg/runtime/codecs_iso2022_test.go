@@ -137,13 +137,50 @@ func TestISO2022JP1JISX0212(t *testing.T) {
 	}
 }
 
+// TestISO2022JPExtKana checks iso2022_jp_ext designates JIS X 0201 katakana with
+// the single-byte ESC(I escape, decodes every kana byte back, folds an out-of-range
+// kana byte to an illegal one-byte error, and still carries JIS X 0208 and 0212.
+func TestISO2022JPExtKana(t *testing.T) {
+	// Halfwidth katakana designates ESC(I and closes to ascii.
+	enc, _, mode, err := iso2022EncodeRun(iso2022JPExtConfig, []rune("ｱ"), "strict", true, iso2022ModeASCII)
+	if err != nil || string(enc) != "\x1b(I1\x1b(B" || mode != iso2022ModeASCII {
+		t.Fatalf("kana encode: enc=%x mode=%#x err=%v", enc, mode, err)
+	}
+	// Every kana byte roundtrips through the single-byte mode.
+	for b := 0x21; b <= 0x5f; b++ {
+		data := []byte{0x1b, '(', 'I', byte(b)}
+		out, consumed, _, m, err := iso2022DecodeRun(iso2022JPExtConfig, data, "strict", true, iso2022ModeASCII)
+		if err != nil || consumed != len(data) || out != string(rune(0xFF61+b-0x21)) || m != iso2022ModeKana {
+			t.Fatalf("kana byte %#x: out=%q consumed=%d mode=%#x err=%v", b, out, consumed, m, err)
+		}
+	}
+	// A kana byte outside 0x21..0x5f is illegal one byte wide.
+	_, _, _, _, err = iso2022DecodeRun(iso2022JPExtConfig, []byte{0x1b, '(', 'I', 0x60}, "strict", true, iso2022ModeASCII)
+	want := "'iso2022_jp_ext' codec can't decode byte 0x60 in position 3: illegal multibyte sequence"
+	if err == nil || errString(err) != want {
+		t.Fatalf("bad kana byte: got %v want %q", err, want)
+	}
+	// The extension still carries 0208 and 0212, mixed with kana in one string.
+	s := "AB ｱｶ 漢 丨 ¥ x"
+	full, _, _, err := iso2022EncodeRun(iso2022JPExtConfig, []rune(s), "strict", true, iso2022ModeASCII)
+	if err != nil {
+		t.Fatalf("iso2022_jp_ext encode: %v", err)
+	}
+	out, _, _, _, err := iso2022DecodeRun(iso2022JPExtConfig, full, "strict", true, iso2022ModeASCII)
+	if err != nil || out != s {
+		t.Fatalf("iso2022_jp_ext roundtrip: enc=%x out=%q err=%v", full, out, err)
+	}
+}
+
 // TestISO2022GetcodecUnknown checks getcodec raises LookupError for a codec this
 // build does not carry yet, and returns a codec for the ones it does.
 func TestISO2022GetcodecUnknown(t *testing.T) {
 	if _, err := codecsISO2022Getcodec([]objects.Object{objects.NewStr("iso2022_jp_2")}); err == nil {
 		t.Fatalf("getcodec iso2022_jp_2: expected LookupError")
 	}
-	if _, err := codecsISO2022Getcodec([]objects.Object{objects.NewStr("iso2022_jp_1")}); err != nil {
-		t.Fatalf("getcodec iso2022_jp_1: %v", err)
+	for _, name := range []string{"iso2022_jp_1", "iso2022_jp_ext"} {
+		if _, err := codecsISO2022Getcodec([]objects.Object{objects.NewStr(name)}); err != nil {
+			t.Fatalf("getcodec %s: %v", name, err)
+		}
 	}
 }
