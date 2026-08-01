@@ -1,0 +1,39 @@
+== exit: 0
+== stdout:
+iso8859_2 roundtrip True defined 256
+iso8859_5 roundtrip True defined 256
+iso8859_7 roundtrip True defined 253
+iso8859_15 roundtrip True defined 256
+cp1252 roundtrip True defined 251
+cp1251 roundtrip True defined 255
+cp1250 roundtrip True defined 251
+cp037 roundtrip True defined 256
+cp500 roundtrip True defined 256
+cp437 roundtrip True defined 256
+cp850 roundtrip True defined 256
+cp866 roundtrip True defined 256
+koi8_r roundtrip True defined 256
+koi8_u roundtrip True defined 256
+mac_roman roundtrip True defined 256
+mac_cyrillic roundtrip True defined 256
+mac_greek roundtrip True defined 256
+tis_620 roundtrip True defined 247
+hp_roman8 roundtrip True defined 255
+palmos roundtrip True defined 256
+ptcp154 roundtrip True defined 256
+kz1048 roundtrip True defined 255
+cp1252 info: cp1252
+iso8859_15 info: iso8859-15
+cp1252 undef: 'charmap' codec can't decode byte 0x81 in position 0: character maps to <undefined>
+cp1252 ignore: 'AB'
+cp1252 replace: 'A�B'
+iso8859_1 no euro: 'latin-1' codec can't encode character '\u20ac' in position 0: ordinal not in range(256)
+iso8859_15 euro hex: a4
+cp1252 quotes: 9394
+mac_roman apple: aa
+cp1251 ru eq: True
+koi8_r ru eq: True
+cp1252 incremental: 4180
+cp1251 incremental eq: True
+== exception:
+== stderr:
