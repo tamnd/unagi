@@ -92,7 +92,7 @@ func iso2022KREncodeRun(runes []rune, errors string, final bool, mode int) ([]by
 		}
 		switch errors {
 		case "strict":
-			return nil, nil, 0, mbUnicodeEncodeError("iso2022_kr", r, i, "illegal multibyte sequence")
+			return nil, nil, 0, mbUnicodeEncodeError("iso2022_kr", runes, i, "illegal multibyte sequence")
 		case "ignore":
 			// drop the code point, designation and shift unchanged
 		case "replace":

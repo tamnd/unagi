@@ -165,3 +165,40 @@ func TestUnicodeErrorNoSplit(t *testing.T) {
 		})
 	}
 }
+
+// TestNewUnicodeErrorConstructors checks the runtime codec raise helpers build
+// the structured five-tuple form: the whole input is the object, the span
+// indexes into it, the named attributes read back, and str() renders CPython's
+// codec-message wording. These are the path the multibyte codecs raise on, so
+// a caught error carries start/end/object the way an error handler needs.
+func TestNewUnicodeErrorConstructors(t *testing.T) {
+	d := NewUnicodeDecodeError("euc_jp", []byte("abc\xff"), 3, 4, "incomplete multibyte sequence")
+	if !d.UEParsed {
+		t.Fatal("decode UEParsed = false")
+	}
+	if got := Str(d); got != "'euc_jp' codec can't decode byte 0xff in position 3: incomplete multibyte sequence" {
+		t.Errorf("decode str = %q", got)
+	}
+	if s, _ := AsInt(d.UEStart); s != 3 {
+		t.Errorf("decode start = %d, want 3", s)
+	}
+	if got, ok := unicodeErrorAttr(d, "object"); !ok || Str(got) != "b'abc\\xff'" {
+		t.Errorf("decode object = %v ok=%v", got, ok)
+	}
+
+	e := NewUnicodeEncodeError("gb2312", "abc\U0001F600def", 3, 4, "illegal multibyte sequence")
+	if !e.UEParsed {
+		t.Fatal("encode UEParsed = false")
+	}
+	if got := Str(e); got != "'gb2312' codec can't encode character '\\U0001f600' in position 3: illegal multibyte sequence" {
+		t.Errorf("encode str = %q", got)
+	}
+	if enc, ok := unicodeErrorAttr(e, "encoding"); !ok || Str(enc) != "gb2312" {
+		t.Errorf("encode encoding = %v ok=%v", enc, ok)
+	}
+	// The object is the whole input string, so indexing at start names the bad
+	// code point.
+	if r, ok := runeAt(e.UEObject, 3); !ok || r != 0x1F600 {
+		t.Errorf("encode object[3] = %U ok=%v", r, ok)
+	}
+}

@@ -109,7 +109,7 @@ func pyBackslashEscape(r rune) string {
 func utfEncodeError(runes []rune, pos int, name, errors string, encRepl func(string) ([]byte, error)) ([]byte, int, error) {
 	switch errors {
 	case "strict":
-		return nil, 0, mbUnicodeEncodeError(name, runes[pos], pos, "surrogates not allowed")
+		return nil, 0, mbUnicodeEncodeError(name, runes, pos, "surrogates not allowed")
 	case "ignore":
 		return nil, pos + 1, nil
 	case "replace":
@@ -126,7 +126,7 @@ func utfEncodeError(runes []rune, pos int, name, errors string, encRepl func(str
 		if err != nil {
 			return nil, 0, err
 		}
-		exc, err := mbAsException(mbUnicodeEncodeError(name, runes[pos], pos, "surrogates not allowed"))
+		exc, err := mbAsException(mbUnicodeEncodeError(name, runes, pos, "surrogates not allowed"))
 		if err != nil {
 			return nil, 0, err
 		}

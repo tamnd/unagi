@@ -15,6 +15,36 @@ import "fmt"
 // argument count the constructor uses and leaves the one-argument message form
 // as an ordinary exception whose str() is that message.
 
+// NewUnicodeDecodeError builds a structured UnicodeDecodeError from the full
+// input bytes and the bad span, so the raised exception exposes the
+// encoding/object/start/end/reason attributes an error handler reads and still
+// renders str() in the codec-message form. It is the structured counterpart of
+// the preformatted-message Raise form, for the runtime codec raise sites. The
+// implicit context chains the way Raise does.
+func NewUnicodeDecodeError(encoding string, data []byte, start, end int, reason string) *Exception {
+	e := &Exception{
+		Kind:    "UnicodeDecodeError",
+		Args:    []Object{NewStr(encoding), NewBytes(append([]byte(nil), data...)), NewInt(int64(start)), NewInt(int64(end)), NewStr(reason)},
+		Context: CurrentHandled(),
+	}
+	parseUnicodeErrorArgs(e)
+	return e
+}
+
+// NewUnicodeEncodeError builds a structured UnicodeEncodeError from the full
+// input string and the bad span, the encode-side counterpart of
+// NewUnicodeDecodeError. The object is the whole input so .start/.end index
+// into it and str() can name the offending character.
+func NewUnicodeEncodeError(encoding, s string, start, end int, reason string) *Exception {
+	e := &Exception{
+		Kind:    "UnicodeEncodeError",
+		Args:    []Object{NewStr(encoding), NewStr(s), NewInt(int64(start)), NewInt(int64(end)), NewStr(reason)},
+		Context: CurrentHandled(),
+	}
+	parseUnicodeErrorArgs(e)
+	return e
+}
+
 // parseUnicodeErrorArgs performs CPython's UnicodeError argument split on a
 // freshly built exception. It runs only for the three unicode error types and
 // only for the exact argument count each uses; any other shape keeps the generic

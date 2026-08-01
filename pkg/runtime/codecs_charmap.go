@@ -251,7 +251,7 @@ func charmapDecodeValue(v objects.Object) ([]rune, bool, error) {
 func charmapEncodeError(runes []rune, pos int, errors string) ([]byte, int, error) {
 	switch errors {
 	case "strict":
-		return nil, 0, mbUnicodeEncodeError("charmap", runes[pos], pos, "character maps to <undefined>")
+		return nil, 0, mbUnicodeEncodeError("charmap", runes, pos, "character maps to <undefined>")
 	case "ignore":
 		return nil, pos + 1, nil
 	case "replace":
@@ -261,7 +261,7 @@ func charmapEncodeError(runes []rune, pos int, errors string) ([]byte, int, erro
 		if err != nil {
 			return nil, 0, err
 		}
-		exc, err := mbAsException(mbUnicodeEncodeError("charmap", runes[pos], pos, "character maps to <undefined>"))
+		exc, err := mbAsException(mbUnicodeEncodeError("charmap", runes, pos, "character maps to <undefined>"))
 		if err != nil {
 			return nil, 0, err
 		}
