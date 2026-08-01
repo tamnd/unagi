@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+enc b'begin 666 <data>\nM2&5L;&\\@=74@8V]D96,@<&%Y;&]A9" Q,C,@=VET:"!S;VUE(&QO;F=E<B!C\n@;VYT96YT(\'1O(\'-P86X@=\'=O(&QI;F5S(&UA>6)E(2$ \n \nend\n'
+rt True
+empty b'begin 666 <data>\n \nend\n'
+b2a b'#0V%T\n'
+b2a_backtick b'`\n'
+a2b b'Cat'
+over45 At most 45 bytes at once
+illegal Illegal char
+trailing Trailing garbage
+== exception:
+== stderr:
