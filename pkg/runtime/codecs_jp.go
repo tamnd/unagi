@@ -42,6 +42,10 @@ func codecsJPGetcodec(args []objects.Object) (objects.Object, error) {
 		return newMultibyteCodec(shiftJIS2004Codec())
 	case "shift_jisx0213":
 		return newMultibyteCodec(shiftJISX0213Codec())
+	case "euc_jis_2004":
+		return newMultibyteCodec(eucJIS2004Codec())
+	case "euc_jisx0213":
+		return newMultibyteCodec(eucJISX0213Codec())
 	default:
 		return nil, objects.Raise("LookupError", "no such codec is supported.")
 	}
@@ -110,6 +114,44 @@ var (
 	shiftJIS2004Once  sync.Once
 	shiftJIS2004Table *mbTableCodec
 )
+
+// eucJIS2004Codec builds the euc_jis_2004 engine codec once from the generated
+// tables. It is the JIS X 0213 sibling of euc_jp: the same variable-width byte
+// structure with the combining tables attached, so a few two-byte sequences in
+// the double space decode to a base plus a combining mark and the encoder folds
+// a base and its mark back with a two-code-point lookahead.
+var (
+	eucJIS2004Once  sync.Once
+	eucJIS2004Table *mbEUCJPCodec
+)
+
+func eucJIS2004Codec() *mbCodec {
+	eucJIS2004Once.Do(func() {
+		eucJIS2004Table = newMBEUCJPCodec("euc_jis_2004",
+			eucJIS2004Leads, eucJIS2004DoubleDecode, eucJIS2004TripleDecode,
+			eucJIS2004DoubleEncode, eucJIS2004TripleEncode).
+			withCombining(eucJIS2004MultiDecode, eucJIS2004PairEncode, eucJIS2004Bases)
+	})
+	return eucJIS2004Table.codec()
+}
+
+// eucJISX0213Codec builds the euc_jisx0213 engine codec once from the generated
+// tables. It is the JIS X 0213:2000 sibling of euc_jis_2004, the same shape over
+// a table that differs by a handful of code points.
+var (
+	eucJISX0213Once  sync.Once
+	eucJISX0213Table *mbEUCJPCodec
+)
+
+func eucJISX0213Codec() *mbCodec {
+	eucJISX0213Once.Do(func() {
+		eucJISX0213Table = newMBEUCJPCodec("euc_jisx0213",
+			eucJISX0213Leads, eucJISX0213DoubleDecode, eucJISX0213TripleDecode,
+			eucJISX0213DoubleEncode, eucJISX0213TripleEncode).
+			withCombining(eucJISX0213MultiDecode, eucJISX0213PairEncode, eucJISX0213Bases)
+	})
+	return eucJISX0213Table.codec()
+}
 
 func shiftJIS2004Codec() *mbCodec {
 	shiftJIS2004Once.Do(func() {
