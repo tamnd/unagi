@@ -1,0 +1,26 @@
+== exit: 0
+== stdout:
+low '2023-06-15' (2023, 6, 15, 0, 0, 0, 3, 166, -1, None, None) 0 0
+low '15/06/2023 14:30:45' (2023, 6, 15, 14, 30, 45, 3, 166, -1, None, None) 0 0
+low 'Jun 15 2023' (2023, 6, 15, 0, 0, 0, 3, 166, -1, None, None) 0 0
+low 'June 15, 2023' (2023, 6, 15, 0, 0, 0, 3, 166, -1, None, None) 0 0
+low '2023-166' (2023, 6, 15, 0, 0, 0, 3, 166, -1, None, None) 0 0
+low '02:30 PM' (1900, 1, 1, 14, 30, 0, 0, 1, -1, None, None) 0 0
+low '23' (2023, 1, 1, 0, 0, 0, 6, 1, -1, None, None) 0 0
+low '2023-06-15T14:30:45' (2023, 6, 15, 14, 30, 45, 3, 166, -1, None, None) 0 0
+low '100000' (1900, 1, 1, 0, 0, 0, 0, 1, -1, None, None) 100000 0
+time '2023-06-15 14:30:45' (2023, 6, 15, 14, 30, 45, 3, 166, -1)
+time 'Tue Jun 15 14:30:45 2023' (2023, 6, 15, 14, 30, 45, 1, 166, -1)
+time 'Thursday' (1900, 1, 1, 0, 0, 0, 3, 1, -1)
+time '2023 24 1' (2023, 6, 12, 0, 0, 0, 0, 163, -1)
+time '2023 W24 4' (2023, 6, 15, 0, 0, 0, 3, 166, -1)
+time '2023%' (2023, 1, 1, 0, 0, 0, 6, 1, -1)
+bad '2023-02-29' ValueError day 29 must be in range 1..28 for month 2 in year 2023
+bad '2023-13-01' ValueError time data '2023-13-01' does not match format '%Y-%m-%d'
+bad 'notadate' ValueError time data 'notadate' does not match format '%Y-%m-%d'
+bad '2023-06-15' ValueError time data '2023-06-15' does not match format '%Y/%m/%d'
+bad '2023-06-15' ValueError stray % in format '%Y-%m-%d%'
+dt '2023-06-15 14:30' 2023-06-15T14:30:00
+dt 'Jun 2023' 2023-06-01T00:00:00
+== exception:
+== stderr:
