@@ -260,6 +260,90 @@ func functionKwDefaults(fn *functionObject) Object {
 	return d
 }
 
+// setFunctionDefaults implements `fn.__defaults__ = t`, writing the positional
+// defaults the call binder reads at bind time. CPython replaces the whole
+// defaults tuple, so the trailing len(t) positional parameters take t's values
+// in order and every earlier positional parameter loses any default it had. A
+// None argument clears them all. namedtuple leans on this: it emits a plain
+// `def __new__(cls, field, ...)` with no source defaults, then sets
+// __new__.__defaults__ = tuple(defaults) so the trailing fields become optional.
+func setFunctionDefaults(fn *functionObject, val Object) error {
+	var posIdx []int
+	for i, p := range fn.params {
+		if p.Kind == ParamPosOnly || p.Kind == ParamPlain {
+			posIdx = append(posIdx, i)
+		}
+	}
+	if val == None {
+		for _, i := range posIdx {
+			if fn.defaults != nil {
+				fn.defaults[i] = nil
+			}
+		}
+		return nil
+	}
+	t, ok := asFormatTuple(val)
+	if !ok {
+		return Raise(TypeError, "__defaults__ must be set to a tuple object")
+	}
+	if fn.defaults == nil {
+		fn.defaults = make([]Object, len(fn.params))
+	}
+	for _, i := range posIdx {
+		fn.defaults[i] = nil
+	}
+	// A defaults tuple of length k binds the last k positional parameters, so t[j]
+	// lands on the parameter k slots from the end; a tuple longer than the
+	// parameter list leaves its leading, unbindable values unused, as CPython does.
+	k, n := len(t.elts), len(posIdx)
+	for j := 0; j < k; j++ {
+		if pos := n - k + j; pos >= 0 {
+			fn.defaults[posIdx[pos]] = t.elts[j]
+		}
+	}
+	return nil
+}
+
+// setFunctionKwDefaults implements `fn.__kwdefaults__ = d`, the keyword-only
+// counterpart: each keyword-only parameter named in the mapping takes that
+// default and every other keyword-only parameter loses its default, with None
+// clearing them all. It mirrors setFunctionDefaults so the two writable slots
+// stay symmetric rather than leaking into the __dict__.
+func setFunctionKwDefaults(fn *functionObject, val Object) error {
+	var kwIdx []int
+	for i, p := range fn.params {
+		if p.Kind == ParamKwOnly {
+			kwIdx = append(kwIdx, i)
+		}
+	}
+	if val == None {
+		for _, i := range kwIdx {
+			if fn.defaults != nil {
+				fn.defaults[i] = nil
+			}
+		}
+		return nil
+	}
+	d, ok := val.(*dictObject)
+	if !ok {
+		return Raise(TypeError, "__kwdefaults__ must be set to a dict object")
+	}
+	if fn.defaults == nil {
+		fn.defaults = make([]Object, len(fn.params))
+	}
+	for _, i := range kwIdx {
+		fn.defaults[i] = nil
+		v, found, err := d.lookup(NewStr(fn.params[i].Name))
+		if err != nil {
+			return err
+		}
+		if found {
+			fn.defaults[i] = v
+		}
+	}
+	return nil
+}
+
 // functionStoreAttr writes fn.name = val. The five slots enforce their types the
 // way CPython does; any other name lands in the __dict__.
 func functionStoreAttr(fn *functionObject, name string, val Object) error {
@@ -310,6 +394,10 @@ func functionStoreAttr(fn *functionObject, name string, val Object) error {
 		}
 		fn.overlay().dict = d
 		return nil
+	case "__defaults__":
+		return setFunctionDefaults(fn, val)
+	case "__kwdefaults__":
+		return setFunctionKwDefaults(fn, val)
 	}
 	return funcDict(fn).set(NewStr(name), val)
 }

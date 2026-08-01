@@ -40,15 +40,51 @@ func (st *percentState) next() (Object, error) {
 }
 
 // percentFormat implements format % right for a str format.
+// asFormatTuple reports the tuple whose elements a % format unpacks as its
+// positional arguments: an exact tuple, or a tuple subclass whose payload is a
+// tuple (a namedtuple value). ok is false for any non-tuple operand.
+func asFormatTuple(right Object) (*tupleObject, bool) {
+	if t, ok := right.(*tupleObject); ok {
+		return t, true
+	}
+	if instanceOfBuiltin(right, "tuple") {
+		if u, ok := builtinUnwrap(right); ok {
+			if t, ok := u.(*tupleObject); ok {
+				return t, true
+			}
+		}
+	}
+	return nil, false
+}
+
+// isFormatMapping reports whether a % format's right operand supplies %(key)s
+// lookups: a dict (including a dict subclass such as OrderedDict or Counter), a
+// list, or a range, the operands GetItem answers by key or index.
+func isFormatMapping(right Object) bool {
+	switch right.(type) {
+	case *dictObject, *listObject, *rangeObject:
+		return true
+	}
+	return instanceOfBuiltin(right, "dict")
+}
+
 func percentFormat(format string, right Object) (Object, error) {
 	st := &percentState{}
-	if t, ok := right.(*tupleObject); ok {
+	// The right operand is unpacked as the argument sequence when it is a tuple,
+	// including a tuple subclass (a namedtuple's generated __repr__ does
+	// `repr_fmt % self`, self being a tuple subclass), matching CPython's
+	// PyTuple_Check which is true for subclasses. Any other single value is the
+	// sole argument.
+	if t, ok := asFormatTuple(right); ok {
 		st.args = t.elts
 	} else {
 		st.args = []Object{right}
 	}
-	switch right.(type) {
-	case *dictObject, *listObject, *rangeObject:
+	// A mapping right operand also enables %(key)s lookups. A dict subclass
+	// (OrderedDict, Counter) is a mapping the way CPython's PyMapping_Check
+	// reports, so it drives the keyed conversions too.
+	switch {
+	case isFormatMapping(right):
 		st.mapping = right
 	}
 	rs := []rune(format)
