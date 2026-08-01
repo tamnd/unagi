@@ -6,17 +6,24 @@ import (
 	"github.com/tamnd/unagi/pkg/objects"
 )
 
-// newDeque builds a deque through the collections module constructor, the same
-// path compiled code takes for collections.deque(...).
+// These tests exercise the three C-accelerated container types the runtime owns
+// through _collections: deque, defaultdict and OrderedDict. The public
+// collections package is served from the vendored collections/__init__.py, which
+// imports these accelerators from _collections; the higher-level types (Counter,
+// namedtuple, ChainMap, UserDict, ...) live in that pure package and are covered
+// by the collections conformance fixtures.
+
+// newDeque builds a deque through the _collections accelerator constructor, the
+// same object the vendored collections.deque(...) resolves to.
 func newDeque(t *testing.T, args ...objects.Object) objects.Object {
 	t.Helper()
-	mo, err := ImportModule("collections")
+	mo, err := ImportModule("_collections")
 	if err != nil {
-		t.Fatalf("import collections: %v", err)
+		t.Fatalf("import _collections: %v", err)
 	}
 	fn, err := objects.LoadAttr(mo, "deque")
 	if err != nil {
-		t.Fatalf("collections.deque: %v", err)
+		t.Fatalf("_collections.deque: %v", err)
 	}
 	d, err := objects.Call(fn, args)
 	if err != nil {
@@ -109,7 +116,7 @@ func TestDequeMaxlenAttr(t *testing.T) {
 }
 
 func TestDequeMaxlenNegative(t *testing.T) {
-	mo, _ := ImportModule("collections")
+	mo, _ := ImportModule("_collections")
 	fn, _ := objects.LoadAttr(mo, "deque")
 	if _, err := objects.Call(fn, []objects.Object{objects.None, objects.NewInt(-1)}); err == nil {
 		t.Fatal("negative maxlen should raise")
@@ -169,16 +176,16 @@ func TestDequeSubscript(t *testing.T) {
 	}
 }
 
-// collFn returns a named callable from the collections module.
+// collFn returns a named accelerator callable from the _collections module.
 func collFn(t *testing.T, name string) objects.Object {
 	t.Helper()
-	mo, err := ImportModule("collections")
+	mo, err := ImportModule("_collections")
 	if err != nil {
-		t.Fatalf("import collections: %v", err)
+		t.Fatalf("import _collections: %v", err)
 	}
 	fn, err := objects.LoadAttr(mo, name)
 	if err != nil {
-		t.Fatalf("collections.%s: %v", name, err)
+		t.Fatalf("_collections.%s: %v", name, err)
 	}
 	return fn
 }
@@ -286,117 +293,6 @@ func TestDefaultDictCopy(t *testing.T) {
 	}
 }
 
-// newCounter builds a Counter through the collections module constructor.
-func newCounter(t *testing.T, args ...objects.Object) objects.Object {
-	t.Helper()
-	c, err := objects.Call(collFn(t, "Counter"), args)
-	if err != nil {
-		t.Fatalf("Counter call: %v", err)
-	}
-	return c
-}
-
-func TestCounterCountAndRepr(t *testing.T) {
-	c := newCounter(t, objects.NewStr("mississippi"))
-	if got := objects.Repr(c); got != "Counter({'i': 4, 's': 4, 'p': 2, 'm': 1})" {
-		t.Fatalf("counter repr = %q", got)
-	}
-	// A missing element reads zero without growing the mapping.
-	v, err := objects.GetItem(c, objects.NewStr("z"))
-	if err != nil || objects.Repr(v) != "0" {
-		t.Fatalf("missing element = %s err %v", objects.Repr(v), err)
-	}
-	if n, _ := objects.Len(c); n != 4 {
-		t.Fatalf("len after missing read = %d", n)
-	}
-	if got := objects.Repr(newCounter(t)); got != "Counter()" {
-		t.Fatalf("empty counter repr = %q", got)
-	}
-}
-
-func TestCounterMostCommonAndElements(t *testing.T) {
-	c := newCounter(t, objects.NewStr("mississippi"))
-	mc := method(t, c, "most_common", objects.NewInt(2))
-	if got := objects.Repr(mc); got != "[('i', 4), ('s', 4)]" {
-		t.Fatalf("most_common(2) = %q", got)
-	}
-	elts := builtinList(t, method(t, c, "elements"))
-	method(t, elts, "sort")
-	if got := objects.Repr(elts); got != "['i', 'i', 'i', 'i', 'm', 'p', 'p', 's', 's', 's', 's']" {
-		t.Fatalf("sorted elements = %q", got)
-	}
-}
-
-func TestCounterArithmetic(t *testing.T) {
-	mk := func(a, b int) objects.Object {
-		return newCounter(t, dictOf(t, "a", a, "b", b))
-	}
-	cases := []struct {
-		op   func(x, y objects.Object) (objects.Object, error)
-		want string
-	}{
-		{objects.Add, "Counter({'a': 4, 'b': 3})"},
-		{objects.Sub, "Counter({'a': 2})"},
-		{objects.BitAnd, "Counter({'a': 1, 'b': 1})"},
-		{objects.BitOr, "Counter({'a': 3, 'b': 2})"},
-	}
-	for _, tc := range cases {
-		v, err := tc.op(mk(3, 1), mk(1, 2))
-		if err != nil {
-			t.Fatalf("op: %v", err)
-		}
-		if got := objects.Repr(v); got != tc.want {
-			t.Fatalf("op result = %q want %q", got, tc.want)
-		}
-	}
-}
-
-func TestCounterUnary(t *testing.T) {
-	c := newCounter(t, dictOf(t, "a", 1, "b", -1))
-	pos, _ := objects.Pos(c)
-	if got := objects.Repr(pos); got != "Counter({'a': 1})" {
-		t.Fatalf("+counter = %q", got)
-	}
-	neg, _ := objects.Neg(c)
-	if got := objects.Repr(neg); got != "Counter({'b': 1})" {
-		t.Fatalf("-counter = %q", got)
-	}
-}
-
-func TestCounterUpdateSubtract(t *testing.T) {
-	c := newCounter(t, objects.NewStr("aab"))
-	method(t, c, "subtract", objects.NewStr("ab"))
-	if got := objects.Repr(c); got != "Counter({'a': 1, 'b': 0})" {
-		t.Fatalf("after subtract = %q", got)
-	}
-	method(t, c, "update", nums())
-	method(t, c, "update", objects.NewList([]objects.Object{objects.NewStr("a"), objects.NewStr("x")}))
-	if got := objects.Repr(c); got != "Counter({'a': 2, 'x': 1, 'b': 0})" {
-		t.Fatalf("after update = %q", got)
-	}
-}
-
-func TestCounterEqualsDictAndTotal(t *testing.T) {
-	c := newCounter(t, dictOf(t, "a", 1))
-	plain, _ := objects.NewDict([]objects.Object{objects.NewStr("a")}, []objects.Object{objects.NewInt(1)})
-	res, _ := objects.Compare(objects.OpEq, c, plain)
-	if !objects.Truth(res) {
-		t.Fatal("Counter should equal a plain dict with the same items")
-	}
-	c2 := newCounter(t, dictOf(t, "x", 5, "y", 2))
-	if got := objects.Repr(method(t, c2, "total")); got != "7" {
-		t.Fatalf("total = %s", got)
-	}
-	// Counter | plain dict falls back to the dict union, a plain dict.
-	u, err := objects.BitOr(newCounter(t, dictOf(t, "a", 1)), plain)
-	if err != nil {
-		t.Fatalf("counter | dict: %v", err)
-	}
-	if got := objects.Repr(u); got != "{'a': 1}" || u.TypeName() != "dict" {
-		t.Fatalf("counter | dict = %q type %s", got, u.TypeName())
-	}
-}
-
 // newOrdered builds an OrderedDict from alternating string keys and int values.
 func newOrdered(t *testing.T, kv ...any) objects.Object {
 	t.Helper()
@@ -487,7 +383,7 @@ func TestOrderedDictUnionKeepsKind(t *testing.T) {
 }
 
 // dictOf builds a plain dict from alternating string keys and int values, a
-// compact way to seed a Counter in the tests.
+// compact way to seed an OrderedDict in the tests.
 func dictOf(t *testing.T, kv ...any) objects.Object {
 	t.Helper()
 	var keys, vals []objects.Object
@@ -500,16 +396,6 @@ func dictOf(t *testing.T, kv ...any) objects.Object {
 		t.Fatalf("NewDict: %v", err)
 	}
 	return d
-}
-
-// builtinList materializes an iterable into a list so the test can sort it.
-func builtinList(t *testing.T, it objects.Object) objects.Object {
-	t.Helper()
-	elts, err := materialize(it)
-	if err != nil {
-		t.Fatalf("materialize: %v", err)
-	}
-	return objects.NewList(elts)
 }
 
 func TestDequeEqualityAndLen(t *testing.T) {
@@ -530,166 +416,5 @@ func TestDequeEqualityAndLen(t *testing.T) {
 	res, _ = objects.Compare(objects.OpEq, a, nums(1, 2, 3))
 	if objects.Truth(res) {
 		t.Fatal("deque should not equal a list")
-	}
-}
-
-// newNamedType builds a namedtuple class through the collections constructor,
-// the path compiled code takes for collections.namedtuple(...).
-func newNamedType(t *testing.T, args ...objects.Object) objects.Object {
-	t.Helper()
-	nt, err := objects.Call(collFn(t, "namedtuple"), args)
-	if err != nil {
-		t.Fatalf("namedtuple call: %v", err)
-	}
-	return nt
-}
-
-// errText pulls the message text out of a raised exception, without the Kind
-// prefix, so a test can match the exact wording CPython prints.
-func errText(err error) string {
-	if e, ok := err.(*objects.Exception); ok {
-		return e.Text()
-	}
-	return err.Error()
-}
-
-func strs(vals ...string) objects.Object {
-	elts := make([]objects.Object, len(vals))
-	for i, v := range vals {
-		elts[i] = objects.NewStr(v)
-	}
-	return objects.NewList(elts)
-}
-
-func TestNamedTupleConstructAndAccess(t *testing.T) {
-	Point := newNamedType(t, objects.NewStr("Point"), strs("x", "y"))
-	p, err := objects.Call(Point, []objects.Object{objects.NewInt(1), objects.NewInt(2)})
-	if err != nil {
-		t.Fatalf("Point(1, 2): %v", err)
-	}
-	if got := objects.Repr(p); got != "Point(x=1, y=2)" {
-		t.Fatalf("repr = %q", got)
-	}
-	// Field access by name and by index both read the tuple slots.
-	x, _ := objects.LoadAttr(p, "x")
-	if objects.Repr(x) != "1" {
-		t.Fatalf("p.x = %s", objects.Repr(x))
-	}
-	first, _ := objects.GetItem(p, objects.NewInt(0))
-	if objects.Repr(first) != "1" {
-		t.Fatalf("p[0] = %s", objects.Repr(first))
-	}
-	// An instance is a tuple subclass: equal to the bare tuple and same hash.
-	res, _ := objects.Compare(objects.OpEq, p, objects.NewTuple([]objects.Object{objects.NewInt(1), objects.NewInt(2)}))
-	if !objects.Truth(res) {
-		t.Fatal("Point(1, 2) should equal (1, 2)")
-	}
-}
-
-func TestNamedTupleKeywordAndFields(t *testing.T) {
-	Point := newNamedType(t, objects.NewStr("Point"), objects.NewStr("x y"))
-	p, err := objects.CallKw(Point, nil, []string{"y", "x"}, []objects.Object{objects.NewInt(5), objects.NewInt(6)})
-	if err != nil {
-		t.Fatalf("Point(y=5, x=6): %v", err)
-	}
-	if got := objects.Repr(p); got != "Point(x=6, y=5)" {
-		t.Fatalf("keyword repr = %q", got)
-	}
-	fields, _ := objects.LoadAttr(Point, "_fields")
-	if got := objects.Repr(fields); got != "('x', 'y')" {
-		t.Fatalf("_fields = %q", got)
-	}
-	name, _ := objects.LoadAttr(Point, "__name__")
-	if objects.Repr(name) != "'Point'" {
-		t.Fatalf("__name__ = %s", objects.Repr(name))
-	}
-}
-
-func TestNamedTupleAsDictReplaceMake(t *testing.T) {
-	Point := newNamedType(t, objects.NewStr("Point"), strs("x", "y"))
-	p, _ := objects.Call(Point, []objects.Object{objects.NewInt(1), objects.NewInt(2)})
-
-	d := method(t, p, "_asdict")
-	if got := objects.Repr(d); got != "{'x': 1, 'y': 2}" || d.TypeName() != "dict" {
-		t.Fatalf("_asdict = %q type %s", got, d.TypeName())
-	}
-	r, err := objects.CallMethodKw(p, "_replace", nil, []string{"y"}, []objects.Object{objects.NewInt(9)})
-	if err != nil {
-		t.Fatalf("_replace(y=9): %v", err)
-	}
-	if got := objects.Repr(r); got != "Point(x=1, y=9)" {
-		t.Fatalf("_replace = %q", got)
-	}
-	m := method(t, Point, "_make", nums(3, 4))
-	if got := objects.Repr(m); got != "Point(x=3, y=4)" {
-		t.Fatalf("_make = %q", got)
-	}
-	// An unknown field name in _replace is a TypeError spelling the names.
-	if _, err := objects.CallMethodKw(p, "_replace", nil, []string{"z"}, []objects.Object{objects.NewInt(0)}); err == nil {
-		t.Fatal("_replace with an unknown field should raise")
-	}
-	// _make with the wrong count is a TypeError.
-	if _, err := objects.CallMethod(Point, "_make", []objects.Object{nums(1)}); err == nil {
-		t.Fatal("_make with the wrong count should raise")
-	}
-}
-
-func TestNamedTupleDefaults(t *testing.T) {
-	P3, err := objects.CallKw(collFn(t, "namedtuple"),
-		[]objects.Object{objects.NewStr("P3"), objects.NewStr("a b c")},
-		[]string{"defaults"}, []objects.Object{nums(10, 20)})
-	if err != nil {
-		t.Fatalf("namedtuple defaults: %v", err)
-	}
-	p, err := objects.Call(P3, []objects.Object{objects.NewInt(1)})
-	if err != nil {
-		t.Fatalf("P3(1): %v", err)
-	}
-	if got := objects.Repr(p); got != "P3(a=1, b=10, c=20)" {
-		t.Fatalf("defaults repr = %q", got)
-	}
-	fd, _ := objects.LoadAttr(P3, "_field_defaults")
-	if got := objects.Repr(fd); got != "{'b': 10, 'c': 20}" {
-		t.Fatalf("_field_defaults = %q", got)
-	}
-}
-
-func TestNamedTupleRename(t *testing.T) {
-	R, err := objects.CallKw(collFn(t, "namedtuple"),
-		[]objects.Object{objects.NewStr("R"), strs("abc", "def", "abc", "x")},
-		[]string{"rename"}, []objects.Object{objects.True})
-	if err != nil {
-		t.Fatalf("namedtuple rename: %v", err)
-	}
-	fields, _ := objects.LoadAttr(R, "_fields")
-	if got := objects.Repr(fields); got != "('abc', '_1', '_2', 'x')" {
-		t.Fatalf("renamed _fields = %q", got)
-	}
-}
-
-func TestNamedTupleValidation(t *testing.T) {
-	cases := []struct {
-		args []objects.Object
-		want string
-	}{
-		{[]objects.Object{objects.NewStr("P"), objects.NewStr("a 1b")},
-			"Type names and field names must be valid identifiers: '1b'"},
-		{[]objects.Object{objects.NewStr("P"), objects.NewStr("a def")},
-			"Type names and field names cannot be a keyword: 'def'"},
-		{[]objects.Object{objects.NewStr("P"), objects.NewStr("a a")},
-			"Encountered duplicate field name: 'a'"},
-		{[]objects.Object{objects.NewStr("P"), objects.NewStr("a _b")},
-			"Field names cannot start with an underscore: '_b'"},
-		{[]objects.Object{objects.NewStr("class"), objects.NewStr("a b")},
-			"Type names and field names cannot be a keyword: 'class'"},
-	}
-	for _, tc := range cases {
-		_, err := objects.Call(collFn(t, "namedtuple"), tc.args)
-		if err == nil {
-			t.Fatalf("namedtuple%v should raise", tc.args)
-		}
-		if got := errText(err); got != tc.want {
-			t.Fatalf("error = %q want %q", got, tc.want)
-		}
 	}
 }

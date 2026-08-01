@@ -834,3 +834,17 @@ func buildExpatModelModule() (objects.Object, error) {
 	}
 	return mod, nil
 }
+
+// itoa renders a small non-negative int without pulling in strconv, used to
+// spell the line and column of an expat syntax error.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b []byte
+	for n > 0 {
+		b = append([]byte{byte('0' + n%10)}, b...)
+		n /= 10
+	}
+	return string(b)
+}

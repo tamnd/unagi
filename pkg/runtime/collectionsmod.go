@@ -24,14 +24,12 @@ import (
 // that name; the dotted names never leak as bare builtins because they are not
 // valid identifiers.
 //
-// The public collections module stays a Go builtin here (Counter and namedtuple
-// still live in Go, and it shares the same three type objects). It cannot be
-// repointed onto the vendored collections/__init__.py under AOT: the pure
-// namedtuple builds its __new__ with eval on a runtime-built lambda string and
-// assembles the class with a three-argument type(), neither of which the
-// compiled world runs. What the harness actually needs from the package is
-// collections.abc, so initCollections aliases it to the _collections_abc module
-// the way the vendored package does, without the rest of the flip.
+// The public collections module is served from the vendored
+// collections/__init__.py, not a Go builtin: Counter, namedtuple, ChainMap,
+// UserDict, UserList, UserString and the collections.abc alias all come from the
+// pure package, which imports deque, defaultdict and OrderedDict from
+// _collections here and builds each namedtuple with eval and a three-argument
+// type() the compiled world now runs. Only the accelerator below stays in Go.
 
 var (
 	dequeType       objects.Object
@@ -41,7 +39,9 @@ var (
 
 func init() {
 	moduleTable["_collections"] = &moduleEntry{builtin: true, exec: initCollectionsAccel}
-	moduleTable["collections"] = &moduleEntry{builtin: true, exec: initCollections}
+	// collections itself is not registered here: with _collections in place it
+	// compiles from the embedded floor collections/__init__.py through the normal
+	// import path, the pure package the accelerators exist to serve.
 
 	// deque(iterable=(), maxlen=None): the iterable seeds the queue front to back
 	// and a non-negative maxlen bounds it, so a later push at one end drops from
@@ -131,151 +131,6 @@ func initCollectionsAccel(m *objects.Module) error {
 		{"_tuplegetter", tupleGetter},
 	} {
 		if err := objects.StoreAttr(m, e.name, e.v); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// initCollections populates the public collections module. It shares the three
-// container type objects with _collections and adds Counter and namedtuple,
-// which the runtime still owns in Go until the module is repointed onto the
-// vendored pure-Python package.
-// collectionsReprDunder builds a fresh __repr__ builtin that reprs its single
-// argument, one per call so each type gets a distinct dispatch key.
-func collectionsReprDunder() objects.Object {
-	return objects.NewFunc("__repr__", 1, func(a []objects.Object) (objects.Object, error) {
-		return objects.NewStr(objects.Repr(a[0])), nil
-	})
-}
-
-func initCollections(m *objects.Module) error {
-	if err := initCollectionsAccel(m); err != nil {
-		return err
-	}
-
-	// Counter(iterable=None, /, **kwds): a dict subclass that counts. A mapping
-	// argument seeds the counts from its values, an iterable counts occurrences,
-	// and each keyword adds to a count, so Counter('ab', a=1) is {'a': 2, 'b': 1}.
-	counter := objects.NewFunction("Counter",
-		[]objects.Param{
-			{Name: "iterable", Kind: objects.ParamPosOnly},
-			{Name: "kwds", Kind: objects.ParamStarStar},
-		},
-		[]objects.Object{objects.None, nil},
-		func(a []objects.Object) (objects.Object, error) {
-			c, err := objects.NewCounter(nil, nil)
-			if err != nil {
-				return nil, err
-			}
-			if a[0] != objects.None {
-				if _, err := objects.CallMethod(c, "update", []objects.Object{a[0]}); err != nil {
-					return nil, err
-				}
-			}
-			if a[1] != nil && a[1] != objects.None {
-				if _, err := objects.CallMethod(c, "update", []objects.Object{a[1]}); err != nil {
-					return nil, err
-				}
-			}
-			return c, nil
-		})
-	// Counter and ChainMap are built here as constructor functions rather than
-	// type objects, so they carry their __repr__ as an attribute the way pprint
-	// keys its dispatch: `_dispatch[Counter.__repr__] = ...`. Each type needs a
-	// distinct __repr__ object, since pprint maps each to a different handler and
-	// a shared one would collide in the dispatch dict. Each reprs the argument.
-	if err := objects.StoreAttr(counter, "__repr__", collectionsReprDunder()); err != nil {
-		return err
-	}
-	if err := objects.StoreAttr(m, "Counter", counter); err != nil {
-		return err
-	}
-
-	// ChainMap(*maps): groups the mappings into one updatable view where a lookup
-	// walks them front to back and every write lands on the first. With no
-	// arguments it holds a single empty dict. It takes no keywords, so the star
-	// parameter collects every positional mapping into the maps list.
-	chainMap := objects.NewFunction("ChainMap",
-		[]objects.Param{
-			{Name: "maps", Kind: objects.ParamStar},
-		},
-		[]objects.Object{nil},
-		func(a []objects.Object) (objects.Object, error) {
-			maps, err := materialize(a[0])
-			if err != nil {
-				return nil, err
-			}
-			return objects.NewChainMap(maps)
-		})
-	// fromkeys(iterable, value=None, /) is a classmethod, reached both as
-	// ChainMap.fromkeys(...) on the constructor and as cm.fromkeys(...) on an
-	// instance. The instance path runs through chainMapMethod; bind the same
-	// behavior as an attribute of the constructor object for the class path.
-	chainMapFromKeys := objects.NewFunction("fromkeys",
-		[]objects.Param{
-			{Name: "iterable", Kind: objects.ParamPosOnly},
-			{Name: "value", Kind: objects.ParamPosOnly},
-		},
-		[]objects.Object{nil, objects.None},
-		func(a []objects.Object) (objects.Object, error) {
-			return objects.ChainMapFromKeys(a[0], a[1])
-		})
-	if err := objects.StoreAttr(chainMap, "fromkeys", chainMapFromKeys); err != nil {
-		return err
-	}
-	if err := objects.StoreAttr(chainMap, "__repr__", collectionsReprDunder()); err != nil {
-		return err
-	}
-	if err := objects.StoreAttr(m, "ChainMap", chainMap); err != nil {
-		return err
-	}
-
-	// namedtuple(typename, field_names, *, rename=False, defaults=None,
-	// module=None): a factory that returns a tuple subclass whose fields are
-	// reachable by name. The parsing, validation, rename handling and default
-	// alignment live in buildNamedTuple.
-	namedtuple := objects.NewFunction("namedtuple",
-		[]objects.Param{
-			{Name: "typename", Kind: objects.ParamPlain},
-			{Name: "field_names", Kind: objects.ParamPlain},
-			{Name: "rename", Kind: objects.ParamKwOnly},
-			{Name: "defaults", Kind: objects.ParamKwOnly},
-			{Name: "module", Kind: objects.ParamKwOnly},
-		},
-		[]objects.Object{nil, nil, objects.False, objects.None, objects.None},
-		func(a []objects.Object) (objects.Object, error) {
-			return buildNamedTuple(a)
-		})
-	if err := objects.StoreAttr(m, "namedtuple", namedtuple); err != nil {
-		return err
-	}
-
-	// collections.abc is the _collections_abc module, matching the vendored
-	// collections/__init__.py, which does _sys.modules['collections.abc'] =
-	// _collections_abc. Bind it as the abc attribute and register the dotted
-	// name in sys.modules, so import collections.abc resolves the submodule off
-	// the registry (importOne reads sys.modules before the module table) and
-	// from collections import abc reads the attribute. The one module object is
-	// shared, so collections.abc is _collections_abc holds. This is what lets
-	// traceback and the rest of the unittest import chain reach collections.abc
-	// while namedtuple still lives in Go: the pure package cannot run under AOT
-	// because its namedtuple builds __new__ through eval and a dynamic type().
-	//
-	// The alias is best effort: _collections_abc is a vendored floor module, so
-	// a context without the compiled floor (the Go unit tests) cannot import it.
-	// When it will not import, leave the alias off and let import collections.abc
-	// raise the ordinary ModuleNotFoundError, the behavior before this alias
-	// existed. In a real build the floor is present and the alias always installs.
-	if abcmod, err := ImportModule("_collections_abc"); err == nil {
-		modulesSet("collections.abc", abcmod)
-		if err := objects.StoreAttr(m, "abc", abcmod); err != nil {
-			return err
-		}
-		// UserDict, UserList and UserString ride on the abstract bases the abc
-		// module carries, so they build only when it is present. Without the floor
-		// they are left off, the same as the abc alias.
-		if err := buildUserClasses(m, abcmod); err != nil {
 			return err
 		}
 	}
