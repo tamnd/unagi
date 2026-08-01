@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/tamnd/unagi/pkg/objects"
@@ -936,7 +935,7 @@ func mbEncodeRun(c *mbCodec, runes []rune, errors string, final bool) ([]byte, [
 		}
 		switch errors {
 		case "strict":
-			return nil, nil, mbUnicodeEncodeError(c.name, runes[i], i, "illegal multibyte sequence")
+			return nil, nil, mbUnicodeEncodeError(c.name, runes, i, "illegal multibyte sequence")
 		case "ignore":
 			// drop the code point
 		case "replace":
@@ -1011,35 +1010,20 @@ func mbDecodeError(codec string, data []byte, start, end int, reason, errors str
 }
 
 // mbUnicodeEncodeError builds the UnicodeEncodeError strict raises for an
-// unmappable code point, with CPython's wording.
-func mbUnicodeEncodeError(codec string, r rune, pos int, reason string) error {
-	return objects.Raise("UnicodeEncodeError",
-		"'%s' codec can't encode character %s in position %d: %s",
-		codec, mbCharEscape(r), pos, reason)
+// unmappable code point at runes[pos]. It carries the whole input string as the
+// error object and the one-character span, so the raised exception exposes the
+// encoding/object/start/end/reason attributes the error callbacks read; str()
+// still renders CPython's wording off the structured form.
+func mbUnicodeEncodeError(codec string, runes []rune, pos int, reason string) error {
+	return objects.NewUnicodeEncodeError(codec, objects.StrFromRunes(runes), pos, pos+1, reason)
 }
 
-// mbUnicodeDecodeError builds the UnicodeDecodeError strict raises. A single bad
-// byte reports "byte 0xNN in position P"; a wider span reports the range.
+// mbUnicodeDecodeError builds the UnicodeDecodeError strict raises over the bad
+// [start,end) span. It carries the whole input bytes as the error object, so the
+// exception exposes the structured attributes; str() renders the single-byte or
+// span wording off that form.
 func mbUnicodeDecodeError(codec string, data []byte, start, end int, reason string) error {
-	if end-start == 1 {
-		return objects.Raise("UnicodeDecodeError",
-			"'%s' codec can't decode byte 0x%02x in position %d: %s", codec, data[start], start, reason)
-	}
-	return objects.Raise("UnicodeDecodeError",
-		"'%s' codec can't decode bytes in position %d-%d: %s", codec, start, end-1, reason)
-}
-
-// mbCharEscape renders a code point the way CPython's UnicodeEncodeError message
-// does: '\xNN' below 0x100, '\uNNNN' in the BMP, '\U00NNNNNN' above it.
-func mbCharEscape(r rune) string {
-	switch {
-	case r < 0x100:
-		return fmt.Sprintf(`'\x%02x'`, r)
-	case r < 0x10000:
-		return fmt.Sprintf(`'\u%04x'`, r)
-	default:
-		return fmt.Sprintf(`'\U%08x'`, r)
-	}
+	return objects.NewUnicodeDecodeError(codec, data, start, end, reason)
 }
 
 // mbDecodeHandler routes a decode error to a registered handler through
@@ -1075,7 +1059,7 @@ func mbEncodeHandler(codec string, runes []rune, pos int, errors string) ([]byte
 	if err != nil {
 		return nil, err
 	}
-	exc, err := mbAsException(mbUnicodeEncodeError(codec, runes[pos], pos, "illegal multibyte sequence"))
+	exc, err := mbAsException(mbUnicodeEncodeError(codec, runes, pos, "illegal multibyte sequence"))
 	if err != nil {
 		return nil, err
 	}

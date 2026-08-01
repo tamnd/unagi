@@ -497,7 +497,7 @@ func iso2022EncodeRun(cfg *iso2022Config, runes []rune, errors string, final boo
 		}
 		switch errors {
 		case "strict":
-			return nil, nil, 0, mbUnicodeEncodeError(cfg.name, r, i, "illegal multibyte sequence")
+			return nil, nil, 0, mbUnicodeEncodeError(cfg.name, runes, i, "illegal multibyte sequence")
 		case "ignore":
 			// drop the code point, designation unchanged
 		case "replace":

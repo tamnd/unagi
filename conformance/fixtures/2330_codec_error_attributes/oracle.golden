@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+dec 'euc_jp' b'abc\xff' 3 4 'incomplete multibyte sequence'
+dec_str 'euc_jp' codec can't decode byte 0xff in position 3: incomplete multibyte sequence
+dec2 b'ok\xa1\xff' 2 3 'illegal multibyte sequence'
+dec2_str 'gb2312' codec can't decode byte 0xa1 in position 2: illegal multibyte sequence
+enc 'gb2312' 'abc😀def' 3 4 'illegal multibyte sequence'
+enc_str 'gb2312' codec can't encode character '\U0001f600' in position 3: illegal multibyte sequence
+via_handler b'abc?def'
+seen [('gb2312', 3, 4, '😀')]
+== exception:
+== stderr:
