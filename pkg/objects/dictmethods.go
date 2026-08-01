@@ -11,6 +11,22 @@ func builtinTypeClassmethod(typeName, name string) (Object, bool) {
 			return dictMethod(&dictObject{index: make(map[string]int)}, "fromkeys", args)
 		}), true
 	}
+	// OrderedDict.fromkeys and defaultdict.fromkeys are dict.fromkeys called on
+	// the C-accelerated subclass the vendored collections package re-exports, so
+	// they build the same key fill but the result carries the subclass kind: an
+	// OrderedDict reprs as OrderedDict({...}) and a defaultdict as
+	// defaultdict(None, {...}) with no factory. The kinded receiver lets
+	// dictMethod's fromkeys stamp the result, matching CPython's type(self).
+	if name == "fromkeys" {
+		if kind, ok := map[string]dictKind{
+			"collections.OrderedDict": orderedDict,
+			"collections.defaultdict": defaultDict,
+		}[typeName]; ok {
+			return NewFunc("fromkeys", -1, func(args []Object) (Object, error) {
+				return dictMethod(&dictObject{index: make(map[string]int), kind: kind}, "fromkeys", args)
+			}), true
+		}
+	}
 	if typeName == "str" && name == "maketrans" {
 		return NewFunc("maketrans", -1, strMaketrans), true
 	}
@@ -130,6 +146,11 @@ func dictMethod(x *dictObject, name string, args []Object) (Object, error) {
 		}
 		return out, nil
 	case "fromkeys":
+		// Counter overrides fromkeys to steer callers to Counter(iterable), so it
+		// raises before doing any work whether reached on the type or an instance.
+		if x.kind == counterDict {
+			return nil, Raise("NotImplementedError", "Counter.fromkeys() is undefined.  Use Counter(iterable) instead.")
+		}
 		if len(args) < 1 {
 			return nil, Raise(TypeError, "fromkeys expected at least 1 argument, got %d", len(args))
 		}
@@ -141,8 +162,10 @@ func dictMethod(x *dictObject, name string, args []Object) (Object, error) {
 			val = args[1]
 		}
 		// A fresh dict every time; probed on 3.14, the receiver's own
-		// contents never leak in: {'z': 9}.fromkeys([1]) -> {1: None}.
-		out := &dictObject{index: make(map[string]int)}
+		// contents never leak in: {'z': 9}.fromkeys([1]) -> {1: None}. The result
+		// takes the receiver's kind (type(self) in CPython), so an OrderedDict
+		// stays an OrderedDict and a defaultdict a defaultdict with no factory.
+		out := &dictObject{index: make(map[string]int), kind: x.kind}
 		it, err := Iter(args[0])
 		if err != nil {
 			return nil, err

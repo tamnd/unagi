@@ -251,3 +251,43 @@ func TestDictUpdate(t *testing.T) {
 		t.Errorf("partial merge: %q", gotD)
 	}
 }
+
+// TestSubclassFromkeys covers dict.fromkeys called on the collections subclasses
+// the vendored package re-exports from _collections: the result keeps the
+// subclass kind whether the method is reached on the type object or an instance,
+// and Counter declines fromkeys entirely.
+func TestSubclassFromkeys(t *testing.T) {
+	// On the type object, via the classmethod resolver.
+	for _, tc := range []struct{ typeName, want string }{
+		{"collections.OrderedDict", "OrderedDict({'a': 0, 'b': 0})"},
+		{"collections.defaultdict", "defaultdict(None, {'a': 0, 'b': 0})"},
+	} {
+		fn, ok := builtinTypeClassmethod(tc.typeName, "fromkeys")
+		if !ok {
+			t.Fatalf("%s.fromkeys not resolved", tc.typeName)
+		}
+		got, err := Call(fn, []Object{L(NewStr("a"), NewStr("b")), NewInt(0)})
+		checkRepr(t, tc.typeName+" type", got, err, tc.want)
+	}
+
+	// On an instance, the result takes the receiver's kind and drops its factory
+	// and contents; the receiver stays untouched.
+	od := &dictObject{index: map[string]int{}, kind: orderedDict}
+	_ = od.set(NewStr("z"), NewInt(9))
+	got, err := CallMethod(od, "fromkeys", []Object{L(NewStr("m"), NewStr("n"))})
+	checkRepr(t, "OrderedDict instance", got, err, "OrderedDict({'m': None, 'n': None})")
+	if Repr(od) != "OrderedDict({'z': 9})" {
+		t.Errorf("receiver mutated: %q", Repr(od))
+	}
+
+	dd := &dictObject{index: map[string]int{}, kind: defaultDict, factory: NewFunc("int", 0, func([]Object) (Object, error) { return NewInt(0), nil })}
+	got, err = CallMethod(dd, "fromkeys", []Object{L(NewStr("q")), NewInt(5)})
+	checkRepr(t, "defaultdict instance", got, err, "defaultdict(None, {'q': 5})")
+
+	// Counter declines fromkeys with a NotImplementedError on either the type or
+	// an instance.
+	counter := &dictObject{index: map[string]int{}, kind: counterDict}
+	_, err = CallMethod(counter, "fromkeys", []Object{L(NewStr("x"))})
+	checkErr(t, "Counter instance", err,
+		"NotImplementedError: Counter.fromkeys() is undefined.  Use Counter(iterable) instead.")
+}

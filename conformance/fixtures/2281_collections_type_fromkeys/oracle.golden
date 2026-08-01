@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+OrderedDict({'a': 0, 'b': 0, 'c': 0})
+OrderedDict({'x': None, 'y': None})
+OrderedDict
+defaultdict(None, {'a': 0, 'b': 0})
+defaultdict(None, {'x': None, 'y': None})
+defaultdict
+OrderedDict({'m': None, 'n': None})
+OrderedDict
+defaultdict(None, {'q': 5})
+keyerror 'z'
+counter Counter.fromkeys() is undefined.  Use Counter(iterable) instead.
+== exception:
+== stderr:
