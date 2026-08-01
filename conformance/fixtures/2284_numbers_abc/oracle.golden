@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+int: True True True True
+float: False True True
+complex: False True
+bool: True True
+fraction: True False
+decimal: True False
+subclass: True True False
+abstract blocks: True
+concrete: 16 square
+isinstance: True True
+partial still abstract
+registered: True True
+register keeps type: sprite
+structural: True False True
+abcmeta: go True
+== exception:
+== stderr:

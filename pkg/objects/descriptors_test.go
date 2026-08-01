@@ -89,6 +89,34 @@ func TestPropertyGetAndSet(t *testing.T) {
 	}
 }
 
+// A property wrapping an abstract slot reports __isabstractmethod__ True, the
+// way @property over @abstractmethod does, so ABCMeta keeps the name abstract.
+// A property over a plain callable reports False.
+func TestPropertyIsAbstractMethod(t *testing.T) {
+	abstractGetter := mkfn("g", 1, func(a []Object) (Object, error) { return None, nil })
+	if err := StoreAttr(abstractGetter, "__isabstractmethod__", True); err != nil {
+		t.Fatalf("StoreAttr: %v", err)
+	}
+	p := NewProperty(abstractGetter, nil, nil)
+	v, err := LoadAttr(p, "__isabstractmethod__")
+	if err != nil {
+		t.Fatalf("LoadAttr: %v", err)
+	}
+	if !Truth(v) {
+		t.Errorf("abstract property __isabstractmethod__ = %s, want True", Repr(v))
+	}
+
+	plainGetter := mkfn("g", 1, func(a []Object) (Object, error) { return None, nil })
+	q := NewProperty(plainGetter, nil, nil)
+	v, err = LoadAttr(q, "__isabstractmethod__")
+	if err != nil {
+		t.Fatalf("LoadAttr: %v", err)
+	}
+	if Truth(v) {
+		t.Errorf("plain property __isabstractmethod__ = %s, want False", Repr(v))
+	}
+}
+
 // A property with no setter raises the probed no-setter AttributeError on a
 // write, and a property with no getter raises the no-getter one on a read.
 func TestPropertyMissingSlotsRaise(t *testing.T) {
