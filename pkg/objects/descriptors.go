@@ -225,6 +225,8 @@ func descriptorSubclassAttr(x *instanceObject, name string) (Object, bool) {
 		return slotOrNone(p.fdel), true
 	case "__get__", "__set__", "__delete__":
 		return propertyProtocolMethod(p, name), true
+	case "__isabstractmethod__":
+		return NewBool(propertyIsAbstract(p)), true
 	}
 	return nil, false
 }
@@ -420,8 +422,30 @@ func propertyGetAttr(p *propertyObject, name string) (Object, error) {
 		return None, nil
 	case "__get__", "__set__", "__delete__":
 		return propertyProtocolMethod(p, name), nil
+	case "__isabstractmethod__":
+		return NewBool(propertyIsAbstract(p)), nil
 	}
 	return nil, Raise(AttributeError, "'property' object has no attribute '%s'", name)
+}
+
+// propertyIsAbstract reports whether a property wraps an abstract slot. CPython
+// computes property.__isabstractmethod__ as True when any of fget, fset or fdel
+// carries a truthy __isabstractmethod__, so @property over @abstractmethod marks
+// the name abstract and ABCMeta keeps the class from instantiating.
+func propertyIsAbstract(p *propertyObject) bool {
+	for _, slot := range []Object{p.fget, p.fset, p.fdel} {
+		if slot == nil {
+			continue
+		}
+		a, err := LoadAttr(slot, "__isabstractmethod__")
+		if err != nil {
+			continue
+		}
+		if Truth(a) {
+			return true
+		}
+	}
+	return false
 }
 
 // propertyProtocolMethod binds one of a property's descriptor-protocol dunders as
