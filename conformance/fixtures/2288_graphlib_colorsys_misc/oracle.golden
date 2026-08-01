@@ -1,0 +1,43 @@
+== exit: 0
+== stdout:
+static order: ['c', 'b', 'a', 'd']
+cycle: nodes are in a cycle
+batches: [[2], [1], [0]]
+rgb_to_hls: (0.5833333333333334, 0.4, 0.49999999999999994)
+hls_to_rgb: (0.19999999999999996, 0.3999999999999998, 0.6000000000000001)
+rgb_to_hsv: (0.5833333333333334, 0.6666666666666666, 0.6)
+hsv_to_rgb: (0.2, 0.4, 0.6)
+rgb_to_yiq: (0.362, -0.18413999999999997, 0.019820000000000004)
+yiq_to_rgb: (0.2, 0.39999999999999997, 0.5999999999999999)
+future annotations: (3, 7, 0, 'beta', 1)
+future has division: True
+iskeyword: True False
+issoftkeyword: True False
+compat import map: copyreg
+compat name map: ('builtins', 'range')
+markupbase base: ParserBase
+The Zen of Python, by Tim Peters
+
+Beautiful is better than ugly.
+Explicit is better than implicit.
+Simple is better than complex.
+Complex is better than complicated.
+Flat is better than nested.
+Sparse is better than dense.
+Readability counts.
+Special cases aren't special enough to break the rules.
+Although practicality beats purity.
+Errors should never pass silently.
+Unless explicitly silenced.
+In the face of ambiguity, refuse the temptation to guess.
+There should be one-- and preferably only one --obvious way to do it.
+Although that way may not be obvious at first unless you're Dutch.
+Now is better than never.
+Although never is often better than *right* now.
+If the implementation is hard to explain, it's a bad idea.
+If the implementation is easy to explain, it may be a good idea.
+Namespaces are one honking great idea -- let's do more of those!
+zen head: Gur Mra bs Cl
+zen keys: 52
+== exception:
+== stderr:
