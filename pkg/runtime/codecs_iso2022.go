@@ -51,6 +51,8 @@ func codecsISO2022Getcodec(args []objects.Object) (objects.Object, error) {
 		return newMultibyteCodec(iso2022JP2004Codec)
 	case "iso2022_jp_2":
 		return newMultibyteCodec(iso2022JP2Codec)
+	case "iso2022_kr":
+		return newMultibyteCodec(iso2022KRCodec)
 	default:
 		return nil, objects.Raise("LookupError", "no such codec is supported.")
 	}
