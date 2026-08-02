@@ -505,3 +505,42 @@ func TestStrCasefold(t *testing.T) {
 		t.Fatalf("casefold fallback = %q, want %q", got, "abßc")
 	}
 }
+
+// TestStrUpperFull covers the objects-side upper logic: the full-uppercase table
+// is reached through UpperFullHook, a code point absent from it uppercases to
+// itself, a lone surrogate passes through, and with no hook (unicodedata not
+// linked) upper falls back to Go's simple uppercase.
+func TestStrUpperFull(t *testing.T) {
+	// A stub table: the German sharp s expands to SS and a lowercase a maps to A,
+	// nothing else has an entry so it uppercases to itself.
+	UpperFullHook = func(r rune) []rune {
+		switch r {
+		case 0x00DF: // ß
+			return []rune{'S', 'S'}
+		case 'a':
+			return []rune{'A'}
+		}
+		return nil
+	}
+	defer func() { UpperFullHook = nil }()
+
+	runStrMCases(t, []strMCase{
+		{"upper expand", "aß", "upper", nil, "'ASS'", ""},
+		{"upper identity", "XYZ", "upper", nil, "'XYZ'", ""},
+		{"upper arity", "a", "upper", []Object{NewInt(1)}, "",
+			"TypeError: str.upper() takes no arguments (1 given)"},
+	})
+
+	// A lone surrogate is not in the table, so it survives in its WTF-8 form.
+	sur := StrFromRune(0xDC80)
+	if got := strUpper(sur); got != sur {
+		t.Fatalf("upper surrogate = %q, want %q", got, sur)
+	}
+
+	// With no hook upper degrades to Go's simple uppercase, so ß stays ß rather
+	// than expanding, but an ASCII letter still uppercases.
+	UpperFullHook = nil
+	if got := strUpper("aßb"); got != "AßB" {
+		t.Fatalf("upper fallback = %q, want %q", got, "AßB")
+	}
+}

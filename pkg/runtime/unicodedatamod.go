@@ -36,12 +36,21 @@ func init() {
 	// Fill str.casefold's fold map with the pinned CaseFolding.txt C+F table, so
 	// the folding agrees with CPython character for character.
 	objects.CaseFoldHook = caseFoldLookup
+	// Fill str.upper's full uppercase map with the pinned table, so the German
+	// sharp s and the ligatures expand the way CPython's str.upper does.
+	objects.UpperFullHook = upperFullLookup
 }
 
 // caseFoldLookup returns the full case fold of a code point, or nil when the
 // point folds to itself (absent from the pinned table).
 func caseFoldLookup(r rune) []rune {
 	return ucdCaseFold[r]
+}
+
+// upperFullLookup returns the full uppercase of a code point, or nil when the
+// point uppercases to itself (absent from the pinned table).
+func upperFullLookup(r rune) []rune {
+	return ucdUpperFull[r]
 }
 
 func initUnicodedata(m *objects.Module) error {

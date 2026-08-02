@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+sharp s SS
+strasse STRASSE
+ligature fi FI
+ligature ffi FFI
+micro sign Μ
+digraph dz Ǆ
+ypogegrammeni Ι
+sigma ΟΔΟΣ
+'' ''
+'HeLLo World' 'HELLO WORLD'
+'ALREADY UPPER' 'ALREADY UPPER'
+'123' '123'
+'😀' '😀'
+'中文' '中文'
+new block 0xADDR 1
+arity str.upper() takes no arguments (1 given)
+surrogate '\udc80'
+surrogate mixed 'ASS\udc80'
+len expand 2 3
+== exception:
+== stderr:

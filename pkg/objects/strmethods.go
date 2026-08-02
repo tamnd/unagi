@@ -126,7 +126,7 @@ func strMethod(x *strObject, name string, args []Object) (Object, error) {
 		if err := strNoArgs(name, args); err != nil {
 			return nil, err
 		}
-		return NewStr(strings.ToUpper(s)), nil
+		return NewStr(strUpper(s)), nil
 	case "lower":
 		if err := strNoArgs(name, args); err != nil {
 			return nil, err
@@ -953,6 +953,36 @@ func strCasedRune(r rune) bool {
 // the pinned CaseFolding.txt so this package need not carry the UCD table; when
 // unset (unicodedata not linked) strCasefold falls back to the simple lowercase.
 var CaseFoldHook func(rune) []rune
+
+// UpperFullHook returns the full Unicode uppercase of a code point, or nil when
+// the point uppercases to itself. It is a hook the unicodedata shim fills at init
+// from the pinned SpecialCasing/UnicodeData uppercase mappings so this package
+// need not carry the UCD table; when unset (unicodedata not linked) strUpper
+// falls back to Go's simple 1:1 uppercase.
+var UpperFullHook func(rune) []rune
+
+// strUpper applies str.upper: the full uppercase, with the code points that
+// uppercase to a different or longer sequence (the German sharp s to SS, the
+// ligatures to their letters) mapped through the pinned table. Uppercasing takes
+// no context, so each code point maps independently. A lone surrogate has no
+// mapping and is written back in its WTF-8 form.
+func strUpper(s string) string {
+	if UpperFullHook == nil {
+		return strings.ToUpper(s)
+	}
+	var b strings.Builder
+	for _, r := range decodeStrRunes(s) {
+		mapped := UpperFullHook(r)
+		if mapped == nil {
+			writeStrRune(&b, r)
+			continue
+		}
+		for _, m := range mapped {
+			writeStrRune(&b, m)
+		}
+	}
+	return b.String()
+}
 
 // strCasefold applies str.casefold: the full case folding str.lower approximates,
 // with the code points that fold to a different or longer sequence (the German
