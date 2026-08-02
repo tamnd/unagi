@@ -1,0 +1,29 @@
+== exit: 0
+== stdout:
+lookup True
+== direct encode ==
+utf-8 b'\xed\xa0\x80' 1
+utf-16-le b'\x00\xd8' 1
+utf-16-be b'\xd8\x00' 1
+utf-32-le b'\x00\xd8\x00\x00' 1
+utf-32-be b'\x00\x00\xd8\x00' 1
+utf-16 b'\x00\xd8' 1
+utf-32 b'\x00\xd8\x00\x00' 1
+== direct decode ==
+utf-8 55296 3
+utf-16-le 55296 2
+utf-16-be 55296 2
+utf-32-le 55296 4
+utf-32-be 55296 4
+== reraise ==
+nonsurrogate raised
+truncated raised
+malformed raised
+nonutf-enc raised
+== inline ==
+b'abc\xed\xa0\x80def'
+97 98 99 55296 100 101 102
+b'\xf0\x90\xbf\xbf\xed\xa0\x80'
+69631 55296
+== exception:
+== stderr:
