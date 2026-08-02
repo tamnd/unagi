@@ -33,6 +33,15 @@ func init() {
 	// Fill the namereplace error handler's name lookup with the pinned name
 	// database, the way CPython's namereplace reaches unicodedata's getname.
 	objects.NameReplaceNameLookup = charName
+	// Fill str.casefold's fold map with the pinned CaseFolding.txt C+F table, so
+	// the folding agrees with CPython character for character.
+	objects.CaseFoldHook = caseFoldLookup
+}
+
+// caseFoldLookup returns the full case fold of a code point, or nil when the
+// point folds to itself (absent from the pinned table).
+func caseFoldLookup(r rune) []rune {
+	return ucdCaseFold[r]
 }
 
 func initUnicodedata(m *objects.Module) error {

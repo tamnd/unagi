@@ -1,0 +1,26 @@
+== exit: 0
+== stdout:
+sharp s ss
+cap sharp s ss
+caseless masse True
+ligature ffi ffi
+micro sign μ True
+final sigma casefold οδοσ
+greek theta θ
+cyrillic в в
+'' ''
+'HeLLo World' 'hello world'
+'already lower' 'already lower'
+'123' '123'
+'😀' '😀'
+'中文' '中文'
+arity str.casefold() takes no arguments (1 given)
+callable True
+surrogate '\udc80'
+surrogate mixed 'ass\udc80'
+idempotent 'ẞ' True
+idempotent 'MASSE' True
+idempotent 'ΣΊΣΥΦΟΣ' True
+idempotent 'ﬄ' True
+== exception:
+== stderr:

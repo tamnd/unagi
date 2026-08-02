@@ -465,3 +465,43 @@ func TestStrRemovePrefixSuffix(t *testing.T) {
 			"TypeError: str.removesuffix() takes exactly one argument (2 given)"},
 	})
 }
+
+// TestStrCasefold covers the objects-side casefold logic: the full-fold table is
+// reached through CaseFoldHook, a code point absent from it folds to itself, a
+// lone surrogate passes through, and with no hook (unicodedata not linked) the
+// fold falls back to the simple lowercase.
+func TestStrCasefold(t *testing.T) {
+	// A stub fold table: the German sharp s expands to ss, A folds to a, and
+	// nothing else has an entry so it folds to itself.
+	CaseFoldHook = func(r rune) []rune {
+		switch r {
+		case 0x00DF: // ß
+			return []rune{'s', 's'}
+		case 'A':
+			return []rune{'a'}
+		}
+		return nil
+	}
+	defer func() { CaseFoldHook = nil }()
+
+	runStrMCases(t, []strMCase{
+		{"fold expand", "Aß", "casefold", nil, "'ass'", ""},
+		{"fold identity", "hello", "casefold", nil, "'hello'", ""},
+		{"fold arity", "a", "casefold", []Object{NewInt(1)}, "",
+			"TypeError: str.casefold() takes no arguments (1 given)"},
+	})
+
+	// A lone surrogate is not in the table, so it survives in its WTF-8 form.
+	sur := StrFromRune(0xDC80)
+	got := strCasefold(sur)
+	if got != sur {
+		t.Fatalf("casefold surrogate = %q, want %q", got, sur)
+	}
+
+	// With no hook the fold degrades to simple lowercase, so ß stays ß rather
+	// than expanding, but an ASCII letter still lowercases.
+	CaseFoldHook = nil
+	if got := strCasefold("AbßC"); got != "abßc" {
+		t.Fatalf("casefold fallback = %q, want %q", got, "abßc")
+	}
+}
