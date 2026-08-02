@@ -49,6 +49,11 @@ func init() {
 	// table, so the German sharp s titlecases to Ss and the ligatures expand the
 	// way CPython does.
 	objects.TitleFullHook = titleFullLookup
+	// Fill str.swapcase's branch predicates with the pinned Uppercase/Lowercase
+	// sets, so it lowercases the uppercase characters and uppercases the lowercase
+	// ones while leaving the titlecase and caseless ones the way CPython does.
+	objects.UppercaseHook = uppercaseLookup
+	objects.LowercaseHook = lowercaseLookup
 }
 
 // caseFoldLookup returns the full case fold of a code point, or nil when the
@@ -87,6 +92,18 @@ func casedLookup(r rune) bool {
 // characters str.lower's Final_Sigma walk skips over between cased letters.
 func caseIgnorableLookup(r rune) bool {
 	return inRuneRanges(ucdCaseIgnorable, r)
+}
+
+// uppercaseLookup reports whether a code point has the Uppercase property, so
+// str.swapcase lowercases it.
+func uppercaseLookup(r rune) bool {
+	return inRuneRanges(ucdUppercase, r)
+}
+
+// lowercaseLookup reports whether a code point has the Lowercase property, so
+// str.swapcase uppercases it.
+func lowercaseLookup(r rune) bool {
+	return inRuneRanges(ucdLowercase, r)
 }
 
 // inRuneRanges reports whether r falls in one of the sorted, inclusive ranges by

@@ -1,0 +1,27 @@
+== exit: 0
+== stdout:
+sharp s SS
+mixed expand AbSSC σ
+ligature FFI x
+digraph up DŽUNGLA
+titlecase kept ǅ
+word final sigma οδος
+lower to upper sigma ΟΔΟΣ
+dotted I i̇ ['0x69', '0x307']
+micro sign Μ
+bare sigma σ
+mark skip ος̇
+'' ''
+'HeLLo World' 'hEllO wORLD'
+'123' '123'
+'😀' '😀'
+'中文' '中文'
+arity str.swapcase() takes no arguments (1 given)
+callable True
+surrogate '\udc80'
+surrogate mixed 'ος\udc80'
+double 'HeLLo' HeLLo
+double 'ΟΔΟΣ' ΟΔΟΣ
+double 'abc' abc
+== exception:
+== stderr:

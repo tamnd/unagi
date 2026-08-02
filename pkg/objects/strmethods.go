@@ -985,6 +985,15 @@ var (
 // strCapitalize fall back to Go's simple 1:1 titlecase.
 var TitleFullHook func(rune) []rune
 
+// UppercaseHook and LowercaseHook report the Uppercase and Lowercase properties
+// str.swapcase branches on: an uppercase character is lowercased and a lowercase
+// one uppercased. The unicodedata shim fills them at init from the pinned sets;
+// when unset swapcase falls back to Go's simple properties.
+var (
+	UppercaseHook func(rune) bool
+	LowercaseHook func(rune) bool
+)
+
 // strLower applies str.lower: the full lowercase, with the code points that
 // lowercase to a different or longer sequence (the Turkish dotted capital I to i
 // plus a combining dot) mapped through the pinned table. The one context rule is
@@ -1073,12 +1082,7 @@ func strUpper(s string) string {
 	}
 	var b strings.Builder
 	for _, r := range decodeStrRunes(s) {
-		mapped := UpperFullHook(r)
-		if mapped == nil {
-			writeStrRune(&b, r)
-			continue
-		}
-		for _, m := range mapped {
+		for _, m := range upperRuneSeq(r) {
 			writeStrRune(&b, m)
 		}
 	}
@@ -1191,22 +1195,57 @@ func strTitle(s string) string {
 	return b.String()
 }
 
-// strSwapcase lowercases uppercase characters and vice versa, leaving
-// titlecase ones alone. Probed on 3.14: "ǅ".swapcase() == 'ǅ' and
-// "µ".swapcase() == 'Μ'.
+// strSwapcase lowercases the uppercase characters and uppercases the lowercase
+// ones, leaving the titlecase and caseless ones alone, exactly CPython's
+// do_swapcase. It branches on the Uppercase and Lowercase properties and applies
+// the full mapping: an uppercase character lowercases in the whole-string context
+// (so a word-final capital sigma takes its final form) and a lowercase one takes
+// the full uppercase (the German sharp s expands to SS). Probed on 3.14:
+// "ǅ".swapcase() == 'ǅ', "aBßc Σ" to 'AbSSC σ' and "ΟΔΟΣ" to 'οδος'. A lone
+// surrogate has no case and passes through. When unicodedata is not linked this
+// degrades to Go's simple properties and mappings.
 func strSwapcase(s string) string {
+	if UppercaseHook == nil || LowercaseHook == nil {
+		var b strings.Builder
+		for _, r := range s {
+			switch {
+			case strUpperRune(r):
+				b.WriteRune(unicode.ToLower(r))
+			case strLowerRune(r):
+				b.WriteRune(unicode.ToUpper(r))
+			default:
+				b.WriteRune(r)
+			}
+		}
+		return b.String()
+	}
+	runes := decodeStrRunes(s)
 	var b strings.Builder
-	for _, r := range s {
+	for i, r := range runes {
 		switch {
-		case strUpperRune(r):
-			b.WriteRune(unicode.ToLower(r))
-		case strLowerRune(r):
-			b.WriteRune(unicode.ToUpper(r))
+		case UppercaseHook(r):
+			for _, m := range lowerRuneAt(runes, i) {
+				writeStrRune(&b, m)
+			}
+		case LowercaseHook(r):
+			for _, m := range upperRuneSeq(r) {
+				writeStrRune(&b, m)
+			}
 		default:
-			b.WriteRune(r)
+			writeStrRune(&b, r)
 		}
 	}
 	return b.String()
+}
+
+// upperRuneSeq returns the full uppercase of a code point through the pinned
+// table (or the point itself when absent). Uppercasing takes no context, so it
+// maps independently.
+func upperRuneSeq(r rune) []rune {
+	if mapped := UpperFullHook(r); mapped != nil {
+		return mapped
+	}
+	return []rune{r}
 }
 
 // strDigitOnly holds the code points where isdigit() is true but
