@@ -6,9 +6,9 @@ import "github.com/tamnd/unagi/pkg/objects"
 // would have nothing to walk. To give it a stack, every compiled Python function
 // pushes one lightweight frame on entry and pops it on exit through a deferred
 // call, and the module body pushes the bottom frame. The frame carries only what
-// the stdlib reads through sys._getframe (f_back, f_code, f_locals type), which
-// is enough for _collections_abc to take type(sys._getframe().f_locals); the
-// per-line f_lineno and a faithful f_locals mapping are later slices.
+// the stdlib reads through sys._getframe (f_back, f_code, f_globals, f_lineno,
+// f_locals type). Each compiled statement calls SetLine so f_lineno tracks the
+// live line; a faithful non-optimized f_locals mapping is a later slice.
 //
 // The stack lives on the *objects.Thread the call spine already threads through
 // every frame, so a second thread walks its own frames and the push/pop needs no
@@ -29,4 +29,12 @@ func PushFrame(t *objects.Thread, m *objects.Module, file, name, qual string, fi
 // with PushFrame through a deferred call.
 func PopFrame(t *objects.Thread) {
 	t.PopFrame()
+}
+
+// SetLine records the line the running frame is on as each compiled statement
+// begins, so f_lineno tracks the live line the way CPython updates it per line.
+// The stdlib stacklevel walk in warnings.warn and gettext reads it off the frame
+// sys._getframe hands back.
+func SetLine(t *objects.Thread, line int) {
+	t.SetLine(line)
 }
