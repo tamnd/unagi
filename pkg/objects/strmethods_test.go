@@ -686,3 +686,80 @@ func TestStrTitleFull(t *testing.T) {
 		t.Fatalf("capitalize fallback = %q, want %q", got, "Ab")
 	}
 }
+
+// TestStrSwapcaseFull covers the objects-side swapcase logic: an uppercase
+// character lowercases in the whole-string context (so a word-final sigma takes
+// its final form), a lowercase one takes the full uppercase, a titlecase or
+// caseless character is left alone, a lone surrogate passes through, and with no
+// hook it falls back to Go's simple properties.
+func TestStrSwapcaseFull(t *testing.T) {
+	// Stub tables and branch sets: the German sharp s (lowercase) uppercases to
+	// SS, ASCII letters and the Greek omicron swap through their case, and the
+	// titlecase digraph U+01C5 is in neither branch set so it is left alone.
+	UpperFullHook = func(r rune) []rune {
+		switch r {
+		case 0x00DF: // ß
+			return []rune{'S', 'S'}
+		case 'a':
+			return []rune{'A'}
+		case 0x03BF: // ο
+			return []rune{0x039F}
+		}
+		return nil
+	}
+	LowerFullHook = func(r rune) []rune {
+		switch r {
+		case 'A':
+			return []rune{'a'}
+		case 0x039F: // Ο
+			return []rune{0x03BF}
+		}
+		return nil
+	}
+	UppercaseHook = func(r rune) bool {
+		return r == 'A' || r == 0x03A3 || (r >= 0x0391 && r <= 0x03A9)
+	}
+	LowercaseHook = func(r rune) bool {
+		return r == 'a' || r == 0x00DF || (r >= 0x03B1 && r <= 0x03C9)
+	}
+	CasedHook = func(r rune) bool {
+		return r == 'a' || r == 'A' || r == 0x00DF ||
+			(r >= 0x0391 && r <= 0x03A9) || (r >= 0x03B1 && r <= 0x03C9)
+	}
+	CaseIgnorableHook = func(r rune) bool { return r == 0x0307 }
+	defer func() {
+		UpperFullHook = nil
+		LowerFullHook = nil
+		UppercaseHook = nil
+		LowercaseHook = nil
+		CasedHook = nil
+		CaseIgnorableHook = nil
+	}()
+
+	runStrMCases(t, []strMCase{
+		// The lowercase sharp s uppercases to SS, the uppercase A lowercases.
+		{"swap expand", "Aß", "swapcase", nil, "'aSS'", ""},
+		// The titlecase digraph is in neither branch, so it is left alone.
+		{"swap title", "ǅ", "swapcase", nil, "'ǅ'", ""},
+		// The uppercase sigma lowercases word-finally, so it takes the final form.
+		{"swap sigma final", "ΟΣ", "swapcase", nil, "'ος'", ""},
+		// A lone uppercase sigma has no preceding cased letter, so it is not final.
+		{"swap sigma initial", "Σο", "swapcase", nil, "'σΟ'", ""},
+		{"swap arity", "a", "swapcase", []Object{NewInt(1)}, "",
+			"TypeError: str.swapcase() takes no arguments (1 given)"},
+	})
+
+	// A lone surrogate is in neither branch set, so it survives in its WTF-8 form.
+	sur := StrFromRune(0xDC80)
+	if got := strSwapcase(sur); got != sur {
+		t.Fatalf("swapcase surrogate = %q, want %q", got, sur)
+	}
+
+	// With no hook swapcase degrades to Go's simple properties, so the sharp s
+	// stays a single character rather than expanding.
+	UppercaseHook = nil
+	LowercaseHook = nil
+	if got := strSwapcase("aB"); got != "Ab" {
+		t.Fatalf("swapcase fallback = %q, want %q", got, "Ab")
+	}
+}
