@@ -71,6 +71,42 @@ func TestFrameStackPopUnwinds(t *testing.T) {
 	}
 }
 
+// TestFrameGlobalsIsModuleNamespace proves f_globals reads back the defining
+// module's live namespace dict (with __name__ and __file__), not the module
+// object, so a stdlib walk like warnings.warn's stacklevel computation that keys
+// on f_globals['__name__'] works. A frame with no module reads back an empty
+// dict, the documented divergence for a plain top-level script.
+func TestFrameGlobalsIsModuleNamespace(t *testing.T) {
+	m := NewModule("mod", "mod.py")
+	f := NewFrame(nil, m, "mod.py", "probe", "probe", 1, true)
+	g, err := frameLoadAttr(f, "f_globals")
+	if err != nil {
+		t.Fatalf("f_globals errored: %v", err)
+	}
+	if g.TypeName() != "dict" {
+		t.Fatalf("f_globals is %s, want dict", g.TypeName())
+	}
+	name, err := GetItem(g, NewStr("__name__"))
+	if err != nil {
+		t.Fatalf("f_globals has no __name__: %v", err)
+	}
+	if s, _ := AsStr(name); s != "mod" {
+		t.Fatalf("f_globals['__name__'] = %q, want mod", s)
+	}
+	if _, err := GetItem(g, NewStr("__file__")); err != nil {
+		t.Fatalf("f_globals has no __file__: %v", err)
+	}
+
+	// A frame with no module reads back an empty dict rather than erroring.
+	empty, err := frameLoadAttr(NewFrame(nil, nil, "s.py", "<module>", "<module>", 1, false), "f_globals")
+	if err != nil {
+		t.Fatalf("f_globals on a moduleless frame errored: %v", err)
+	}
+	if empty.TypeName() != "dict" {
+		t.Fatalf("moduleless f_globals is %s, want dict", empty.TypeName())
+	}
+}
+
 // TestFrameLocalsSplit proves a function frame exposes a FrameLocalsProxy while
 // a module frame exposes the namespace dict, the split _collections_abc keys on.
 func TestFrameLocalsSplit(t *testing.T) {

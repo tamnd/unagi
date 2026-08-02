@@ -169,7 +169,7 @@ func (f *fnCtx) frameGuard(firstline int) {
 	if f.inFunc {
 		optimized = ident("true")
 	}
-	f.add(exprStmt(callExpr(sel("runtime", "PushFrame"), threadArg(), ident("pyFile"), strLit(f.fname), strLit(qual), intLit(strconv.Itoa(firstline)), optimized)))
+	f.add(exprStmt(callExpr(sel("runtime", "PushFrame"), threadArg(), ident("thisModule"), ident("pyFile"), strLit(f.fname), strLit(qual), intLit(strconv.Itoa(firstline)), optimized)))
 	f.add(&ast.DeferStmt{Call: callExpr(sel("runtime", "PopFrame"), threadArg())})
 }
 

@@ -53,11 +53,9 @@ func (*typeVarObject) TypeName() string { return "TypeVar" }
 func callerModuleName(t *Thread) string {
 	if t != nil && len(t.frames) > 0 {
 		if top := t.frames[len(t.frames)-1]; top != nil && top.globals != nil {
-			if m, ok := top.globals.(*Module); ok {
-				if v, err := moduleLoadAttr(m, "__name__"); err == nil {
-					if s, ok := AsStr(v); ok {
-						return s
-					}
+			if v, err := moduleLoadAttr(top.globals, "__name__"); err == nil {
+				if s, ok := AsStr(v); ok {
+					return s
 				}
 			}
 		}
