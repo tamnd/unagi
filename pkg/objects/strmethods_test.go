@@ -544,3 +544,65 @@ func TestStrUpperFull(t *testing.T) {
 		t.Fatalf("upper fallback = %q, want %q", got, "AßB")
 	}
 }
+
+// TestStrLowerFull covers the objects-side lower logic: the full-lowercase table
+// is reached through LowerFullHook, the Greek capital sigma is not in the table
+// but takes its final or plain form from the Final_Sigma walk over the Cased and
+// Case_Ignorable hooks, a lone surrogate passes through, and with no hook
+// (unicodedata not linked) lower falls back to Go's simple lowercase.
+func TestStrLowerFull(t *testing.T) {
+	// A stub table: an uppercase A lowercases to a, the Turkish dotted capital I
+	// expands to i plus a combining dot, nothing else has an entry. The sigma is
+	// left out on purpose, the walk handles it.
+	LowerFullHook = func(r rune) []rune {
+		switch r {
+		case 'A':
+			return []rune{'a'}
+		case 0x0130: // İ
+			return []rune{'i', 0x0307}
+		case 0x039F: // Ο
+			return []rune{0x03BF}
+		}
+		return nil
+	}
+	// Latin A and the Greek capital letters used below are cased; the combining
+	// dot above is case-ignorable and transparent to the walk.
+	CasedHook = func(r rune) bool {
+		return r == 'A' || (r >= 0x0391 && r <= 0x03A9) || (r >= 0x03B1 && r <= 0x03C9)
+	}
+	CaseIgnorableHook = func(r rune) bool { return r == 0x0307 }
+	defer func() {
+		LowerFullHook = nil
+		CasedHook = nil
+		CaseIgnorableHook = nil
+	}()
+
+	runStrMCases(t, []strMCase{
+		{"lower table", "AA", "lower", nil, "'aa'", ""},
+		{"lower expand", "İ", "lower", nil, "'i̇'", ""},
+		// Σ preceded by a cased Ο and ending the word takes the final form ς.
+		{"sigma final", "ΟΣ", "lower", nil, "'ος'", ""},
+		// Σ between two cased letters takes the plain form σ.
+		{"sigma medial", "ΟΣΟ", "lower", nil, "'οσο'", ""},
+		// A leading Σ has no preceding cased letter, so it is not final.
+		{"sigma initial", "ΣΟ", "lower", nil, "'σο'", ""},
+		// A case-ignorable dot between the cased Ο and the sigma is skipped, so the
+		// sigma is still word-final.
+		{"sigma skips ignorable", "Ο̇Σ", "lower", nil, "'ο̇ς'", ""},
+		{"lower arity", "a", "lower", []Object{NewInt(1)}, "",
+			"TypeError: str.lower() takes no arguments (1 given)"},
+	})
+
+	// A lone surrogate is not in the table, so it survives in its WTF-8 form.
+	sur := StrFromRune(0xDC80)
+	if got := strLower(sur); got != sur {
+		t.Fatalf("lower surrogate = %q, want %q", got, sur)
+	}
+
+	// With no hook lower degrades to Go's simple lowercase, so the sigma folds to
+	// the plain form with no context and an ASCII letter still lowercases.
+	LowerFullHook = nil
+	if got := strLower("AΣB"); got != "aσb" {
+		t.Fatalf("lower fallback = %q, want %q", got, "aσb")
+	}
+}

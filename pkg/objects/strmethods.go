@@ -131,7 +131,7 @@ func strMethod(x *strObject, name string, args []Object) (Object, error) {
 		if err := strNoArgs(name, args); err != nil {
 			return nil, err
 		}
-		return NewStr(strings.ToLower(s)), nil
+		return NewStr(strLower(s)), nil
 	case "capitalize":
 		if err := strNoArgs(name, args); err != nil {
 			return nil, err
@@ -960,6 +960,94 @@ var CaseFoldHook func(rune) []rune
 // need not carry the UCD table; when unset (unicodedata not linked) strUpper
 // falls back to Go's simple 1:1 uppercase.
 var UpperFullHook func(rune) []rune
+
+// LowerFullHook returns the full Unicode lowercase of a code point, or nil when
+// the point lowercases to itself. It is a hook the unicodedata shim fills at init
+// from the pinned SpecialCasing/UnicodeData lowercase mappings so this package
+// need not carry the UCD table; when unset (unicodedata not linked) strLower
+// falls back to Go's simple 1:1 lowercase. The Greek capital sigma is absent from
+// the table on purpose; its final form is chosen by the Final_Sigma walk below.
+var LowerFullHook func(rune) []rune
+
+// CasedHook and CaseIgnorableHook report the Cased and Case_Ignorable properties
+// str.lower's Final_Sigma walk consults. The unicodedata shim fills them at init
+// from sets recovered from the pinned str.lower; when unset the walk falls back
+// to Go's simple properties.
+var (
+	CasedHook         func(rune) bool
+	CaseIgnorableHook func(rune) bool
+)
+
+// strLower applies str.lower: the full lowercase, with the code points that
+// lowercase to a different or longer sequence (the Turkish dotted capital I to i
+// plus a combining dot) mapped through the pinned table. The one context rule is
+// Final_Sigma: the Greek capital sigma lowercases to the final form when it ends
+// a word and to the plain form otherwise. A lone surrogate has no mapping and is
+// written back in its WTF-8 form.
+func strLower(s string) string {
+	if LowerFullHook == nil {
+		return strings.ToLower(s)
+	}
+	runes := decodeStrRunes(s)
+	var b strings.Builder
+	for i, r := range runes {
+		if r == 0x3A3 { // Greek capital sigma: final vs plain form by context
+			if lowerFinalSigma(runes, i) {
+				writeStrRune(&b, 0x3C2)
+			} else {
+				writeStrRune(&b, 0x3C3)
+			}
+			continue
+		}
+		mapped := LowerFullHook(r)
+		if mapped == nil {
+			writeStrRune(&b, r)
+			continue
+		}
+		for _, m := range mapped {
+			writeStrRune(&b, m)
+		}
+	}
+	return b.String()
+}
+
+// lowerFinalSigma reports whether the capital sigma at runes[i] is word-final,
+// exactly CPython's handle_capital_sigma: it is final when a cased letter
+// precedes it and no cased letter follows, skipping case-ignorable characters on
+// either side.
+func lowerFinalSigma(runes []rune, i int) bool {
+	j := i - 1
+	for j >= 0 && strCaseIgnorable(runes[j]) {
+		j--
+	}
+	if j < 0 || !strCasedCtx(runes[j]) {
+		return false
+	}
+	k := i + 1
+	for k < len(runes) && strCaseIgnorable(runes[k]) {
+		k++
+	}
+	return k >= len(runes) || !strCasedCtx(runes[k])
+}
+
+// strCasedCtx reports the Cased property for the Final_Sigma walk, from the
+// pinned set when linked and Go's simple property otherwise.
+func strCasedCtx(r rune) bool {
+	if CasedHook != nil {
+		return CasedHook(r)
+	}
+	return strCasedRune(r)
+}
+
+// strCaseIgnorable reports the Case_Ignorable property for the Final_Sigma walk,
+// from the pinned set when linked and an approximation from Go's categories
+// otherwise.
+func strCaseIgnorable(r rune) bool {
+	if CaseIgnorableHook != nil {
+		return CaseIgnorableHook(r)
+	}
+	return unicode.In(r, unicode.Mn, unicode.Me, unicode.Cf, unicode.Lm, unicode.Sk)
+}
 
 // strUpper applies str.upper: the full uppercase, with the code points that
 // uppercase to a different or longer sequence (the German sharp s to SS, the
