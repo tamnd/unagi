@@ -3443,6 +3443,17 @@ func DelAttr(o Object, name string) error {
 	return Raise(AttributeError, "'%s' object has no attribute '%s'", o.TypeName(), name)
 }
 
+// GenericDelAttr deletes o.name with object.__delattr__ semantics, skipping any
+// __delattr__ the type defines. A runtime __delattr__ implementation calls it to
+// fall through to the default delete for the names it does not manage, without
+// re-entering its own hook.
+func GenericDelAttr(o Object, name string) error {
+	if x, ok := o.(*instanceObject); ok {
+		return genericDelAttr(x, name)
+	}
+	return DelAttr(o, name)
+}
+
 // instanceDict returns the live dict backing an instance's own attributes, which
 // is `inst.__dict__` and `vars(inst)`. It is the actual store, not a snapshot, so
 // writing through it or aliasing it reaches the instance and it keeps insertion
