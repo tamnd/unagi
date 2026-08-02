@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+init 0
+pending ae 10928898
+after combine 0
+replayed b'\xab\xc4'
+iso init 4342272
+iso z b'z'
+iso hira b'\x1b$B$"'
+iso replay b'$"'
+iso ascii b'z'
+neg OverflowError can't convert negative int to unsigned
+size UnicodeError pending buffer too large
+bytes UnicodeDecodeError 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte
+== exception:
+== stderr:

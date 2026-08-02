@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"encoding/binary"
+	"math/big"
 	"sync"
 
 	"github.com/tamnd/unagi/pkg/objects"
@@ -705,42 +707,111 @@ func mbInitMode(self objects.Object) int {
 	return 0
 }
 
-// mbIncEncGetstate / mbIncEncSetstate report and restore the encoder state. The
-// double-byte codecs have no shift state and never buffer, so the state is the
-// integer 0. A shift-state codec (hz) packs its mode into the state byte, so its
-// state is mode<<8, matching CPython's encoder_getstate for this family.
+// mbMaxEncPending caps the encoder's pending buffer, matching CPython's
+// MAXENCPENDING*4 bytes; a setstate that claims more is a UnicodeError.
+const mbMaxEncPending = 8
+
+// mbIncEncGetstate reports the encoder state as the integer CPython's
+// encoder_getstate builds: a one-byte pending count, the pending combining base
+// as UTF-8, then the eight-byte codec state, all little-endian. A per-unit codec
+// has no shift state, so its state bytes are zero and only the pending buffer
+// (a held combining base) contributes; a shift-state codec packs its mode into
+// the state bytes and never holds a pending rune.
 func mbIncEncGetstate(args []objects.Object) (objects.Object, error) {
-	if c, err := mbCodecOfSelf(args[0]); err == nil && c.encodeStateful != nil {
-		mode := mbModeOf(args[0])
-		if c.encStateValue != nil {
-			return objects.NewInt(c.encStateValue(mode)), nil
-		}
-		return objects.NewInt(int64(mode) << 8), nil
+	self := args[0]
+	pending := mbPendingBytes(self)
+	var state uint64
+	if c, err := mbCodecOfSelf(self); err == nil && c.encodeStateful != nil && c.encStateValue != nil {
+		state = uint64(c.encStateValue(mbModeOf(self))) >> 8
 	}
-	return objects.NewInt(0), nil
+	le := make([]byte, 0, 1+len(pending)+8)
+	le = append(le, byte(len(pending)))
+	le = append(le, pending...)
+	var sb [8]byte
+	binary.LittleEndian.PutUint64(sb[:], state)
+	le = append(le, sb[:]...)
+	return objects.NewIntFromBig(new(big.Int).SetBytes(mbReverseBytes(le))), nil
 }
 
+// mbIncEncSetstate restores the encoder state from the integer getstate builds.
+// It reads the pending count, decodes the pending buffer through UTF-8 back into
+// the held combining base, and restores a shift-state codec's mode from the state
+// bytes. A negative int is an OverflowError, an over-large pending count a
+// UnicodeError, and an invalid pending buffer the UTF-8 decoder's UnicodeDecodeError.
 func mbIncEncSetstate(args []objects.Object) (objects.Object, error) {
 	self := args[0]
-	c, err := mbCodecOfSelf(self)
-	if err != nil || c.encodeStateful == nil {
-		return objects.None, nil
-	}
 	if len(args) < 2 {
 		return objects.None, nil
 	}
-	v, ok := objects.AsInt(args[1])
+	v, ok := objects.AsBigInt(args[1])
 	if !ok {
 		return nil, objects.Raise(objects.TypeError, "setstate() argument must be an int")
 	}
-	mode := int(v >> 8)
-	if c.encStateMode != nil {
-		mode = c.encStateMode(int64(v))
+	if v.Sign() < 0 {
+		return nil, objects.Raise("OverflowError", "can't convert negative int to unsigned")
 	}
-	if err := objects.StoreAttr(self, "_mbmode", objects.NewInt(int64(mode))); err != nil {
+	le := mbReverseBytes(v.Bytes())
+	pendingSize := 0
+	if len(le) > 0 {
+		pendingSize = int(le[0])
+	}
+	if pendingSize > mbMaxEncPending {
+		return nil, objects.Raise("UnicodeError", "pending buffer too large")
+	}
+	pending := make([]byte, pendingSize)
+	for i := 0; i < pendingSize; i++ {
+		if 1+i < len(le) {
+			pending[i] = le[1+i]
+		}
+	}
+	strObj, err := objects.DecodeBytes(pending, "utf-8", "strict")
+	if err != nil {
 		return nil, err
 	}
+	pendStr, _ := objects.AsStr(strObj)
+	if err := objects.StoreAttr(self, "_pendingchar", objects.NewStr(pendStr)); err != nil {
+		return nil, err
+	}
+	var st [8]byte
+	for i := 0; i < 8; i++ {
+		if idx := 1 + pendingSize + i; idx < len(le) {
+			st[i] = le[idx]
+		}
+	}
+	stateLE := binary.LittleEndian.Uint64(st[:])
+	if c, err := mbCodecOfSelf(self); err == nil && c.encodeStateful != nil {
+		mode := int(stateLE)
+		if c.encStateMode != nil {
+			mode = c.encStateMode(int64(stateLE) << 8)
+		}
+		if err := objects.StoreAttr(self, "_mbmode", objects.NewInt(int64(mode))); err != nil {
+			return nil, err
+		}
+	}
 	return objects.None, nil
+}
+
+// mbPendingBytes reads the encoder's held combining base as its UTF-8 bytes, the
+// pending buffer getstate reports. It is empty for a codec that holds no rune.
+func mbPendingBytes(self objects.Object) []byte {
+	v, err := objects.LoadAttr(self, "_pendingchar")
+	if err != nil {
+		return nil
+	}
+	if s, ok := objects.AsStr(v); ok {
+		return []byte(s)
+	}
+	return nil
+}
+
+// mbReverseBytes returns a reversed copy, converting between the little-endian
+// byte layout CPython's state integers use and the big-endian order big.Int reads.
+func mbReverseBytes(b []byte) []byte {
+	out := make([]byte, len(b))
+	for i := range b {
+		out[len(b)-1-i] = b[i]
+	}
+	return out
 }
 
 // mbIncDecGetstate reports the decoder state as (pending_bytes, state): the
