@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+う
+state after full (b'', 0)
+half ''
+pending b'\xa4' 0
+second う
+replayed う
+roundtrip (b'abc', 123456789)
+iso2022 世
+iso2022 state (b'', 4342466)
+iso2022 replay 世
+bad TypeError setstate() argument must be tuple, not int
+bad TypeError setstate(): illegal state argument
+bad TypeError setstate(): illegal state argument
+bad UnicodeDecodeError 'euc_jp' codec can't decode bytes in position 0-8: pending buffer too large
+eight ok (b'12345678', 0)
+== exception:
+== stderr:

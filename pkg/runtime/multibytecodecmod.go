@@ -743,54 +743,83 @@ func mbIncEncSetstate(args []objects.Object) (objects.Object, error) {
 	return objects.None, nil
 }
 
-// mbIncDecGetstate reports the decoder state as (pending_bytes, flags): the
-// buffered incomplete bytes and the codec's shift mode, which is always 0 for the
-// stateless codecs and the live mode for a shift-state codec.
+// mbIncDecGetstate reports the decoder state as (pending_bytes, state): the
+// buffered incomplete bytes and the codec state as an integer, matching CPython's
+// MultibyteIncrementalDecoder.getstate. A shift-state codec derives the integer
+// from its live mode; a stateless codec has no shift state, so it reports the raw
+// state integer a prior setstate stored (0 by default), which round-trips exactly.
 func mbIncDecGetstate(args []objects.Object) (objects.Object, error) {
-	var flags int64
-	if c, err := mbCodecOfSelf(args[0]); err == nil && c.decodeStateful != nil {
-		mode := mbModeOf(args[0])
-		flags = int64(mode)
+	self := args[0]
+	stateObj := mbDecStateObj(self)
+	if c, err := mbCodecOfSelf(self); err == nil && c.decodeStateful != nil {
+		mode := mbModeOf(self)
+		flags := int64(mode)
 		if c.decStateValue != nil {
 			flags = c.decStateValue(mode)
 		}
+		stateObj = objects.NewInt(flags)
 	}
-	return objects.NewTuple([]objects.Object{objects.NewBytes(mbBufferOf(args[0])), objects.NewInt(flags)}), nil
+	return objects.NewTuple([]objects.Object{objects.NewBytes(mbBufferOf(self)), stateObj}), nil
 }
 
-// mbIncDecSetstate restores the decoder state from a (pending_bytes, flags)
-// tuple, keeping the pending bytes and, for a shift-state codec, the mode.
+// mbMaxDecPending caps the decoder's pending-byte buffer, matching CPython's
+// MAXDECPENDING; a setstate that hands back more is a decode error.
+const mbMaxDecPending = 8
+
+// mbIncDecSetstate restores the decoder state from a (pending_bytes, state) tuple.
+// It validates the tuple the way CPython does: the argument must be a tuple of a
+// bytes buffer and an int, the buffer no larger than the pending cap, otherwise a
+// TypeError (wrong shape) or a UnicodeDecodeError (buffer too large). The pending
+// bytes are kept, a shift-state codec takes its mode from the integer, and a
+// stateless codec stores the integer verbatim so getstate returns it unchanged.
 func mbIncDecSetstate(args []objects.Object) (objects.Object, error) {
 	self, state := args[0], args[1]
+	if state.TypeName() != "tuple" {
+		return nil, objects.Raise(objects.TypeError, "setstate() argument must be tuple, not %s", state.TypeName())
+	}
+	if n, err := objects.Len(state); err != nil || n != 2 {
+		return nil, objects.Raise(objects.TypeError, "setstate(): illegal state argument")
+	}
 	first, err := objects.GetItem(state, objects.NewInt(0))
 	if err != nil {
 		return nil, err
 	}
+	second, err := objects.GetItem(state, objects.NewInt(1))
+	if err != nil {
+		return nil, err
+	}
 	b, ok := objects.AsBytesLike(first)
-	if !ok {
-		return nil, objects.Raise(objects.TypeError, "setstate() argument must be a (bytes, int) tuple")
+	if !ok || second.TypeName() != "int" {
+		return nil, objects.Raise(objects.TypeError, "setstate(): illegal state argument")
+	}
+	if len(b) > mbMaxDecPending {
+		name := ""
+		if c, err := mbCodecOfSelf(self); err == nil {
+			name = c.name
+		}
+		return nil, objects.NewUnicodeDecodeError(name, b, 0, len(b), "pending buffer too large")
 	}
 	if err := objects.StoreAttr(self, "_buffer", objects.NewBytes(b)); err != nil {
 		return nil, err
 	}
 	if c, err := mbCodecOfSelf(self); err == nil && c.decodeStateful != nil {
-		flagsObj, err := objects.GetItem(state, objects.NewInt(1))
-		if err != nil {
-			return nil, err
-		}
-		flags, ok := objects.AsInt(flagsObj)
-		if !ok {
-			return nil, objects.Raise(objects.TypeError, "setstate() argument must be a (bytes, int) tuple")
-		}
+		flags, _ := objects.AsInt(second)
 		mode := int(flags)
 		if c.decStateMode != nil {
-			mode = c.decStateMode(int64(flags))
+			mode = c.decStateMode(flags)
 		}
-		if err := objects.StoreAttr(self, "_mbmode", objects.NewInt(int64(mode))); err != nil {
-			return nil, err
-		}
+		return objects.None, objects.StoreAttr(self, "_mbmode", objects.NewInt(int64(mode)))
 	}
-	return objects.None, nil
+	return objects.None, objects.StoreAttr(self, "_mbdecstate", second)
+}
+
+// mbDecStateObj reads the raw decoder state integer a stateless codec round-trips
+// through getstate/setstate, defaulting to 0 before any setstate.
+func mbDecStateObj(self objects.Object) objects.Object {
+	if v, err := objects.LoadAttr(self, "_mbdecstate"); err == nil && v.TypeName() == "int" {
+		return v
+	}
+	return objects.NewInt(0)
 }
 
 // mbErrorsOf reads the error handler name off an incremental instance, defaulting
