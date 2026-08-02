@@ -1,0 +1,29 @@
+== exit: 0
+== stdout:
+0 '\x00' False '\x00'
+31 '\x1f' False '\x1f'
+127 '\x7f' False '\x7f'
+128 '\x80' False '\x80'
+159 '\x9f' False '\x9f'
+160 '\xa0' False '\xa0'
+173 '\xad' False '\xad'
+8203 '\u200b' False '\u200b'
+8232 '\u2028' False '\u2028'
+8233 '\u2029' False '\u2029'
+8288 '\u2060' False '\u2060'
+57344 '\ue000' False '\ue000'
+65279 '\ufeff' False '\ufeff'
+69821 '\U000110bd' False '\U000110bd'
+917505 '\U000e0001' False '\U000e0001'
+65 'A' True True
+161 '¡' True True
+233 'é' True True
+9786 '☺' True True
+128512 '😀' True True
+'a\x80b\x9fc'
+'café \u200b tail'
+'😀 \xad face'
+"it's a \x85 quote"
+surrogate '\udc80'
+== exception:
+== stderr:

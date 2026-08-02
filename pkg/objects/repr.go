@@ -5,6 +5,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // floatRepr formats a float the way CPython repr does: shortest digits
@@ -80,11 +81,20 @@ func strRepr(s string) string {
 			b.WriteString(`\t`)
 		case r < 0x20 || r == 0x7f:
 			fmt.Fprintf(&b, `\x%02x`, r)
-		case r >= 0xD800 && r <= 0xDFFF:
-			// A lone surrogate is not printable; CPython repr escapes it as \udcXX.
+		case r < 0x80:
+			b.WriteRune(r)
+		case unicode.IsPrint(r):
+			// The same printable set str.isprintable reports: any other character
+			// (a C1 control, a lone surrogate, a non-space space separator, a
+			// format or private-use code point) is escaped by its magnitude, the
+			// way CPython's repr consults Py_UNICODE_ISPRINTABLE.
+			b.WriteRune(r)
+		case r <= 0xff:
+			fmt.Fprintf(&b, `\x%02x`, r)
+		case r <= 0xffff:
 			fmt.Fprintf(&b, `\u%04x`, r)
 		default:
-			b.WriteRune(r)
+			fmt.Fprintf(&b, `\U%08x`, r)
 		}
 	}
 	b.WriteByte(quote)
