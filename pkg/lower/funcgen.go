@@ -31,17 +31,23 @@ type loopInfo struct {
 // and finallyBase records the loop depth at each finally entry so the jumps
 // this slice cannot lower are rejected at compile time.
 type fnCtx struct {
-	e           *emitter
-	stack       [][]ast.Stmt
-	tmp         int
-	locals      map[string]bool
-	deleted     map[string]bool
-	inFunc      bool
-	loops       []*loopInfo
-	fname       string
-	qual        string // __qualname__, "" for the module body
-	outer       *fnCtx // lexically enclosing context, set for lambdas only
-	line        int
+	e       *emitter
+	stack   [][]ast.Stmt
+	tmp     int
+	locals  map[string]bool
+	deleted map[string]bool
+	inFunc  bool
+	loops   []*loopInfo
+	fname   string
+	qual    string // __qualname__, "" for the module body
+	outer   *fnCtx // lexically enclosing context, set for lambdas only
+	line    int
+	// hasFrame is set once frameGuard has pushed a shadow frame for this context,
+	// so stmt emits a runtime.SetLine per statement to keep the frame's f_lineno
+	// on the live line. Only the module body and a top-level def push a frame, so
+	// a nested def, lambda, or generator body leaves it false and never writes a
+	// line onto the enclosing frame it shares.
+	hasFrame    bool
 	closure     int
 	frames      []*tryFrame
 	finallyBase []int
@@ -171,6 +177,7 @@ func (f *fnCtx) frameGuard(firstline int) {
 	}
 	f.add(exprStmt(callExpr(sel("runtime", "PushFrame"), threadArg(), ident("thisModule"), ident("pyFile"), strLit(f.fname), strLit(qual), intLit(strconv.Itoa(firstline)), optimized)))
 	f.add(&ast.DeferStmt{Call: callExpr(sel("runtime", "PopFrame"), threadArg())})
+	f.hasFrame = true
 }
 
 // tb wraps an unwinding error in runtime.TB so it picks up this frame's

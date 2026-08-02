@@ -1,0 +1,9 @@
+== exit: 0
+== stdout:
+caller lines: (16, 17, 18)
+module line: 23
+warn file: main.py
+warn line: 34
+warn category: UserWarning
+== exception:
+== stderr:

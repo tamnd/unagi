@@ -27,6 +27,14 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 	// ASTs carry no positions, so a zero line keeps the previous one.
 	if p := s.Span(); p.Line > 0 {
 		f.line = p.Line
+		// Record the live line on the running frame so f_lineno tracks it the way
+		// CPython updates the line per statement, for sys._getframe().f_lineno and
+		// the stacklevel walk warnings.warn and gettext do. Only a context that
+		// pushed its own frame emits this; a nested body shares the enclosing frame
+		// and must not write its line onto it.
+		if f.hasFrame {
+			f.add(exprStmt(callExpr(sel("runtime", "SetLine"), threadArg(), intLit(strconv.Itoa(p.Line)))))
+		}
 	}
 	switch s := s.(type) {
 	case *frontend.ExprStmt:

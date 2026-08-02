@@ -107,6 +107,24 @@ func TestFrameGlobalsIsModuleNamespace(t *testing.T) {
 	}
 }
 
+// TestThreadSetLineUpdatesRunningFrame proves SetLine writes the running frame's
+// f_lineno so sys._getframe().f_lineno reads the live line, and that a SetLine
+// with no running frame is a no-op rather than a crash.
+func TestThreadSetLineUpdatesRunningFrame(t *testing.T) {
+	th := NewThread("t", false)
+	th.SetLine(99) // no running frame yet, must not panic
+	th.PushFrame(newTestFrame("f", true))
+	th.SetLine(42)
+	top, _ := th.FrameAtDepth(0)
+	ln, err := frameLoadAttr(top.(*frameObject), "f_lineno")
+	if err != nil {
+		t.Fatalf("f_lineno errored: %v", err)
+	}
+	if n, _ := AsInt(ln); n != 42 {
+		t.Fatalf("f_lineno = %d, want 42", n)
+	}
+}
+
 // TestFrameLocalsSplit proves a function frame exposes a FrameLocalsProxy while
 // a module frame exposes the namespace dict, the split _collections_abc keys on.
 func TestFrameLocalsSplit(t *testing.T) {

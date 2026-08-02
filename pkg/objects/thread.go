@@ -92,6 +92,16 @@ func (t *Thread) FrameAtDepth(depth int) (Object, error) {
 	return t.frames[i], nil
 }
 
+// SetLine records the line the running frame is executing, called from compiled
+// code as each statement begins so f_lineno on the frame sys._getframe walks
+// tracks the live line the way CPython updates it per line. A thread with no
+// running frame drops the update rather than crash.
+func (t *Thread) SetLine(n int) {
+	if m := len(t.frames); m > 0 {
+		t.frames[m-1].SetLine(n)
+	}
+}
+
 // context returns the thread's current contextvars context, creating an empty
 // top-level one on first use the way CPython gives each thread a default
 // context.
