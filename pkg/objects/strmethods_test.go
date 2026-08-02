@@ -606,3 +606,83 @@ func TestStrLowerFull(t *testing.T) {
 		t.Fatalf("lower fallback = %q, want %q", got, "aσb")
 	}
 }
+
+// TestStrTitleFull covers the objects-side title and capitalize logic: the first
+// cased character of each word takes the full titlecase table, the rest lowercase
+// in the whole-string context (so a word-final sigma takes its final form), a
+// lone surrogate passes through, and with no hook both fall back to Go's simple
+// mapping.
+func TestStrTitleFull(t *testing.T) {
+	// Stub tables: the German sharp s titlecases to Ss, ASCII letters map through
+	// their case, and the Greek omicron lowercases to its own lowercase. The sigma
+	// is left out of the lower table, the walk handles it.
+	TitleFullHook = func(r rune) []rune {
+		switch r {
+		case 0x00DF: // ß
+			return []rune{'S', 's'}
+		case 'a':
+			return []rune{'A'}
+		case 'b':
+			return []rune{'B'}
+		}
+		return nil
+	}
+	LowerFullHook = func(r rune) []rune {
+		switch r {
+		case 'A':
+			return []rune{'a'}
+		case 'B':
+			return []rune{'b'}
+		case 0x039F: // Ο
+			return []rune{0x03BF}
+		}
+		return nil
+	}
+	CasedHook = func(r rune) bool {
+		return r == 'a' || r == 'b' || r == 'A' || r == 'B' || r == 0x00DF ||
+			(r >= 0x0391 && r <= 0x03A9) || (r >= 0x03B1 && r <= 0x03C9)
+	}
+	CaseIgnorableHook = func(r rune) bool { return r == 0x0307 }
+	defer func() {
+		TitleFullHook = nil
+		LowerFullHook = nil
+		CasedHook = nil
+		CaseIgnorableHook = nil
+	}()
+
+	runStrMCases(t, []strMCase{
+		// The word-leading sharp s titlecases to Ss, then the cased tail lowercases.
+		{"title expand", "ßb", "title", nil, "'Ssb'", ""},
+		// An uncased space starts a new word, so both letters titlecase.
+		{"title words", "a b", "title", nil, "'A B'", ""},
+		// The tail sigma is preceded by a cased letter and ends the word, so it
+		// takes the final form ς.
+		{"title sigma", "ΟΣ", "title", nil, "'Ος'", ""},
+		{"cap expand", "ßb", "capitalize", nil, "'Ssb'", ""},
+		// capitalize lowercases the tail, so the trailing sigma is word-final.
+		{"cap sigma", "ΟΣ", "capitalize", nil, "'Ος'", ""},
+		{"title arity", "a", "title", []Object{NewInt(1)}, "",
+			"TypeError: str.title() takes no arguments (1 given)"},
+	})
+
+	// A lone surrogate is in neither table, so it survives in its WTF-8 form and
+	// does not count as a cased letter.
+	sur := StrFromRune(0xDC80)
+	if got := strTitle(sur); got != sur {
+		t.Fatalf("title surrogate = %q, want %q", got, sur)
+	}
+	if got := strCapitalize(sur); got != sur {
+		t.Fatalf("capitalize surrogate = %q, want %q", got, sur)
+	}
+
+	// With no hook both degrade to Go's simple titlecase and lowercase, so the
+	// sharp s stays a single character rather than expanding.
+	TitleFullHook = nil
+	LowerFullHook = nil
+	if got := strTitle("ab cd"); got != "Ab Cd" {
+		t.Fatalf("title fallback = %q, want %q", got, "Ab Cd")
+	}
+	if got := strCapitalize("aB"); got != "Ab" {
+		t.Fatalf("capitalize fallback = %q, want %q", got, "Ab")
+	}
+}

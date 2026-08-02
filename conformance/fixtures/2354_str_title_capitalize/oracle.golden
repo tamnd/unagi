@@ -1,0 +1,31 @@
+== exit: 0
+== stdout:
+sharp s title Ss Test
+sharp s cap Ss test
+ligature title Ffi Ff
+digraph title Džungla
+titlecase char ǅ ǅ
+word final sigma Οδος
+two words sigma Δίδυμος Αδελφος
+leading sigma Σίσυφος
+cap sigma tail Οδος
+dotted I title İstanbul ['0x130', '0x73', '0x74', '0x61', '0x6e', '0x62', '0x75', '0x6c']
+apostrophe It'S A Test
+digit 3G Ab
+mark skip Ος̇ X
+'' '' ''
+'HELLO World' 'Hello World' 'Hello world'
+'123' '123' '123'
+'😀' '😀' '😀'
+'中文' '中文' '中文'
+title arity str.title() takes no arguments (1 given)
+capitalize arity str.capitalize() takes no arguments (1 given)
+callable True True
+surrogate '\udc80' '\udc80'
+surrogate mixed 'Ab\udc80Cd'
+idempotent 'ß test' True
+idempotent 'ΟΔΟΣ' True
+idempotent 'ΣΊΣΥΦΟΣ' True
+idempotent 'ﬃ x' True
+== exception:
+== stderr:

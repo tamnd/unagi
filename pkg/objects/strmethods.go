@@ -978,6 +978,13 @@ var (
 	CaseIgnorableHook func(rune) bool
 )
 
+// TitleFullHook returns the full Unicode titlecase of a code point, or nil when
+// the point titlecases to itself. It is a hook the unicodedata shim fills at init
+// from the pinned SpecialCasing/UnicodeData titlecase mappings so this package
+// need not carry the UCD table; when unset (unicodedata not linked) strTitle and
+// strCapitalize fall back to Go's simple 1:1 titlecase.
+var TitleFullHook func(rune) []rune
+
 // strLower applies str.lower: the full lowercase, with the code points that
 // lowercase to a different or longer sequence (the Turkish dotted capital I to i
 // plus a combining dot) mapped through the pinned table. The one context rule is
@@ -990,25 +997,31 @@ func strLower(s string) string {
 	}
 	runes := decodeStrRunes(s)
 	var b strings.Builder
-	for i, r := range runes {
-		if r == 0x3A3 { // Greek capital sigma: final vs plain form by context
-			if lowerFinalSigma(runes, i) {
-				writeStrRune(&b, 0x3C2)
-			} else {
-				writeStrRune(&b, 0x3C3)
-			}
-			continue
-		}
-		mapped := LowerFullHook(r)
-		if mapped == nil {
-			writeStrRune(&b, r)
-			continue
-		}
-		for _, m := range mapped {
+	for i := range runes {
+		for _, m := range lowerRuneAt(runes, i) {
 			writeStrRune(&b, m)
 		}
 	}
 	return b.String()
+}
+
+// lowerRuneAt returns the full lowercase of runes[i] in the context of runes: the
+// Greek capital sigma takes its final or plain form from the Final_Sigma walk,
+// every other code point maps through the pinned table (or to itself when
+// absent). It is shared by str.lower, str.title and str.capitalize, which all
+// lowercase in the same whole-string context.
+func lowerRuneAt(runes []rune, i int) []rune {
+	r := runes[i]
+	if r == 0x3A3 { // Greek capital sigma: final vs plain form by context
+		if lowerFinalSigma(runes, i) {
+			return []rune{0x3C2}
+		}
+		return []rune{0x3C3}
+	}
+	if mapped := LowerFullHook(r); mapped != nil {
+		return mapped
+	}
+	return []rune{r}
 }
 
 // lowerFinalSigma reports whether the capital sigma at runes[i] is word-final,
@@ -1095,38 +1108,85 @@ func strCasefold(s string) string {
 	return b.String()
 }
 
-// strCapitalize titlecases the first code point and lowercases the
-// rest, the 3.14 behavior. Probed: "HELLO World".capitalize() ==
-// 'Hello world' and "ǆab".capitalize() == 'ǅab'. Multi-char special
-// casings (the German sharp s expanding to Ss) are not reproduced;
-// see the divergence notes in this package's tests.
+// titleRuneSeq returns the full titlecase of a code point through the pinned
+// table (or the point itself when absent). The titlecase of a character takes no
+// context of its own, so it maps independently.
+func titleRuneSeq(r rune) []rune {
+	if mapped := TitleFullHook(r); mapped != nil {
+		return mapped
+	}
+	return []rune{r}
+}
+
+// strCapitalize titlecases the first code point and lowercases the rest, the 3.14
+// behavior. Probed: "HELLO World".capitalize() == 'Hello world', "ǆab" to 'ǅab'
+// and "ß test" to 'Ss test' (the sharp s expands to Ss). The rest lowercases in
+// the whole-string context, so a word-final capital sigma takes its final form.
+// When unicodedata is not linked this degrades to Go's simple titlecase and
+// lowercase.
 func strCapitalize(s string) string {
-	rs := []rune(s)
-	if len(rs) == 0 {
+	if TitleFullHook == nil || LowerFullHook == nil {
+		rs := []rune(s)
+		if len(rs) == 0 {
+			return s
+		}
+		var b strings.Builder
+		b.WriteRune(unicode.ToTitle(rs[0]))
+		for _, r := range rs[1:] {
+			b.WriteRune(unicode.ToLower(r))
+		}
+		return b.String()
+	}
+	runes := decodeStrRunes(s)
+	if len(runes) == 0 {
 		return s
 	}
 	var b strings.Builder
-	b.WriteRune(unicode.ToTitle(rs[0]))
-	for _, r := range rs[1:] {
-		b.WriteRune(unicode.ToLower(r))
+	for _, m := range titleRuneSeq(runes[0]) {
+		writeStrRune(&b, m)
+	}
+	for i := 1; i < len(runes); i++ {
+		for _, m := range lowerRuneAt(runes, i) {
+			writeStrRune(&b, m)
+		}
 	}
 	return b.String()
 }
 
-// strTitle titlecases the first cased character after every uncased
-// one and lowercases the rest, exactly CPython's loop. Probed on 3.14:
-// "it's a test".title() == "It'S A Test" and "3g ab".title() ==
-// '3G Ab'.
+// strTitle titlecases the first cased character of every word and lowercases the
+// rest, exactly CPython's loop: a character is titlecased when the previous one
+// is not cased, else lowercased. Probed on 3.14: "it's a test".title() ==
+// "It'S A Test", "3g ab" to '3G Ab', "ß test" to 'Ss Test' (the sharp s expands)
+// and "ΟΔΟΣ" to 'Οδος' (the tail lowercases with the final sigma). When
+// unicodedata is not linked this degrades to Go's simple titlecase and lowercase.
 func strTitle(s string) string {
+	if TitleFullHook == nil || LowerFullHook == nil {
+		var b strings.Builder
+		prevCased := false
+		for _, r := range s {
+			if prevCased {
+				b.WriteRune(unicode.ToLower(r))
+			} else {
+				b.WriteRune(unicode.ToTitle(r))
+			}
+			prevCased = strCasedRune(r)
+		}
+		return b.String()
+	}
+	runes := decodeStrRunes(s)
 	var b strings.Builder
 	prevCased := false
-	for _, r := range s {
+	for i, r := range runes {
 		if prevCased {
-			b.WriteRune(unicode.ToLower(r))
+			for _, m := range lowerRuneAt(runes, i) {
+				writeStrRune(&b, m)
+			}
 		} else {
-			b.WriteRune(unicode.ToTitle(r))
+			for _, m := range titleRuneSeq(r) {
+				writeStrRune(&b, m)
+			}
 		}
-		prevCased = strCasedRune(r)
+		prevCased = strCasedCtx(r)
 	}
 	return b.String()
 }
