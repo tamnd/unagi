@@ -1,0 +1,24 @@
+== exit: 0
+== stdout:
+low False
+high False
+mixed low False
+mixed high False
+'' True
+'abc' True
+'café' True
+'😀' True
+'\x00' False
+'\x1f' False
+'\x7f' False
+'\x80' False
+'\xa0' False
+'\u200b' False
+'\u2028' False
+' ' True
+consistent True True True
+consistent False False True
+consistent False False True
+consistent True True True
+== exception:
+== stderr:
