@@ -116,7 +116,7 @@ func codecCharmapDecode(pos []objects.Object, kwNames []string, kwVals []objects
 			out = append(out, rep...)
 			i = np - 1
 		}
-		return objects.NewTuple([]objects.Object{objects.NewStr(string(out)), objects.NewInt(int64(len(data)))}), nil
+		return objects.NewTuple([]objects.Object{objects.NewStr(objects.StrFromRunes(out)), objects.NewInt(int64(len(data)))}), nil
 	}
 	// A dict mapping keyed by byte value, with str or int code-point values.
 	for i := 0; i < len(data); i++ {
@@ -141,7 +141,7 @@ func codecCharmapDecode(pos []objects.Object, kwNames []string, kwVals []objects
 		out = append(out, rep...)
 		i = np - 1
 	}
-	return objects.NewTuple([]objects.Object{objects.NewStr(string(out)), objects.NewInt(int64(len(data)))}), nil
+	return objects.NewTuple([]objects.Object{objects.NewStr(objects.StrFromRunes(out)), objects.NewInt(int64(len(data)))}), nil
 }
 
 // codecCharmapBuild implements _codecs.charmap_build(decoding_table): invert a
@@ -269,10 +269,23 @@ func charmapEncodeError(runes []rune, pos int, errors string) ([]byte, int, erro
 		if err != nil {
 			return nil, 0, err
 		}
-		rep, newpos, err := mbHandlerResult(res, len(runes))
+		repObj, err := objects.GetItem(res, objects.NewInt(0))
+		if err != nil {
+			return nil, 0, mbEncodeHandlerTypeErr()
+		}
+		newpos, err := mbHandlerNewpos(res, len(runes), mbEncodeHandlerTypeErr)
 		if err != nil {
 			return nil, 0, err
 		}
-		return []byte(rep), newpos, nil
+		// A bytes replacement (surrogateescape, backslashreplace) is emitted
+		// verbatim; a str replacement is emitted as its bytes the way the C
+		// charmap encoder appends handler output.
+		if b, ok := objects.AsBytesLike(repObj); ok {
+			return append([]byte(nil), b...), newpos, nil
+		}
+		if s, ok := objects.AsStr(repObj); ok {
+			return []byte(s), newpos, nil
+		}
+		return nil, 0, mbEncodeHandlerTypeErr()
 	}
 }

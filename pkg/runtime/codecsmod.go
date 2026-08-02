@@ -520,9 +520,10 @@ func codecStrictHandler(args []objects.Object) (objects.Object, error) {
 // error handler, or nil for the ones still stubbed. ignore, replace,
 // xmlcharrefreplace and backslashreplace are codec-agnostic and resolve the bad
 // span straight off the structured UnicodeError; namereplace does too, reaching
-// the unicodedata name database through the hook the unicodedata shim fills.
-// surrogatepass/surrogateescape need codec round-trip cooperation, so those stay
-// placeholders for now.
+// the unicodedata name database through the hook the unicodedata shim fills, and
+// surrogateescape maps between non-ASCII bytes and low surrogates the same way
+// for every codec. surrogatepass needs the codec's own byte order and width, so
+// it stays a placeholder for now.
 func stdErrorHandler(name string) func([]objects.Object) (objects.Object, error) {
 	switch name {
 	case "strict":
@@ -537,6 +538,8 @@ func stdErrorHandler(name string) func([]objects.Object) (objects.Object, error)
 		return objects.BackslashReplaceErrors
 	case "namereplace":
 		return objects.NameReplaceErrors
+	case "surrogateescape":
+		return objects.SurrogateEscapeErrors
 	}
 	return nil
 }
