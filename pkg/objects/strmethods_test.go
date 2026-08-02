@@ -886,3 +886,48 @@ func TestStrClassifyPreds(t *testing.T) {
 		t.Fatalf("isdigit fallback 9 = false, want true")
 	}
 }
+
+// TestStrIsidentifierProp covers str.isidentifier routing through the pinned
+// XID_Start and XID_Continue hooks. The stubs add a newer-block letter Go's
+// tables miss (the Garay small A) that starts and continues an identifier, and a
+// combining mark that only continues one, so the predicate splits the two
+// positions the way CPython does.
+func TestStrIsidentifierProp(t *testing.T) {
+	// ASCII letters, the underscore and the Garay small A start an identifier; the
+	// ASCII digit and the combining acute continue one but do not start it.
+	IDStartHook = func(r rune) bool {
+		return r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == 0x10D70
+	}
+	IDContinueHook = func(r rune) bool {
+		return IDStartHook(r) || (r >= '0' && r <= '9') || r == 0x0301
+	}
+	defer func() {
+		IDStartHook = nil
+		IDContinueHook = nil
+	}()
+
+	runStrMCases(t, []strMCase{
+		{"ident plain", "name", "isidentifier", nil, "True", ""},
+		{"ident underscore", "_x1", "isidentifier", nil, "True", ""},
+		{"ident leading digit", "1x", "isidentifier", nil, "False", ""},
+		{"ident empty", "", "isidentifier", nil, "False", ""},
+		{"ident space", "a b", "isidentifier", nil, "False", ""},
+		// The Garay small letter starts and continues an identifier.
+		{"ident garay", "\U00010D70x", "isidentifier", nil, "True", ""},
+		{"ident garay start", "x\U00010D70", "isidentifier", nil, "True", ""},
+		// The combining acute continues but does not start.
+		{"ident mark cont", "á", "isidentifier", nil, "True", ""},
+		{"ident mark start", "́a", "isidentifier", nil, "False", ""},
+	})
+
+	// With no hook the predicate degrades to Go's tables, so ASCII still works and
+	// the newer Garay small letter is unknown to the start class.
+	IDStartHook = nil
+	IDContinueHook = nil
+	if !strPredicate("isidentifier", "abc_1") {
+		t.Fatalf("isidentifier fallback abc_1 = false, want true")
+	}
+	if strPredicate("isidentifier", "\U00010D70") {
+		t.Fatalf("isidentifier fallback garay = true, want false")
+	}
+}

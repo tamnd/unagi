@@ -1,0 +1,28 @@
+== exit: 0
+== stdout:
+plain True
+underscore True
+digits True
+leading digit False
+dunder True
+empty False
+space False
+dash False
+dot False
+keyword True
+greek True
+accented True
+combining True
+combining start False
+superscript False
+garay True
+garay tail True
+nbsp False
+zwsp False
+roman True
+arity str.isidentifier() takes no arguments (1 given)
+callable True
+surrogate False
+surrogate tail False
+== exception:
+== stderr:
