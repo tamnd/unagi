@@ -1013,6 +1013,68 @@ func strLowerProp(r rune) bool {
 	return strLowerRune(r)
 }
 
+// CategoryHook returns the pinned general category (the two-letter code) of a
+// code point, DigitHook and NumericHook report whether it carries a digit or a
+// numeric value. The unicodedata shim fills them at init from the pinned 3.14.6
+// UCD so str.isalpha, str.isalnum, str.isdecimal, str.isdigit, str.isnumeric and
+// str.isprintable classify the newer blocks the way CPython does; when unset the
+// predicates fall back to Go's simpler unicode tables.
+var (
+	CategoryHook func(rune) string
+	DigitHook    func(rune) bool
+	NumericHook  func(rune) bool
+)
+
+// strAlphaRune reports the Alphabetic classification str.isalpha uses: the letter
+// categories Lu, Ll, Lt, Lm and Lo, read from the pinned category when linked.
+func strAlphaRune(r rune) bool {
+	if CategoryHook != nil {
+		c := CategoryHook(r)
+		return len(c) > 0 && c[0] == 'L'
+	}
+	return unicode.IsLetter(r)
+}
+
+// strDecimalRune reports whether str.isdecimal accepts the code point: the pinned
+// general category Nd, which is exactly the set with a decimal value.
+func strDecimalRune(r rune) bool {
+	if CategoryHook != nil {
+		return CategoryHook(r) == "Nd"
+	}
+	return unicode.IsDigit(r)
+}
+
+// strDigitPred and strNumericPred report the digit and numeric classifications
+// str.isdigit and str.isnumeric use, keyed by the pinned digit and numeric value
+// tables when linked.
+func strDigitPred(r rune) bool {
+	if DigitHook != nil {
+		return DigitHook(r)
+	}
+	return strIsDigitRune(r)
+}
+
+func strNumericPred(r rune) bool {
+	if NumericHook != nil {
+		return NumericHook(r)
+	}
+	return strIsNumericRune(r)
+}
+
+// strPrintableRune reports whether str.isprintable keeps the code point: anything
+// but the Other (C*) and Separator (Z*) categories, with the ASCII space the one
+// separator that still counts as printable.
+func strPrintableRune(r rune) bool {
+	if CategoryHook != nil {
+		if r == 0x20 {
+			return true
+		}
+		c := CategoryHook(r)
+		return len(c) > 0 && c[0] != 'C' && c[0] != 'Z'
+	}
+	return unicode.IsPrint(r)
+}
+
 // strLower applies str.lower: the full lowercase, with the code points that
 // lowercase to a different or longer sequence (the Turkish dotted capital I to i
 // plus a combining dot) mapped through the pinned table. The one context rule is
@@ -1429,9 +1491,11 @@ func strAllRunes(s string, pred func(rune) bool) bool {
 func strPredicate(name, s string) bool {
 	switch name {
 	case "isalnum":
-		return strAllRunes(s, func(r rune) bool { return unicode.IsLetter(r) || strIsNumericRune(r) })
+		return strAllRunes(s, func(r rune) bool {
+			return strAlphaRune(r) || strDecimalRune(r) || strDigitPred(r) || strNumericPred(r)
+		})
 	case "isalpha":
-		return strAllRunes(s, unicode.IsLetter)
+		return strAllRunes(s, strAlphaRune)
 	case "isascii":
 		// The one predicate that is True for the empty string.
 		for _, r := range s {
@@ -1441,9 +1505,9 @@ func strPredicate(name, s string) bool {
 		}
 		return true
 	case "isdecimal":
-		return strAllRunes(s, unicode.IsDigit)
+		return strAllRunes(s, strDecimalRune)
 	case "isdigit":
-		return strAllRunes(s, strIsDigitRune)
+		return strAllRunes(s, strDigitPred)
 	case "isidentifier":
 		first := true
 		for _, r := range s {
@@ -1469,15 +1533,16 @@ func strPredicate(name, s string) bool {
 		}
 		return cased
 	case "isnumeric":
-		return strAllRunes(s, strIsNumericRune)
+		return strAllRunes(s, strNumericPred)
 	case "isprintable":
-		// Go's IsPrint is L, M, N, P, S plus the ASCII space, the same
-		// set CPython keeps. True for the empty string. A lone surrogate
-		// is decoded from its WTF-8 form so it is judged as U+DC80..U+DFFF
+		// Printable is everything but the Other (C*) and Separator (Z*)
+		// categories, with the ASCII space kept, read from the pinned UCD
+		// when linked. True for the empty string. A lone surrogate is
+		// decoded from its WTF-8 form so it is judged as U+DC80..U+DFFF
 		// (category Cs, not printable) rather than the three RuneError
 		// bytes Go's range yields, which would read as printable U+FFFD.
 		for _, r := range decodeStrRunes(s) {
-			if !unicode.IsPrint(r) {
+			if !strPrintableRune(r) {
 				return false
 			}
 		}
