@@ -10,19 +10,17 @@
 # data next to the binary and runs from there, since the suites locate it
 # through os.path.dirname(__file__).
 #
-# A set of individual tests exercise codec machinery unagi does not carry yet;
-# they are excluded by method name below and tracked as follow-ups, so the gate
-# reflects "the codec tables and everything else must keep working" rather than
-# "every upstream test passes". The structured codec-error object, the standard
-# ignore/replace/xmlcharrefreplace/backslashreplace handlers, and the error
-# callback path (a registered handler's returned replacement and newpos steering
-# the codec loop) are all in place, so the callback and custom-replace tests run
-# in the gate. The encoder and decoder getstate/setstate state protocols run
-# too, and deleting an encoder or decoder .errors handler raises AttributeError
-# the way the C getset does. The incremental encoder and decoder now run end to
-# end, including euc_kr's eight-byte Hangul make-up sequence across a chunk
-# boundary, and the iso-2022 decode replace path now runs across every encoding,
-# so the remaining exclusions are the stream reader and writer.
+# Every class-based test in these suites now runs: the structured codec-error
+# object, the standard ignore/replace/xmlcharrefreplace/backslashreplace handlers
+# and the error callback path (a registered handler's returned replacement and
+# newpos steering the codec loop) are all in place, the encoder and decoder
+# getstate/setstate state protocols run, deleting an encoder or decoder .errors
+# handler raises AttributeError the way the C getset does, the incremental encoder
+# and decoder run end to end (including euc_kr's eight-byte Hangul make-up sequence
+# across a chunk boundary), the iso-2022 decode replace path runs across every
+# encoding, and the native stream reader and writer drive read/readline/readlines
+# and write/writelines end to end. So KNOWN_GAP_METHODS is empty and the gate runs
+# the full curated suite.
 #
 # The other section 7 codec suites are not gated here yet and are tracked
 # separately:
@@ -49,27 +47,12 @@ from test import test_codecencodings_tw
 from test import test_codecencodings_iso2022
 from test import test_multibytecodec
 
-# Known gaps, excluded by method name so the concrete per-encoding TestCase
-# class does not matter (each codecencodings module defines the same method set
-# across every encoding it covers). The error-callback path itself now runs (a
-# registered handler's returned replacement and newpos steer the codec loop,
-# including backward and forward positions, str and bytes replacements, and the
-# type/bounds validation), the encoder and decoder getstate/setstate state
-# protocols run, deleting an encoder or decoder .errors handler now raises
-# AttributeError the way the C getset does, and the incremental encoder and
-# decoder (test_incrementalencoder, test_incrementaldecoder, test_chunkcoding)
-# run across every encoding, and test_errorhandle (the iso-2022 decode replace
-# path, plus every codec's replace/strict codectests tuples) runs too, so the
-# remaining exclusions are the stream surface:
-#   - test_streamreader and test_streamwriter drive the stream read and write
-#     path, which unagi does not carry end to end yet.
-# test_init_segfault (MultibyteStreamReader/Writer(None) raising AttributeError)
-# is the remaining test_multibytecodec entry, tracked with the stream surface.
-KNOWN_GAP_METHODS = {
-    "test_streamreader",
-    "test_streamwriter",
-    "test_init_segfault",
-}
+# No method-name exclusions remain: every class-based test in the six
+# codecencodings suites and test_multibytecodec passes, including the stream
+# reader/writer surface (test_streamreader, test_streamwriter) and the bare
+# MultibyteStreamReader/Writer(None) AttributeError guard (test_init_segfault).
+# The set is kept so a future gap can be parked here without reworking the loop.
+KNOWN_GAP_METHODS = set()
 
 
 def excluded(case):
