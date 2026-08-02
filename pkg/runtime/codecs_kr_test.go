@@ -87,6 +87,45 @@ func TestKoreanDecodeErrors(t *testing.T) {
 	}
 }
 
+// TestEUCKRMakeup checks the KS X 1001:1998 Annex 3 eight-byte make-up sequence
+// for modern Hangul syllables outside the Wansung table, against bytes probed
+// from CPython. It covers a syllable round-trip, the boundaries of the syllable
+// block, a truncated sequence held back as incomplete, and a malformed sequence
+// resyncing one byte on.
+func TestEUCKRMakeup(t *testing.T) {
+	c := eucKRCodec()
+	pairs := []struct {
+		cp   rune
+		data []byte
+	}{
+		{'쓔', []byte{0xa4, 0xd4, 0xa4, 0xb6, 0xa4, 0xd0, 0xa4, 0xd4}},
+		{'힣', []byte{0xa4, 0xd4, 0xa4, 0xbe, 0xa4, 0xd3, 0xa4, 0xbe}},
+	}
+	for _, p := range pairs {
+		enc, _, err := mbEncodeRun(c, []rune{p.cp}, "strict", true)
+		if err != nil || string(enc) != string(p.data) {
+			t.Fatalf("encode U+%04X: enc=%x err=%v want %x", p.cp, enc, err, p.data)
+		}
+		out, consumed, _, err := mbDecodeRun(c, p.data, "strict", true)
+		if err != nil || consumed != 8 || out != string(p.cp) {
+			t.Fatalf("decode %x: out=%q consumed=%d err=%v", p.data, out, consumed, err)
+		}
+	}
+	// A truncated make-up sequence is incomplete over the bytes in hand.
+	_, _, _, err := mbDecodeRun(c, []byte{0xa4, 0xd4, 0xa4, 0xb6}, "strict", true)
+	if err == nil || errString(err) != "'euc_kr' codec can't decode bytes in position 0-3: incomplete multibyte sequence" {
+		t.Fatalf("truncated make-up: got %v", err)
+	}
+	// A malformed make-up sequence is one illegal byte, so replace resyncs on.
+	out, _, _, err := mbDecodeRun(c, []byte{0xa4, 0xd4, 0x41, 0xb6, 0xa4, 0xd0, 0xa4, 0xd4}, "replace", true)
+	if err != nil {
+		t.Fatalf("malformed make-up replace: %v", err)
+	}
+	if out != "��A땄圭�" {
+		t.Fatalf("malformed make-up replace: out=%q", out)
+	}
+}
+
 // TestKoreanGetcodecUnknown checks getcodec raises LookupError for a codec this
 // build does not carry.
 func TestKoreanGetcodecUnknown(t *testing.T) {

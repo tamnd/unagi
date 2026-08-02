@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+쓔 b'\xa4\xd4\xa4\xb6\xa4\xd0\xa4\xd4' 8 True
+가 b'\xb0\xa1' 2 True
+힣 b'\xa4\xd4\xa4\xbe\xa4\xd3\xa4\xbe' 8 True
+뷁 b'\xa4\xd4\xa4\xb2\xa4\xce\xa4\xaa' 8 True
+mixed b'\xc7\xd1\xb1\xdbA\xa4\xd4\xa4\xb6\xa4\xd0\xa4\xd4\xb1\xdbB' True
+truncated 'euc_kr' codec can't decode bytes in position 0-3: incomplete multibyte sequence
+malformed ��A땄圭�
+inc first ''
+inc rest 쓔
+== exception:
+== stderr:

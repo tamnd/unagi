@@ -54,13 +54,76 @@ var (
 	johabTable *mbTableCodec
 )
 
+// The EUC-KR make-up sequence carries a modern Hangul syllable that is not in
+// the Wansung set as eight bytes: 0xa4 0xd4 then three (0xa4, jamo) pairs for the
+// leading consonant, vowel and trailing consonant. CPython's _codecs_kr encodes
+// such syllables this way and decodes the sequence back, so euc_kr covers all
+// 11172 modern syllables even though its table holds only the 2350 Wansung ones.
+// These are the KS X 1001:1998 Annex 3 jamo bytes, derived from CPython.
+const (
+	euckrJamoFirst  = 0xa4
+	euckrJamoFiller = 0xd4
+)
+
+var (
+	euckrChoseong  = [19]byte{0xa1, 0xa2, 0xa4, 0xa7, 0xa8, 0xa9, 0xb1, 0xb2, 0xb3, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xbb, 0xbc, 0xbd, 0xbe}
+	euckrJungseong = [21]byte{0xbf, 0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf, 0xd0, 0xd1, 0xd2, 0xd3}
+	euckrJongseong = [28]byte{0xd4, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf, 0xb0, 0xb1, 0xb2, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xba, 0xbb, 0xbc, 0xbd, 0xbe}
+)
+
+// euckrJamoIndex reports the position of a jamo byte in its make-up table, or
+// false when the byte is not a valid jamo for that slot.
+func euckrJamoIndex(table []byte, b byte) (int, bool) {
+	for i, v := range table {
+		if v == b {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
 func eucKRCodec() *mbCodec {
 	eucKROnce.Do(func() {
 		eucKRTable = newMBTableCodec("euc_kr",
 			eucKRSingleDecode, eucKRLeads, eucKRDoubleDecode,
 			eucKRSingleEncode, eucKRDoubleEncode)
 	})
-	return eucKRTable.codec()
+	base := eucKRTable.codec()
+	tableEncode := base.encodeStep
+	tableDecode := base.decodeStep
+	return &mbCodec{
+		name: "euc_kr",
+		encodeStep: func(cp rune) ([]byte, int) {
+			if b, status := tableEncode(cp); status == mbOK {
+				return b, mbOK
+			}
+			if cp >= 0xac00 && cp <= 0xd7a3 {
+				c := cp - 0xac00
+				return []byte{
+					euckrJamoFirst, euckrJamoFiller,
+					euckrJamoFirst, euckrChoseong[c/588],
+					euckrJamoFirst, euckrJungseong[(c/28)%21],
+					euckrJamoFirst, euckrJongseong[c%28],
+				}, mbOK
+			}
+			return nil, mbIllegal
+		},
+		decodeStep: func(p []byte) (rune, rune, int, int, int) {
+			if p[0] == euckrJamoFirst && len(p) >= 2 && p[1] == euckrJamoFiller {
+				if len(p) < 8 {
+					return 0, -1, 0, 0, mbTooFew
+				}
+				cho, choOK := euckrJamoIndex(euckrChoseong[:], p[3])
+				jung, jungOK := euckrJamoIndex(euckrJungseong[:], p[5])
+				jong, jongOK := euckrJamoIndex(euckrJongseong[:], p[7])
+				if p[2] == euckrJamoFirst && p[4] == euckrJamoFirst && p[6] == euckrJamoFirst && choOK && jungOK && jongOK {
+					return 0xac00 + rune((cho*21+jung)*28+jong), -1, 8, 0, mbOK
+				}
+				return 0, -1, 0, 1, mbIllegal
+			}
+			return tableDecode(p)
+		},
+	}
 }
 
 func cp949Codec() *mbCodec {
