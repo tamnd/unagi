@@ -257,11 +257,16 @@ func TestUnicodedataBidirectional(t *testing.T) {
 	}
 }
 
-// TestUnicodedataEastAsianWidth checks the wide-block heuristic: CJK is Wide,
-// fullwidth forms are Fullwidth, ASCII is Narrow, and other text is Neutral.
+// TestUnicodedataEastAsianWidth checks the full six-class property read from the
+// pinned UCD: CJK is Wide, fullwidth forms and the ideographic space are
+// Fullwidth, ASCII is Narrow, the halfwidth forms and won sign are Halfwidth, and
+// the accented Latin, Greek and general-punctuation dash are Ambiguous (the two
+// classes the earlier heuristic dropped, calling them Neutral).
 func TestUnicodedataEastAsianWidth(t *testing.T) {
 	cases := []struct{ ch, want string }{
-		{"中", "W"}, {"Ａ", "F"}, {"A", "Na"}, {"é", "N"},
+		{"中", "W"}, {"Ａ", "F"}, {"　", "F"}, {"A", "Na"},
+		{"｡", "H"}, {"₩", "H"}, {"é", "A"}, {"¡", "A"},
+		{"α", "A"}, {"‐", "A"}, {"￿", "N"},
 	}
 	for _, c := range cases {
 		got, err := udEastAsianWidth([]objects.Object{objects.NewStr(c.ch)})

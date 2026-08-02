@@ -249,58 +249,43 @@ func udCombining(args []objects.Object) (objects.Object, error) {
 	return objects.NewInt(int64(ucdCombiningClass[r])), nil
 }
 
-// wideRanges are the East Asian Wide and Fullwidth blocks. Go carries no
-// East_Asian_Width property, so east_asian_width answers from the common wide
-// blocks (CJK, Hangul, kana, fullwidth forms, emoji) and returns "N" elsewhere.
-// This is a heuristic over the dominant cases, not the full UCD width property.
-var wideRanges = []struct{ lo, hi rune }{
-	{0x1100, 0x115F},   // Hangul Jamo
-	{0x2E80, 0x303E},   // CJK radicals, Kangxi, CJK symbols
-	{0x3041, 0x33FF},   // kana, CJK compatibility
-	{0x3400, 0x4DBF},   // CJK ext A
-	{0x4E00, 0x9FFF},   // CJK unified
-	{0xA000, 0xA4CF},   // Yi
-	{0xAC00, 0xD7A3},   // Hangul syllables
-	{0xF900, 0xFAFF},   // CJK compatibility ideographs
-	{0xFE30, 0xFE4F},   // CJK compatibility forms
-	{0x1F300, 0x1FAFF}, // emoji and symbols
-	{0x20000, 0x3FFFD}, // CJK ext B and beyond
+// eawRange is one [lo, hi] run of code points that share an East_Asian_Width
+// class, the shape ucdEastAsianWidthRanges in east_asian_width_tables.go is
+// generated as. The ranges are sorted by lo and do not overlap, so a code point's
+// width is found by binary search, and the Neutral class is left out as the
+// default.
+type eawRange struct {
+	lo, hi rune
+	class  string
 }
 
-// fullwidthRanges are the Fullwidth ("F") forms.
-var fullwidthRanges = []struct{ lo, hi rune }{
-	{0xFF00, 0xFF60},
-	{0xFFE0, 0xFFE6},
-}
-
-func inRanges(r rune, rs []struct{ lo, hi rune }) bool {
-	for _, x := range rs {
-		if r >= x.lo && r <= x.hi {
-			return true
+// runeEastAsianWidth returns the East_Asian_Width class from the pinned range
+// table, "N" (Neutral) for a code point in no stored range, matching CPython.
+func runeEastAsianWidth(r rune) string {
+	lo, hi := 0, len(ucdEastAsianWidthRanges)
+	for lo < hi {
+		mid := (lo + hi) / 2
+		er := ucdEastAsianWidthRanges[mid]
+		switch {
+		case r < er.lo:
+			hi = mid
+		case r > er.hi:
+			lo = mid + 1
+		default:
+			return er.class
 		}
 	}
-	return false
+	return "N"
 }
 
-// udEastAsianWidth is unicodedata.east_asian_width(chr), a wide-block heuristic.
+// udEastAsianWidth is unicodedata.east_asian_width(chr), read from the pinned UCD
+// so it carries the full six-class property (F, H, W, Na, A, N).
 func udEastAsianWidth(args []objects.Object) (objects.Object, error) {
 	r, err := oneRune("east_asian_width", args[0])
 	if err != nil {
 		return nil, err
 	}
-	switch {
-	case inRanges(r, fullwidthRanges):
-		return objects.NewStr("F"), nil
-	case inRanges(r, wideRanges):
-		return objects.NewStr("W"), nil
-	case r >= 0x20 && r <= 0x7E:
-		// Printable ASCII is Narrow, the width traceback and _pyrepl assume for
-		// Latin text; a control point and everything outside the wide blocks
-		// falls to Neutral.
-		return objects.NewStr("Na"), nil
-	default:
-		return objects.NewStr("N"), nil
-	}
+	return objects.NewStr(runeEastAsianWidth(r)), nil
 }
 
 // bidiRange is one [lo, hi] run of code points that share a Bidi_Class, the shape

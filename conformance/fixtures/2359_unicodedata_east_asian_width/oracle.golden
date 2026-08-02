@@ -1,0 +1,31 @@
+== exit: 0
+== stdout:
+'A' Na
+'0' Na
+' ' Na
+'\u4e2d' W
+'\ud55c' W
+'\u3042' W
+'\u3400' W
+'\uff21' F
+'\uff10' F
+'\u3000' F
+'\uff61' H
+'\uff71' H
+'\uffe9' H
+'\u20a9' H
+'\xe9' A
+'\xa1' A
+'\u03b1' A
+'\u2010' A
+'\xb1' A
+'\u2460' A
+'e' Na
+'\u0303' A
+'\uffff' N
+'\x01' N
+'\U0010ffff' N
+'\udc80' N
+ucd320 W
+== exception:
+== stderr:
