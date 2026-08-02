@@ -281,7 +281,7 @@ func encodeUTF8(s, errh string) ([]byte, error) {
 				out = append(out, byte(r&0xFF))
 				continue
 			}
-			return nil, encodeUTF8SurrogateErr(r, pos)
+			return nil, encodeUTF8SurrogateErr(s, i, pos)
 		case "ignore":
 		case "replace":
 			out = append(out, '?')
@@ -292,7 +292,7 @@ func encodeUTF8(s, errh string) ([]byte, error) {
 		case "namereplace":
 			out = append(out, nameReplaceEscape(r)...)
 		case "strict":
-			return nil, encodeUTF8SurrogateErr(r, pos)
+			return nil, encodeUTF8SurrogateErr(s, i, pos)
 		default:
 			return nil, Raise("LookupError", "unknown error handler name '%s'", errh)
 		}
@@ -300,12 +300,20 @@ func encodeUTF8(s, errh string) ([]byte, error) {
 	return out, nil
 }
 
-// encodeUTF8SurrogateErr is the UnicodeEncodeError strict UTF-8 raises for a
-// lone surrogate, with CPython's "surrogates not allowed" wording.
-func encodeUTF8SurrogateErr(r rune, pos int) error {
-	return Raise("UnicodeEncodeError",
-		"'utf-8' codec can't encode character %s in position %d: surrogates not allowed",
-		charEscape(r), pos)
+// encodeUTF8SurrogateErr is the structured UnicodeEncodeError UTF-8 raises for a
+// lone surrogate, with CPython's "surrogates not allowed" wording. byteAfter is
+// the byte index just past the surrogate at rune index pos; the bad span
+// coalesces the maximal run of consecutive lone surrogates from pos, the way
+// CPython collects a run before reporting it.
+func encodeUTF8SurrogateErr(s string, byteAfter, pos int) error {
+	end := pos + 1
+	for j := byteAfter; ; end++ {
+		if _, ok := isWTF8Surrogate(s, j); !ok {
+			break
+		}
+		j += 3
+	}
+	return NewUnicodeEncodeError("utf-8", s, pos, end, "surrogates not allowed")
 }
 
 // hasWTF8Surrogate reports whether s contains a WTF-8-encoded lone surrogate.
@@ -330,15 +338,17 @@ func hasWTF8Surrogate(s string) bool {
 // surrogate (U+DC80..U+DCFF) back to its byte. surrogatepass and any other
 // handler raise, since they rescue only the utf codecs' surrogate code points.
 func encodeNarrow(s, codec string, limit rune, errh string) ([]byte, error) {
+	runes := decodeStrRunes(s)
 	out := make([]byte, 0, len(s))
-	for i, r := range decodeStrRunes(s) {
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
 		if r < limit {
 			out = append(out, byte(r))
 			continue
 		}
 		switch errh {
 		case "strict", "surrogatepass":
-			return nil, encodeNarrowErr(codec, r, i, limit)
+			return nil, encodeNarrowErr(codec, s, runes, i, limit)
 		case "ignore":
 		case "replace":
 			out = append(out, '?')
@@ -353,7 +363,7 @@ func encodeNarrow(s, codec string, limit rune, errh string) ([]byte, error) {
 				out = append(out, byte(r&0xFF))
 				continue
 			}
-			return nil, encodeNarrowErr(codec, r, i, limit)
+			return nil, encodeNarrowErr(codec, s, runes, i, limit)
 		default:
 			return nil, Raise("LookupError", "unknown error handler name '%s'", errh)
 		}
@@ -361,23 +371,15 @@ func encodeNarrow(s, codec string, limit rune, errh string) ([]byte, error) {
 	return out, nil
 }
 
-// encodeNarrowErr is the UnicodeEncodeError a narrow codec raises for a code
-// point it cannot represent, with CPython's wording.
-func encodeNarrowErr(codec string, r rune, pos int, limit rune) error {
-	return Raise("UnicodeEncodeError",
-		"'%s' codec can't encode character %s in position %d: ordinal not in range(%d)",
-		codec, charEscape(r), pos, int(limit))
-}
-
-// charEscape renders a single code point the way CPython's error message
-// does: '\xHH' below 0x100, '\uHHHH' in the BMP, '\UHHHHHHHH' above it.
-func charEscape(r rune) string {
-	switch {
-	case r < 0x100:
-		return fmt.Sprintf(`'\x%02x'`, r)
-	case r < 0x10000:
-		return fmt.Sprintf(`'\u%04x'`, r)
-	default:
-		return fmt.Sprintf(`'\U%08x'`, r)
+// encodeNarrowErr is the structured UnicodeEncodeError a narrow codec raises for
+// a code point it cannot represent. The bad span coalesces the maximal run of
+// consecutive code points at or above the limit starting at pos, the way
+// CPython's ucs1 encoder collects a run before reporting it, so .start/.end and
+// the "characters in position P-Q" message match.
+func encodeNarrowErr(codec, s string, runes []rune, pos int, limit rune) error {
+	end := pos + 1
+	for end < len(runes) && runes[end] >= limit {
+		end++
 	}
+	return NewUnicodeEncodeError(codec, s, pos, end, fmt.Sprintf("ordinal not in range(%d)", int(limit)))
 }

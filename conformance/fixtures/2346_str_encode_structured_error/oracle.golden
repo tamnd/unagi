@@ -1,0 +1,53 @@
+== exit: 0
+== stdout:
+ascii-single enc ascii start 1 end 2 reason ordinal not in range(128)
+  object 'a\xffb' span '\xff'
+  str 'ascii' codec can't encode character '\xff' in position 1: ordinal not in range(128)
+  is UnicodeError True
+latin1-single enc latin-1 start 1 end 2 reason ordinal not in range(256)
+  object 'a\u0100b' span '\u0100'
+  str 'latin-1' codec can't encode character '\u0100' in position 1: ordinal not in range(256)
+  is UnicodeError True
+ascii-run enc ascii start 1 end 3 reason ordinal not in range(128)
+  object 'a\xff\xffb' span '\xff\xff'
+  str 'ascii' codec can't encode characters in position 1-2: ordinal not in range(128)
+  is UnicodeError True
+ascii-run3 enc ascii start 1 end 4 reason ordinal not in range(128)
+  object 'a\xff\u0100\U00010280b' span '\xff\u0100\U00010280'
+  str 'ascii' codec can't encode characters in position 1-3: ordinal not in range(128)
+  is UnicodeError True
+latin1-run enc latin-1 start 1 end 3 reason ordinal not in range(256)
+  object 'a\u0100\u0101b' span '\u0100\u0101'
+  str 'latin-1' codec can't encode characters in position 1-2: ordinal not in range(256)
+  is UnicodeError True
+ascii-split enc ascii start 1 end 2 reason ordinal not in range(128)
+  object 'a\xffZ\xffb' span '\xff'
+  str 'ascii' codec can't encode character '\xff' in position 1: ordinal not in range(128)
+  is UnicodeError True
+utf8-surr-single enc utf-8 start 1 end 2 reason surrogates not allowed
+  object 'a\ud800b' span '\ud800'
+  str 'utf-8' codec can't encode character '\ud800' in position 1: surrogates not allowed
+  is UnicodeError True
+utf8-surr-run enc utf-8 start 1 end 3 reason surrogates not allowed
+  object 'a\ud800\ud801b' span '\ud800\ud801'
+  str 'utf-8' codec can't encode characters in position 1-2: surrogates not allowed
+  is UnicodeError True
+utf8-surr-split enc utf-8 start 1 end 2 reason surrogates not allowed
+  object 'a\ud800Z\ud801b' span '\ud800'
+  str 'utf-8' codec can't encode character '\ud800' in position 1: surrogates not allowed
+  is UnicodeError True
+latin1-surrpass enc latin-1 start 1 end 3 reason ordinal not in range(256)
+  object 'a\ud800\ud801b' span '\ud800\ud801'
+  str 'latin-1' codec can't encode characters in position 1-2: ordinal not in range(256)
+  is UnicodeError True
+ascii-srgesc enc ascii start 1 end 3 reason ordinal not in range(128)
+  object 'a\U00010280\ud801b' span '\U00010280\ud801'
+  str 'ascii' codec can't encode characters in position 1-2: ordinal not in range(128)
+  is UnicodeError True
+utf8-srgesc enc utf-8 start 2 end 3 reason surrogates not allowed
+  object 'a\U00010280\ud801b' span '\ud801'
+  str 'utf-8' codec can't encode character '\ud801' in position 2: surrogates not allowed
+  is UnicodeError True
+reraised ascii 0 1 ordinal not in range(128)
+== exception:
+== stderr:

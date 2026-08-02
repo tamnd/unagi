@@ -45,6 +45,39 @@ func TestEncodeStrHandlers(t *testing.T) {
 	}
 }
 
+// TestEncodeStrErrorAttributes checks that a strict encode error carries the
+// structured attributes and coalesces a run of consecutive unencodable code
+// points into one span, the way CPython's encoder collects a run.
+func TestEncodeStrErrorAttributes(t *testing.T) {
+	check := func(s, codec string, wantStart, wantEnd int, wantReason string) {
+		t.Helper()
+		_, err := EncodeStr(s, codec, "strict")
+		e, ok := err.(*Exception)
+		if !ok || !e.UEParsed {
+			t.Fatalf("%s/%s: not a parsed UnicodeEncodeError: %v", s, codec, err)
+		}
+		if enc, _ := AsStr(e.UEEncoding); enc != codec {
+			t.Errorf("%s/%s: encoding = %q, want %q", s, codec, enc, codec)
+		}
+		if st, _ := AsInt(e.UEStart); int(st) != wantStart {
+			t.Errorf("%s/%s: start = %d, want %d", s, codec, st, wantStart)
+		}
+		if en, _ := AsInt(e.UEEnd); int(en) != wantEnd {
+			t.Errorf("%s/%s: end = %d, want %d", s, codec, en, wantEnd)
+		}
+		if r := Str(e.UEReason); r != wantReason {
+			t.Errorf("%s/%s: reason = %q, want %q", s, codec, r, wantReason)
+		}
+	}
+	// A run of two out-of-range characters coalesces into [1,3).
+	check("aÿÿb", "ascii", 1, 3, "ordinal not in range(128)")
+	check("aĀāb", "latin-1", 1, 3, "ordinal not in range(256)")
+	// utf-8 only rejects surrogates; a run of two lone surrogates coalesces, and
+	// a normal character between two surrogates breaks the run.
+	check(StrFromRunes([]rune{'a', 0xD800, 0xD801, 'b'}), "utf-8", 1, 3, "surrogates not allowed")
+	check(StrFromRunes([]rune{'a', 0xD800, 'X', 0xD801, 'b'}), "utf-8", 1, 2, "surrogates not allowed")
+}
+
 // isExc reports whether err is an Exception of the named class.
 func isExc(err error, name string) bool {
 	e, ok := err.(*Exception)
