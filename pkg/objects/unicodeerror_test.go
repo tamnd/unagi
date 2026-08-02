@@ -255,3 +255,65 @@ func TestStdErrorHandlers(t *testing.T) {
 		t.Error("ignore on non-unicode-error: want TypeError, got nil")
 	}
 }
+
+// TestNameReplaceErrors checks the namereplace handler emits \N{NAME} for a
+// character the name lookup resolves and falls back to the backslash escape for
+// one it does not, over the whole bad span, and stays encode-only. The name
+// lookup is the hook the unicodedata shim fills at init; the test installs a
+// small stub so the objects package can exercise both paths on its own.
+func TestNameReplaceErrors(t *testing.T) {
+	prev := NameReplaceNameLookup
+	defer func() { NameReplaceNameLookup = prev }()
+	names := map[rune]string{
+		0x1234:  "ETHIOPIC SYLLABLE SEE",
+		0x1F600: "GRINNING FACE",
+		0x00E9:  "LATIN SMALL LETTER E WITH ACUTE",
+	}
+	NameReplaceNameLookup = func(r rune) (string, bool) {
+		n, ok := names[r]
+		return n, ok
+	}
+
+	check := func(name string, got Object, err error, wantRepl string, wantPos int64) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("%s: err %v", name, err)
+		}
+		tup, ok := got.(*tupleObject)
+		if !ok || len(tup.elts) != 2 {
+			t.Fatalf("%s: not a 2-tuple: %v", name, got)
+		}
+		if s, _ := AsStr(tup.elts[0]); s != wantRepl {
+			t.Errorf("%s: replacement = %q, want %q", name, s, wantRepl)
+		}
+		if p, _ := AsInt(tup.elts[1]); p != wantPos {
+			t.Errorf("%s: newpos = %d, want %d", name, p, wantPos)
+		}
+	}
+
+	// Two named characters across the span.
+	enc := NewUnicodeEncodeError("ascii", "aሴ\U0001F600b", 1, 3, "ordinal not in range(128)")
+	g, err := NameReplaceErrors([]Object{enc})
+	check("named span", g, err, `\N{ETHIOPIC SYLLABLE SEE}\N{GRINNING FACE}`, 3)
+
+	// A code point with no name falls back to the backslashreplace escape.
+	noName := NewUnicodeEncodeError("ascii", "ab", 1, 2, "ordinal not in range(128)")
+	g, err = NameReplaceErrors([]Object{noName})
+	check("no name fallback", g, err, `\x62`, 2)
+
+	// A named BMP character below 0x100.
+	acute := NewUnicodeEncodeError("ascii", "aéb", 1, 2, "ordinal not in range(128)")
+	g, err = NameReplaceErrors([]Object{acute})
+	check("named below 0x100", g, err, `\N{LATIN SMALL LETTER E WITH ACUTE}`, 2)
+
+	// namereplace is encode-only: a decode error is a TypeError.
+	dec := NewUnicodeDecodeError("ascii", []byte("a\xffb"), 1, 2, "ordinal not in range(128)")
+	if _, err := NameReplaceErrors([]Object{dec}); err == nil {
+		t.Error("namereplace on decode error: want TypeError, got nil")
+	}
+
+	// With the hook unset every character falls back to the escape.
+	NameReplaceNameLookup = nil
+	g, err = NameReplaceErrors([]Object{enc})
+	check("no hook fallback", g, err, `\u1234\U0001f600`, 3)
+}

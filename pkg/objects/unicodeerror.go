@@ -11,8 +11,9 @@ import (
 // off the structured attributes, so they run for the errors the runtime codecs
 // raise as well as ones built from the constructor. strict, ignore and replace
 // are the codec-agnostic ones; xmlcharrefreplace, backslashreplace and
-// namereplace transform the offending text. surrogatepass and surrogateescape
-// need codec cooperation and stay placeholders in this tier.
+// namereplace transform the offending text (namereplace reaches the Unicode name
+// database through a hook the unicodedata shim fills). surrogatepass and
+// surrogateescape need codec cooperation and stay placeholders in this tier.
 
 // ueHandlerError reports that a handler was handed something other than a parsed
 // unicode error, with CPython's error-callback wording.
@@ -106,6 +107,44 @@ func BackslashReplaceErrors(args []Object) (Object, error) {
 		return nil, ueHandlerError(args[0])
 	}
 	return ueResult(b.String(), end), nil
+}
+
+// NameReplaceNameLookup resolves a code point to its Unicode character name for
+// the namereplace handler, returning false when the point has no name. It is a
+// hook the unicodedata shim fills at init so this package need not depend on the
+// runtime name tables; when unset (unicodedata not linked) namereplace falls back
+// to the backslash escape for every character, matching what CPython emits for a
+// code point with no name.
+var NameReplaceNameLookup func(rune) (string, bool)
+
+// NameReplaceErrors is the "namereplace" handler: replace each unencodable
+// character with \N{NAME} when it has a Unicode name, else the backslashreplace
+// escape (\xNN, \uNNNN or \UNNNNNNNN). Encode only.
+func NameReplaceErrors(args []Object) (Object, error) {
+	e, ok := ueParsed(args)
+	if !ok || !Matches(e.Kind, "UnicodeEncodeError") {
+		return nil, ueHandlerError(argAt(args))
+	}
+	start, end := ueSpan(e)
+	runes := ueObjectRunes(e)
+	var b strings.Builder
+	for i := start; i < end && i < len(runes); i++ {
+		b.WriteString(nameReplaceEscape(runes[i]))
+	}
+	return ueResult(b.String(), end), nil
+}
+
+// nameReplaceEscape renders one code point the way the namereplace handler does:
+// \N{NAME} when the code point has a Unicode name (through the hook the
+// unicodedata shim fills), else the backslashreplace escape. The str.encode fast
+// path uses it too so the inline handler matches the registered one.
+func nameReplaceEscape(r rune) string {
+	if NameReplaceNameLookup != nil {
+		if name, ok := NameReplaceNameLookup(r); ok {
+			return `\N{` + name + `}`
+		}
+	}
+	return backslashEscape(r)
 }
 
 // xmlCharRef renders one code point as its decimal numeric character reference,
