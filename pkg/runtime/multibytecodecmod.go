@@ -387,9 +387,10 @@ func buildMBClasses() error {
 			return
 		}
 		mbIncEncoderClass, mbBuildErr = objects.NewClass("MultibyteIncrementalEncoder", "_multibytecodec.MultibyteIncrementalEncoder", nil,
-			[]string{"__init__", "encode", "reset", "getstate", "setstate"},
+			[]string{"__init__", "__delattr__", "encode", "reset", "getstate", "setstate"},
 			[]objects.Object{
 				objects.NewMethodKw("__init__", mbIncInit),
+				objects.NewMethod("__delattr__", 2, mbIncDelattr),
 				objects.NewMethodKw("encode", mbIncEncode),
 				objects.NewMethod("reset", 1, mbIncEncReset),
 				objects.NewMethod("getstate", 1, mbIncEncGetstate),
@@ -399,9 +400,10 @@ func buildMBClasses() error {
 			return
 		}
 		mbIncDecoderClass, mbBuildErr = objects.NewClass("MultibyteIncrementalDecoder", "_multibytecodec.MultibyteIncrementalDecoder", nil,
-			[]string{"__init__", "decode", "reset", "getstate", "setstate"},
+			[]string{"__init__", "__delattr__", "decode", "reset", "getstate", "setstate"},
 			[]objects.Object{
 				objects.NewMethodKw("__init__", mbIncInit),
+				objects.NewMethod("__delattr__", 2, mbIncDelattr),
 				objects.NewMethodKw("decode", mbIncDecode),
 				objects.NewMethod("reset", 1, mbIncDecReset),
 				objects.NewMethod("getstate", 1, mbIncDecGetstate),
@@ -552,6 +554,25 @@ func mbIncInit(pos []objects.Object, kwNames []string, kwVals []objects.Object) 
 		initMode = c.initMode
 	}
 	if err := objects.StoreAttr(self, "_mbmode", objects.NewInt(int64(initMode))); err != nil {
+		return nil, err
+	}
+	return objects.None, nil
+}
+
+// mbIncDelattr is MultibyteIncrementalEncoder/Decoder __delattr__(self, name). The
+// errors handler is a managed attribute CPython exposes through a getset with no
+// deleter, so deleting it raises AttributeError the way the C type does; any other
+// name falls through to the ordinary instance-dict delete.
+func mbIncDelattr(args []objects.Object) (objects.Object, error) {
+	self := args[0]
+	name, ok := objects.AsStr(args[1])
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "attribute name must be string, not '%s'", args[1].TypeName())
+	}
+	if name == "errors" {
+		return nil, objects.Raise(objects.AttributeError, "cannot delete attribute")
+	}
+	if err := objects.GenericDelAttr(self, name); err != nil {
 		return nil, err
 	}
 	return objects.None, nil

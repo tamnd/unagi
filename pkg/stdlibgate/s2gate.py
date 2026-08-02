@@ -18,7 +18,9 @@
 # callback path (a registered handler's returned replacement and newpos steering
 # the codec loop) are all in place, so the callback and custom-replace tests run
 # in the gate. The encoder and decoder getstate/setstate state protocols run
-# too. The remaining exclusions are the incremental and stream codec surface.
+# too, and deleting an encoder or decoder .errors handler raises AttributeError
+# the way the C getset does. The remaining exclusions are the incremental and
+# stream codec surface.
 #
 # The other section 7 codec suites are not gated here yet and are tracked
 # separately:
@@ -50,21 +52,19 @@ from test import test_multibytecodec
 # across every encoding it covers). The error-callback path itself now runs (a
 # registered handler's returned replacement and newpos steer the codec loop,
 # including backward and forward positions, str and bytes replacements, and the
-# type/bounds validation), and the encoder and decoder getstate/setstate state
-# protocols run, so the remaining exclusions are the incremental and stream codec
-# surface:
+# type/bounds validation), the encoder and decoder getstate/setstate state
+# protocols run, and deleting an encoder or decoder .errors handler now raises
+# AttributeError the way the C getset does, so the remaining exclusions are the
+# incremental and stream codec surface:
 #   - test_incrementalencoder, test_incrementaldecoder, test_streamreader and
 #     test_streamwriter drive the incremental/stream read and write path, which
 #     unagi does not carry end to end yet.
-#   - test_incrementalencoder_del_segfault expects deleting .errors on an encoder
-#     to raise AttributeError; unagi does not.
 #   - test_errorhandle and test_chunkcoding exercise a wider slice of the
 #     incremental/stream surface on a subset of the encodings.
 # test_init_segfault (MultibyteStreamReader/Writer(None) raising AttributeError)
 # is the remaining test_multibytecodec entry, tracked with the stream surface.
 KNOWN_GAP_METHODS = {
     "test_incrementalencoder",
-    "test_incrementalencoder_del_segfault",
     "test_streamreader",
     "test_streamwriter",
     "test_errorhandle",

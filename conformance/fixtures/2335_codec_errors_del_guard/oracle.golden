@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+encoder default 'strict'
+encoder reassigned 'replace'
+encoder del errors AttributeError cannot delete attribute
+encoder still 'replace'
+encoder user attr deletes
+decoder default 'strict'
+decoder reassigned 'replace'
+decoder del errors AttributeError cannot delete attribute
+decoder still 'replace'
+decoder user attr deletes
+== exception:
+== stderr:
