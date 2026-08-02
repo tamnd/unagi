@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+module name: __main__
+has __file__: True
+is globals(): True
+inner name: __main__
+caller name: __main__
+marker: 42
+== exception:
+== stderr:

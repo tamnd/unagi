@@ -602,9 +602,12 @@ func lowerModule(mod *frontend.Module, file string, source []byte, modName strin
 			fmt.Fprintf(&out, "// pySource is the embedded source, so tracebacks can quote the line\n// under each frame the way CPython does.\nconst pySource = %s\n\nfunc init() { runtime.RegisterSource(pyFile, pySource) }\n\n", strconv.Quote(string(source)))
 		}
 	}
-	if pkgMode || reifyMain {
-		out.WriteString("// thisModule is the module object, bound before the body runs. Reads of\n// names this compile never saw route through it, so an attribute an importer\n// sets on the module is visible inside it, and globals() reads its namespace.\nvar thisModule *objects.Module\n\n")
-	}
+	// thisModule is declared unconditionally: every pushed frame passes it to
+	// runtime.PushFrame as the frame's f_globals module, so the shadow stack
+	// always references it. It stays nil in a plain script that neither reifies
+	// __main__ nor is a module package, so those frames read back an empty
+	// f_globals, the documented divergence.
+	out.WriteString("// thisModule is the module object, bound before the body runs. Reads of\n// names this compile never saw route through it, so an attribute an importer\n// sets on the module is visible inside it, and globals() reads its namespace.\n// It also backs each frame's f_globals on the shadow stack sys._getframe walks.\nvar thisModule *objects.Module\n\n")
 	if len(e.slots) > 0 {
 		out.WriteString("// Parameter default slots, assigned when each def statement runs.\nvar (\n")
 		for _, s := range e.slots {

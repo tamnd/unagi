@@ -14,7 +14,7 @@ import "fmt"
 type frameObject struct {
 	back      *frameObject
 	code      *codeObject
-	globals   Object // the *Module the frame runs in, or nil for a plain script
+	globals   *Module // the module the frame runs in, or nil for a plain script
 	line      int
 	optimized bool // a function frame (fast locals) versus a module or class body
 }
@@ -62,7 +62,7 @@ func (*framelocalsproxyObject) TypeName() string { return "FrameLocalsProxy" }
 // seed the code object, and optimized marks a function frame (fast locals) apart
 // from a module or class body, which decides whether f_locals is a proxy or the
 // namespace dict.
-func NewFrame(back *frameObject, globals Object, file, name, qual string, firstline int, optimized bool) *frameObject {
+func NewFrame(back *frameObject, globals *Module, file, name, qual string, firstline int, optimized bool) *frameObject {
 	return &frameObject{
 		back:      back,
 		globals:   globals,
@@ -90,11 +90,16 @@ func frameLoadAttr(f *frameObject, name string) (Object, error) {
 	case "f_code":
 		return f.code, nil
 	case "f_globals":
+		// CPython's f_globals is the defining module's namespace dict, so a read
+		// resolves the live namespace (__name__, __file__ and every module-scope
+		// binding, writes carrying back into module storage) rather than the
+		// module object. A frame with no module (a plain top-level script) reads
+		// back an empty dict, the documented divergence kept from before.
 		if f.globals == nil {
 			d, _ := NewDict(nil, nil)
 			return d, nil
 		}
-		return f.globals, nil
+		return f.globals.GlobalsDict(), nil
 	case "f_locals":
 		// A function frame exposes its fast locals through a FrameLocalsProxy on
 		// 3.13+, the type _collections_abc registers as a Mapping. A module or
@@ -107,7 +112,7 @@ func frameLoadAttr(f *frameObject, name string) (Object, error) {
 			d, _ := NewDict(nil, nil)
 			return d, nil
 		}
-		return f.globals, nil
+		return f.globals.GlobalsDict(), nil
 	case "f_lineno":
 		return NewInt(int64(f.line)), nil
 	case "f_builtins":

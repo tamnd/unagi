@@ -16,12 +16,13 @@ import "github.com/tamnd/unagi/pkg/objects"
 // emitted code passes nil for back and never names the unexported frame type.
 
 // PushFrame builds a frame for the entering function and makes it the running
-// frame on t. file/name/qual seed the code object and firstline is the def line,
-// the value co_firstlineno reads back. optimized marks a function frame apart
-// from the module body, deciding whether f_locals reads back as a proxy or a
-// plain dict.
-func PushFrame(t *objects.Thread, file, name, qual string, firstline int, optimized bool) {
-	t.PushFrame(objects.NewFrame(nil, nil, file, name, qual, firstline, optimized))
+// frame on t. m is the module the frame runs in, the namespace f_globals reads
+// back (nil for a plain top-level script, which reads back an empty dict).
+// file/name/qual seed the code object and firstline is the def line, the value
+// co_firstlineno reads back. optimized marks a function frame apart from the
+// module body, deciding whether f_locals reads back as a proxy or a plain dict.
+func PushFrame(t *objects.Thread, m *objects.Module, file, name, qual string, firstline int, optimized bool) {
+	t.PushFrame(objects.NewFrame(nil, m, file, name, qual, firstline, optimized))
 }
 
 // PopFrame drops the running frame as its function returns or unwinds, paired

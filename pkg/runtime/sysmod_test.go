@@ -182,9 +182,9 @@ func TestSysRecursionLimit(t *testing.T) {
 // bottom is the ValueError, and a non-integer depth is the coercion TypeError.
 func TestSysGetFrame(t *testing.T) {
 	th := objects.NewThread("t", false)
-	PushFrame(th, "t.py", "<module>", "<module>", 1, false)
-	PushFrame(th, "t.py", "outer", "outer", 10, true)
-	PushFrame(th, "t.py", "inner", "inner", 20, true)
+	PushFrame(th, nil, "t.py", "<module>", "<module>", 1, false)
+	PushFrame(th, nil, "t.py", "outer", "outer", 10, true)
+	PushFrame(th, nil, "t.py", "inner", "inner", 20, true)
 	defer func() {
 		th.PopFrame()
 		th.PopFrame()
