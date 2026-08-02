@@ -60,6 +60,11 @@ func init() {
 	objects.CategoryHook = runeCategory
 	objects.DigitHook = func(r rune) bool { _, ok := ucdDigit[r]; return ok }
 	objects.NumericHook = func(r rune) bool { _, ok := ucdNumeric[r]; return ok }
+	// Fill str.isidentifier's classification with the pinned XID_Start/XID_Continue
+	// sets, so an identifier made of the newer blocks is recognized the way CPython
+	// does.
+	objects.IDStartHook = func(r rune) bool { return inRuneRanges(ucdXidStart, r) }
+	objects.IDContinueHook = func(r rune) bool { return inRuneRanges(ucdXidContinue, r) }
 }
 
 // caseFoldLookup returns the full case fold of a code point, or nil when the

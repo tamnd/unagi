@@ -1061,6 +1061,32 @@ func strNumericPred(r rune) bool {
 	return strIsNumericRune(r)
 }
 
+// IDStartHook and IDContinueHook report the XID_Start (with the underscore) and
+// XID_Continue properties str.isidentifier classifies with. The unicodedata shim
+// fills them at init from the pinned sets; when unset str.isidentifier falls back
+// to Go's simpler identifier tables.
+var (
+	IDStartHook    func(rune) bool
+	IDContinueHook func(rune) bool
+)
+
+// strIDStartProp and strIDContinueProp report the identifier start and continue
+// classes through the pinned hooks, falling back to Go's tables when the
+// unicodedata shim is not linked.
+func strIDStartProp(r rune) bool {
+	if IDStartHook != nil {
+		return IDStartHook(r)
+	}
+	return strIDStart(r)
+}
+
+func strIDContinueProp(r rune) bool {
+	if IDContinueHook != nil {
+		return IDContinueHook(r)
+	}
+	return strIDContinue(r)
+}
+
 // strPrintableRune reports whether str.isprintable keeps the code point: anything
 // but the Other (C*) and Separator (Z*) categories, with the ASCII space the one
 // separator that still counts as printable.
@@ -1512,11 +1538,11 @@ func strPredicate(name, s string) bool {
 		first := true
 		for _, r := range s {
 			if first {
-				if !strIDStart(r) {
+				if !strIDStartProp(r) {
 					return false
 				}
 				first = false
-			} else if !strIDContinue(r) {
+			} else if !strIDContinueProp(r) {
 				return false
 			}
 		}
