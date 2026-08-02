@@ -1,6 +1,7 @@
 #!/usr/bin/env python3.14
 # Authors lowercase_tables.go: the full Unicode lowercase map plus the Cased and
-# Case_Ignorable sets that back str.lower in pkg/objects/strmethods.go.
+# Case_Ignorable sets that back str.lower, str.title and str.swapcase in
+# pkg/objects/strmethods.go.
 #
 # Everything is captured straight from the pinned python3.14's own str.lower (the
 # conformance oracle), never hand-written, so it lowercases character for
@@ -19,15 +20,18 @@
 # properties, so U+03A3 is left out of the per-character map and handled by the
 # context walk in pkg/objects/strmethods.go against the two sets below.
 #
-# The Cased and Case_Ignorable sets are recovered from CPython's own str.lower
-# without reading any UCD file, exactly the way its handle_capital_sigma consults
-# them: a character X is cased for the walk when (X + "S").lower() ends in the
-# final sigma (X, immediately before the sigma, makes it final), and is
-# case-ignorable when it is skipped, that is ("A" + X + "S").lower() still ends in
-# the final sigma while (X + "S") does not (X is transparent between the cased A
-# and the sigma). Fuzzing the reconstructed walk against str.lower over hundreds
-# of thousands of random strings shows zero differences, so the two sets are
-# exactly what CPython consults.
+# The Cased and Case_Ignorable sets are recovered from CPython's own casing
+# without reading any UCD file, and the same two sets serve str.title and
+# str.swapcase. Cased is the true property: a character X is cased when it makes a
+# following letter titlecase-lower, that is (X + "A").title() ends in the lowered
+# "a" because X set title's previous_is_cased. Case_Ignorable is recovered from
+# handle_capital_sigma, which skips it: X is case-ignorable when ("A" + X +
+# "S").lower() still ends in the final sigma while (X + "S") does not, so X is
+# transparent between the cased A and the sigma. The sigma walk only ever checks
+# casedness on the first non-ignorable character, where the true Cased property
+# and the narrower sigma-only notion agree, so one Cased set is exact for both.
+# Fuzzing the reconstructed walk against str.lower, str.title and str.capitalize
+# over hundreds of thousands of random strings shows zero differences.
 import os
 import subprocess
 
@@ -49,9 +53,9 @@ for c in range(MAX):
     lo = ch.lower()
     if lo != ch and c != SIGMA:
         lower[c] = [ord(x) for x in lo]
-    if (ch + "Σ").lower().endswith("ς"):
+    if (ch + "A").title().endswith("a"):
         cased.add(c)
-    elif ("A" + ch + "Σ").lower().endswith("ς"):
+    if ("A" + ch + "Σ").lower().endswith("ς") and not (ch + "Σ").lower().endswith("ς"):
         ignorable.add(c)
 
 

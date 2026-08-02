@@ -45,6 +45,10 @@ func init() {
 	objects.LowerFullHook = lowerFullLookup
 	objects.CasedHook = casedLookup
 	objects.CaseIgnorableHook = caseIgnorableLookup
+	// Fill str.title and str.capitalize's full titlecase map with the pinned
+	// table, so the German sharp s titlecases to Ss and the ligatures expand the
+	// way CPython does.
+	objects.TitleFullHook = titleFullLookup
 }
 
 // caseFoldLookup returns the full case fold of a code point, or nil when the
@@ -66,8 +70,15 @@ func lowerFullLookup(r rune) []rune {
 	return ucdLowerFull[r]
 }
 
+// titleFullLookup returns the full titlecase of a code point, or nil when the
+// point titlecases to itself (absent from the pinned table).
+func titleFullLookup(r rune) []rune {
+	return ucdTitleFull[r]
+}
+
 // casedLookup reports whether a code point is Cased, the property str.lower's
-// Final_Sigma walk consults for the letters bounding the sigma.
+// Final_Sigma walk consults for the letters bounding the sigma and str.title uses
+// to find the first cased character of each word.
 func casedLookup(r rune) bool {
 	return inRuneRanges(ucdCased, r)
 }
