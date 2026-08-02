@@ -7,11 +7,11 @@ package objects
 // the dispatch handles it, so hasattr and the call agree and an unknown name is
 // still the plain AttributeError CPython raises.
 
-// strMethodNames tracks strMethod. casefold, format_map and maketrans are not in
-// this tier's dispatch, so they are absent here too.
+// strMethodNames tracks strMethod. format_map and maketrans are not in this
+// tier's dispatch, so they are absent here too.
 var strMethodNames = map[string]bool{
-	"capitalize": true, "center": true, "count": true, "encode": true,
-	"endswith": true, "expandtabs": true, "find": true, "format": true,
+	"capitalize": true, "casefold": true, "center": true, "count": true,
+	"encode": true, "endswith": true, "expandtabs": true, "find": true, "format": true,
 	"index": true, "isalnum": true, "isalpha": true, "isascii": true,
 	"isdecimal": true, "isdigit": true, "isidentifier": true, "islower": true,
 	"isnumeric": true, "isprintable": true, "isspace": true, "istitle": true,

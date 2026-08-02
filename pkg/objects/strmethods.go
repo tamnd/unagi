@@ -147,6 +147,11 @@ func strMethod(x *strObject, name string, args []Object) (Object, error) {
 			return nil, err
 		}
 		return NewStr(strSwapcase(s)), nil
+	case "casefold":
+		if err := strNoArgs(name, args); err != nil {
+			return nil, err
+		}
+		return NewStr(strCasefold(s)), nil
 	case "isalnum", "isalpha", "isascii", "isdecimal", "isdigit", "isidentifier",
 		"islower", "isnumeric", "isprintable", "isspace", "istitle", "isupper":
 		if err := strNoArgs(name, args); err != nil {
@@ -941,6 +946,35 @@ func strUpperRune(r rune) bool {
 
 func strCasedRune(r rune) bool {
 	return strLowerRune(r) || strUpperRune(r) || unicode.IsTitle(r)
+}
+
+// CaseFoldHook returns the full Unicode case fold of a code point, or nil when
+// the point folds to itself. It is a hook the unicodedata shim fills at init from
+// the pinned CaseFolding.txt so this package need not carry the UCD table; when
+// unset (unicodedata not linked) strCasefold falls back to the simple lowercase.
+var CaseFoldHook func(rune) []rune
+
+// strCasefold applies str.casefold: the full case folding str.lower approximates,
+// with the code points that fold to a different or longer sequence (the German
+// sharp s to ss, the Greek and Cyrillic special folds) mapped through the pinned
+// table. A lone surrogate has no fold and is written back in its WTF-8 form.
+func strCasefold(s string) string {
+	var b strings.Builder
+	for _, r := range decodeStrRunes(s) {
+		if CaseFoldHook == nil {
+			writeStrRune(&b, unicode.ToLower(r))
+			continue
+		}
+		mapped := CaseFoldHook(r)
+		if mapped == nil {
+			writeStrRune(&b, r)
+			continue
+		}
+		for _, m := range mapped {
+			writeStrRune(&b, m)
+		}
+	}
+	return b.String()
 }
 
 // strCapitalize titlecases the first code point and lowercases the
