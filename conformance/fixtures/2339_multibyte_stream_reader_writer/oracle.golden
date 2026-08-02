@@ -1,0 +1,20 @@
+== exit: 0
+== stdout:
+euc_kr write-by-char True
+euc_kr writelines True
+euc_kr read True
+euc_kr readline True
+euc_kr readlines True
+euc_kr reader-reset None
+euc_kr writer-reset None
+iso2022_jp write-by-char True
+iso2022_jp writelines True
+iso2022_jp read True
+iso2022_jp readline True
+iso2022_jp readlines True
+iso2022_jp reader-reset None
+iso2022_jp writer-reset None
+MultibyteStreamReader AttributeError
+MultibyteStreamWriter AttributeError
+== exception:
+== stderr:

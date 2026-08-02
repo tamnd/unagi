@@ -3,6 +3,7 @@ package runtime
 import (
 	"encoding/binary"
 	"math/big"
+	"strings"
 	"sync"
 
 	"github.com/tamnd/unagi/pkg/objects"
@@ -412,15 +413,31 @@ func buildMBClasses() error {
 		if mbBuildErr != nil {
 			return
 		}
-		// The stream reader and writer carry no engine logic of their own: the
-		// codecs module's StreamReader/StreamWriter bases drive read and write
-		// through the Codec.encode/decode the subclass mixes in, so these exist
-		// only as the multibyte marker in the subclass MRO.
-		mbStreamReaderClass, mbBuildErr = objects.NewClass("MultibyteStreamReader", "_multibytecodec.MultibyteStreamReader", nil, nil, nil, nil, nil)
+		// The stream reader and writer wrap an underlying byte stream and carry the
+		// same incremental decoder/encoder state across calls: read pulls bytes and
+		// decodes holding an incomplete tail, write encodes holding a combining base
+		// or shift state. They sit before codecs.StreamReader/StreamWriter in the
+		// subclass MRO, so these methods win over the pure-Python bases.
+		mbStreamReaderClass, mbBuildErr = objects.NewClass("MultibyteStreamReader", "_multibytecodec.MultibyteStreamReader", nil,
+			[]string{"__init__", "read", "readline", "readlines", "reset"},
+			[]objects.Object{
+				objects.NewMethodKw("__init__", mbStreamInit),
+				objects.NewMethod("read", -1, mbStreamRead),
+				objects.NewMethod("readline", -1, mbStreamReadline),
+				objects.NewMethod("readlines", -1, mbStreamReadlines),
+				objects.NewMethod("reset", 1, mbStreamReaderReset),
+			}, nil, nil)
 		if mbBuildErr != nil {
 			return
 		}
-		mbStreamWriterClass, mbBuildErr = objects.NewClass("MultibyteStreamWriter", "_multibytecodec.MultibyteStreamWriter", nil, nil, nil, nil, nil)
+		mbStreamWriterClass, mbBuildErr = objects.NewClass("MultibyteStreamWriter", "_multibytecodec.MultibyteStreamWriter", nil,
+			[]string{"__init__", "write", "writelines", "reset"},
+			[]objects.Object{
+				objects.NewMethodKw("__init__", mbStreamInit),
+				objects.NewMethod("write", 2, mbStreamWrite),
+				objects.NewMethod("writelines", 2, mbStreamWritelines),
+				objects.NewMethod("reset", 1, mbStreamWriterReset),
+			}, nil, nil)
 	})
 	return mbBuildErr
 }
@@ -615,8 +632,21 @@ func mbIncEncode(pos []objects.Object, kwNames []string, kwVals []objects.Object
 	}
 	errors := mbErrorsOf(self)
 	runes := append(append([]rune(nil), mbPendingOf(self)...), objects.StrRunes(s)...)
+	out, err := mbEncodeChunk(self, c, errors, runes, final)
+	if err != nil {
+		return nil, err
+	}
+	return objects.NewBytes(out), nil
+}
+
+// mbEncodeChunk encodes runes through the codec on self, holding a trailing
+// combining base unless final is set, and stores the pending base and shift mode
+// back on self. It is the shared core of the incremental encoder and the stream
+// writer, which both keep encoder state across calls this way.
+func mbEncodeChunk(self objects.Object, c *mbCodec, errors string, runes []rune, final bool) ([]byte, error) {
 	var out []byte
 	var pending []rune
+	var err error
 	if c.encodeStateful != nil {
 		var mode int
 		out, pending, mode, err = c.encodeStateful(runes, errors, final, mbModeOf(self))
@@ -635,7 +665,7 @@ func mbIncEncode(pos []objects.Object, kwNames []string, kwVals []objects.Object
 	if err := objects.StoreAttr(self, "_pendingchar", objects.NewStr(string(pending))); err != nil {
 		return nil, err
 	}
-	return objects.NewBytes(out), nil
+	return out, nil
 }
 
 // mbIncDecode is MultibyteIncrementalDecoder.decode(self, input, final=False):
@@ -673,28 +703,42 @@ func mbIncDecode(pos []objects.Object, kwNames []string, kwVals []objects.Object
 		return nil, err
 	}
 	errors := mbErrorsOf(self)
-	data := append(append([]byte(nil), mbBufferOf(self)...), v...)
-	var out string
-	var pending []byte
-	if c.decodeStateful != nil {
-		var mode int
-		out, _, pending, mode, err = c.decodeStateful(data, errors, final, mbModeOf(self))
-		if err != nil {
-			return nil, err
-		}
-		if err := objects.StoreAttr(self, "_mbmode", objects.NewInt(int64(mode))); err != nil {
-			return nil, err
-		}
-	} else {
-		out, _, pending, err = mbDecodeRun(c, data, errors, final)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if err := objects.StoreAttr(self, "_buffer", objects.NewBytes(pending)); err != nil {
+	out, err := mbDecodeChunk(self, c, errors, v, final)
+	if err != nil {
 		return nil, err
 	}
 	return objects.NewStr(out), nil
+}
+
+// mbDecodeChunk decodes data through the codec on self after prepending any
+// buffered bytes, keeps a trailing incomplete sequence in the buffer unless final
+// is set (in which case an incomplete tail is an error), and stores the leftover
+// bytes and shift mode back on self. It is the shared core of the incremental
+// decoder and the stream reader.
+func mbDecodeChunk(self objects.Object, c *mbCodec, errors string, data []byte, final bool) (string, error) {
+	full := append(append([]byte(nil), mbBufferOf(self)...), data...)
+	var out string
+	var pending []byte
+	var err error
+	if c.decodeStateful != nil {
+		var mode int
+		out, _, pending, mode, err = c.decodeStateful(full, errors, final, mbModeOf(self))
+		if err != nil {
+			return "", err
+		}
+		if err := objects.StoreAttr(self, "_mbmode", objects.NewInt(int64(mode))); err != nil {
+			return "", err
+		}
+	} else {
+		out, _, pending, err = mbDecodeRun(c, full, errors, final)
+		if err != nil {
+			return "", err
+		}
+	}
+	if err := objects.StoreAttr(self, "_buffer", objects.NewBytes(pending)); err != nil {
+		return "", err
+	}
+	return out, nil
 }
 
 // mbIncEncReset / mbIncDecReset clear the incremental state. The encoder drops
@@ -714,6 +758,254 @@ func mbIncDecReset(args []objects.Object) (objects.Object, error) {
 		return nil, err
 	}
 	if err := objects.StoreAttr(args[0], "_mbmode", objects.NewInt(int64(mbInitMode(args[0])))); err != nil {
+		return nil, err
+	}
+	return objects.None, nil
+}
+
+// mbStreamInit is MultibyteStreamReader/Writer __init__(self, stream,
+// errors='strict'). It wraps an underlying byte stream and carries the same
+// incremental decoder/encoder state the reader and writer keep across calls. The
+// codec is read off the class the way the C new does, so instantiating the bare
+// _multibytecodec.MultibyteStreamReader/Writer with no `codec` class attribute
+// raises AttributeError (CPython bug #3305, which used to segfault).
+func mbStreamInit(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if len(pos) < 2 {
+		return nil, objects.Raise(objects.TypeError, "__init__() missing required argument 'stream'")
+	}
+	self := pos[0]
+	stream := pos[1]
+	errors := "strict"
+	if len(pos) >= 3 {
+		e, ok := objects.AsStr(pos[2])
+		if !ok {
+			return nil, objects.Raise(objects.TypeError, "errors must be str, not %s", pos[2].TypeName())
+		}
+		errors = e
+	}
+	for i, kn := range kwNames {
+		if kn == "errors" {
+			e, ok := objects.AsStr(kwVals[i])
+			if !ok {
+				return nil, objects.Raise(objects.TypeError, "errors must be str, not %s", kwVals[i].TypeName())
+			}
+			errors = e
+		}
+	}
+	// Reach the codec off the class first, so the bare class raises AttributeError.
+	c, err := mbCodecOfSelf(self)
+	if err != nil {
+		return nil, err
+	}
+	if err := objects.StoreAttr(self, "stream", stream); err != nil {
+		return nil, err
+	}
+	if err := objects.StoreAttr(self, "errors", objects.NewStr(errors)); err != nil {
+		return nil, err
+	}
+	if err := objects.StoreAttr(self, "_buffer", objects.NewBytes(nil)); err != nil {
+		return nil, err
+	}
+	if err := objects.StoreAttr(self, "_pendingchar", objects.NewStr("")); err != nil {
+		return nil, err
+	}
+	if err := objects.StoreAttr(self, "_mbmode", objects.NewInt(int64(c.initMode))); err != nil {
+		return nil, err
+	}
+	return objects.None, nil
+}
+
+// mbStreamSizehint reads the optional size/sizehint argument shared by read,
+// readline and readlines: None means -1 (read everything), an int is taken as is,
+// and anything else is a TypeError the way the C clinic reports it.
+func mbStreamSizehint(args []objects.Object) (int, error) {
+	if len(args) < 2 || args[1] == objects.None {
+		return -1, nil
+	}
+	n, ok := objects.AsInt(args[1])
+	if !ok {
+		return 0, objects.Raise(objects.TypeError, "arg 1 must be an integer")
+	}
+	return int(n), nil
+}
+
+// mbStreamIRead drives one read: it pulls bytes from the wrapped stream with the
+// named method (read or readline), prepends any buffered bytes and decodes,
+// holding a trailing incomplete sequence back until the stream reaches end of
+// file or the caller asked to read everything. With a positive size that yields
+// no character yet it reads one more byte and retries, mirroring the C iread loop.
+func mbStreamIRead(self objects.Object, method string, sizehint int) (objects.Object, error) {
+	if sizehint == 0 {
+		return objects.NewStr(""), nil
+	}
+	c, err := mbCodecOfSelf(self)
+	if err != nil {
+		return nil, err
+	}
+	errors := mbErrorsOf(self)
+	stream, err := objects.LoadAttr(self, "stream")
+	if err != nil {
+		return nil, err
+	}
+	var out strings.Builder
+	for {
+		var cres objects.Object
+		if sizehint < 0 {
+			cres, err = objects.CallMethod(stream, method, nil)
+		} else {
+			cres, err = objects.CallMethod(stream, method, []objects.Object{objects.NewInt(int64(sizehint))})
+		}
+		if err != nil {
+			return nil, err
+		}
+		data, ok := objects.AsBytesLike(cres)
+		if !ok {
+			return nil, objects.Raise(objects.TypeError, "stream function returned a non-bytes object (%s)", cres.TypeName())
+		}
+		eof := len(data) == 0
+		final := eof || sizehint < 0
+		decoded, err := mbDecodeChunk(self, c, errors, data, final)
+		if err != nil {
+			return nil, err
+		}
+		out.WriteString(decoded)
+		if sizehint < 0 || out.Len() != 0 || eof {
+			break
+		}
+		sizehint = 1
+	}
+	return objects.NewStr(out.String()), nil
+}
+
+// mbStreamRead is MultibyteStreamReader.read(self, size=None).
+func mbStreamRead(args []objects.Object) (objects.Object, error) {
+	sizehint, err := mbStreamSizehint(args)
+	if err != nil {
+		return nil, err
+	}
+	return mbStreamIRead(args[0], "read", sizehint)
+}
+
+// mbStreamReadline is MultibyteStreamReader.readline(self, size=None).
+func mbStreamReadline(args []objects.Object) (objects.Object, error) {
+	sizehint, err := mbStreamSizehint(args)
+	if err != nil {
+		return nil, err
+	}
+	return mbStreamIRead(args[0], "readline", sizehint)
+}
+
+// mbStreamReadlines is MultibyteStreamReader.readlines(self, sizehint=None): it
+// reads through the read path and splits the decoded text into lines keeping the
+// ends, the way the C readlines does.
+func mbStreamReadlines(args []objects.Object) (objects.Object, error) {
+	sizehint, err := mbStreamSizehint(args)
+	if err != nil {
+		return nil, err
+	}
+	r, err := mbStreamIRead(args[0], "read", sizehint)
+	if err != nil {
+		return nil, err
+	}
+	return objects.CallMethod(r, "splitlines", []objects.Object{objects.True})
+}
+
+// mbStreamReaderReset is MultibyteStreamReader.reset(self): it drops the decoder
+// state and any buffered bytes.
+func mbStreamReaderReset(args []objects.Object) (objects.Object, error) {
+	return mbIncDecReset(args)
+}
+
+// mbStreamIWrite encodes one str through the writer's held encoder state and
+// writes the bytes to the wrapped stream. The encoder holds a trailing combining
+// base or shift state across calls, so a character split across two write() calls
+// rejoins correctly.
+func mbStreamIWrite(self objects.Object, strobj objects.Object) error {
+	s, ok := objects.AsStr(strobj)
+	if !ok {
+		return objects.Raise(objects.TypeError, "can't encode object of type %s", strobj.TypeName())
+	}
+	c, err := mbCodecOfSelf(self)
+	if err != nil {
+		return err
+	}
+	errors := mbErrorsOf(self)
+	runes := append(append([]rune(nil), mbPendingOf(self)...), objects.StrRunes(s)...)
+	out, err := mbEncodeChunk(self, c, errors, runes, false)
+	if err != nil {
+		return err
+	}
+	stream, err := objects.LoadAttr(self, "stream")
+	if err != nil {
+		return err
+	}
+	_, err = objects.CallMethod(stream, "write", []objects.Object{objects.NewBytes(out)})
+	return err
+}
+
+// mbStreamWrite is MultibyteStreamWriter.write(self, strobj).
+func mbStreamWrite(args []objects.Object) (objects.Object, error) {
+	if err := mbStreamIWrite(args[0], args[1]); err != nil {
+		return nil, err
+	}
+	return objects.None, nil
+}
+
+// mbStreamWritelines is MultibyteStreamWriter.writelines(self, lines): it writes
+// each item of the sequence in turn.
+func mbStreamWritelines(args []objects.Object) (objects.Object, error) {
+	self := args[0]
+	lines := args[1]
+	it, err := objects.Iter(lines)
+	if err != nil {
+		return nil, objects.Raise(objects.TypeError, "arg must be a sequence object")
+	}
+	for {
+		item, ok, err := it.Next()
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			break
+		}
+		if err := mbStreamIWrite(self, item); err != nil {
+			return nil, err
+		}
+	}
+	return objects.None, nil
+}
+
+// mbStreamWriterReset is MultibyteStreamWriter.reset(self): it flushes any held
+// combining base or shift state to the stream and clears the encoder state. A
+// strict-mode failure on the held sequence drops it, since reset is meant to clear
+// the pending buffer either way.
+func mbStreamWriterReset(args []objects.Object) (objects.Object, error) {
+	self := args[0]
+	pending := mbPendingOf(self)
+	// Clear the held state first, so a strict failure below still resets it.
+	if err := objects.StoreAttr(self, "_pendingchar", objects.NewStr("")); err != nil {
+		return nil, err
+	}
+	if len(pending) == 0 {
+		return objects.None, nil
+	}
+	c, err := mbCodecOfSelf(self)
+	if err != nil {
+		return nil, err
+	}
+	errors := mbErrorsOf(self)
+	out, err := mbEncodeChunk(self, c, errors, pending, true)
+	if err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return objects.None, nil
+	}
+	stream, err := objects.LoadAttr(self, "stream")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := objects.CallMethod(stream, "write", []objects.Object{objects.NewBytes(out)}); err != nil {
 		return nil, err
 	}
 	return objects.None, nil
