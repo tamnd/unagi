@@ -804,3 +804,85 @@ func TestStrCasePredicatesProp(t *testing.T) {
 		t.Fatalf("isupper fallback ABC = false, want true")
 	}
 }
+
+// TestStrClassifyPreds covers str.isalpha / isalnum / isdecimal / isdigit /
+// isnumeric / isprintable routing through the pinned category and digit/numeric
+// value hooks. The stubs add a newer-block letter Go's tables miss (the Garay
+// capital A, category Lu), a superscript two that carries a digit and a numeric
+// value without being a decimal, and a Roman numeral that is numeric but not a
+// letter, so the predicates split the classes the way CPython does.
+func TestStrClassifyPreds(t *testing.T) {
+	CategoryHook = func(r rune) string {
+		switch r {
+		case 'A', 0x10D50: // ASCII cap and GARAY CAPITAL LETTER A
+			return "Lu"
+		case 'a':
+			return "Ll"
+		case '5':
+			return "Nd"
+		case 0x00B2: // SUPERSCRIPT TWO
+			return "No"
+		case 0x2160: // ROMAN NUMERAL ONE
+			return "Nl"
+		case ' ':
+			return "Zs"
+		case 0x007F: // DELETE
+			return "Cc"
+		case 0xDC80: // lone surrogate
+			return "Cs"
+		case '!':
+			return "Po"
+		}
+		return "Cn"
+	}
+	DigitHook = func(r rune) bool { return r == '5' || r == 0x00B2 }
+	NumericHook = func(r rune) bool { return r == '5' || r == 0x00B2 || r == 0x2160 }
+	defer func() {
+		CategoryHook = nil
+		DigitHook = nil
+		NumericHook = nil
+	}()
+
+	runStrMCases(t, []strMCase{
+		// The Garay capital is a letter to the pinned category, a decimal digit is not.
+		{"isalpha garay", "\U00010D50", "isalpha", nil, "True", ""},
+		{"isalpha digit", "5", "isalpha", nil, "False", ""},
+		{"isalpha mixed", "A\U00010D50", "isalpha", nil, "True", ""},
+		// Only the Nd decimal counts as decimal; the superscript and Roman numeral
+		// carry a digit or numeric value but are not decimals.
+		{"isdecimal five", "5", "isdecimal", nil, "True", ""},
+		{"isdecimal super", "²", "isdecimal", nil, "False", ""},
+		{"isdigit super", "²", "isdigit", nil, "True", ""},
+		{"isdigit roman", "Ⅰ", "isdigit", nil, "False", ""},
+		{"isnumeric roman", "Ⅰ", "isnumeric", nil, "True", ""},
+		{"isnumeric letter", "A", "isnumeric", nil, "False", ""},
+		// isalnum is the union: a letter, a decimal, a digit or a numeric all pass.
+		{"isalnum letter", "A", "isalnum", nil, "True", ""},
+		{"isalnum roman", "Ⅰ", "isalnum", nil, "True", ""},
+		{"isalnum punct", "!", "isalnum", nil, "False", ""},
+		// isprintable drops the Other and Separator categories but keeps the space.
+		{"isprintable space", " ", "isprintable", nil, "True", ""},
+		{"isprintable ctrl", "\x7f", "isprintable", nil, "False", ""},
+		{"isprintable punct", "A!", "isprintable", nil, "True", ""},
+	})
+
+	// A lone surrogate is category Cs, so it is not printable.
+	if strPredicate("isprintable", StrFromRune(0xDC80)) {
+		t.Fatalf("isprintable surrogate = true, want false")
+	}
+
+	// With no hook the predicates degrade to Go's unicode tables, so ASCII still
+	// classifies while the newer Garay capital is unknown to isalpha.
+	CategoryHook = nil
+	DigitHook = nil
+	NumericHook = nil
+	if !strPredicate("isalpha", "abc") {
+		t.Fatalf("isalpha fallback abc = false, want true")
+	}
+	if strPredicate("isalpha", "\U00010D50") {
+		t.Fatalf("isalpha fallback garay = true, want false")
+	}
+	if !strPredicate("isdigit", "9") {
+		t.Fatalf("isdigit fallback 9 = false, want true")
+	}
+}

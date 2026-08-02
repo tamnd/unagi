@@ -54,6 +54,12 @@ func init() {
 	// ones while leaving the titlecase and caseless ones the way CPython does.
 	objects.UppercaseHook = uppercaseLookup
 	objects.LowercaseHook = lowercaseLookup
+	// Fill str.isalpha / isalnum / isdecimal / isdigit / isnumeric / isprintable's
+	// classification with the pinned category and digit/numeric value tables, so
+	// they answer for the newer blocks the way CPython does.
+	objects.CategoryHook = runeCategory
+	objects.DigitHook = func(r rune) bool { _, ok := ucdDigit[r]; return ok }
+	objects.NumericHook = func(r rune) bool { _, ok := ucdNumeric[r]; return ok }
 }
 
 // caseFoldLookup returns the full case fold of a code point, or nil when the

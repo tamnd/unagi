@@ -1,0 +1,33 @@
+== exit: 0
+== stdout:
+alpha plain True
+alpha digit False
+alnum plain True
+alnum punct False
+empty False False False True
+garay alpha True True
+garay alnum True
+num '7' True True True True
+num '²' False True True True
+num 'Ⅶ' False False True True
+num '⑦' False True True True
+num '½' False False True True
+num '๓' True True True True
+num '〇' False False True True
+letter num False False False
+cjk num True False True
+printable 'Hello, World!' True
+printable 'abc def' True
+printable '\x1b' False
+printable '\x7f' False
+printable '\u200b' False
+printable '\xa0' False
+printable '😀' True
+printable 'line\nbreak' False
+printable '\u2028' False
+arity str.isalpha() takes no arguments (1 given)
+callable True True
+surrogate False False False
+surrogate mixed False False
+== exception:
+== stderr:
