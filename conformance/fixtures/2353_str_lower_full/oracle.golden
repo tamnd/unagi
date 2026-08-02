@@ -1,0 +1,28 @@
+== exit: 0
+== stdout:
+dotted I i̇ ['0x69', '0x307']
+cap sharp s ß
+word final οδος
+two words δίδυμος αδελφος
+leading sigma σίσυφος
+bare sigma σ
+sigma both ends σος
+skip mark ος̇
+space breaks ος ος
+apostrophe skip ος'
+'' ''
+'HeLLo World' 'hello world'
+'already lower' 'already lower'
+'123' '123'
+'😀' '😀'
+'中文' '中文'
+arity str.lower() takes no arguments (1 given)
+callable True
+surrogate '\udc80'
+surrogate mixed 'ος\udc80'
+idempotent 'İ' True
+idempotent 'ẞ' True
+idempotent 'ΟΔΟΣ' True
+idempotent 'ΣΊΣΥΦΟΣ' True
+== exception:
+== stderr:

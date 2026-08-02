@@ -39,6 +39,12 @@ func init() {
 	// Fill str.upper's full uppercase map with the pinned table, so the German
 	// sharp s and the ligatures expand the way CPython's str.upper does.
 	objects.UpperFullHook = upperFullLookup
+	// Fill str.lower's full lowercase map and the Cased/Case_Ignorable sets its
+	// Final_Sigma walk consults, so the Greek capital sigma lowercases to its
+	// final form word-finally the way CPython's str.lower does.
+	objects.LowerFullHook = lowerFullLookup
+	objects.CasedHook = casedLookup
+	objects.CaseIgnorableHook = caseIgnorableLookup
 }
 
 // caseFoldLookup returns the full case fold of a code point, or nil when the
@@ -51,6 +57,43 @@ func caseFoldLookup(r rune) []rune {
 // point uppercases to itself (absent from the pinned table).
 func upperFullLookup(r rune) []rune {
 	return ucdUpperFull[r]
+}
+
+// lowerFullLookup returns the full lowercase of a code point, or nil when the
+// point lowercases to itself (absent from the pinned table). The Greek capital
+// sigma is absent by design; its final form is chosen by the Final_Sigma walk.
+func lowerFullLookup(r rune) []rune {
+	return ucdLowerFull[r]
+}
+
+// casedLookup reports whether a code point is Cased, the property str.lower's
+// Final_Sigma walk consults for the letters bounding the sigma.
+func casedLookup(r rune) bool {
+	return inRuneRanges(ucdCased, r)
+}
+
+// caseIgnorableLookup reports whether a code point is Case_Ignorable, the
+// characters str.lower's Final_Sigma walk skips over between cased letters.
+func caseIgnorableLookup(r rune) bool {
+	return inRuneRanges(ucdCaseIgnorable, r)
+}
+
+// inRuneRanges reports whether r falls in one of the sorted, inclusive ranges by
+// binary search.
+func inRuneRanges(ranges [][2]rune, r rune) bool {
+	lo, hi := 0, len(ranges)
+	for lo < hi {
+		mid := (lo + hi) / 2
+		switch {
+		case r < ranges[mid][0]:
+			hi = mid
+		case r > ranges[mid][1]:
+			lo = mid + 1
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 func initUnicodedata(m *objects.Module) error {
