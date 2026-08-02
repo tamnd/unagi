@@ -67,3 +67,29 @@ func TestBytesDecodeErrors(t *testing.T) {
 		checkErr(t, string(c.v), err, c.want)
 	}
 }
+
+// TestBytesDecodeErrorAttributes checks that an inline decode error carries the
+// structured encoding/object/start/end/reason attributes, so a caught error can
+// be inspected the way CPython allows, not just printed.
+func TestBytesDecodeErrorAttributes(t *testing.T) {
+	_, err := bytesReadMethod([]byte("a\xe0\xa4"), "bytes", "decode", []Object{})
+	e, ok := err.(*Exception)
+	if !ok || !e.UEParsed {
+		t.Fatalf("decode error is not a parsed UnicodeDecodeError: %v", err)
+	}
+	if enc, _ := AsStr(e.UEEncoding); enc != "utf-8" {
+		t.Errorf("encoding = %q, want utf-8", enc)
+	}
+	if obj, _ := AsBytesLike(e.UEObject); string(obj) != "a\xe0\xa4" {
+		t.Errorf("object = %x, want a e0 a4", obj)
+	}
+	if s, _ := AsInt(e.UEStart); s != 1 {
+		t.Errorf("start = %d, want 1", s)
+	}
+	if en, _ := AsInt(e.UEEnd); en != 3 {
+		t.Errorf("end = %d, want 3", en)
+	}
+	if r := Str(e.UEReason); r != "unexpected end of data" {
+		t.Errorf("reason = %q, want unexpected end of data", r)
+	}
+}

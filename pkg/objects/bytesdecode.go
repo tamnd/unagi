@@ -332,12 +332,12 @@ func decodeError(handler, codec string, v []byte, start, end int, reason string)
 	return "", 0, Raise("LookupError", "unknown error handler name '%s'", handler)
 }
 
-// newUnicodeDecodeError renders the two message shapes CPython uses: a single
-// "byte 0xNN in position P" for a one-byte span, and "bytes in position P-Q"
-// for a wider one.
+// newUnicodeDecodeError builds the structured UnicodeDecodeError the inline
+// ascii/latin-1/utf-8 decoders raise, so a caught error carries the
+// encoding/object/start/end/reason attributes an error handler and ordinary
+// program code read. NewUnicodeDecodeError renders str() in the same two shapes
+// CPython uses (a single "byte 0xNN in position P" for a one-byte span and
+// "bytes in position P-Q" for a wider one), so the message is unchanged.
 func newUnicodeDecodeError(codec string, v []byte, start, end int, reason string) error {
-	if end == start+1 {
-		return Raise("UnicodeDecodeError", "'%s' codec can't decode byte 0x%02x in position %d: %s", codec, v[start], start, reason)
-	}
-	return Raise("UnicodeDecodeError", "'%s' codec can't decode bytes in position %d-%d: %s", codec, start, end-1, reason)
+	return NewUnicodeDecodeError(codec, v, start, end, reason)
 }
