@@ -275,12 +275,17 @@ func mvBytesLike(o Object) ([]byte, bool) {
 	if m, ok := o.(*memoryviewObject); ok {
 		return mvSpan(m), true
 	}
+	// An array reads as the raw bytes behind its buffer, the way it exposes the
+	// buffer protocol in CPython, so a buffer consumer accepts it directly.
+	if a, ok := o.(*arrayObject); ok {
+		return a.tobytes(), true
+	}
 	return nil, false
 }
 
 // AsBufferBytes returns the bytes behind any bytes-like object, a bytes,
-// bytearray or memoryview, for callers outside the package that consume the
-// buffer protocol such as the _hashlib constructors.
+// bytearray, memoryview or array, for callers outside the package that consume
+// the buffer protocol such as the _hashlib constructors.
 func AsBufferBytes(o Object) ([]byte, bool) { return mvBytesLike(o) }
 
 // mvDelItem rejects element deletion: a read-only view reports read-only memory,
