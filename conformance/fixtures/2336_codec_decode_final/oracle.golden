@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+two arg ('', 0)
+final false ('', 0)
+final true UnicodeDecodeError 'utf-8' codec can't decode bytes in position 0-1: unexpected end of data
+bad tail UnicodeDecodeError 'utf-8' codec can't decode byte 0xff in position 1: invalid start byte
+complete ('世界', 6)
+read 1 True
+read 2 True
+read 3 True
+read 5 True
+read 7 True
+inc first ''
+inc rest 世
+== exception:
+== stderr:
