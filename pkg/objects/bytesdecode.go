@@ -62,6 +62,65 @@ func DecodeBytes(v []byte, encoding, errors string) (Object, error) {
 	return decodeCodec(v, encoding, errors)
 }
 
+// DecodeBytesStateful decodes v the way DecodeBytes does but honors the
+// incremental `final` flag. When final is false and the sole fault is a multibyte
+// sequence cut short at the very end of the input, it holds those trailing bytes
+// back instead of reporting an error, returning the decoded prefix and the count
+// of bytes consumed so the caller can prepend the remainder to the next chunk.
+// With final true, or when the input decodes cleanly, it behaves exactly like
+// DecodeBytes and consumes the whole input. This is the (str, consumed) contract
+// the _codecs.*_decode accelerators expose to the codecs module's stream and
+// incremental readers.
+func DecodeBytesStateful(v []byte, encoding, errors string, final bool) (Object, int, error) {
+	end := len(v)
+	if !final {
+		end = statefulDecodeBoundary(v, encoding)
+	}
+	s, err := decodeCodec(v[:end], encoding, errors)
+	if err != nil {
+		return nil, 0, err
+	}
+	return s, end, nil
+}
+
+// statefulDecodeBoundary returns the number of leading bytes an incremental
+// decoder can consume from v without a final flush: it drops a trailing multibyte
+// sequence that is cut short but still a valid prefix, the bytes CPython's stream
+// and incremental decoders hold back for the next chunk. A tail that is already
+// invalid (not merely incomplete) is left in place so the strict decoder still
+// reports it. Only encodings whose accelerators run through this path and can
+// straddle a chunk boundary need handling; the rest consume everything.
+func statefulDecodeBoundary(v []byte, encoding string) int {
+	switch encoding {
+	case "utf-8":
+		return utf8IncompleteTailStart(v)
+	}
+	return len(v)
+}
+
+// utf8IncompleteTailStart returns the index at which a trailing, still-valid but
+// incomplete UTF-8 sequence begins, or len(v) when the input has no such tail
+// (the last sequence is complete, or the tail is already malformed and must
+// error). It reuses the lead and continuation validation the full decoder runs.
+func utf8IncompleteTailStart(v []byte) int {
+	n := len(v)
+	i := n - 1
+	for i >= 0 && v[i] >= 0x80 && v[i] < 0xC0 {
+		i--
+	}
+	if i < 0 || v[i] < 0x80 {
+		return n
+	}
+	size, lo, hi := utf8Lead(v[i])
+	if size == 0 {
+		return n
+	}
+	if bad, errEnd, reason := utf8Continuations(v, i, size, lo, hi); bad && errEnd == n && reason == "unexpected end of data" {
+		return i
+	}
+	return n
+}
+
 // StrDecode implements the decoding form of the str constructor,
 // str(object, encoding='utf-8', errors='strict'). A str object cannot be
 // decoded, and a non-bytes-like object is rejected the way CPython's

@@ -448,11 +448,26 @@ func codecDecoder(enc string) func([]objects.Object, []string, []objects.Object)
 				return nil, err
 			}
 		}
-		s, err := objects.DecodeBytes(v, enc, errs)
+		final := false
+		if len(pos) >= 3 {
+			final = objects.Truth(pos[2])
+		}
+		for i, kn := range kwNames {
+			switch kn {
+			case "errors":
+				var err error
+				if errs, err = codecStrArg("decode", "errors", kwVals[i]); err != nil {
+					return nil, err
+				}
+			case "final":
+				final = objects.Truth(kwVals[i])
+			}
+		}
+		s, consumed, err := objects.DecodeBytesStateful(v, enc, errs, final)
 		if err != nil {
 			return nil, err
 		}
-		return objects.NewTuple([]objects.Object{s, objects.NewInt(int64(len(v)))}), nil
+		return objects.NewTuple([]objects.Object{s, objects.NewInt(int64(consumed))}), nil
 	}
 }
 
