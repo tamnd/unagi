@@ -1,0 +1,38 @@
+== exit: 0
+== stdout:
+upper plain True
+lower plain True
+upper mixed False False
+upper with digits True True
+upper uncased only False False
+empty False False False
+digraph False False True
+digraph in word False
+garay cap True False
+garay small False True
+garay word True
+garay two caps False
+math cap True False
+ordinal False True
+istitle 'Hello World' True
+istitle 'Hello world' False
+istitle 'HELLO' False
+istitle 'Hello  World' True
+istitle "It'S" True
+istitle "It's" False
+istitle 'A' True
+istitle '1A1' True
+istitle '1a' False
+istitle ' ' False
+istitle 'ǅungla' True
+istitle 'Ǆungla' True
+sharp s True False
+ligature True
+roman upper True False
+roman lower False True
+arity str.isupper() takes no arguments (1 given)
+callable True True
+surrogate False False False
+surrogate mixed True False
+== exception:
+== stderr:

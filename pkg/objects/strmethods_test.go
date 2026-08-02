@@ -763,3 +763,44 @@ func TestStrSwapcaseFull(t *testing.T) {
 		t.Fatalf("swapcase fallback = %q, want %q", got, "Ab")
 	}
 }
+
+// TestStrCasePredicatesProp covers str.isupper / str.islower routing through the
+// pinned Uppercase and Lowercase property hooks. The stub sets add a newer
+// bicameral pair Go's older tables miss (the Garay capital and small A) and a
+// caseless-cased mathematical capital that keeps the Uppercase property while
+// mapping to itself, so the predicates agree with CPython where Go's simple
+// properties would not.
+func TestStrCasePredicatesProp(t *testing.T) {
+	// U+10D50 GARAY CAPITAL LETTER A and U+2102 DOUBLE-STRUCK CAPITAL C carry the
+	// Uppercase property; U+10D70 GARAY SMALL LETTER A carries the Lowercase one.
+	UppercaseHook = func(r rune) bool { return r == 'A' || r == 0x10D50 || r == 0x2102 }
+	LowercaseHook = func(r rune) bool { return r == 'a' || r == 0x10D70 }
+	defer func() {
+		UppercaseHook = nil
+		LowercaseHook = nil
+	}()
+
+	runStrMCases(t, []strMCase{
+		// The Garay capital and the double-struck C are uppercase to the pinned set.
+		{"isupper garay", "\U00010D50", "isupper", nil, "True", ""},
+		{"isupper mathcap", "ℂ", "isupper", nil, "True", ""},
+		{"isupper garay small", "\U00010D70", "isupper", nil, "False", ""},
+		// The Garay small letter is lowercase, its capital is not.
+		{"islower garay", "\U00010D70", "islower", nil, "True", ""},
+		{"islower garay cap", "\U00010D50", "islower", nil, "False", ""},
+		// A title of the newer pair follows the Uppercase-then-Lowercase shape.
+		{"istitle garay", "\U00010D50\U00010D70", "istitle", nil, "True", ""},
+		{"istitle garay two caps", "\U00010D50\U00010D50", "istitle", nil, "False", ""},
+	})
+
+	// With no hook the predicates degrade to Go's simple properties, so the newer
+	// Garay capital is unknown and isupper reports false while ASCII still works.
+	UppercaseHook = nil
+	LowercaseHook = nil
+	if strPredicate("isupper", "\U00010D50") {
+		t.Fatalf("isupper fallback garay = true, want false")
+	}
+	if !strPredicate("isupper", "ABC") {
+		t.Fatalf("isupper fallback ABC = false, want true")
+	}
+}
