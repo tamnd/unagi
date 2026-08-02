@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+jp trunc 'ab�'
+kr trunc 'ab�'
+jp2 ss2 'abdef'
+jp ss2 'ab\x1bNdef'
+jp3 pair 'ab�def'
+jp bad desig 'ab�def'
+yen b'\\'
+overline b'~'
+== exception:
+== stderr:

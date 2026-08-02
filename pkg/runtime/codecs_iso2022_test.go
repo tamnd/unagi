@@ -74,6 +74,38 @@ func TestISO2022JPDecodeErrors(t *testing.T) {
 	}
 }
 
+// TestISO2022ErrorHandleReplace pins the decode replace path CPython's
+// test_errorhandle exercises: an unterminated escape after a header byte is
+// incomplete over the whole remaining span (so replace folds it to one U+FFFD),
+// an SS2 (ESC N) over the ground ascii G2 passes the byte through on iso2022_jp_2
+// but is a plain ESC passthrough on iso2022_jp, and an unrecognized but
+// terminated designation is illegal over its own span only.
+func TestISO2022ErrorHandleReplace(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  *iso2022Config
+		data []byte
+		want string
+	}{
+		{"iso2022_jp", iso2022JPConfig, []byte("ab\x1b$def"), "ab�"},
+		{"iso2022_jp", iso2022JPConfig, []byte("ab\x1bNdef"), "ab\x1bNdef"},
+		{"iso2022_jp_2", iso2022JP2Config, []byte("ab\x1bNdef"), "abdef"},
+		{"iso2022_jp_3", iso2022JP3Config, []byte("ab\x1b$(O\x2e\x21\x1b(Bdef"), "ab�def"},
+	}
+	for _, tc := range cases {
+		out, _, _, _, err := iso2022DecodeRun(tc.cfg, tc.data, "replace", true, iso2022ModeASCII|iso2022ModeG2None<<8)
+		if err != nil || out != tc.want {
+			t.Fatalf("%s replace %x: out=%q err=%v want %q", tc.name, tc.data, out, err, tc.want)
+		}
+	}
+	// iso2022_kr shares the escape scan: an unterminated escape after a header byte
+	// folds to one U+FFFD under replace rather than resyncing three bytes on.
+	out, _, _, _, err := iso2022KRDecodeRun([]byte("ab\x1b$def"), "replace", true, iso2022ModeASCII)
+	if err != nil || out != "ab�" {
+		t.Fatalf("iso2022_kr replace: out=%q err=%v want %q", out, err, "ab�")
+	}
+}
+
 // TestISO2022JPControlAndPassthrough pins that a control byte passes through in the
 // two-byte mode without ending it, and an ESC not starting a designation is itself
 // a passthrough control byte.

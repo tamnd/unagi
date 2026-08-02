@@ -406,3 +406,26 @@ func TestEUCJIS2004IncrementalBase(t *testing.T) {
 		t.Fatalf("base alone: enc=%x err=%v", alone, err)
 	}
 }
+
+// TestEUCJPRomanCompat pins euc_jp's non-strict JIS-Roman folding: the yen sign
+// and the overline encode to the ascii bytes 0x5c and 0x7e, matching CPython's
+// non-strict euc_jp encoder, while 0x5c and 0x7e still decode as plain ascii.
+func TestEUCJPRomanCompat(t *testing.T) {
+	c := eucJPCodec()
+	for _, tc := range []struct {
+		cp rune
+		b  byte
+	}{
+		{'¥', 0x5c},
+		{'‾', 0x7e},
+	} {
+		enc, _, err := mbEncodeRun(c, []rune{tc.cp}, "strict", true)
+		if err != nil || len(enc) != 1 || enc[0] != tc.b {
+			t.Fatalf("encode U+%04X: enc=%x err=%v want %#02x", tc.cp, enc, err, tc.b)
+		}
+	}
+	out, _, _, err := mbDecodeRun(c, []byte{0x5c, 0x7e}, "strict", true)
+	if err != nil || out != "\\~" {
+		t.Fatalf("decode 5c7e: out=%q err=%v", out, err)
+	}
+}

@@ -91,6 +91,15 @@ const (
 	iso2022Overline = 0x203E
 )
 
+// The escape-sequence scan follows CPython's iso2022processesc: after an ISO-2022
+// header byte the decoder reads up to iso2022MaxEscSeq bytes until a final byte
+// (A-Z or @), so an unterminated run reports incomplete over the bytes in hand and
+// a terminated but unrecognized one reports illegal over its whole span.
+const iso2022MaxEscSeq = 16
+
+// iso2022IsEscEnd reports whether c is an escape-sequence final byte.
+func iso2022IsEscEnd(c byte) bool { return (c >= 'A' && c <= 'Z') || c == '@' }
+
 // iso2022Charset is one designatable charset: its G0 designation code, the escape
 // bytes (after 0x1b) that switch into it, whether it is a GL pair or a single GL
 // byte, and the encode/decode maps. For a two-byte charset the map key/value is the
@@ -618,7 +627,9 @@ func iso2022DecodeRun(cfg *iso2022Config, data []byte, errors string, final bool
 				continue
 			}
 			c1 := data[i+1]
-			// SS2 (ESC N) invokes one character from the G2 set (iso2022_jp_2 only).
+			// SS2 (ESC N) invokes one character from the G2 set (iso2022_jp_2 only). The
+			// ground G2 designation is ascii, so the invoked byte passes through as ascii
+			// and only a high byte is illegal; a designated G2 set decodes through its map.
 			if len(cfg.g2desig) > 0 && c1 == 'N' {
 				if i+2 >= len(data) {
 					if s, ci, buf, m, err, ok := buffer(i); ok {
@@ -631,8 +642,15 @@ func iso2022DecodeRun(cfg *iso2022Config, data []byte, errors string, final bool
 					i = np
 					continue
 				}
-				if cs := cfg.g2ByCode[g2]; cs != nil {
-					if cp, ok := cs.decode[uint16(data[i+2])]; ok {
+				b := data[i+2]
+				if g2 == iso2022ModeG2None {
+					if b < 0x80 {
+						out = append(out, rune(b))
+						i += 3
+						continue
+					}
+				} else if cs := cfg.g2ByCode[g2]; cs != nil {
+					if cp, ok := cs.decode[uint16(b)]; ok {
 						out = append(out, cp)
 						i += 3
 						continue
@@ -645,9 +663,25 @@ func iso2022DecodeRun(cfg *iso2022Config, data []byte, errors string, final bool
 				i = np
 				continue
 			}
-			// ESC . x designates a G2 set (iso2022_jp_2 only).
-			if len(cfg.g2desig) > 0 && c1 == '.' {
-				if i+2 >= len(data) {
+			// An ESC starting a recognized ISO-2022 header byte designates a charset.
+			// Scan to the final byte (A-Z or @) the way CPython does: an unterminated run
+			// is incomplete over the bytes in hand rather than a fixed width, and a
+			// terminated but unrecognized one is illegal over its whole span. A '.' header
+			// designates G2 (iso2022_jp_2); every other one designates G0.
+			if c1 == '(' || c1 == ')' || c1 == '$' || c1 == '.' || c1 == '&' {
+				esclen := 0
+				incomplete := false
+				for j := 1; j < iso2022MaxEscSeq; j++ {
+					if i+j >= len(data) {
+						incomplete = true
+						break
+					}
+					if iso2022IsEscEnd(data[i+j]) {
+						esclen = j + 1
+						break
+					}
+				}
+				if incomplete {
 					if s, ci, buf, m, err, ok := buffer(i); ok {
 						return s, ci, buf, m, err
 					}
@@ -658,72 +692,38 @@ func iso2022DecodeRun(cfg *iso2022Config, data []byte, errors string, final bool
 					i = np
 					continue
 				}
-				if code, ok := cfg.g2desig[string([]byte{'.', data[i+2]})]; ok {
-					g2 = code
-					i += 3
-					continue
-				}
-				np, err := fail(i, i+3, "illegal multibyte sequence")
-				if err != nil {
-					return "", 0, nil, 0, err
-				}
-				i = np
-				continue
-			}
-			if c1 != '(' && c1 != '$' {
-				// ESC is a plain control byte here; emit it and reprocess c1.
-				out = append(out, 0x1b)
-				i++
-				continue
-			}
-			if i+2 >= len(data) {
-				if s, ci, buf, m, err, ok := buffer(i); ok {
-					return s, ci, buf, m, err
-				}
-				np, err := fail(i, len(data), "incomplete multibyte sequence")
-				if err != nil {
-					return "", 0, nil, 0, err
-				}
-				i = np
-				continue
-			}
-			c2 := data[i+2]
-			// ESC $ ( x is a four-byte designation; every other recognized form is
-			// three bytes (ESC ( x or ESC $ x).
-			if c1 == '$' && c2 == '(' {
-				if i+3 >= len(data) {
-					if s, ci, buf, m, err, ok := buffer(i); ok {
-						return s, ci, buf, m, err
-					}
-					np, err := fail(i, len(data), "incomplete multibyte sequence")
+				if esclen == 0 {
+					// No final byte within the maximum length: one illegal byte.
+					np, err := fail(i, i+1, "illegal multibyte sequence")
 					if err != nil {
 						return "", 0, nil, 0, err
 					}
 					i = np
 					continue
 				}
-				if code, ok := cfg.desig[string([]byte{'$', '(', data[i+3]})]; ok {
+				tail := string(data[i+1 : i+esclen])
+				if c1 == '.' {
+					if code, ok := cfg.g2desig[tail]; ok {
+						g2 = code
+						i += esclen
+						continue
+					}
+				} else if code, ok := cfg.desig[tail]; ok {
 					g0 = code
-					i += 4
+					i += esclen
 					continue
 				}
-				np, err := fail(i, i+4, "illegal multibyte sequence")
+				np, err := fail(i, i+esclen, "illegal multibyte sequence")
 				if err != nil {
 					return "", 0, nil, 0, err
 				}
 				i = np
 				continue
 			}
-			if code, ok := cfg.desig[string([]byte{c1, c2})]; ok {
-				g0 = code
-				i += 3
-				continue
-			}
-			np, err := fail(i, i+3, "illegal multibyte sequence")
-			if err != nil {
-				return "", 0, nil, 0, err
-			}
-			i = np
+			// ESC followed by a byte that does not start an ISO-2022 header: emit ESC and
+			// reprocess the byte, the ascii-equivalent of CPython's ESC-throughout mode.
+			out = append(out, 0x1b)
+			i++
 			continue
 		}
 		if c < 0x21 {
