@@ -86,6 +86,7 @@ func TestLexTokens(t *testing.T) {
 		{"bell backspace formfeed vtab", `'\a\b\f\v'`, `str:"\a\b\f\v" NL EOF`},
 		{"octal escape one to three digits", `'\101\7\0008'`, `str:"A\a\x008" NL EOF`},
 		{"unicode bmp and astral escape", `'€\U0001f600'`, "str:\"€\U0001f600\" NL EOF"},
+		{"lone surrogate escape kept as wtf-8", `'\udeee'`, `str:"\xed\xbb\xae" NL EOF`},
 		{"unknown escape keeps backslash", `'\q\w'`, `str:"\\q\\w" NL EOF`},
 		{"raw string keeps backslashes", `r'\n\t\q'`, `str:"\\n\\t\\q" NL EOF`},
 		{"raw string escaped quote keeps both", `r'a\'b'`, `str:"a\\'b" NL EOF`},
