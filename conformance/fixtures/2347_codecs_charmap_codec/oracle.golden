@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+name charmap
+enc b'abc123' 6
+dec abc123 6
+stream enc b'abc123'
+stream dec abc123
+incr b'abc123' abc123
+iter abc123
+iter empty ''
+incr ignore b'abc123' abc123
+seek 0 True
+seek 1 True
+seek 2 True
+dec256 len 256
+roundtrip True
+encerr latin-1 0 1 ordinal not in range(256)
+state dec abc 123 (b'', 0)
+bad dec noarg TypeError
+bad dec 42 TypeError
+bad enc noarg TypeError
+== exception:
+== stderr:
