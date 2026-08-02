@@ -1202,8 +1202,11 @@ func strPredicate(name, s string) bool {
 		return strAllRunes(s, strIsNumericRune)
 	case "isprintable":
 		// Go's IsPrint is L, M, N, P, S plus the ASCII space, the same
-		// set CPython keeps. True for the empty string.
-		for _, r := range s {
+		// set CPython keeps. True for the empty string. A lone surrogate
+		// is decoded from its WTF-8 form so it is judged as U+DC80..U+DFFF
+		// (category Cs, not printable) rather than the three RuneError
+		// bytes Go's range yields, which would read as printable U+FFFD.
+		for _, r := range decodeStrRunes(s) {
 			if !unicode.IsPrint(r) {
 				return false
 			}
