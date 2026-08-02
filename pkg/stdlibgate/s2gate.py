@@ -17,9 +17,8 @@
 # ignore/replace/xmlcharrefreplace/backslashreplace handlers, and the error
 # callback path (a registered handler's returned replacement and newpos steering
 # the codec loop) are all in place, so the callback and custom-replace tests run
-# in the gate. The decoder getstate/setstate state protocol runs too. The
-# remaining exclusions are the incremental and stream codec surface and the
-# multibytecodec encoder state protocol.
+# in the gate. The encoder and decoder getstate/setstate state protocols run
+# too. The remaining exclusions are the incremental and stream codec surface.
 #
 # The other section 7 codec suites are not gated here yet and are tracked
 # separately:
@@ -51,8 +50,9 @@ from test import test_multibytecodec
 # across every encoding it covers). The error-callback path itself now runs (a
 # registered handler's returned replacement and newpos steer the codec loop,
 # including backward and forward positions, str and bytes replacements, and the
-# type/bounds validation), so the remaining exclusions are the incremental and
-# stream codec surface plus the multibytecodec state protocol:
+# type/bounds validation), and the encoder and decoder getstate/setstate state
+# protocols run, so the remaining exclusions are the incremental and stream codec
+# surface:
 #   - test_incrementalencoder, test_incrementaldecoder, test_streamreader and
 #     test_streamwriter drive the incremental/stream read and write path, which
 #     unagi does not carry end to end yet.
@@ -60,13 +60,8 @@ from test import test_multibytecodec
 #     to raise AttributeError; unagi does not.
 #   - test_errorhandle and test_chunkcoding exercise a wider slice of the
 #     incremental/stream surface on a subset of the encodings.
-# The decoder getstate/setstate state protocol now runs (getstate reports the
-# pending bytes and the codec state integer, setstate restores them and rejects a
-# non-tuple, a bad shape or an over-large pending buffer). The remaining
-# test_multibytecodec entries track the encoder state protocol (the exact
-# getstate integer layout with its pending buffer and the encoder setstate
-# validation) and the MultibyteStreamReader argument check, none of which unagi
-# carries yet.
+# test_init_segfault (MultibyteStreamReader/Writer(None) raising AttributeError)
+# is the remaining test_multibytecodec entry, tracked with the stream surface.
 KNOWN_GAP_METHODS = {
     "test_incrementalencoder",
     "test_incrementalencoder_del_segfault",
@@ -75,11 +70,7 @@ KNOWN_GAP_METHODS = {
     "test_errorhandle",
     "test_chunkcoding",
     "test_incrementaldecoder",
-    "test_getstate_returns_expected_value",
     "test_init_segfault",
-    "test_setstate_validates_input_bytes",
-    "test_setstate_validates_input_size",
-    "test_state_methods_with_buffer_state",
 }
 
 
