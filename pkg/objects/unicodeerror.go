@@ -12,8 +12,10 @@ import (
 // raise as well as ones built from the constructor. strict, ignore and replace
 // are the codec-agnostic ones; xmlcharrefreplace, backslashreplace and
 // namereplace transform the offending text (namereplace reaches the Unicode name
-// database through a hook the unicodedata shim fills). surrogatepass and
-// surrogateescape need codec cooperation and stay placeholders in this tier.
+// database through a hook the unicodedata shim fills). surrogateescape (PEP 383)
+// maps between non-ASCII bytes and low surrogates, the same rule for every codec.
+// surrogatepass needs the codec's own byte order and width and stays a
+// placeholder in this tier.
 
 // ueHandlerError reports that a handler was handed something other than a parsed
 // unicode error, with CPython's error-callback wording.
@@ -34,6 +36,13 @@ func ueParsed(args []Object) (*Exception, bool) {
 // ueResult builds the (replacement, newpos) tuple a handler returns.
 func ueResult(replacement string, newpos int) Object {
 	return NewTuple([]Object{NewStr(replacement), NewInt(int64(newpos))})
+}
+
+// ueResultBytes builds the (replacement, newpos) tuple a handler returns with a
+// bytes replacement, the encode-side counterpart of ueResult for the handlers
+// (surrogateescape) that emit raw bytes rather than characters to re-encode.
+func ueResultBytes(replacement []byte, newpos int) Object {
+	return NewTuple([]Object{NewBytes(replacement), NewInt(int64(newpos))})
 }
 
 // IgnoreErrors is the "ignore" handler: drop the bad span and resume after it.
@@ -132,6 +141,47 @@ func NameReplaceErrors(args []Object) (Object, error) {
 		b.WriteString(nameReplaceEscape(runes[i]))
 	}
 	return ueResult(b.String(), end), nil
+}
+
+// SurrogateEscapeErrors is the "surrogateescape" handler (PEP 383). On encode it
+// maps each low surrogate U+DC80..U+DCFF in the bad span back to its single byte
+// and returns the bytes; a character outside that range cannot be escaped, so it
+// re-raises the original error. On decode it maps each non-ASCII byte in the bad
+// span to a low surrogate U+DC00+byte and returns the str; an ASCII byte cannot
+// be the target of an escape, so it re-raises. It is codec-agnostic, the same
+// byte<->surrogate rule for every codec, so it reads the bad span straight off
+// the structured error and any codec loop that calls the registered handler (the
+// charmap and multibyte codecs) gets it.
+func SurrogateEscapeErrors(args []Object) (Object, error) {
+	e, ok := ueParsed(args)
+	if !ok {
+		return nil, ueHandlerError(argAt(args))
+	}
+	start, end := ueSpan(e)
+	switch {
+	case Matches(e.Kind, "UnicodeEncodeError"):
+		runes := ueObjectRunes(e)
+		out := make([]byte, 0, end-start)
+		for i := start; i < end && i < len(runes); i++ {
+			r := runes[i]
+			if r < 0xDC80 || r > 0xDCFF {
+				return nil, e
+			}
+			out = append(out, byte(r-0xDC00))
+		}
+		return ueResultBytes(out, end), nil
+	case Matches(e.Kind, "UnicodeDecodeError"):
+		data, _ := AsBytesLike(e.UEObject)
+		var b strings.Builder
+		for i := start; i < end && i < len(data); i++ {
+			if data[i] < 128 {
+				return nil, e
+			}
+			writeStrRune(&b, 0xDC00+rune(data[i]))
+		}
+		return ueResult(b.String(), end), nil
+	}
+	return nil, ueHandlerError(args[0])
 }
 
 // nameReplaceEscape renders one code point the way the namereplace handler does:

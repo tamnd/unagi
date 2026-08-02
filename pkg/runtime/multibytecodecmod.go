@@ -1389,7 +1389,7 @@ func mbDecodeRun(c *mbCodec, data []byte, errors string, final bool) (string, in
 			i += n
 		case mbTooFew:
 			if !final {
-				return string(out), i, append([]byte(nil), data[i:]...), nil
+				return objects.StrFromRunes(out), i, append([]byte(nil), data[i:]...), nil
 			}
 			rep, newpos, err := mbDecodeError(c.name, data, i, len(data), "incomplete multibyte sequence", errors)
 			if err != nil {
@@ -1406,7 +1406,7 @@ func mbDecodeRun(c *mbCodec, data []byte, errors string, final bool) (string, in
 			i = newpos
 		}
 	}
-	return string(out), i, nil, nil
+	return objects.StrFromRunes(out), i, nil, nil
 }
 
 // mbDecodeError applies the decode error handler to the span [start,end). strict

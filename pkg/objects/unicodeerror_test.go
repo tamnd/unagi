@@ -317,3 +317,69 @@ func TestNameReplaceErrors(t *testing.T) {
 	g, err = NameReplaceErrors([]Object{enc})
 	check("no hook fallback", g, err, `\u1234\U0001f600`, 3)
 }
+
+// TestSurrogateEscapeErrors checks the PEP 383 handler both directions: on encode
+// a low surrogate U+DC80..U+DCFF becomes its single byte (returned as bytes) and
+// any other character re-raises, and on decode a non-ASCII byte becomes the low
+// surrogate U+DC00+byte (returned as a str) while an ASCII byte re-raises.
+func TestSurrogateEscapeErrors(t *testing.T) {
+	// Encode: two low surrogates map back to their bytes. The object string is
+	// built through StrFromRunes since a Go literal cannot carry a lone surrogate.
+	encObj := StrFromRunes([]rune{'a', 0xDC80, 0xDCFF, 'b'})
+	enc := NewUnicodeEncodeError("ascii", encObj, 1, 3, "ordinal not in range(128)")
+	g, err := SurrogateEscapeErrors([]Object{enc})
+	if err != nil {
+		t.Fatalf("encode err %v", err)
+	}
+	tup := g.(*tupleObject)
+	if b, _ := AsBytesLike(tup.elts[0]); string(b) != "\x80\xff" {
+		t.Errorf("encode replacement = %x, want 80ff", b)
+	}
+	if p, _ := AsInt(tup.elts[1]); p != 3 {
+		t.Errorf("encode newpos = %d, want 3", p)
+	}
+
+	// Encode: a character outside the escape range re-raises the original error.
+	bad := NewUnicodeEncodeError("ascii", "a\u4e2db", 1, 2, "ordinal not in range(128)")
+	if _, err := SurrogateEscapeErrors([]Object{bad}); err == nil {
+		t.Error("encode of non-escape character: want error, got nil")
+	}
+
+	// Decode: two non-ASCII bytes map to their low surrogates.
+	dec := NewUnicodeDecodeError("ascii", []byte("a\x80\xffb"), 1, 3, "ordinal not in range(128)")
+	g, err = SurrogateEscapeErrors([]Object{dec})
+	if err != nil {
+		t.Fatalf("decode err %v", err)
+	}
+	tup = g.(*tupleObject)
+	if s, _ := AsStr(tup.elts[0]); !runesEqual(StrRunes(s), []rune{0xDC80, 0xDCFF}) {
+		t.Errorf("decode replacement runes = %v, want [dc80 dcff]", StrRunes(s))
+	}
+	if p, _ := AsInt(tup.elts[1]); p != 3 {
+		t.Errorf("decode newpos = %d, want 3", p)
+	}
+
+	// Decode: an ASCII byte cannot be escaped and re-raises.
+	asc := NewUnicodeDecodeError("ascii", []byte("a\x7fb"), 1, 2, "ordinal not in range(128)")
+	if _, err := SurrogateEscapeErrors([]Object{asc}); err == nil {
+		t.Error("decode of ASCII byte: want error, got nil")
+	}
+
+	// A non-unicode-error argument is a TypeError.
+	if _, err := SurrogateEscapeErrors([]Object{NewInt(1)}); err == nil {
+		t.Error("surrogateescape on non-unicode-error: want TypeError, got nil")
+	}
+}
+
+// runesEqual reports whether two rune slices are elementwise equal.
+func runesEqual(a, b []rune) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
