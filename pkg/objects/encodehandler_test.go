@@ -78,6 +78,51 @@ func TestEncodeStrErrorAttributes(t *testing.T) {
 	check(StrFromRunes([]rune{'a', 0xD800, 'X', 0xD801, 'b'}), "utf-8", 1, 2, "surrogates not allowed")
 }
 
+// TestGuardTextCodec checks the text-encoding guard str.encode/bytes.decode and
+// the str/bytes constructors apply: the inline utf-8/ascii/latin-1 codecs skip
+// the registry round trip and always pass, while any other name defers to the
+// CodecTextCheckHook, which the runtime fills from the CodecInfo flag.
+func TestGuardTextCodec(t *testing.T) {
+	// With no hook installed, every codec passes (the pre-registry behavior).
+	CodecTextCheckHook = nil
+	for _, enc := range []string{"utf-8", "ascii", "latin-1", "base64_codec"} {
+		if err := guardTextCodec(enc, "encode"); err != nil {
+			t.Fatalf("no hook %s: %v", enc, err)
+		}
+	}
+
+	// A hook that rejects everything it is consulted for must never see the
+	// inline codecs (they short-circuit) but must see the rest.
+	var seen []string
+	CodecTextCheckHook = func(enc, direction string) error {
+		seen = append(seen, enc+"/"+direction)
+		return Raise("LookupError", "'%s' is not a text encoding; use codecs.%s() to handle arbitrary codecs", enc, direction)
+	}
+	defer func() { CodecTextCheckHook = nil }()
+
+	for _, enc := range []string{"utf-8", "UTF_8", "ascii", "latin-1", "iso-8859-1"} {
+		if err := guardTextCodec(enc, "encode"); err != nil {
+			t.Errorf("inline %s consulted the hook: %v", enc, err)
+		}
+	}
+	if len(seen) != 0 {
+		t.Errorf("inline codecs reached the hook: %v", seen)
+	}
+
+	err := guardTextCodec("base64_codec", "encode")
+	if !isExc(err, "LookupError") {
+		t.Fatalf("base64_codec: want LookupError, got %v", err)
+	}
+	if got := Str(err.(*Exception).Args[0]); got != "'base64_codec' is not a text encoding; use codecs.encode() to handle arbitrary codecs" {
+		t.Errorf("encode message = %q", got)
+	}
+	if err := guardTextCodec("rot_13", "decode"); !isExc(err, "LookupError") {
+		t.Fatalf("rot_13 decode: want LookupError, got %v", err)
+	} else if got := Str(err.(*Exception).Args[0]); got != "'rot_13' is not a text encoding; use codecs.decode() to handle arbitrary codecs" {
+		t.Errorf("decode message = %q", got)
+	}
+}
+
 // isExc reports whether err is an Exception of the named class.
 func isExc(err error, name string) bool {
 	e, ok := err.(*Exception)
