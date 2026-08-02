@@ -985,14 +985,33 @@ var (
 // strCapitalize fall back to Go's simple 1:1 titlecase.
 var TitleFullHook func(rune) []rune
 
-// UppercaseHook and LowercaseHook report the Uppercase and Lowercase properties
-// str.swapcase branches on: an uppercase character is lowercased and a lowercase
-// one uppercased. The unicodedata shim fills them at init from the pinned sets;
-// when unset swapcase falls back to Go's simple properties.
+// UppercaseHook and LowercaseHook report the Uppercase and Lowercase properties.
+// str.swapcase branches on them (an uppercase character is lowercased and a
+// lowercase one uppercased) and str.isupper / str.islower classify with them.
+// The unicodedata shim fills them at init from the pinned sets; when unset those
+// methods fall back to Go's simple properties.
 var (
 	UppercaseHook func(rune) bool
 	LowercaseHook func(rune) bool
 )
+
+// strUpperProp and strLowerProp report the Uppercase and Lowercase properties
+// through the pinned hooks, falling back to Go's simpler properties when the
+// unicodedata shim is not linked so pure-objects tests still classify ASCII and
+// the common blocks correctly.
+func strUpperProp(r rune) bool {
+	if UppercaseHook != nil {
+		return UppercaseHook(r)
+	}
+	return strUpperRune(r)
+}
+
+func strLowerProp(r rune) bool {
+	if LowercaseHook != nil {
+		return LowercaseHook(r)
+	}
+	return strLowerRune(r)
+}
 
 // strLower applies str.lower: the full lowercase, with the code points that
 // lowercase to a different or longer sequence (the Turkish dotted capital I to i
@@ -1441,10 +1460,10 @@ func strPredicate(name, s string) bool {
 	case "islower":
 		cased := false
 		for _, r := range s {
-			if strUpperRune(r) || unicode.IsTitle(r) {
+			if strUpperProp(r) || unicode.IsTitle(r) {
 				return false
 			}
-			if strLowerRune(r) {
+			if strLowerProp(r) {
 				cased = true
 			}
 		}
@@ -1469,12 +1488,12 @@ func strPredicate(name, s string) bool {
 		cased, prevCased := false, false
 		for _, r := range s {
 			switch {
-			case strUpperRune(r) || unicode.IsTitle(r):
+			case strUpperProp(r) || unicode.IsTitle(r):
 				if prevCased {
 					return false
 				}
 				prevCased, cased = true, true
-			case strLowerRune(r):
+			case strLowerProp(r):
 				if !prevCased {
 					return false
 				}
@@ -1487,10 +1506,10 @@ func strPredicate(name, s string) bool {
 	case "isupper":
 		cased := false
 		for _, r := range s {
-			if strLowerRune(r) || unicode.IsTitle(r) {
+			if strLowerProp(r) || unicode.IsTitle(r) {
 				return false
 			}
-			if strUpperRune(r) {
+			if strUpperProp(r) {
 				cased = true
 			}
 		}
