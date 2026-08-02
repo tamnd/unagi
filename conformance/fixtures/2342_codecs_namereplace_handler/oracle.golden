@@ -1,0 +1,22 @@
+== exit: 0
+== stdout:
+'aሴb' ascii -> b'a\\N{ETHIOPIC SYLLABLE SEE}b'
+'café' ascii -> b'caf\\N{LATIN SMALL LETTER E WITH ACUTE}'
+'a中b' ascii -> b'a\\N{CJK UNIFIED IDEOGRAPH-4E2D}b'
+'a😀b' ascii -> b'a\\N{GRINNING FACE}b'
+'aሴ😀b' ascii -> b'a\\N{ETHIOPIC SYLLABLE SEE}\\N{GRINNING FACE}b'
+'ÿĀā' latin-1 -> b'\xff\\N{LATIN CAPITAL LETTER A WITH MACRON}\\N{LATIN SMALL LETTER A WITH MACRON}'
+'straße' ascii -> b'stra\\N{LATIN SMALL LETTER SHARP S}e'
+U+0080 control -> b'a\\x80b'
+all ascii -> b'ab'
+U+FDD0 noncharacter -> b'a\\ufdd0b'
+lone surrogate -> b'[\\udc80]'
+mix -> b'\\N{ETHIOPIC SYLLABLE SEE}\\x80\\N{GRINNING FACE}'
+codecs.encode -> b'a\\N{ETHIOPIC SYLLABLE SEE}b'
+lookup_error ok: True
+direct call -> ('\\N{ETHIOPIC SYLLABLE SEE}\\N{GRINNING FACE}', 3)
+single span -> ('\\N{ETHIOPIC SYLLABLE SEE}', 2)
+decode TypeError: don't know how to handle UnicodeDecodeError in error callback
+non-error TypeError: don't know how to handle ValueError in error callback
+== exception:
+== stderr:

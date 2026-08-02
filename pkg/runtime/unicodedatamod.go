@@ -30,6 +30,9 @@ import (
 
 func init() {
 	moduleTable["unicodedata"] = &moduleEntry{builtin: true, exec: initUnicodedata}
+	// Fill the namereplace error handler's name lookup with the pinned name
+	// database, the way CPython's namereplace reaches unicodedata's getname.
+	objects.NameReplaceNameLookup = charName
 }
 
 func initUnicodedata(m *objects.Module) error {
