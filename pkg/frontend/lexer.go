@@ -817,10 +817,10 @@ func (lx *lexer) lexEscape(strPos Pos, sb *strings.Builder, warned *bool) {
 		lx.adv()
 	case 'u':
 		lx.adv()
-		sb.WriteRune(lx.unicodeEscape(escPos, 4, `\u`))
+		writeEscapedRune(sb, lx.unicodeEscape(escPos, 4, `\u`))
 	case 'U':
 		lx.adv()
-		sb.WriteRune(lx.unicodeEscape(escPos, 8, `\U`))
+		writeEscapedRune(sb, lx.unicodeEscape(escPos, 8, `\U`))
 	case '\n', '\r':
 		// A backslash before the newline joins the physical lines.
 		lx.consumeNewline()
@@ -854,6 +854,19 @@ func (lx *lexer) unicodeEscape(escPos Pos, width int, kind string) rune {
 		lx.err(escPos, "invalid %s escape", kind)
 	}
 	return rune(v)
+}
+
+// writeEscapedRune writes r into the string buffer, encoding a lone surrogate as
+// its three-byte WTF-8 form rather than letting Go's WriteRune fold it to U+FFFD,
+// so a \u or \U surrogate escape survives in the string the way CPython keeps it.
+func writeEscapedRune(sb *strings.Builder, r rune) {
+	if r >= 0xD800 && r <= 0xDFFF {
+		sb.WriteByte(byte(0xE0 | (r >> 12)))
+		sb.WriteByte(byte(0x80 | ((r >> 6) & 0x3F)))
+		sb.WriteByte(byte(0x80 | (r & 0x3F)))
+		return
+	}
+	sb.WriteRune(r)
 }
 
 func hexVal(c byte) int {

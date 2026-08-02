@@ -125,6 +125,11 @@ func gb18030EncodeStep(cp rune) ([]byte, int) {
 	if v, ok := gb18030DoubleEncode[cp]; ok {
 		return []byte{byte(v >> 8), byte(v)}, mbOK
 	}
+	// A lone surrogate falls inside the BMP linear span the range table covers,
+	// but gb18030 cannot encode one, so it is rejected before the four-byte path.
+	if cp >= 0xD800 && cp <= 0xDFFF {
+		return nil, mbIllegal
+	}
 	lin, ok := gb18030FourEncode(cp)
 	if !ok {
 		return nil, mbIllegal
@@ -236,11 +241,22 @@ func hzEncodeRun(runes []rune, errors string, final bool, mode int) ([]byte, []r
 			closeGB()
 			out = append(out, '?')
 		default:
-			rep, err := mbEncodeHandler("hz", runes, i, errors)
+			repObj, newpos, err := mbEncodeCallback("hz", runes, i, errors)
+			if err != nil {
+				return nil, nil, 0, err
+			}
+			rep, nm, err := mbEncodeStatefulReplacement(repObj, mode,
+				func(rs []rune, m int) ([]byte, int, error) {
+					b, _, nm, e := hzEncodeRun(rs, "strict", false, m)
+					return b, nm, e
+				})
 			if err != nil {
 				return nil, nil, 0, err
 			}
 			out = append(out, rep...)
+			mode = nm
+			i = newpos - 1
+			continue
 		}
 	}
 	if final {

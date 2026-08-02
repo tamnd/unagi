@@ -504,11 +504,25 @@ func iso2022EncodeRun(cfg *iso2022Config, runes []rune, errors string, final boo
 			toASCII()
 			out = append(out, '?')
 		default:
-			rep, err := mbEncodeHandler(cfg.name, runes, i, errors)
+			repObj, newpos, err := mbEncodeCallback(cfg.name, runes, i, errors)
+			if err != nil {
+				return nil, nil, 0, err
+			}
+			rep, nm, err := mbEncodeStatefulReplacement(repObj, pack(),
+				func(rs []rune, m int) ([]byte, int, error) {
+					b, _, nm, e := iso2022EncodeRun(cfg, rs, "strict", false, m)
+					return b, nm, e
+				})
 			if err != nil {
 				return nil, nil, 0, err
 			}
 			out = append(out, rep...)
+			g0 = byte(nm & 0xFF)
+			g2 = byte((nm >> 8) & 0xFF)
+			// A custom handler returns the position to resume at; the loop's i++
+			// then steps past it, so seed one before.
+			i = newpos - 1
+			continue
 		}
 	}
 	if final {

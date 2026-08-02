@@ -99,11 +99,23 @@ func iso2022KREncodeRun(runes []rune, errors string, final bool, mode int) ([]by
 			toASCII()
 			out = append(out, '?')
 		default:
-			rep, err := mbEncodeHandler("iso2022_kr", runes, i, errors)
+			repObj, newpos, err := mbEncodeCallback("iso2022_kr", runes, i, errors)
+			if err != nil {
+				return nil, nil, 0, err
+			}
+			rep, nm, err := mbEncodeStatefulReplacement(repObj, pack(),
+				func(rs []rune, m int) ([]byte, int, error) {
+					b, _, nm, e := iso2022KREncodeRun(rs, "strict", false, m)
+					return b, nm, e
+				})
 			if err != nil {
 				return nil, nil, 0, err
 			}
 			out = append(out, rep...)
+			g1 = byte(nm & 0xFF)
+			shifted = (nm>>8)&0x1 == 1
+			i = newpos - 1
+			continue
 		}
 	}
 	if final {

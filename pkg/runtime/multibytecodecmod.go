@@ -943,11 +943,15 @@ func mbEncodeRun(c *mbCodec, runes []rune, errors string, final bool) ([]byte, [
 			rb, _ := c.encodeStep('?')
 			out = append(out, rb...)
 		default:
-			rep, err := mbEncodeHandler(c.name, runes, i, errors)
+			rep, newpos, err := mbEncodeHandler(c, runes, i, errors)
 			if err != nil {
 				return nil, nil, err
 			}
 			out = append(out, rep...)
+			// A custom handler returns the position to resume at, which CPython
+			// honors even when it moves backward or skips ahead over input.
+			i = newpos
+			continue
 		}
 		i++
 	}
@@ -1053,25 +1057,127 @@ func mbDecodeHandler(codec string, data []byte, start, end int, reason, errors s
 }
 
 // mbEncodeHandler routes an encode error to a registered handler, the encode-side
-// counterpart of mbDecodeHandler. It returns the bytes to emit for the span.
-func mbEncodeHandler(codec string, runes []rune, pos int, errors string) ([]byte, error) {
+// counterpart of mbDecodeHandler. It returns the bytes to emit for the span and
+// the input position to resume at. A str replacement is re-encoded through the
+// codec (CPython does the same), a bytes replacement is emitted verbatim, and any
+// other object is a TypeError; the returned newpos is resolved and bounds-checked
+// against the input length so a handler can move the cursor backward or ahead.
+func mbEncodeHandler(c *mbCodec, runes []rune, pos int, errors string) ([]byte, int, error) {
+	repObj, newpos, err := mbEncodeCallback(c.name, runes, pos, errors)
+	if err != nil {
+		return nil, 0, err
+	}
+	rep, err := mbEncodeReplacement(c, repObj)
+	if err != nil {
+		return nil, 0, err
+	}
+	return rep, newpos, nil
+}
+
+// mbEncodeCallback calls the registered encode error handler for the code point
+// at runes[pos] and returns the raw replacement object and the resolved resume
+// position. Both the per-unit codecs and the shift-state codecs share it; each
+// then encodes the replacement in its own way. A missing position element or a
+// non-int one is a TypeError, and an out-of-range one an IndexError.
+func mbEncodeCallback(name string, runes []rune, pos int, errors string) (objects.Object, int, error) {
 	handler, err := codecLookupError([]objects.Object{objects.NewStr(errors)})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	exc, err := mbAsException(mbUnicodeEncodeError(codec, runes, pos, "illegal multibyte sequence"))
+	exc, err := mbAsException(mbUnicodeEncodeError(name, runes, pos, "illegal multibyte sequence"))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	res, err := objects.Call(handler, []objects.Object{exc})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	rep, _, err := mbHandlerResult(res, len(runes))
+	repObj, err := objects.GetItem(res, objects.NewInt(0))
 	if err != nil {
-		return nil, err
+		return nil, 0, mbEncodeHandlerTypeErr()
 	}
-	return []byte(rep), nil
+	newpos, err := mbHandlerNewpos(res, len(runes), mbEncodeHandlerTypeErr)
+	if err != nil {
+		return nil, 0, err
+	}
+	return repObj, newpos, nil
+}
+
+// mbEncodeReplacement turns an encode handler's replacement object into the bytes
+// to emit: a str is encoded through the codec with strict handling, a bytes-like
+// is emitted as is, and anything else is a TypeError.
+func mbEncodeReplacement(c *mbCodec, repObj objects.Object) ([]byte, error) {
+	if s, ok := objects.AsStr(repObj); ok {
+		var out []byte
+		for _, r := range objects.StrRunes(s) {
+			b, status := c.encodeStep(r)
+			if status != mbOK {
+				return nil, mbUnicodeEncodeError(c.name, []rune(s), 0, "illegal multibyte sequence")
+			}
+			out = append(out, b...)
+		}
+		return out, nil
+	}
+	if b, ok := objects.AsBytesLike(repObj); ok {
+		return append([]byte(nil), b...), nil
+	}
+	return nil, mbEncodeHandlerTypeErr()
+}
+
+// mbEncodeHandlerTypeErr is the TypeError CPython raises when an encode handler
+// returns something other than a (str|bytes, int) tuple.
+func mbEncodeHandlerTypeErr() error {
+	return objects.Raise(objects.TypeError, "encoding error handler must return (str, int) tuple")
+}
+
+// mbDecodeHandlerTypeErr is the same for the decode direction, with CPython's
+// "decoding" wording.
+func mbDecodeHandlerTypeErr() error {
+	return objects.Raise(objects.TypeError, "decoding error handler must return (str, int) tuple")
+}
+
+// mbEncodeStatefulReplacement encodes an encode handler's replacement object for
+// a shift-state codec: a bytes replacement is emitted verbatim, and a str is
+// re-encoded through the codec's own run in the current mode, so the shift state
+// carries across the replacement the way CPython's does. It returns the bytes and
+// the mode to continue from.
+func mbEncodeStatefulReplacement(repObj objects.Object, mode int,
+	reencode func(runes []rune, mode int) ([]byte, int, error)) ([]byte, int, error) {
+	if s, ok := objects.AsStr(repObj); ok {
+		return reencode(objects.StrRunes(s), mode)
+	}
+	if b, ok := objects.AsBytesLike(repObj); ok {
+		return append([]byte(nil), b...), mode, nil
+	}
+	return nil, 0, mbEncodeHandlerTypeErr()
+}
+
+// mbHandlerNewpos reads and resolves the position element of a handler's return
+// tuple, resolving a negative value from length and bounds-checking it. A missing
+// or non-int position is a TypeError; an out-of-range one is an IndexError.
+func mbHandlerNewpos(res objects.Object, length int, typeErr func() error) (int, error) {
+	posObj, err := objects.GetItem(res, objects.NewInt(1))
+	if err != nil {
+		return 0, typeErr()
+	}
+	newpos, ok := objects.AsInt(posObj)
+	if !ok {
+		// An int too big for the machine word is a valid int, just out of range,
+		// so it is an IndexError like any other out-of-bounds position rather than
+		// a type error. A non-int position is the type error.
+		if posObj.TypeName() == "int" {
+			return 0, objects.Raise(objects.IndexError, "position too large for error handler")
+		}
+		return 0, typeErr()
+	}
+	pos := int(newpos)
+	if pos < 0 {
+		pos += length
+	}
+	if pos < 0 || pos > length {
+		return 0, objects.Raise(objects.IndexError, "position %d from error handler out of bounds", newpos)
+	}
+	return pos, nil
 }
 
 // mbAsException adapts the error a Raise helper returns into the exception Object
@@ -1088,26 +1194,15 @@ func mbAsException(raised error) (objects.Object, error) {
 func mbHandlerResult(res objects.Object, length int) (string, int, error) {
 	repObj, err := objects.GetItem(res, objects.NewInt(0))
 	if err != nil {
-		return "", 0, objects.Raise(objects.TypeError, "error handler must return a (str, int) tuple")
+		return "", 0, mbDecodeHandlerTypeErr()
 	}
 	rep, ok := objects.AsStr(repObj)
 	if !ok {
-		return "", 0, objects.Raise(objects.TypeError, "error handler must return a (str, int) tuple")
+		return "", 0, mbDecodeHandlerTypeErr()
 	}
-	posObj, err := objects.GetItem(res, objects.NewInt(1))
+	pos, err := mbHandlerNewpos(res, length, mbDecodeHandlerTypeErr)
 	if err != nil {
-		return "", 0, objects.Raise(objects.TypeError, "error handler must return a (str, int) tuple")
-	}
-	newpos, ok := objects.AsInt(posObj)
-	if !ok {
-		return "", 0, objects.Raise(objects.TypeError, "error handler must return a (str, int) tuple")
-	}
-	pos := int(newpos)
-	if pos < 0 {
-		pos += length
-	}
-	if pos < 0 || pos > length {
-		return "", 0, objects.Raise(objects.IndexError, "position %d from error handler out of bounds", newpos)
+		return "", 0, err
 	}
 	return rep, pos, nil
 }

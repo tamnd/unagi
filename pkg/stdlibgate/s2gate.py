@@ -10,15 +10,15 @@
 # data next to the binary and runs from there, since the suites locate it
 # through os.path.dirname(__file__).
 #
-# A set of individual tests exercise codec-error machinery unagi does not carry
-# yet; they are excluded by method name below and tracked as follow-ups, so the
-# gate reflects "the codec tables and everything else must keep working" rather
-# than "every upstream test passes". The remaining excluded codecencodings tests
-# drive the error-callback path: a handler returning a custom replacement and
-# newpos, and the incremental/stream codec state around it, which the runtime
-# does not carry yet. The structured codec-error object and the standard
-# ignore/replace/xmlcharrefreplace/backslashreplace handlers are in place, so
-# test_xmlcharrefreplace and the multibyte issue5640 case now run in the gate.
+# A set of individual tests exercise codec machinery unagi does not carry yet;
+# they are excluded by method name below and tracked as follow-ups, so the gate
+# reflects "the codec tables and everything else must keep working" rather than
+# "every upstream test passes". The structured codec-error object, the standard
+# ignore/replace/xmlcharrefreplace/backslashreplace handlers, and the error
+# callback path (a registered handler's returned replacement and newpos steering
+# the codec loop) are all in place, so the callback and custom-replace tests run
+# in the gate. The remaining exclusions are the incremental and stream codec
+# surface and the multibytecodec getstate/setstate state protocol.
 #
 # The other section 7 codec suites are not gated here yet and are tracked
 # separately:
@@ -47,41 +47,29 @@ from test import test_multibytecodec
 
 # Known gaps, excluded by method name so the concrete per-encoding TestCase
 # class does not matter (each codecencodings module defines the same method set
-# across every encoding it covers). The codecencodings entries all trace to the
-# error-callback path: a registered handler returning a (replacement, newpos)
-# pair the codec loop must honor, including the returned position:
-#   - test_callback_* and test_customreplace_encode register a handler and check
-#     that its returned replacement and newpos steer the codec loop, which the
-#     runtime does not honor yet.
-#   - test_incrementalencoder, test_incrementalencoder_error_callback,
-#     test_streamreader and test_streamwriter drive the incremental/stream
-#     error path through the same callback.
-#   - test_incrementalencoder_del_segfault expects reading .errors on a
-#     half-initialized encoder to raise AttributeError; unagi does not.
-#   - test_errorhandle, test_chunkcoding and test_incrementaldecoder hit the
-#     same callback gaps on a subset of the encodings.
+# across every encoding it covers). The error-callback path itself now runs (a
+# registered handler's returned replacement and newpos steer the codec loop,
+# including backward and forward positions, str and bytes replacements, and the
+# type/bounds validation), so the remaining exclusions are the incremental and
+# stream codec surface plus the multibytecodec state protocol:
+#   - test_incrementalencoder, test_incrementaldecoder, test_streamreader and
+#     test_streamwriter drive the incremental/stream read and write path, which
+#     unagi does not carry end to end yet.
+#   - test_incrementalencoder_del_segfault expects deleting .errors on an encoder
+#     to raise AttributeError; unagi does not.
+#   - test_errorhandle and test_chunkcoding exercise a wider slice of the
+#     incremental/stream surface on a subset of the encodings.
 # The test_multibytecodec entries track the getstate/setstate codec state
-# protocol and its validation, the custom error-callback handlers, and the
-# MultibyteStreamReader argument check, none of which unagi carries yet.
+# protocol and its validation and the MultibyteStreamReader argument check, none
+# of which unagi carries yet.
 KNOWN_GAP_METHODS = {
-    "test_callback_None_index",
-    "test_callback_backward_index",
-    "test_callback_forward_index",
-    "test_callback_index_outofbound",
-    "test_callback_long_index",
-    "test_callback_returns_bytes",
-    "test_callback_wrong_objects",
-    "test_customreplace_encode",
     "test_incrementalencoder",
     "test_incrementalencoder_del_segfault",
-    "test_incrementalencoder_error_callback",
     "test_streamreader",
     "test_streamwriter",
     "test_errorhandle",
     "test_chunkcoding",
     "test_incrementaldecoder",
-    "test_errorcallback_custom_ignore",
-    "test_errorcallback_longindex",
     "test_getstate_returns_expected_value",
     "test_init_segfault",
     "test_setstate_validates_input",

@@ -1,0 +1,28 @@
+== exit: 0
+== stdout:
+euc_jp hex b'x<1234>y<1f600>z'
+euc_jp bytes b'x\x00\xffy\x00\xffz'
+euc_jp skip b'x'
+euc_jp wrap b'x!y!z'
+iso2022_jp hex b'x<1234>y<1f600>z'
+iso2022_jp bytes b'x\x00\xffy\x00\xffz'
+iso2022_jp skip b'x'
+iso2022_jp wrap b'x!y!z'
+iso2022_kr hex b'x<1234>y<1f600>z'
+iso2022_kr bytes b'x\x00\xffy\x00\xffz'
+iso2022_kr skip b'x'
+iso2022_kr wrap b'x!y!z'
+hz hex b'x<1234>y<1f600>z'
+hz bytes b'x\x00\xffy\x00\xffz'
+hz skip b'x'
+hz wrap b'x!y!z'
+gb18030 hex b'x\x813\xbc4y\x949\xfc6z'
+gb18030 bytes b'x\x813\xbc4y\x949\xfc6z'
+gb18030 skip b'x\x813\xbc4y\x949\xfc6z'
+gb18030 wrap b'x\x813\xbc4y\x949\xfc6z'
+iso2022_jp kana b'a\x1b$B!&\x1b(Bb'
+euc_jp t.oor IndexError position 999 from error handler out of bounds
+euc_jp t.badpos TypeError encoding error handler must return (str, int) tuple
+euc_jp t.badrep TypeError encoding error handler must return (str, int) tuple
+== exception:
+== stderr:
