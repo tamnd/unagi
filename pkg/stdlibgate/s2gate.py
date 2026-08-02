@@ -1,8 +1,9 @@
 # S2 stdlib gate: runs CPython's own CJK codec suites (test_codecencodings_cn,
-# _hk, _jp, _kr, _tw, _iso2022) and test_multibytecodec through unittest and
-# exits non-zero if any selected test fails. It locks in the multibyte codec
-# conversion tables and the incremental/stream codec surface S2 lights up and
-# guards them against regression as the runtime and the vendored stdlib move.
+# _hk, _jp, _kr, _tw, _iso2022), test_multibytecodec and test_unicodedata
+# through unittest and exits non-zero if any selected test fails. It locks in
+# the multibyte codec conversion tables and the incremental/stream codec surface
+# S2 lights up plus the pinned unicodedata property surface, and guards them
+# against regression as the runtime and the vendored stdlib move.
 #
 # The vendored modules are the verbatim CPython test files, plus the
 # cjkencodings/*.txt reference strings the suites read at runtime (see
@@ -28,9 +29,6 @@
 #     readbuffer_encode are absent, the charmap encoding is not registered, the
 #     text/binary transform codecs raise, and the namereplace/surrogateescape
 #     error handlers are missing).
-#   - test_unicodedata needs the full UCD property tables (category, numeric,
-#     decimal, bidirectional, east_asian_width, the name and decomposition
-#     data, and the function/method checksums) which are only partly present.
 #   - test_locale reads os.uname() in its darwin setUpClass, which unagi does
 #     not expose, so the real-locale base class errors on macOS.
 #   - test_gettext depends on gettext.install's injected _ builtin and on
@@ -46,17 +44,43 @@ from test import test_codecencodings_kr
 from test import test_codecencodings_tw
 from test import test_codecencodings_iso2022
 from test import test_multibytecodec
+from test import test_unicodedata
 
-# No method-name exclusions remain: every class-based test in the six
-# codecencodings suites and test_multibytecodec passes, including the stream
-# reader/writer surface (test_streamreader, test_streamwriter) and the bare
-# MultibyteStreamReader/Writer(None) AttributeError guard (test_init_segfault).
+# No method-name exclusions remain in the codec suites: every class-based test in
+# the six codecencodings suites and test_multibytecodec passes, including the
+# stream reader/writer surface (test_streamreader, test_streamwriter) and the
+# bare MultibyteStreamReader/Writer(None) AttributeError guard (test_init_segfault).
 # The set is kept so a future gap can be parked here without reworking the loop.
 KNOWN_GAP_METHODS = set()
 
+# test_unicodedata pieces held out of the gate are genuine data or CPython
+# implementation gaps, not regressions. Unicode_3_2_0_FunctionsTest answers from
+# a true UCD 3.2.0 database unagi does not carry (unicodedata.ucd_3_2_0 is
+# modeled over the current UCD), and UnicodeMiscTest.test_ucd_510 is the same
+# 3.2.0-data gap. NormalizationTest reads the NormalizationTest.txt data file and
+# gates on the cpu/network resources. The remaining three UnicodeMiscTest cases
+# are CPython C-implementation details: disallowing instantiation of the C type,
+# a subprocess probe of a failed import during compiling, and a C-extension
+# unload/reload. Everything else in test_unicodedata, the whole current-UCD
+# property and case surface including both the method and function full
+# checksums, runs green.
+SKIP_CLASSES = {"Unicode_3_2_0_FunctionsTest", "NormalizationTest"}
+SKIP_METHODS = {
+    ("UnicodeMiscTest", "test_ucd_510"),
+    ("UnicodeMiscTest", "test_disallow_instantiation"),
+    ("UnicodeMiscTest", "test_failed_import_during_compiling"),
+    ("UnicodeMiscTest", "test_unicodedata_unload_reload"),
+}
+
 
 def excluded(case):
-    return case.id().rsplit(".", 1)[-1] in KNOWN_GAP_METHODS
+    parts = case.id().split(".")
+    cls, meth = parts[-2], parts[-1]
+    if meth in KNOWN_GAP_METHODS:
+        return True
+    if cls in SKIP_CLASSES:
+        return True
+    return (cls, meth) in SKIP_METHODS
 
 
 def flatten(suite):
@@ -82,6 +106,7 @@ def build_suite():
         test_codecencodings_tw,
         test_codecencodings_iso2022,
         test_multibytecodec,
+        test_unicodedata,
     )
     for module in modules:
         for value in vars(module).values():

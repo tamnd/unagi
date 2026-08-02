@@ -46,11 +46,13 @@ func TestS1Gate(t *testing.T) {
 }
 
 // TestS2Gate compiles s2gate.py and runs it, requiring exit 0. The driver runs
-// the CJK codec suites (test_codecencodings_{cn,hk,jp,kr,tw,iso2022}) and
-// test_multibytecodec minus a tracked gap list through unittest. Those suites
-// read the cjkencodings/*.txt reference strings at runtime through
-// os.path.dirname(__file__), so the data is staged under test/cjkencodings next
-// to the binary and the driver is run from there.
+// the CJK codec suites (test_codecencodings_{cn,hk,jp,kr,tw,iso2022}),
+// test_multibytecodec and test_unicodedata minus a tracked gap list through
+// unittest. The codec suites read the cjkencodings/*.txt reference strings at
+// runtime through os.path.dirname(__file__), so the data is staged under
+// test/cjkencodings next to the binary and the driver is run from there;
+// test_unicodedata needs no staged data since the NormalizationTest data-file
+// class is held out.
 func TestS2Gate(t *testing.T) {
 	runGate(t, "s2gate.py", s2gate, stageCJKData)
 }
