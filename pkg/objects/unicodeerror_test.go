@@ -371,6 +371,92 @@ func TestSurrogateEscapeErrors(t *testing.T) {
 	}
 }
 
+func TestSurrogatePassErrors(t *testing.T) {
+	// Encode: a surrogate passes through as each utf codec's raw bytes. The
+	// object string is built through StrFromRunes since a Go literal cannot
+	// carry a lone surrogate.
+	surObj := StrFromRunes([]rune{0xD800})
+	encCases := []struct {
+		enc  string
+		want string
+	}{
+		{"utf-8", "\xed\xa0\x80"},
+		{"utf-16-le", "\x00\xd8"},
+		{"utf-16-be", "\xd8\x00"},
+		{"utf-32-le", "\x00\xd8\x00\x00"},
+		{"utf-32-be", "\x00\x00\xd8\x00"},
+	}
+	for _, c := range encCases {
+		e := NewUnicodeEncodeError(c.enc, surObj, 0, 1, "surrogates not allowed")
+		g, err := SurrogatePassErrors([]Object{e})
+		if err != nil {
+			t.Fatalf("%s encode err %v", c.enc, err)
+		}
+		tup := g.(*tupleObject)
+		if b, _ := AsBytesLike(tup.elts[0]); string(b) != c.want {
+			t.Errorf("%s encode = %x, want %x", c.enc, b, c.want)
+		}
+		if p, _ := AsInt(tup.elts[1]); p != 1 {
+			t.Errorf("%s encode newpos = %d, want 1", c.enc, p)
+		}
+	}
+
+	// Encode: a non-surrogate cannot be passed and re-raises.
+	bad := NewUnicodeEncodeError("utf-8", "a中b", 1, 2, "x")
+	if _, err := SurrogatePassErrors([]Object{bad}); err == nil {
+		t.Error("encode of non-surrogate: want error, got nil")
+	}
+
+	// Decode: a raw surrogate unit decodes back to the code point.
+	decCases := []struct {
+		enc   string
+		data  []byte
+		wantN int
+	}{
+		{"utf-8", []byte("\xed\xa0\x80"), 3},
+		{"utf-16-le", []byte("\x00\xd8"), 2},
+		{"utf-16-be", []byte("\xd8\x00"), 2},
+		{"utf-32-le", []byte("\x00\xd8\x00\x00"), 4},
+	}
+	for _, c := range decCases {
+		e := NewUnicodeDecodeError(c.enc, c.data, 0, 1, "x")
+		g, err := SurrogatePassErrors([]Object{e})
+		if err != nil {
+			t.Fatalf("%s decode err %v", c.enc, err)
+		}
+		tup := g.(*tupleObject)
+		if s, _ := AsStr(tup.elts[0]); !runesEqual(StrRunes(s), []rune{0xD800}) {
+			t.Errorf("%s decode runes = %v, want [d800]", c.enc, StrRunes(s))
+		}
+		if p, _ := AsInt(tup.elts[1]); int(p) != c.wantN {
+			t.Errorf("%s decode newpos = %d, want %d", c.enc, p, c.wantN)
+		}
+	}
+
+	// Decode: a truncated unit re-raises.
+	trunc := NewUnicodeDecodeError("utf-8", []byte("\xed\xa0"), 0, 1, "x")
+	if _, err := SurrogatePassErrors([]Object{trunc}); err == nil {
+		t.Error("decode of truncated unit: want error, got nil")
+	}
+
+	// Decode: a malformed continuation byte re-raises.
+	malformed := NewUnicodeDecodeError("utf-8", []byte("\xed\xa0z"), 0, 1, "x")
+	if _, err := SurrogatePassErrors([]Object{malformed}); err == nil {
+		t.Error("decode of malformed unit: want error, got nil")
+	}
+
+	// A non-utf codec cannot pass a surrogate and re-raises.
+	nonutf := NewUnicodeEncodeError("latin-1", surObj, 0, 1, "x")
+	if _, err := SurrogatePassErrors([]Object{nonutf}); err == nil {
+		t.Error("surrogatepass on non-utf codec: want error, got nil")
+	}
+
+	// A non-unicode-error argument is a TypeError.
+	if _, err := SurrogatePassErrors([]Object{NewInt(1)}); err == nil {
+		t.Error("surrogatepass on non-unicode-error: want TypeError, got nil")
+	}
+}
+
 // runesEqual reports whether two rune slices are elementwise equal.
 func runesEqual(a, b []rune) bool {
 	if len(a) != len(b) {

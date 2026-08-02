@@ -1,6 +1,7 @@
 package objects
 
 import (
+	"encoding/binary"
 	"fmt"
 	"strings"
 )
@@ -14,8 +15,9 @@ import (
 // namereplace transform the offending text (namereplace reaches the Unicode name
 // database through a hook the unicodedata shim fills). surrogateescape (PEP 383)
 // maps between non-ASCII bytes and low surrogates, the same rule for every codec.
-// surrogatepass needs the codec's own byte order and width and stays a
-// placeholder in this tier.
+// surrogatepass reads the codec's own byte order and width off the error's
+// encoding attribute (the utf-8, utf-16 and utf-32 families) and passes a
+// surrogate code point through as that codec's raw bytes.
 
 // ueHandlerError reports that a handler was handed something other than a parsed
 // unicode error, with CPython's error-callback wording.
@@ -180,6 +182,164 @@ func SurrogateEscapeErrors(args []Object) (Object, error) {
 			writeStrRune(&b, 0xDC00+rune(data[i]))
 		}
 		return ueResult(b.String(), end), nil
+	}
+	return nil, ueHandlerError(args[0])
+}
+
+// surrogatePassKind identifies the utf codec a surrogatepass call runs under,
+// together with the byte width of one code unit. spNone means the encoding is
+// not one of the utf families surrogatepass knows how to pass a surrogate
+// through.
+type surrogatePassKind int
+
+const (
+	spNone surrogatePassKind = iota
+	spUTF8
+	spUTF16LE
+	spUTF16BE
+	spUTF32LE
+	spUTF32BE
+)
+
+// nativeLittleEndian reports the host byte order, used to resolve a bare
+// "utf-16"/"utf-32" surrogatepass encoding the way CPython's PY_LITTLE_ENDIAN
+// does (utf_16/utf_32 with no le/be suffix encode in the machine's own order).
+var nativeLittleEndian = binary.NativeEndian.Uint16([]byte{1, 0}) == 1
+
+// standardUTFEncoding maps a codec name to the surrogatepass code-unit kind and
+// its byte width, matching CPython's get_standard_encoding. It recognizes the
+// utf-8, utf-16 and utf-32 families with an optional '-' or '_' separator and an
+// exact le/be suffix (a bare utf-16/utf-32 taking the host byte order); anything
+// else, including utf-7, is spNone.
+func standardUTFEncoding(enc string) (surrogatePassKind, int) {
+	e := strings.ToLower(enc)
+	if e == "cp_utf8" {
+		return spUTF8, 3
+	}
+	if len(e) < 3 || e[:3] != "utf" {
+		return spNone, 0
+	}
+	e = e[3:]
+	if len(e) > 0 && (e[0] == '-' || e[0] == '_') {
+		e = e[1:]
+	}
+	var width int
+	switch {
+	case strings.HasPrefix(e, "16"):
+		e, width = e[2:], 2
+	case strings.HasPrefix(e, "32"):
+		e, width = e[2:], 4
+	case strings.HasPrefix(e, "8"):
+		return spUTF8, 3
+	default:
+		return spNone, 0
+	}
+	if len(e) > 0 && (e[0] == '-' || e[0] == '_') {
+		e = e[1:]
+	}
+	little := nativeLittleEndian
+	switch e {
+	case "le":
+		little = true
+	case "be":
+		little = false
+	}
+	switch {
+	case width == 2 && little:
+		return spUTF16LE, 2
+	case width == 2:
+		return spUTF16BE, 2
+	case little:
+		return spUTF32LE, 4
+	default:
+		return spUTF32BE, 4
+	}
+}
+
+// surrogatePassEncodeUnit appends the code point ch (a surrogate) as the raw
+// bytes the given utf codec would store, the byte form surrogatepass emits.
+func surrogatePassEncodeUnit(kind surrogatePassKind, ch rune, out *[]byte) {
+	switch kind {
+	case spUTF8:
+		*out = append(*out, byte(0xe0|(ch>>12)), byte(0x80|((ch>>6)&0x3f)), byte(0x80|(ch&0x3f)))
+	case spUTF16LE:
+		*out = append(*out, byte(ch), byte(ch>>8))
+	case spUTF16BE:
+		*out = append(*out, byte(ch>>8), byte(ch))
+	case spUTF32LE:
+		*out = append(*out, byte(ch), byte(ch>>8), byte(ch>>16), byte(ch>>24))
+	case spUTF32BE:
+		*out = append(*out, byte(ch>>24), byte(ch>>16), byte(ch>>8), byte(ch))
+	}
+}
+
+// surrogatePassDecodeUnit reads one code unit (width bytes) at the front of p
+// under the given utf codec, returning the code point it stands for. For utf-8
+// it also verifies the three bytes are a well-formed E0-band sequence; a
+// malformed lead reports false so the caller re-raises.
+func surrogatePassDecodeUnit(kind surrogatePassKind, p []byte) (rune, bool) {
+	switch kind {
+	case spUTF8:
+		if p[0]&0xf0 == 0xe0 && p[1]&0xc0 == 0x80 && p[2]&0xc0 == 0x80 {
+			return rune(p[0]&0x0f)<<12 | rune(p[1]&0x3f)<<6 | rune(p[2]&0x3f), true
+		}
+		return 0, false
+	case spUTF16LE:
+		return rune(p[1])<<8 | rune(p[0]), true
+	case spUTF16BE:
+		return rune(p[0])<<8 | rune(p[1]), true
+	case spUTF32LE:
+		return rune(p[3])<<24 | rune(p[2])<<16 | rune(p[1])<<8 | rune(p[0]), true
+	case spUTF32BE:
+		return rune(p[0])<<24 | rune(p[1])<<16 | rune(p[2])<<8 | rune(p[3]), true
+	}
+	return 0, false
+}
+
+// SurrogatePassErrors is the "surrogatepass" handler. Unlike the other handlers
+// it is codec-specific: it reads the byte order and unit width off the error's
+// encoding attribute (the utf-8, utf-16 and utf-32 families, a bare utf-16/utf-32
+// taking the host order) and passes a surrogate code point through as that
+// codec's raw bytes. On encode each surrogate U+D800..U+DFFF in the bad span is
+// emitted as its raw unit; a non-surrogate cannot be passed, so the original
+// error re-raises. On decode it reads one unit at the bad position, and if it is
+// a surrogate returns that code point and resumes past the unit; a truncated or
+// malformed unit, or a non-surrogate, re-raises. An encoding outside the utf
+// families re-raises, since surrogatepass only knows those codecs' byte forms.
+func SurrogatePassErrors(args []Object) (Object, error) {
+	e, ok := ueParsed(args)
+	if !ok {
+		return nil, ueHandlerError(argAt(args))
+	}
+	kind, width := standardUTFEncoding(Str(e.UEEncoding))
+	if kind == spNone {
+		return nil, e
+	}
+	start, end := ueSpan(e)
+	switch {
+	case Matches(e.Kind, "UnicodeEncodeError"):
+		runes := ueObjectRunes(e)
+		out := make([]byte, 0, (end-start)*width)
+		for i := start; i < end && i < len(runes); i++ {
+			r := runes[i]
+			if r < 0xD800 || r > 0xDFFF {
+				return nil, e
+			}
+			surrogatePassEncodeUnit(kind, r, &out)
+		}
+		return ueResultBytes(out, end), nil
+	case Matches(e.Kind, "UnicodeDecodeError"):
+		data, _ := AsBytesLike(e.UEObject)
+		if start < 0 || start+width > len(data) {
+			return nil, e
+		}
+		ch, okUnit := surrogatePassDecodeUnit(kind, data[start:start+width])
+		if !okUnit || ch < 0xD800 || ch > 0xDFFF {
+			return nil, e
+		}
+		var b strings.Builder
+		writeStrRune(&b, ch)
+		return ueResult(b.String(), start+width), nil
 	}
 	return nil, ueHandlerError(args[0])
 }
