@@ -1,0 +1,40 @@
+== exit: 0
+== stdout:
+b'' None -> (b'', 0) []
+bytearray(b'') None -> (b'', 0) []
+raw-passthrough ok
+b'[\\\n]' None -> (b'[]', 4) []
+b'[\\a\\b\\t\\n\\v\\f\\r]' None -> (b'[\x07\x08\t\n\x0b\x0c\r]', 16) []
+b'[\\\'\\"]' None -> (b'[\'"]', 6) []
+b'[\\\\]' None -> (b'[\\]', 4) []
+b'[\\7\\41\\101\\x41]' None -> (b'[\x07!AA]', 15) []
+b'[\\78\\418\\1010\\x410]' None -> (b'[\x078!8A0A0]', 19) []
+b'\\0' None -> (b'\x00', 2) []
+b'\\08' None -> (b'\x008', 3) []
+b'\\z' None -> (b'\\z', 2) ['b"\\z" is an invalid escape sequence. Such sequences will not work in the future. ']
+b'\\8' None -> (b'\\8', 2) ['b"\\8" is an invalid escape sequence. Such sequences will not work in the future. ']
+b'\\9' None -> (b'\\9', 2) ['b"\\9" is an invalid escape sequence. Such sequences will not work in the future. ']
+b'\\\xfa' None -> (b'\\\xfa', 2) ['b"\\ú" is an invalid escape sequence. Such sequences will not work in the future. ']
+b'\\\x01' None -> (b'\\\x01', 2) ['b"\\\x01" is an invalid escape sequence. Such sequences will not work in the future. ']
+b'\\z\\9\\Q' None -> (b'\\z\\9\\Q', 6) ['b"\\z" is an invalid escape sequence. Such sequences will not work in the future. ']
+b'\\400' None -> (b'\x00', 4) ['b"\\400" is an invalid octal escape sequence. Such sequences will not work in the future. ']
+b'\\501' None -> (b'A', 4) ['b"\\501" is an invalid octal escape sequence. Such sequences will not work in the future. ']
+b'\\777' None -> (b'\xff', 4) ['b"\\777" is an invalid octal escape sequence. Such sequences will not work in the future. ']
+b'\\501\\777' None -> (b'A\xff', 8) ['b"\\501" is an invalid octal escape sequence. Such sequences will not work in the future. ']
+b'\\77' None -> (b'?', 3) []
+b'\\x' None -> EXC ValueError: invalid \x escape at position 0
+b'[\\x]' None -> EXC ValueError: invalid \x escape at position 1
+b'\\x0' None -> EXC ValueError: invalid \x escape at position 0
+b'[\\x]\\x' ignore -> (b'[]', 6) []
+b'[\\x]\\x' replace -> (b'[?]?', 6) []
+b'[\\x0]\\x0' ignore -> (b'[]', 8) []
+b'\\xg' ignore -> (b'g', 3) []
+b'\\xg' replace -> (b'?g', 3) []
+b'\\x4g' ignore -> (b'g', 4) []
+b'\\x\\z' ignore -> (b'\\z', 4) ['b"\\z" is an invalid escape sequence. Such sequences will not work in the future. ']
+b'\\x\\501' ignore -> (b'A', 6) ['b"\\501" is an invalid octal escape sequence. Such sequences will not work in the future. ']
+b'ab\\' ignore -> EXC ValueError: Trailing \ in string
+b'\\x' backslashreplace -> EXC ValueError: decoding error; unknown error handling code: backslashreplace
+b'\\x' bogus -> EXC ValueError: decoding error; unknown error handling code: bogus
+== exception:
+== stderr:
