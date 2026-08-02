@@ -21,7 +21,8 @@
 # too, and deleting an encoder or decoder .errors handler raises AttributeError
 # the way the C getset does. The incremental encoder and decoder now run end to
 # end, including euc_kr's eight-byte Hangul make-up sequence across a chunk
-# boundary, so the remaining exclusions are the stream reader and writer.
+# boundary, and the iso-2022 decode replace path now runs across every encoding,
+# so the remaining exclusions are the stream reader and writer.
 #
 # The other section 7 codec suites are not gated here yet and are tracked
 # separately:
@@ -57,17 +58,16 @@ from test import test_multibytecodec
 # protocols run, deleting an encoder or decoder .errors handler now raises
 # AttributeError the way the C getset does, and the incremental encoder and
 # decoder (test_incrementalencoder, test_incrementaldecoder, test_chunkcoding)
-# run across every encoding, so the remaining exclusions are the stream surface:
+# run across every encoding, and test_errorhandle (the iso-2022 decode replace
+# path, plus every codec's replace/strict codectests tuples) runs too, so the
+# remaining exclusions are the stream surface:
 #   - test_streamreader and test_streamwriter drive the stream read and write
 #     path, which unagi does not carry end to end yet.
-#   - test_errorhandle exercises the iso-2022 decode replace path on a subset of
-#     the encodings.
 # test_init_segfault (MultibyteStreamReader/Writer(None) raising AttributeError)
 # is the remaining test_multibytecodec entry, tracked with the stream surface.
 KNOWN_GAP_METHODS = {
     "test_streamreader",
     "test_streamwriter",
-    "test_errorhandle",
     "test_init_segfault",
 }
 

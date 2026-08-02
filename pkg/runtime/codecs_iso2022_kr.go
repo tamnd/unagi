@@ -176,8 +176,26 @@ func iso2022KRDecodeRun(data []byte, errors string, final bool, mode int) (strin
 				continue
 			}
 			c1 := data[i+1]
-			if c1 == '$' {
-				if i+2 >= len(data) {
+			// An ESC starting an ISO-2022 header byte designates a charset. Scan to the
+			// final byte (A-Z or @) the way CPython's iso2022processesc does: an
+			// unterminated run is incomplete over the bytes in hand rather than a fixed
+			// width, and a terminated but unrecognized one is illegal over its whole span.
+			// iso2022_kr designates KSC 5601 into G1 with ESC$)C and treats ESC(B as a
+			// no-op return to ascii G0; every other designation is unsupported.
+			if c1 == '(' || c1 == ')' || c1 == '$' || c1 == '.' || c1 == '&' {
+				esclen := 0
+				incomplete := false
+				for j := 1; j < iso2022MaxEscSeq; j++ {
+					if i+j >= len(data) {
+						incomplete = true
+						break
+					}
+					if iso2022IsEscEnd(data[i+j]) {
+						esclen = j + 1
+						break
+					}
+				}
+				if incomplete {
 					if s, ci, buf, m, err, ok := buffer(i); ok {
 						return s, ci, buf, m, err
 					}
@@ -188,57 +206,33 @@ func iso2022KRDecodeRun(data []byte, errors string, final bool, mode int) (strin
 					i = np
 					continue
 				}
-				if data[i+2] == ')' {
-					if i+3 >= len(data) {
-						if s, ci, buf, m, err, ok := buffer(i); ok {
-							return s, ci, buf, m, err
-						}
-						np, err := fail(i, len(data), "incomplete multibyte sequence")
-						if err != nil {
-							return "", 0, nil, 0, err
-						}
-						i = np
-						continue
-					}
-					if data[i+3] == 'C' {
-						g1 = iso2022ModeKSC5601
-						i += 4
-						continue
-					}
-					np, err := fail(i, i+4, "illegal multibyte sequence")
+				if esclen == 0 {
+					np, err := fail(i, i+1, "illegal multibyte sequence")
 					if err != nil {
 						return "", 0, nil, 0, err
 					}
 					i = np
 					continue
 				}
-				np, err := fail(i, i+3, "illegal multibyte sequence")
-				if err != nil {
-					return "", 0, nil, 0, err
-				}
-				i = np
-				continue
-			}
-			if c1 == '(' {
-				if i+2 >= len(data) {
-					if s, ci, buf, m, err, ok := buffer(i); ok {
-						return s, ci, buf, m, err
-					}
-					np, err := fail(i, len(data), "incomplete multibyte sequence")
-					if err != nil {
-						return "", 0, nil, 0, err
-					}
-					i = np
+				tail := string(data[i+1 : i+esclen])
+				if tail == "$)C" {
+					g1 = iso2022ModeKSC5601
+					i += esclen
 					continue
 				}
-				np, err := fail(i, i+3, "illegal multibyte sequence")
+				if tail == "(B" {
+					i += esclen
+					continue
+				}
+				np, err := fail(i, i+esclen, "illegal multibyte sequence")
 				if err != nil {
 					return "", 0, nil, 0, err
 				}
 				i = np
 				continue
 			}
-			// ESC is a plain control byte here; emit it and reprocess c1.
+			// ESC followed by a byte that does not start an ISO-2022 header: emit ESC and
+			// reprocess the byte, the ascii-equivalent of CPython's ESC-throughout mode.
 			out = append(out, 0x1b)
 			i++
 			continue

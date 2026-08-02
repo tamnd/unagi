@@ -102,7 +102,25 @@ func eucJPCodec() *mbCodec {
 			eucJPLeads, eucJPDoubleDecode, eucJPTripleDecode,
 			eucJPDoubleEncode, eucJPTripleEncode)
 	})
-	return eucJPTable.codec()
+	base := eucJPTable.codec()
+	tableEncode := base.encodeStep
+	// euc_jp is the non-strict JIS-Roman-compatible variant: the yen sign and the
+	// overline fold onto the ascii bytes 0x5c and 0x7e on encode, the way CPython's
+	// non-strict euc_jp encoder does. Decode leaves 0x5c and 0x7e as ascii, so the
+	// mapping is one-way by design.
+	base.encodeStep = func(cp rune) ([]byte, int) {
+		if b, status := tableEncode(cp); status == mbOK {
+			return b, mbOK
+		}
+		switch cp {
+		case iso2022Yen:
+			return []byte{0x5c}, mbOK
+		case iso2022Overline:
+			return []byte{0x7e}, mbOK
+		}
+		return nil, mbIllegal
+	}
+	return base
 }
 
 // shiftJIS2004Codec builds the shift_jis_2004 engine codec once from the
