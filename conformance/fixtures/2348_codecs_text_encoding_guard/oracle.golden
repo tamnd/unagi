@@ -1,0 +1,40 @@
+== exit: 0
+== stdout:
+enc base64_codec 'base64_codec' is not a text encoding; use codecs.encode() to handle arbitrary codecs cause None
+enc uu_codec 'uu_codec' is not a text encoding; use codecs.encode() to handle arbitrary codecs cause None
+enc quopri_codec 'quopri_codec' is not a text encoding; use codecs.encode() to handle arbitrary codecs cause None
+enc hex_codec 'hex_codec' is not a text encoding; use codecs.encode() to handle arbitrary codecs cause None
+enc zlib_codec 'zlib_codec' is not a text encoding; use codecs.encode() to handle arbitrary codecs cause None
+dec bytes base64_codec 'base64_codec' is not a text encoding; use codecs.decode() to handle arbitrary codecs
+dec bytearray base64_codec 'base64_codec' is not a text encoding; use codecs.decode() to handle arbitrary codecs
+dec bytes uu_codec 'uu_codec' is not a text encoding; use codecs.decode() to handle arbitrary codecs
+dec bytearray uu_codec 'uu_codec' is not a text encoding; use codecs.decode() to handle arbitrary codecs
+dec bytes quopri_codec 'quopri_codec' is not a text encoding; use codecs.decode() to handle arbitrary codecs
+dec bytearray quopri_codec 'quopri_codec' is not a text encoding; use codecs.decode() to handle arbitrary codecs
+dec bytes hex_codec 'hex_codec' is not a text encoding; use codecs.decode() to handle arbitrary codecs
+dec bytearray hex_codec 'hex_codec' is not a text encoding; use codecs.decode() to handle arbitrary codecs
+dec bytes zlib_codec 'zlib_codec' is not a text encoding; use codecs.decode() to handle arbitrary codecs
+dec bytearray zlib_codec 'zlib_codec' is not a text encoding; use codecs.decode() to handle arbitrary codecs
+rot13 enc 'rot_13' is not a text encoding; use codecs.encode() to handle arbitrary codecs
+rot13 dec 'rot_13' is not a text encoding; use codecs.decode() to handle arbitrary codecs None
+rot13 dec 'rot_13' is not a text encoding; use codecs.decode() to handle arbitrary codecs None
+bytes(str,enc) 'base64_codec' is not a text encoding; use codecs.encode() to handle arbitrary codecs
+bytearray(str,enc) 'hex_codec' is not a text encoding; use codecs.encode() to handle arbitrary codecs
+str(bytes,enc) 'base64_codec' is not a text encoding; use codecs.decode() to handle arbitrary codecs
+codecs hex b'616263' b'abc'
+codecs b64 b'aGk=\n' b'hi'
+codecs.encode str TypeError
+alias 'zlib' is not a text encoding; use codecs.encode() to handle arbitrary codecs
+roundtrip base64_codec 256 True
+roundtrip uu_codec 256 True
+roundtrip quopri_codec 256 True
+roundtrip hex_codec 256 True
+roundtrip zlib_codec 256 True
+utf8 b'h\xc3\xa9llo'
+utf16le b'h\x00i\x00'
+latin1 b'caf\xe9'
+ascii dec abc
+charmap b'abc'
+unknown unknown encoding: no_such_codec_xyz
+== exception:
+== stderr:

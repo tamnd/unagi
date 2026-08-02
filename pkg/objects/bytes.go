@@ -159,6 +159,9 @@ func bytesFromArgs(args []Object, typeName string) ([]byte, error) {
 			}
 			errh = e.v
 		}
+		if err := guardTextCodec(enc.v, "encode"); err != nil {
+			return nil, err
+		}
 		return encodeStr(s.v, enc.v, errh)
 	default:
 		return nil, Raise(TypeError, "%s() takes at most 3 arguments (%d given)", typeName, len(args))

@@ -20,4 +20,32 @@ var (
 	// handle, resolving it through the registry's search functions. It returns
 	// the decoded str, or a LookupError if no registered codec claims enc.
 	CodecDecodeHook func(v []byte, enc, errh string) (Object, error)
+
+	// CodecTextCheckHook reports whether a codec may be used where a text codec
+	// is required, the guard CPython's PyUnicode_AsEncodedString and
+	// PyUnicode_Decode apply on str.encode, bytes.decode and the str/bytes
+	// constructors. It returns the LookupError to raise when the codec's
+	// CodecInfo marks _is_text_encoding false (a bytes-to-bytes or str-to-str
+	// transform codec such as base64_codec or rot_13), or nil when the codec is
+	// a text codec or unknown. direction is "encode" or "decode" and picks the
+	// codecs.encode()/codecs.decode() hint in the message.
+	CodecTextCheckHook func(enc, direction string) error
 )
+
+// guardTextCodec applies the text-encoding guard for the codec paths that
+// require a text codec: str.encode, bytes.decode and the str/bytes
+// constructors. A binary transform codec used there raises "<name> is not a
+// text encoding" rather than being dispatched. The utf-8, ascii and latin-1
+// codecs are handled inline and are always text codecs, so they skip the
+// registry round trip; every other name defers to CodecTextCheckHook, which
+// reads the CodecInfo _is_text_encoding flag off the registry.
+func guardTextCodec(enc, direction string) error {
+	switch normalizeCodec(enc) {
+	case "utf8", "ascii", "latin1":
+		return nil
+	}
+	if CodecTextCheckHook == nil {
+		return nil
+	}
+	return CodecTextCheckHook(enc, direction)
+}

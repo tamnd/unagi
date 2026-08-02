@@ -426,6 +426,9 @@ func strEncode(s string, args []Object) (Object, error) {
 		}
 		errh = eh
 	}
+	if err := guardTextCodec(enc, "encode"); err != nil {
+		return nil, err
+	}
 	b, err := encodeStr(s, enc, errh)
 	if err != nil {
 		return nil, err

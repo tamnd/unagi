@@ -57,6 +57,7 @@ func init() {
 	// process-global registry, which imports encodings lazily on first lookup.
 	objects.CodecEncodeHook = codecEncodeHook
 	objects.CodecDecodeHook = codecDecodeHook
+	objects.CodecTextCheckHook = codecTextCheckHook
 }
 
 // codecsExports lists every name `from _codecs import *` binds. It mirrors the
@@ -356,6 +357,27 @@ func codecEncodeHook(s, enc, errh string) ([]byte, error) {
 // registry and hand back the str the core decoder path expects.
 func codecDecodeHook(v []byte, enc, errh string) (objects.Object, error) {
 	return codecViaRegistry("decode", objects.NewBytes(v), enc, errh)
+}
+
+// codecTextCheckHook backs objects.CodecTextCheckHook: str.encode, bytes.decode
+// and the str/bytes constructors require a text codec, so a codec whose
+// CodecInfo marks _is_text_encoding false (a bytes-to-bytes or str-to-str
+// transform codec such as base64_codec or rot_13) is rejected with the
+// LookupError CPython raises, steering the caller to codecs.encode/decode.
+// direction is "encode" or "decode". A codec with no _is_text_encoding
+// attribute or a truthy one is a text codec, and an unknown codec is left for
+// the encode/decode call itself to reject with the unknown-encoding LookupError,
+// so both return nil here.
+func codecTextCheckHook(enc, direction string) error {
+	info, err := codecLookup([]objects.Object{objects.NewStr(enc)})
+	if err != nil {
+		return nil
+	}
+	flag, err := objects.LoadAttr(info, "_is_text_encoding")
+	if err != nil || objects.Truth(flag) {
+		return nil
+	}
+	return objects.Raise("LookupError", "'%s' is not a text encoding; use codecs.%s() to handle arbitrary codecs", enc, direction)
 }
 
 // codecApplyArgs reads the shared (obj, encoding='utf-8', errors='strict')

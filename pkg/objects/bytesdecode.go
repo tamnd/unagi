@@ -33,6 +33,9 @@ func bytesDecode(v []byte, args []Object) (Object, error) {
 		}
 		errors = s.v
 	}
+	if err := guardTextCodec(encoding, "decode"); err != nil {
+		return nil, err
+	}
 	return decodeCodec(v, encoding, errors)
 }
 
@@ -149,6 +152,9 @@ func StrDecode(o, encoding, errors Object) (Object, error) {
 			return nil, Raise(TypeError, "str() argument 'errors' must be str, not %s", errors.TypeName())
 		}
 		errs = s.v
+	}
+	if err := guardTextCodec(enc, "decode"); err != nil {
+		return nil, err
 	}
 	return decodeCodec(v, enc, errs)
 }
