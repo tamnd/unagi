@@ -498,6 +498,16 @@ func memoryviewMethod(m *memoryviewObject, name string, args []Object) (Object, 
 		return NewStr(hex.EncodeToString(mvSpan(m))), nil
 	case "cast":
 		return mvCast(m, args)
+	case "toreadonly":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "memoryview.toreadonly() takes no arguments (%d given)", len(args))
+		}
+		if m.released {
+			return nil, mvReleased()
+		}
+		// A read-only twin over the same span and root buffer, so it still
+		// aliases a write through the original but rejects one of its own.
+		return &memoryviewObject{base: m.base, readonly: true, off: m.off, length: m.length, format: m.format, itemsize: m.itemsize}, nil
 	}
 	return nil, noAttr(m, name)
 }
@@ -572,14 +582,25 @@ func memoryviewLoadAttr(m *memoryviewObject, name string) (Object, error) {
 }
 
 // memoryviewHash hashes a read-only view by the same bytes hash its contents
-// would give as a bytes object; a writable view is unhashable, the probed
-// ValueError rather than a TypeError.
+// would give as a bytes object. Following CPython's memory_hash, a writable view
+// is the ValueError, a non-byte format is restricted, and the exporting object
+// must itself be hashable, so a read-only view over a bytearray (reachable
+// through toreadonly) still raises the underlying "unhashable type: 'bytearray'"
+// the way CPython's PyObject_Hash(view->obj) does.
 func memoryviewHash(m *memoryviewObject) (int64, error) {
 	if m.released {
 		return 0, mvReleased()
 	}
 	if !m.readonly {
 		return 0, Raise(ValueError, "cannot hash writable memoryview object")
+	}
+	switch m.format {
+	case "B", "b", "c":
+	default:
+		return 0, Raise(ValueError, "memoryview: hashing is restricted to formats 'B', 'b' or 'c'")
+	}
+	if _, err := PyHash(m.base); err != nil {
+		return 0, err
 	}
 	return pyHashBytes(mvSpan(m)), nil
 }

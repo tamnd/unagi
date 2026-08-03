@@ -257,6 +257,52 @@ func TestMemoryViewRelease(t *testing.T) {
 	}
 }
 
+func TestMemoryViewToReadonly(t *testing.T) {
+	buf := NewByteArray([]byte("abcd")).(*bytearrayObject)
+	m := mvOf(t, buf)
+	roObj, err := memoryviewMethod(m, "toreadonly", nil)
+	if err != nil {
+		t.Fatalf("toreadonly() = %v", err)
+	}
+	ro := roObj.(*memoryviewObject)
+	if !ro.readonly {
+		t.Fatal("toreadonly() view is not read-only")
+	}
+	if m.readonly {
+		t.Fatal("toreadonly() flipped the original to read-only")
+	}
+	// The read-only twin still aliases a write through the original.
+	if err := SetItem(m, NewInt(0), NewInt('Z')); err != nil {
+		t.Fatalf("SetItem original: %v", err)
+	}
+	got, _ := GetItem(ro, NewInt(0))
+	if i, _ := AsInt(got); i != 'Z' {
+		t.Fatalf("ro[0] = %d, want %d", i, 'Z')
+	}
+	// A write through the twin is rejected.
+	if err := SetItem(ro, NewInt(1), NewInt('x')); !isKind(err, TypeError) {
+		t.Fatalf("store through read-only twin = %v, want TypeError", err)
+	}
+	// The twin over a bytearray is still unhashable because its exporter is.
+	if _, err := PyHash(ro); !isKind(err, TypeError) {
+		t.Fatalf("hash of twin over bytearray = %v, want TypeError", err)
+	}
+	// An extra argument is the no-arguments TypeError.
+	if _, err := memoryviewMethod(m, "toreadonly", []Object{NewInt(1)}); !isKind(err, TypeError) {
+		t.Fatalf("toreadonly(1) = %v, want TypeError", err)
+	}
+	// A read-only twin over bytes hashes like the bytes.
+	rb := mvOf(t, NewBytes([]byte("hi")))
+	tw, _ := memoryviewMethod(rb, "toreadonly", nil)
+	h, err := PyHash(tw)
+	if err != nil {
+		t.Fatalf("hash of twin over bytes: %v", err)
+	}
+	if want, _ := PyHash(NewBytes([]byte("hi"))); h != want {
+		t.Fatalf("twin hash = %d, want %d", h, want)
+	}
+}
+
 func TestMemoryViewContextManager(t *testing.T) {
 	m := mvOf(t, NewBytes([]byte("ab")))
 	entered, err := memoryviewMethod(m, "__enter__", nil)

@@ -1,0 +1,24 @@
+== exit: 0
+== stdout:
+readonly flag -> True
+orig still writable -> False
+tolist -> [97, 98, 99, 100]
+format -> 'B'
+itemsize -> 1
+nbytes -> 4
+shape -> (4,)
+obj is ba -> True
+write blocked -> TypeError cannot modify read-only memory
+slice write blocked -> TypeError cannot modify read-only memory
+aliases orig write -> [90, 98, 99, 100]
+hash twin over bytearray -> TypeError unhashable type: 'bytearray'
+orig hash still fails -> ValueError cannot hash writable memoryview object
+hash twin over bytes -> True
+ro of array format -> 'i'
+ro of array tolist -> [1, 2]
+hash ro array i -> ValueError memoryview: hashing is restricted to formats 'B', 'b' or 'c'
+ro of ro -> True
+ro after release -> ValueError operation forbidden on released memoryview object
+toreadonly arg -> TypeError memoryview.toreadonly() takes no arguments (1 given)
+== exception:
+== stderr:
