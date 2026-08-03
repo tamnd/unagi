@@ -1,0 +1,43 @@
+== exit: 0
+== stdout:
+format -> 'i'
+itemsize -> 4
+nbytes -> 16
+ndim -> 1
+shape -> (4,)
+strides -> (4,)
+readonly -> False
+obj is a -> True
+len -> 4
+tolist -> [1, 2, 3, 4]
+index -> 3
+index neg -> 4
+contains -> True
+iter -> [1, 2, 3, 4]
+tobytes -> b'\x01\x00\x00\x00\x02\x00\x00\x00\x03\x00\x00\x00\x04\x00\x00\x00'
+hex -> '01000000020000000300000004000000'
+slice -> [2, 3]
+slice step -> [1, 3]
+after set (array) -> [1, 20, 3, 4]
+after slice assign (array) -> [1, 200, 300, 4]
+set str -> TypeError memoryview: invalid type for format 'i'
+set float -> TypeError memoryview: invalid type for format 'i'
+set overflow -> ValueError memoryview: invalid value for format 'i'
+b set 300 -> ValueError memoryview: invalid value for format 'b'
+B set -1 -> ValueError memoryview: invalid value for format 'B'
+H set big -> ValueError memoryview: invalid value for format 'H'
+d set int -> ok [7.0]
+d set str -> TypeError memoryview: invalid type for format 'd'
+slice bytes -> ValueError memoryview assignment: lvalue and rvalue have different structures
+d tolist -> [1.5, 2.5, 3.5]
+f tolist -> [1.5, 2.5]
+Q big -> [9223372036854775813]
+l signed -> [-7, 7]
+h signed -> [-100, 100]
+H unsigned -> [65535, 0]
+B bytes -> [1, 254]
+empty -> []
+empty nbytes -> 0
+cast bytes -> [1684234849]
+== exception:
+== stderr:
