@@ -217,19 +217,29 @@ func loadState(self objects.Object) (*mtStateObject, error) {
 
 func buildRandomClass() (objects.Object, error) {
 	slots := objects.NewTuple([]objects.Object{objects.NewStr(rndStateSlot)})
+	// Every method registers with arity -1 and checks its own count, so the
+	// messages read like CPython's Argument Clinic rather than the generic
+	// "takes N positional arguments" wording.
+	initM := objects.NewMethod("__init__", -1, randomInit)
+	randomM := objects.NewMethod("random", -1, randomRandom)
+	seedM := objects.NewMethod("seed", -1, randomSeed)
+	bitsM := objects.NewMethod("getrandbits", -1, randomGetrandbits)
+	getstateM := objects.NewMethod("getstate", -1, randomGetstate)
+	setstateM := objects.NewMethod("setstate", -1, randomSetstate)
+	// _random is a C type, so a stray keyword reports under the module-qualified
+	// name its clinic uses. The methods qualify to Random.NAME; __init__ reports
+	// the bare type name the way "Random() takes no keyword arguments" does.
+	objects.QualifyBuiltin(initM, "Random")
+	objects.QualifyBuiltin(randomM, "Random.random")
+	objects.QualifyBuiltin(seedM, "Random.seed")
+	objects.QualifyBuiltin(bitsM, "Random.getrandbits")
+	objects.QualifyBuiltin(getstateM, "Random.getstate")
+	objects.QualifyBuiltin(setstateM, "Random.setstate")
 	names := []string{
 		"__slots__", "__init__",
 		"random", "seed", "getrandbits", "getstate", "setstate",
 	}
-	vals := []objects.Object{
-		slots,
-		objects.NewMethod("__init__", -1, randomInit),
-		objects.NewMethod("random", 1, randomRandom),
-		objects.NewMethod("seed", -1, randomSeed),
-		objects.NewMethod("getrandbits", 2, randomGetrandbits),
-		objects.NewMethod("getstate", 1, randomGetstate),
-		objects.NewMethod("setstate", 2, randomSetstate),
-	}
+	vals := []objects.Object{slots, initM, randomM, seedM, bitsM, getstateM, setstateM}
 	return objects.NewClass("Random", "_random.Random", nil, names, vals, nil, nil)
 }
 
@@ -248,7 +258,7 @@ func initRandom(m *objects.Module) error {
 func randomInit(args []objects.Object) (objects.Object, error) {
 	if len(args) > 2 {
 		return nil, objects.Raise(objects.TypeError,
-			"Random() takes at most 1 argument (%d given)", len(args)-1)
+			"Random expected at most 1 argument, got %d", len(args)-1)
 	}
 	var arg objects.Object
 	if len(args) == 2 {
@@ -266,7 +276,7 @@ func randomInit(args []objects.Object) (objects.Object, error) {
 func randomSeed(args []objects.Object) (objects.Object, error) {
 	if len(args) > 2 {
 		return nil, objects.Raise(objects.TypeError,
-			"seed() takes at most 1 argument (%d given)", len(args)-1)
+			"seed expected at most 1 argument, got %d", len(args)-1)
 	}
 	var arg objects.Object
 	if len(args) == 2 {
@@ -280,6 +290,10 @@ func randomSeed(args []objects.Object) (objects.Object, error) {
 }
 
 func randomRandom(args []objects.Object) (objects.Object, error) {
+	if len(args) != 1 {
+		return nil, objects.Raise(objects.TypeError,
+			"Random.random() takes no arguments (%d given)", len(args)-1)
+	}
 	s, err := loadState(args[0])
 	if err != nil {
 		return nil, err
@@ -291,16 +305,24 @@ func randomRandom(args []objects.Object) (objects.Object, error) {
 // bignum comes out with the same bit layout CPython produces. k == 0 yields 0
 // and a negative k is a ValueError, both matching 3.14.
 func randomGetrandbits(args []objects.Object) (objects.Object, error) {
-	k, ok := objects.AsInt(args[1])
+	if len(args) != 2 {
+		return nil, objects.Raise(objects.TypeError,
+			"Random.getrandbits() takes exactly one argument (%d given)", len(args)-1)
+	}
+	// CPython's clinic reads k as a uint64_t, so a negative int is a ValueError
+	// and anything past 2**64-1 an OverflowError, both reported before the count
+	// is even looked at.
+	bits, ok := objects.AsBigInt(args[1])
 	if !ok {
-		if objects.IsBigInt(args[1]) {
-			return nil, objects.Raise(objects.OverflowError, "number of bits is too large")
-		}
 		return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", args[1].TypeName())
 	}
-	if k < 0 {
-		return nil, objects.Raise(objects.ValueError, "number of bits must be non-negative")
+	if bits.Sign() < 0 {
+		return nil, objects.Raise(objects.ValueError, "Cannot convert negative int")
 	}
+	if bits.BitLen() > 64 {
+		return nil, objects.Raise(objects.OverflowError, "Python int too large for C uint64_t")
+	}
+	k := bits.Uint64()
 	s, err := loadState(args[0])
 	if err != nil {
 		return nil, err
@@ -314,7 +336,7 @@ func randomGetrandbits(args []objects.Object) (objects.Object, error) {
 	result := new(big.Int)
 	word := new(big.Int)
 	shift := uint(0)
-	for remaining := k; remaining > 0; remaining -= 32 {
+	for remaining := k; remaining > 0; {
 		take := uint(32)
 		if remaining < 32 {
 			take = uint(remaining)
@@ -324,6 +346,10 @@ func randomGetrandbits(args []objects.Object) (objects.Object, error) {
 		word.Lsh(word, shift)
 		result.Or(result, word)
 		shift += 32
+		if remaining < 32 {
+			break
+		}
+		remaining -= 32
 	}
 	return objects.NewIntFromBig(result), nil
 }
@@ -331,6 +357,10 @@ func randomGetrandbits(args []objects.Object) (objects.Object, error) {
 // randomGetstate returns the 624 state words plus the cursor as 625 ints, the
 // tuple random.py stows and later feeds back to setstate.
 func randomGetstate(args []objects.Object) (objects.Object, error) {
+	if len(args) != 1 {
+		return nil, objects.Raise(objects.TypeError,
+			"Random.getstate() takes no arguments (%d given)", len(args)-1)
+	}
 	s, err := loadState(args[0])
 	if err != nil {
 		return nil, err
@@ -347,6 +377,10 @@ func randomGetstate(args []objects.Object) (objects.Object, error) {
 // getstate. The words are masked to uint32 and the cursor must be 0..624, the
 // range CPython validates.
 func randomSetstate(args []objects.Object) (objects.Object, error) {
+	if len(args) != 2 {
+		return nil, objects.Raise(objects.TypeError,
+			"Random.setstate() takes exactly one argument (%d given)", len(args)-1)
+	}
 	s, err := loadState(args[0])
 	if err != nil {
 		return nil, err

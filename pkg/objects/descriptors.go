@@ -243,9 +243,14 @@ func bindBuiltinSelf(d *funcObject, self Object) Object {
 			return CallKw(d, append([]Object{self}, pos...), kwNames, kwVals)
 		})
 	}
-	return NewFunc(d.name, -1, func(args []Object) (Object, error) {
+	bound := NewFunc(d.name, -1, func(args []Object) (Object, error) {
 		return Call(d, append([]Object{self}, args...))
 	})
+	// Carry the module-qualified error name onto the bound wrapper so a stray
+	// keyword on obj.method(k=v) reports under the same name the unbound method
+	// would, e.g. "Random.getrandbits() takes no keyword arguments".
+	QualifyBuiltin(bound, d.errName)
+	return bound
 }
 
 // classGet applies the descriptor protocol to a class-dict value v resolved for

@@ -1,0 +1,22 @@
+== exit: 0
+== stdout:
+init 2 args TypeError Random expected at most 1 argument, got 2
+init kw TypeError Random() takes no keyword arguments
+random 1 TypeError Random.random() takes no arguments (1 given)
+random kw TypeError Random.random() takes no keyword arguments
+seed 2 TypeError seed expected at most 1 argument, got 2
+seed kw TypeError Random.seed() takes no keyword arguments
+getrandbits 0 TypeError Random.getrandbits() takes exactly one argument (0 given)
+getrandbits 2 TypeError Random.getrandbits() takes exactly one argument (2 given)
+getrandbits kw TypeError Random.getrandbits() takes no keyword arguments
+getrandbits neg ValueError Cannot convert negative int
+getrandbits huge OverflowError Python int too large for C uint64_t
+getrandbits float TypeError 'float' object cannot be interpreted as an integer
+getstate 1 TypeError Random.getstate() takes no arguments (1 given)
+setstate 0 TypeError Random.setstate() takes exactly one argument (0 given)
+setstate 2 TypeError Random.setstate() takes exactly one argument (2 given)
+0
+True
+True
+== exception:
+== stderr:
