@@ -1,0 +1,7 @@
+== exit: 0
+== stdout:
+imported-module func: HELLO
+undefined in module raises: NameError
+after del in module raises: NameError
+== exception:
+== stderr:

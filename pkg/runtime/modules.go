@@ -567,7 +567,11 @@ func StarImportDynamic(dst *objects.Module, srcObj objects.Object, static []stri
 
 // LoadModuleName reads a name the module's compile never saw statically: an
 // attribute an importer set on the module object after import. A miss falls
-// back to builtins and then raises NameError, the LOAD_GLOBAL order.
+// back to builtins and then raises NameError, the LOAD_GLOBAL order. The
+// fallback also consults the live builtins module, so a name injected into it at
+// runtime (the _ and gettext family that gettext.install writes into
+// builtins.__dict__) resolves from inside an imported module the same way it
+// does from the main module, matching CPython's __builtins__ fallback.
 func LoadModuleName(m *objects.Module, name string) (objects.Object, error) {
 	if m != nil {
 		if v, ok := m.Get(name); ok {
@@ -576,6 +580,11 @@ func LoadModuleName(m *objects.Module, name string) (objects.Object, error) {
 	}
 	if f, ok := Builtin(name); ok {
 		return f, nil
+	}
+	if builtinsModule != nil {
+		if f, ok := builtinsModule.Get(name); ok {
+			return f, nil
+		}
 	}
 	return nil, nameNotDefined(name)
 }
