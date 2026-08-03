@@ -569,6 +569,14 @@ func structAlignPad(off int, code byte) int {
 	return 0
 }
 
+// structZero clears a run of pad bytes, matching CPython writing '\0' for the
+// x code and native alignment gaps rather than leaving the buffer's old bytes.
+func structZero(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+}
+
 // structValueCount is how many values pack consumes for an item: x consumes
 // none, s and p one, every other code its count.
 func structValueCount(it structItem) int {
@@ -604,10 +612,16 @@ func structPackInto2(f *structFormat, buf []byte, values []objects.Object) error
 	off, vi := 0, 0
 	for _, it := range f.items {
 		if f.native {
-			off += structAlignPad(off, it.code)
+			// Native alignment pad bytes are written as zero, so pack_into
+			// leaves no stale bytes from the destination buffer in the gap.
+			pad := structAlignPad(off, it.code)
+			structZero(buf[off : off+pad])
+			off += pad
 		}
 		switch it.code {
 		case 'x':
+			// Explicit pad bytes are zeroed the same way.
+			structZero(buf[off : off+it.count])
 			off += it.count
 		case 's':
 			if err := packBytesField(buf, off, it.count, values[vi], false); err != nil {
@@ -782,7 +796,7 @@ func structUnpack(f *structFormat, o objects.Object) (objects.Object, error) {
 	if len(b) != f.size {
 		return nil, structErrorf("unpack requires a buffer of %d bytes", f.size)
 	}
-	vals, err := structUnpackAt(f, b, 0)
+	vals, err := structUnpackAt(f, b)
 	if err != nil {
 		return nil, err
 	}
@@ -803,7 +817,7 @@ func structUnpackFrom(f *structFormat, o objects.Object, off int) (objects.Objec
 		return nil, structErrorf("unpack_from requires a buffer of at least %d bytes for unpacking %d bytes at offset %d (actual buffer size is %d)",
 			off+f.size, f.size, off, len(b))
 	}
-	vals, err := structUnpackAt(f, b, off)
+	vals, err := structUnpackAt(f, b[off:off+f.size])
 	if err != nil {
 		return nil, err
 	}
@@ -825,7 +839,7 @@ func structIterUnpack(f *structFormat, o objects.Object) (objects.Object, error)
 	}
 	var records []objects.Object
 	for off := 0; off < len(b); off += f.size {
-		vals, err := structUnpackAt(f, b, off)
+		vals, err := structUnpackAt(f, b[off:off+f.size])
 		if err != nil {
 			return nil, err
 		}
@@ -834,8 +848,13 @@ func structIterUnpack(f *structFormat, o objects.Object) (objects.Object, error)
 	return objects.NewList(records), nil
 }
 
-// structUnpackAt reads one record's values starting at off.
-func structUnpackAt(f *structFormat, b []byte, off int) ([]objects.Object, error) {
+// structUnpackAt reads one record's values from b, which must be exactly the
+// format's size. Native alignment padding is measured from the record's own
+// start, so callers slice the record out of the larger buffer rather than
+// passing an absolute offset; measuring the pad on an absolute buffer offset
+// would walk the cursor past the record and read out of range.
+func structUnpackAt(f *structFormat, b []byte) ([]objects.Object, error) {
+	off := 0
 	var out []objects.Object
 	for _, it := range f.items {
 		if f.native {
