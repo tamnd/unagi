@@ -137,7 +137,6 @@ func initMath(m *objects.Module) error {
 		{"log", mathLog},
 		{"atan2", mathAtan2},
 		{"copysign", mathCopysign},
-		{"nextafter", mathNextafter},
 		{"ulp", mathUlp},
 		{"fmod", mathFmod},
 		{"remainder", mathRemainder},
@@ -176,6 +175,10 @@ func initMath(m *objects.Module) error {
 	}
 	// isclose carries the keyword-only rel_tol and abs_tol tolerances.
 	if err := set("isclose", objects.NewFuncKw("isclose", mathIsclose)); err != nil {
+		return err
+	}
+	// nextafter carries the keyword-only steps count.
+	if err := set("nextafter", objects.NewFuncKw("nextafter", mathNextafter)); err != nil {
 		return err
 	}
 	return nil
@@ -400,19 +403,90 @@ func mathCopysign(args []objects.Object) (objects.Object, error) {
 
 // mathNextafter returns the next representable float after x towards y. It is an
 // exact IEEE operation, so the result is bit-identical to CPython.
-func mathNextafter(args []objects.Object) (objects.Object, error) {
-	if len(args) != 2 {
-		return nil, objects.Raise(objects.TypeError, "nextafter() takes exactly 2 positional arguments (%d given)", len(args))
+// mathNextafter implements math.nextafter(x, y, /, *, steps=None): the float
+// the given number of steps after x towards y. x and y are positional-only and
+// steps is keyword-only, defaulting to one step. Following CPython, steps must
+// be an integer, a negative one is a ValueError, and a count past 2**64-1 is
+// clamped, after which the walk is done directly on the IEEE-754 bit patterns.
+func mathNextafter(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if total := len(pos) + len(kwNames); total > 3 {
+		return nil, objects.Raise(objects.TypeError, "nextafter() takes at most 3 arguments (%d given)", total)
 	}
-	x, err := mathToFloat(args[0])
+	if len(pos) != 2 {
+		return nil, objects.Raise(objects.TypeError, "nextafter() takes exactly 2 positional arguments (%d given)", len(pos))
+	}
+	x, err := mathToFloat(pos[0])
 	if err != nil {
 		return nil, err
 	}
-	y, err := mathToFloat(args[1])
+	y, err := mathToFloat(pos[1])
 	if err != nil {
 		return nil, err
 	}
-	return objects.NewFloat(math.Nextafter(x, y)), nil
+	var steps objects.Object
+	for i, k := range kwNames {
+		if k != "steps" {
+			return nil, objects.Raise(objects.TypeError, "nextafter() got an unexpected keyword argument '%s'", k)
+		}
+		steps = kwVals[i]
+	}
+	// The default and an explicit None both mean a single step.
+	if steps == nil || steps == objects.None {
+		return objects.NewFloat(math.Nextafter(x, y)), nil
+	}
+	n, ok := objects.AsBigInt(steps)
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", steps.TypeName())
+	}
+	if n.Sign() < 0 {
+		return nil, objects.Raise(objects.ValueError, "steps must be a non-negative integer")
+	}
+	// A double and a uint64 share their bit width, so an int at or past the
+	// uint64 ceiling saturates to it.
+	usteps := uint64(math.MaxUint64)
+	if n.IsUint64() && n.Uint64() != math.MaxUint64 {
+		usteps = n.Uint64()
+	}
+	if usteps == 0 {
+		return objects.NewFloat(x), nil
+	}
+	if math.IsNaN(x) {
+		return objects.NewFloat(x), nil
+	}
+	if math.IsNaN(y) {
+		return objects.NewFloat(y), nil
+	}
+	ux := math.Float64bits(x)
+	uy := math.Float64bits(y)
+	if ux == uy {
+		return objects.NewFloat(x), nil
+	}
+	const signBit = uint64(1) << 63
+	ax := ux &^ signBit
+	ay := uy &^ signBit
+	switch {
+	case (ux^uy)&signBit != 0:
+		// x and y straddle zero, so a walk towards y may cross it. ax + ay
+		// cannot overflow because neither has its sign bit set.
+		switch {
+		case ax+ay <= usteps:
+			return objects.NewFloat(math.Float64frombits(uy)), nil
+		case ax < usteps:
+			return objects.NewFloat(math.Float64frombits((uy & signBit) | (usteps - ax))), nil
+		default:
+			return objects.NewFloat(math.Float64frombits(ux - usteps)), nil
+		}
+	case ax > ay:
+		if ax-ay >= usteps {
+			return objects.NewFloat(math.Float64frombits(ux - usteps)), nil
+		}
+		return objects.NewFloat(math.Float64frombits(uy)), nil
+	default:
+		if ay-ax >= usteps {
+			return objects.NewFloat(math.Float64frombits(ux + usteps)), nil
+		}
+		return objects.NewFloat(math.Float64frombits(uy)), nil
+	}
 }
 
 // mathUlp returns the value of the least significant bit of x, following
