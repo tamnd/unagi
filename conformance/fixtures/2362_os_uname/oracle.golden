@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+type: uname_result
+len: 5
+fields: [True, True, True, True, True]
+named == indexed: True
+all str: True
+sysname is str: True
+sysname nonempty: True
+argcheck: TypeError
+== exception:
+== stderr:
