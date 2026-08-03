@@ -1,0 +1,32 @@
+== exit: 0
+== stdout:
+release returns -> None
+double release -> None
+len after -> ValueError operation forbidden on released memoryview object
+tolist after -> ValueError operation forbidden on released memoryview object
+index after -> ValueError operation forbidden on released memoryview object
+format after -> ValueError operation forbidden on released memoryview object
+itemsize after -> ValueError operation forbidden on released memoryview object
+nbytes after -> ValueError operation forbidden on released memoryview object
+shape after -> ValueError operation forbidden on released memoryview object
+strides after -> ValueError operation forbidden on released memoryview object
+ndim after -> ValueError operation forbidden on released memoryview object
+readonly after -> ValueError operation forbidden on released memoryview object
+obj after -> ValueError operation forbidden on released memoryview object
+tobytes after -> ValueError operation forbidden on released memoryview object
+hex after -> ValueError operation forbidden on released memoryview object
+iter after -> ValueError operation forbidden on released memoryview object
+contains after -> ValueError operation forbidden on released memoryview object
+cast after -> ValueError operation forbidden on released memoryview object
+slice after -> ValueError operation forbidden on released memoryview object
+eq after (bytes) -> False
+eq after (mv) -> False
+setitem after -> ValueError operation forbidden on released memoryview object
+hash after -> ValueError operation forbidden on released memoryview object
+enter returns -> [97, 98]
+ctx releases -> ([120, 121], 'released')
+exit returns -> None
+underlying usable -> b'Zbc'
+reopen -> [97, 98, 99]
+== exception:
+== stderr:

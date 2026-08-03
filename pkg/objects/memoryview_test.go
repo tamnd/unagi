@@ -219,6 +219,67 @@ func TestMemoryViewArrayTypedDecode(t *testing.T) {
 	}
 }
 
+func TestMemoryViewRelease(t *testing.T) {
+	m := mvOf(t, NewByteArray([]byte("abcd")))
+	got, err := memoryviewMethod(m, "release", nil)
+	if err != nil || got != None {
+		t.Fatalf("release() = %v, %v, want None, nil", got, err)
+	}
+	// release is idempotent.
+	if _, err := memoryviewMethod(m, "release", nil); err != nil {
+		t.Fatalf("second release() = %v, want nil", err)
+	}
+	// Every buffer operation now raises the released ValueError.
+	if _, err := Len(m); !isKind(err, ValueError) {
+		t.Fatalf("len after release = %v, want ValueError", err)
+	}
+	if _, err := GetItem(m, NewInt(0)); !isKind(err, ValueError) {
+		t.Fatalf("index after release = %v, want ValueError", err)
+	}
+	if err := SetItem(m, NewInt(0), NewInt(65)); !isKind(err, ValueError) {
+		t.Fatalf("store after release = %v, want ValueError", err)
+	}
+	if _, err := memoryviewLoadAttr(m, "nbytes"); !isKind(err, ValueError) {
+		t.Fatalf("attr after release = %v, want ValueError", err)
+	}
+	if _, err := memoryviewMethod(m, "tolist", nil); !isKind(err, ValueError) {
+		t.Fatalf("tolist after release = %v, want ValueError", err)
+	}
+	if _, err := memoryviewMethod(m, "cast", []Object{NewStr("i")}); !isKind(err, ValueError) {
+		t.Fatalf("cast after release = %v, want ValueError", err)
+	}
+	// Equality against a released view is unequal, not an error.
+	if equals(m, NewBytes([]byte("abcd"))) {
+		t.Fatal("released view compared equal to its old bytes")
+	}
+	if equals(NewBytes([]byte("abcd")), m) {
+		t.Fatal("bytes compared equal to a released view")
+	}
+}
+
+func TestMemoryViewContextManager(t *testing.T) {
+	m := mvOf(t, NewBytes([]byte("ab")))
+	entered, err := memoryviewMethod(m, "__enter__", nil)
+	if err != nil {
+		t.Fatalf("__enter__ = %v", err)
+	}
+	if entered != Object(m) {
+		t.Fatalf("__enter__ returned %v, want the view itself", entered)
+	}
+	got, err := memoryviewMethod(m, "__exit__", []Object{None, None, None})
+	if err != nil || got != None {
+		t.Fatalf("__exit__ = %v, %v, want None, nil", got, err)
+	}
+	// The exit released the view.
+	if _, err := Len(m); !isKind(err, ValueError) {
+		t.Fatalf("len after __exit__ = %v, want ValueError", err)
+	}
+	// __enter__ on an already-released view raises.
+	if _, err := memoryviewMethod(m, "__enter__", nil); !isKind(err, ValueError) {
+		t.Fatalf("__enter__ after release = %v, want ValueError", err)
+	}
+}
+
 func isKind(err error, kind string) bool {
 	e, ok := err.(*Exception)
 	return ok && e.Kind == kind

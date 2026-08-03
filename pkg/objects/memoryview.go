@@ -19,8 +19,9 @@ import (
 // buffer and length counts elements, so the byte span this view exposes is
 // length*itemsize wide. format is the struct code and itemsize its width: a
 // fresh view is the 'B' single-byte format, and cast() re-reads the same bytes
-// under a wider code. Multi-dimensional shapes and the release()/with lifecycle
-// are later slices.
+// under a wider code. released is set once release() or the with-statement exit
+// has torn the view down, after which every buffer operation raises. Multi
+// dimensional shapes are a later slice.
 type memoryviewObject struct {
 	base     Object
 	readonly bool
@@ -28,6 +29,13 @@ type memoryviewObject struct {
 	length   int
 	format   string
 	itemsize int
+	released bool
+}
+
+// mvReleased is the error every buffer operation raises once the view has been
+// released, the wording CPython uses for a forbidden access on a torn-down view.
+func mvReleased() error {
+	return Raise(ValueError, "operation forbidden on released memoryview object")
 }
 
 func (*memoryviewObject) TypeName() string { return "memoryview" }
@@ -89,6 +97,9 @@ func mvByteLen(m *memoryviewObject) int { return m.length * m.itemsize }
 // the shape iteration and membership walk it element by element. A typed view
 // yields ints or floats the way its format decodes.
 func mvElements(m *memoryviewObject) ([]Object, error) {
+	if m.released {
+		return nil, mvReleased()
+	}
 	out := make([]Object, m.length)
 	for i := 0; i < m.length; i++ {
 		o, err := mvDecodeObj(m, i)
@@ -152,6 +163,9 @@ func mvByteFromObj(o Object) (byte, error) {
 // decoded from itemsize bytes under the view's format, and any non-integer key
 // that is not a slice is the probed invalid-slice-key TypeError.
 func mvGetItem(m *memoryviewObject, key Object) (Object, error) {
+	if m.released {
+		return nil, mvReleased()
+	}
 	i, ok := AsInt(key)
 	if !ok {
 		return nil, Raise(TypeError, "memoryview: invalid slice key")
@@ -238,6 +252,9 @@ func mvFormatSize(format string) (int, bool) {
 // stores a whole typed element back into the array, while a byte view runs the
 // value through the format-'B' byte coercion.
 func mvSetItem(m *memoryviewObject, key, val Object) error {
+	if m.released {
+		return mvReleased()
+	}
 	if m.readonly {
 		return Raise(TypeError, "cannot modify read-only memory")
 	}
@@ -294,6 +311,9 @@ func mvArraySet(m *memoryviewObject, a *arrayObject, j int, val Object) error {
 // contiguous window to share; this tier returns a read-only copy of the picked
 // bytes, a documented divergence from CPython's strided writable view.
 func mvGetSlice(m *memoryviewObject, lo, hi, step Object) (Object, error) {
+	if m.released {
+		return nil, mvReleased()
+	}
 	start, st, n, err := sliceIndices(lo, hi, step, m.length)
 	if err != nil {
 		return nil, err
@@ -314,6 +334,9 @@ func mvGetSlice(m *memoryviewObject, lo, hi, step Object) (Object, error) {
 // exact-length bytes-like rvalue, contiguous or extended alike, and writes the
 // replacement bytes straight into the aliased base.
 func mvSetSlice(m *memoryviewObject, lo, hi, step, val Object) error {
+	if m.released {
+		return mvReleased()
+	}
 	if m.readonly {
 		return Raise(TypeError, "cannot modify read-only memory")
 	}
@@ -406,6 +429,12 @@ func mvBytesLike(o Object) ([]byte, bool) {
 		return v, true
 	}
 	if m, ok := o.(*memoryviewObject); ok {
+		// A released view no longer backs a buffer, so a consumer treats it as
+		// not bytes-like, which is how equality against one falls to unequal
+		// rather than raising.
+		if m.released {
+			return nil, false
+		}
 		return mvSpan(m), true
 	}
 	// An array reads as the raw bytes behind its buffer, the way it exposes the
@@ -424,18 +453,37 @@ func AsBufferBytes(o Object) ([]byte, bool) { return mvBytesLike(o) }
 // mvDelItem rejects element deletion: a read-only view reports read-only memory,
 // a writable one reports that memoryview does not support deletion, both probed.
 func mvDelItem(m *memoryviewObject) error {
+	if m.released {
+		return mvReleased()
+	}
 	if m.readonly {
 		return Raise(TypeError, "cannot modify read-only memory")
 	}
 	return Raise(TypeError, "cannot delete memory")
 }
 
-// memoryviewMethod dispatches the memoryview method surface covered so far:
-// tobytes, tolist and hex. release() and the context-manager protocol are a
-// later slice.
+// memoryviewMethod dispatches the memoryview method surface: tobytes, tolist,
+// hex and cast read the buffer, while release and the context-manager protocol
+// tear the view down. release() drops the buffer and is idempotent, __enter__
+// returns the view and __exit__ releases it, so a with-block frees the export on
+// the way out. A buffer read on a released view raises through the helpers.
 func memoryviewMethod(m *memoryviewObject, name string, args []Object) (Object, error) {
 	switch name {
+	case "release":
+		m.released = true
+		return None, nil
+	case "__enter__":
+		if m.released {
+			return nil, mvReleased()
+		}
+		return m, nil
+	case "__exit__":
+		m.released = true
+		return None, nil
 	case "tobytes":
+		if m.released {
+			return nil, mvReleased()
+		}
 		return NewBytes(mvSpan(m)), nil
 	case "tolist":
 		out, err := mvElements(m)
@@ -444,6 +492,9 @@ func memoryviewMethod(m *memoryviewObject, name string, args []Object) (Object, 
 		}
 		return NewList(out), nil
 	case "hex":
+		if m.released {
+			return nil, mvReleased()
+		}
 		return NewStr(hex.EncodeToString(mvSpan(m))), nil
 	case "cast":
 		return mvCast(m, args)
@@ -458,6 +509,9 @@ func memoryviewMethod(m *memoryviewObject, name string, args []Object) (Object, 
 // the new itemsize, and the result shares the root buffer so a writable view
 // still aliases.
 func mvCast(m *memoryviewObject, args []Object) (Object, error) {
+	if m.released {
+		return nil, mvReleased()
+	}
 	if len(args) != 1 {
 		return nil, Raise(TypeError, "cast() takes exactly 1 argument (%d given)", len(args))
 	}
@@ -491,6 +545,9 @@ func mvCast(m *memoryviewObject, args []Object) (Object, error) {
 // a one-dimensional contiguous unsigned-byte layout whose obj is the root
 // object the bytes live in.
 func memoryviewLoadAttr(m *memoryviewObject, name string) (Object, error) {
+	if m.released {
+		return nil, mvReleased()
+	}
 	switch name {
 	case "format":
 		return NewStr(m.format), nil
@@ -518,6 +575,9 @@ func memoryviewLoadAttr(m *memoryviewObject, name string) (Object, error) {
 // would give as a bytes object; a writable view is unhashable, the probed
 // ValueError rather than a TypeError.
 func memoryviewHash(m *memoryviewObject) (int64, error) {
+	if m.released {
+		return 0, mvReleased()
+	}
 	if !m.readonly {
 		return 0, Raise(ValueError, "cannot hash writable memoryview object")
 	}
@@ -527,5 +587,8 @@ func memoryviewHash(m *memoryviewObject) (int64, error) {
 // memoryviewRepr renders a memoryview as CPython does, with the address of the
 // view object. It is non-deterministic, so goldens avoid it.
 func memoryviewRepr(m *memoryviewObject) string {
+	if m.released {
+		return fmt.Sprintf("<released memory at 0x%012x>", reflect.ValueOf(m).Pointer())
+	}
 	return fmt.Sprintf("<memory at 0x%012x>", reflect.ValueOf(m).Pointer())
 }
