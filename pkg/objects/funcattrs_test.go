@@ -35,6 +35,33 @@ func TestFunctionSlotDefaults(t *testing.T) {
 	}
 }
 
+func TestWithFuncModule(t *testing.T) {
+	// A bare function reports __main__, the main-module default.
+	fn := mkAttrFn("f")
+	if v, err := LoadAttr(fn, "__module__"); err != nil {
+		t.Fatalf("__module__: %v", err)
+	} else if s, ok := v.(*strObject); !ok || s.v != "__main__" {
+		t.Errorf("default __module__ = %v, want __main__", v)
+	}
+	// WithFuncModule records the defining module's name, the way a def in an
+	// imported module carries that module over the default.
+	if WithFuncModule(fn, "gettext") != fn {
+		t.Fatal("WithFuncModule should return the same function")
+	}
+	if v, err := LoadAttr(fn, "__module__"); err != nil {
+		t.Fatalf("__module__ after set: %v", err)
+	} else if s, ok := v.(*strObject); !ok || s.v != "gettext" {
+		t.Errorf("__module__ = %v, want gettext", v)
+	}
+	// __module__ stays a writable slot: a later assignment overrides it.
+	if err := StoreAttr(fn, "__module__", NewStr("other")); err != nil {
+		t.Fatalf("store __module__: %v", err)
+	}
+	if v, _ := LoadAttr(fn, "__module__"); func() string { s, _ := v.(*strObject); return s.v }() != "other" {
+		t.Errorf("__module__ after reassign = %v, want other", v)
+	}
+}
+
 func TestFunctionArbitraryAttr(t *testing.T) {
 	fn := mkAttrFn("f")
 	if err := StoreAttr(fn, "tag", NewInt(7)); err != nil {

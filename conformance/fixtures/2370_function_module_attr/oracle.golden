@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+local func: __main__
+local method: __main__
+local lambda: __main__
+local class: __main__
+gettext.find: gettext
+gettext.translation: gettext
+gettext.NullTranslations: gettext
+NullTranslations.gettext: gettext
+after reassign: reassigned
+== exception:
+== stderr:
