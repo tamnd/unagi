@@ -1796,9 +1796,10 @@ scan:
 
 // strFormatLookup resolves a field name to an argument. Empty names
 // auto-number, all-digit names index the args, and anything else is a
-// named field, which without kwargs is a KeyError on the part before
-// any '.' or '[' path. Probed on 3.14: "{a.b}".format() is
-// KeyError: 'a' and "{0.real}" style paths are out of scope here.
+// named field, resolved through the keyword map or, under format_map,
+// the mapping object. A trailing '.attr' or '[key]' path is then walked
+// off the resolved base. Probed on 3.14: "{a.b}".format() is KeyError:
+// 'a' and "{0.real}".format(3+4j) is '3.0'.
 func strFormatLookup(name string, args []Object, kw map[string]Object, num *strFmtNumbering) (Object, error) {
 	base, path := name, ""
 	for k, r := range name {
@@ -1807,6 +1808,7 @@ func strFormatLookup(name string, args []Object, kw map[string]Object, num *strF
 			break
 		}
 	}
+	var val Object
 	var idx int
 	switch {
 	case base != "" && !strAllDigits(base):
@@ -1817,10 +1819,7 @@ func strFormatLookup(name string, args []Object, kw map[string]Object, num *strF
 		if !ok {
 			return nil, NewException(KeyError, []Object{NewStr(base)})
 		}
-		if path != "" {
-			return nil, Raise(ValueError, "unagi does not support attribute or index paths in format fields")
-		}
-		return v, nil
+		val = v
 	case base == "":
 		if num.manual {
 			return nil, Raise(ValueError,
@@ -1829,6 +1828,10 @@ func strFormatLookup(name string, args []Object, kw map[string]Object, num *strF
 		num.auto = true
 		idx = num.next
 		num.next++
+		if idx >= len(args) {
+			return nil, Raise(IndexError, "Replacement index %d out of range for positional args tuple", idx)
+		}
+		val = args[idx]
 	case strAllDigits(base):
 		if num.auto {
 			return nil, Raise(ValueError,
@@ -1841,16 +1844,69 @@ func strFormatLookup(name string, args []Object, kw map[string]Object, num *strF
 			return nil, Raise(ValueError, "Too many decimal digits in format string")
 		}
 		idx = v
+		if idx >= len(args) {
+			return nil, Raise(IndexError, "Replacement index %d out of range for positional args tuple", idx)
+		}
+		val = args[idx]
 	}
-	if idx >= len(args) {
-		return nil, Raise(IndexError, "Replacement index %d out of range for positional args tuple", idx)
+	return strFormatWalkPath(val, path)
+}
+
+// strFormatWalkPath walks the '.attr' and '[key]' chain of a field name,
+// applying getattr for a '.' step and getitem for a '[' step, matching
+// CPython's field_name_split path. A bracketed key made only of digits is
+// an integer index; any other key, a leading '-' included, is a string
+// key, so "{a[-1]}" is a string lookup that a list rejects the way CPython
+// does. An empty attribute or key is the probed ValueError.
+func strFormatWalkPath(v Object, path string) (Object, error) {
+	rs := []rune(path)
+	i, n := 0, len(rs)
+	for i < n {
+		switch rs[i] {
+		case '.':
+			i++
+			start := i
+			for i < n && rs[i] != '.' && rs[i] != '[' {
+				i++
+			}
+			attr := string(rs[start:i])
+			if attr == "" {
+				return nil, Raise(ValueError, "Empty attribute in format string")
+			}
+			nv, err := LoadAttr(v, attr)
+			if err != nil {
+				return nil, err
+			}
+			v = nv
+		case '[':
+			i++
+			start := i
+			for i < n && rs[i] != ']' {
+				i++
+			}
+			key := string(rs[start:i])
+			if i < n {
+				i++ // consume ']'
+			}
+			if key == "" {
+				return nil, Raise(ValueError, "Empty attribute in format string")
+			}
+			var kobj Object
+			if strAllDigits(key) {
+				kobj = NewIntText(key)
+			} else {
+				kobj = NewStr(key)
+			}
+			nv, err := GetItem(v, kobj)
+			if err != nil {
+				return nil, err
+			}
+			v = nv
+		default:
+			return nil, Raise(ValueError, "Only '.' or '[' may follow ']' in format string")
+		}
 	}
-	if path != "" {
-		// Deliberate rejection: attribute and index paths need
-		// getattr/getitem plumbing the compiler does not have yet.
-		return nil, Raise(ValueError, "unagi does not support attribute or index paths in format fields")
-	}
-	return args[idx], nil
+	return v, nil
 }
 
 func strAllDigits(s string) bool {

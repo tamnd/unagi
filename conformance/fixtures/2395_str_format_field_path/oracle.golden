@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+3,4
+3+4
+200
+grid
+10/30
+20
+4
+3.0:4.0
+2.0
+neg key on list RAISES TypeError list indices must be integers or slices, not str
+index oob RAISES IndexError list index out of range
+missing attr RAISES AttributeError 'int' object has no attribute 'nope'
+missing key RAISES KeyError 'absent'
+empty attr RAISES ValueError Empty attribute in format string
+empty key RAISES ValueError Empty attribute in format string
+== exception:
+== stderr:

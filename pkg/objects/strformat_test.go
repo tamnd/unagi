@@ -100,12 +100,21 @@ func TestStrFormatNamedFields(t *testing.T) {
 		{"named attr path", "{a.b}", nil, "", "KeyError: 'a'"},
 		{"named index path", "{a[0]}", nil, "", "KeyError: 'a'"},
 		{"named after auto", "{}{a}", []Object{NewInt(1)}, "", "KeyError: 'a'"},
-		// Deliberate divergence: CPython resolves {0.real} to 1 and
-		// {0[1]} to the element; unagi rejects field paths outright.
-		{"positional attr path", "{0.real}", []Object{NewInt(1)}, "",
-			"ValueError: unagi does not support attribute or index paths in format fields"},
-		{"positional index path", "{0[1]}", []Object{L(NewInt(1), NewInt(2))}, "",
-			"ValueError: unagi does not support attribute or index paths in format fields"},
+		// A positional field walks its '.attr' and '[key]' path off the
+		// resolved argument: {0.real} reads the attribute, {0[1]} the item.
+		{"positional attr path", "{0.real}", []Object{NewInt(1)}, "1", ""},
+		{"positional index path", "{0[1]}", []Object{L(NewInt(1), NewInt(2))}, "2", ""},
+		// A bracket key of only digits indexes; a '-' makes it a string key
+		// the list rejects, and an out-of-range index raises IndexError.
+		{"index string key on list", "{0[-1]}", []Object{L(NewInt(1), NewInt(2))}, "",
+			"TypeError: list indices must be integers or slices, not str"},
+		{"index out of range", "{0[9]}", []Object{L(NewInt(1))}, "",
+			"IndexError: list index out of range"},
+		// Empty attribute and empty key share CPython's wording.
+		{"empty attr", "{0.}", []Object{NewInt(1)}, "",
+			"ValueError: Empty attribute in format string"},
+		{"empty key", "{0[]}", []Object{L(NewInt(1))}, "",
+			"ValueError: Empty attribute in format string"},
 	})
 }
 
