@@ -370,12 +370,13 @@ func excMethod(e *Exception, name string, args []Object) (Object, error) {
 		// BaseException.with_traceback(tb) sets self.__traceback__ and returns
 		// self, the form `raise exc.with_traceback(tb)` and unittest's
 		// _AssertRaisesContext.__exit__ (`self.exception = exc.with_traceback(None)`)
-		// use. unagi models no first-class traceback object, so __traceback__ stays
-		// None; the tb argument is accepted and dropped and self is returned, which
-		// is all a caller that stores or re-raises the result observes.
+		// use. The stored value overrides the frame-projected __traceback__, so a
+		// later read hands back exactly what was set, including None.
 		if len(args) != 1 {
 			return nil, Raise(TypeError, "with_traceback() takes exactly one argument (%d given)", len(args))
 		}
+		e.TBSet = true
+		e.TB = args[0]
 		return e, nil
 	}
 	if name != "add_note" {
@@ -413,9 +414,20 @@ func excLoadAttr(e *Exception, name string) (Object, error) {
 	case "__suppress_context__":
 		return NewBool(e.SuppressContext), nil
 	case "__traceback__":
-		// unagi does not model a first-class traceback object; a fresh
-		// exception's __traceback__ is None in CPython too, and this is the
-		// documented stand-in for a caught one.
+		// An explicit with_traceback wins, verbatim. Otherwise the recorded
+		// frames project into a first-class traceback chain the traceback module
+		// walks; a frameless exception (freshly constructed, never raised) reads
+		// back None the way CPython's does before it propagates.
+		if e.TBSet {
+			return e.TB, nil
+		}
+		if len(e.Frames) > 0 {
+			if e.tbCache == nil || e.tbCacheN != len(e.Frames) {
+				e.tbCache = tracebackFromFrames(e.Frames)
+				e.tbCacheN = len(e.Frames)
+			}
+			return e.tbCache, nil
+		}
 		return None, nil
 	case "__notes__":
 		// __notes__ exists only after add_note; a never-noted exception

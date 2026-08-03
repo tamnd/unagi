@@ -263,6 +263,8 @@ func reprCore(o Object, strict bool) (string, error) {
 		return frameRepr(x), nil
 	case *codeObject:
 		return codeRepr(x), nil
+	case *tracebackObject:
+		return tracebackRepr(x), nil
 	case *listObject:
 		return reprSeqCore(x.elts, "[", "]", strict)
 	case *dequeObject:

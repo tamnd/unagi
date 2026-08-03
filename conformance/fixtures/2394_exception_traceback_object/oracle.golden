@@ -1,0 +1,20 @@
+== exit: 0
+== stdout:
+tb is None: False
+type: traceback
+extract: <module> 19 caller()
+extract: caller 15 f()
+extract: f 11 g()
+extract: g 7 raise ValueError("boom")
+walk: main.py <module> <module> 19
+walk: main.py caller caller 15
+walk: main.py f f 11
+walk: main.py g g 7
+depth: 4
+cached identity: True
+exc_info frames: 4
+fresh: None
+with_traceback returns self: True
+override None: None
+== exception:
+== stderr:
