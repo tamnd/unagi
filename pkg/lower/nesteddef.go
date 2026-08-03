@@ -35,7 +35,7 @@ func (f *fnCtx) nestedDef(s *frontend.FuncDef) error {
 			return nil, err
 		}
 		return f.withAnnotations(
-			f.e.withDoc(callExpr(f.e.obj("NewFunctionT"), strLit(qual), f.e.paramSpecLit(s.Params), dfltsExpr, impl), s.Body),
+			f.e.withFirstLine(f.e.withDoc(callExpr(f.e.obj("NewFunctionT"), strLit(qual), f.e.paramSpecLit(s.Params), dfltsExpr, impl), s.Body), s.Pos_.Line),
 			s.Params, s.Returns)
 	}
 

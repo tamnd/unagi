@@ -19,6 +19,18 @@ func WithFuncDoc(fn Object, doc string) Object {
 	return fn
 }
 
+// WithFuncFirstLine records a function's def source line so its __code__ reports
+// it as co_firstlineno, and returns the function so a def or method emit site can
+// wrap the freshly built object the way WithFuncDoc does. It is set once at
+// definition and not a writable slot, matching CPython, where co_firstlineno is a
+// read-only code attribute.
+func WithFuncFirstLine(fn Object, line int) Object {
+	if f, ok := fn.(*functionObject); ok {
+		f.firstline = line
+	}
+	return fn
+}
+
 // funcDict returns the function __dict__, allocating it on first use so the dict
 // identity is stable across reads (f.__dict__ is f.__dict__).
 func funcDict(fn *functionObject) *dictObject {

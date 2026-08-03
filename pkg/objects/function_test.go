@@ -110,6 +110,38 @@ func TestFuncObjectRejectsKeywords(t *testing.T) {
 	}
 }
 
+// TestFunctionCodeFirstLine checks __code__.co_firstlineno reports the def line
+// a def emit site recorded through WithFuncFirstLine, and stays 0 for a function
+// built with no line (the native module functions). Probed on 3.14: co_firstlineno
+// is the line the def header sits on and is read-only.
+func TestFunctionCodeFirstLine(t *testing.T) {
+	firstLine := func(fn Object) int64 {
+		code, err := LoadAttr(fn, "__code__")
+		if err != nil {
+			t.Fatalf("__code__: %v", err)
+		}
+		v, err := LoadAttr(code, "co_firstlineno")
+		if err != nil {
+			t.Fatalf("co_firstlineno: %v", err)
+		}
+		n, ok := AsInt(v)
+		if !ok {
+			t.Fatalf("co_firstlineno is not an int: %v", v)
+		}
+		return n
+	}
+
+	f := echoFn("f", nil, nil)
+	if got := firstLine(f); got != 0 {
+		t.Errorf("co_firstlineno with no recorded line = %d, want 0", got)
+	}
+
+	WithFuncFirstLine(f, 42)
+	if got := firstLine(f); got != 42 {
+		t.Errorf("co_firstlineno after WithFuncFirstLine(42) = %d, want 42", got)
+	}
+}
+
 func TestFunctionIdentitySemantics(t *testing.T) {
 	f := echoFn("f", nil, nil)
 	g := echoFn("g", nil, nil)
