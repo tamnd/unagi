@@ -97,6 +97,43 @@ func TestUserExcSubclassRaisable(t *testing.T) {
 	}
 }
 
+func TestExcTypeOf(t *testing.T) {
+	// A built-in exception resolves to its registered class, the same object
+	// ExcClass returns and issubclass keys on.
+	ve, _ := ExcClass("ValueError")
+	e := NewException("ValueError", []Object{NewStr("v")})
+	if got := ExcTypeOf(e); got != ve {
+		t.Errorf("ExcTypeOf(ValueError) = %v, want the ValueError class", got)
+	}
+
+	// A user-defined exception subclass resolves to its own class object, not a
+	// bare type singleton looked up by Kind name. This is what a with statement
+	// hands __exit__ and what unittest.assertRaises checks issubclass against.
+	exc, _ := ExcClass("Exception")
+	myErr, err := newClassCore(nil, "MyError", "pkg.MyError", []Object{exc}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("build MyError: %v", err)
+	}
+	mc := myErr.(*classObject)
+	inst, err := Instantiate(mc, []Object{NewStr("boom")}, nil, nil)
+	if err != nil {
+		t.Fatalf("Instantiate(MyError): %v", err)
+	}
+	ue := inst.(*Exception)
+	got := ExcTypeOf(ue)
+	if got != mc {
+		t.Fatalf("ExcTypeOf(user exc) = %v, want the MyError class itself", got)
+	}
+	// The resolved type matches the class by identity and through issubclass, the
+	// two checks that failed when the Kind string alone drove the lookup.
+	if r, err := IsSubclass(got, mc); err != nil || r != True {
+		t.Errorf("issubclass(ExcTypeOf, MyError) = %v, %v", r, err)
+	}
+	if r, err := IsSubclass(got, exc); err != nil || r != True {
+		t.Errorf("issubclass(ExcTypeOf, Exception) = %v, %v", r, err)
+	}
+}
+
 func TestUserExcCustomInit(t *testing.T) {
 	// A user exception with a custom __init__ runs it against the exception
 	// itself: super().__init__ resets args, self.x stores an attribute, and a

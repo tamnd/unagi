@@ -270,7 +270,7 @@ func WithExit(exitFn objects.Object, exc error) (error, bool) {
 	et, ev := objects.None, objects.None
 	pe, _ := exc.(*objects.Exception)
 	if pe != nil {
-		et = objects.ExcType(pe.Kind)
+		et = objects.ExcTypeOf(pe)
 		ev = pe
 		// CPython runs __exit__ with the body exception as the current
 		// exception, so a raise inside it chains onto the body exception and a
@@ -316,7 +316,7 @@ func AsyncWithExit(gy objects.Yielder, aexitFn objects.Object, exc error) (error
 	et, ev := objects.None, objects.None
 	pe, _ := exc.(*objects.Exception)
 	if pe != nil {
-		et = objects.ExcType(pe.Kind)
+		et = objects.ExcTypeOf(pe)
 		ev = pe
 	}
 	coro, cerr := objects.Call(aexitFn, []objects.Object{et, ev, objects.None})

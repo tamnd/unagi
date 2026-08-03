@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+user exc_type is class: True
+user issubclass Exception: True
+user exc_type name: MyErr
+subclass issubclass base: True
+subclass exc_type name: SubErr
+builtin exc_type is ValueError: True
+builtin issubclass Exception: True
+assertRaises user match: ok
+assertRaises subclass match: ok
+assertRaises context match: ok
+exc_info type is SubErr: True
+exc_info issubclass MyErr: True
+== exception:
+== stderr:
