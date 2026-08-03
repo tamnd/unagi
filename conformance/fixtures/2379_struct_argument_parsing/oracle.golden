@@ -1,0 +1,46 @@
+== exit: 0
+== stdout:
+pack0 | TypeError | missing format argument
+unpack3 | TypeError | unpack expected 2 arguments, got 3
+unpack1 | TypeError | unpack expected 2 arguments, got 1
+unpack0 | TypeError | unpack expected 2 arguments, got 0
+calcsize0 | TypeError | _struct.calcsize() takes exactly one argument (0 given)
+calcsize2 | TypeError | _struct.calcsize() takes exactly one argument (2 given)
+iter_unpack1 | TypeError | iter_unpack expected 2 arguments, got 1
+iter_unpack3 | TypeError | iter_unpack expected 2 arguments, got 3
+pack_into0 | TypeError | missing format argument
+pack_into1 | error | pack_into expected buffer argument
+pack_into2 | error | pack_into expected offset argument
+unpack_from0 | TypeError | unpack_from() takes at least 1 positional argument (0 given)
+unpack_from1 | TypeError | unpack_from() missing required argument 'buffer' (pos 2)
+unpack_from4 | TypeError | unpack_from() takes at most 3 arguments (4 given)
+s.unpack0 | TypeError | Struct.unpack() takes exactly one argument (0 given)
+s.unpack2 | TypeError | Struct.unpack() takes exactly one argument (2 given)
+s.iter_unpack0 | TypeError | Struct.iter_unpack() takes exactly one argument (0 given)
+s.iter_unpack2 | TypeError | Struct.iter_unpack() takes exactly one argument (2 given)
+s.pack_into0 | error | pack_into expected buffer argument
+s.pack_into1 | error | pack_into expected offset argument
+s.unpack_from0 | TypeError | unpack_from() missing required argument 'buffer' (pos 1)
+s.unpack_from3 | TypeError | unpack_from() takes at most 2 arguments (3 given)
+pack_kw | TypeError | _struct.pack() takes no keyword arguments
+unpack_kw | TypeError | _struct.unpack() takes no keyword arguments
+calcsize_kw | TypeError | _struct.calcsize() takes no keyword arguments
+iter_unpack_kw | TypeError | _struct.iter_unpack() takes no keyword arguments
+pack_into_kw | TypeError | _struct.pack_into() takes no keyword arguments
+s.unpack_kw | TypeError | Struct.unpack() takes no keyword arguments
+uf_kwbuf -> (1633837924,)
+uf_kwoff -> (1633837924,)
+uf_kwboth -> (1633837924,)
+s.uf_kwbuf -> (1633837924,)
+s.uf_kwboth -> (1633837924,)
+uf_dupbuf | TypeError | argument for unpack_from() given by name ('buffer') and position (2)
+uf_badkw | TypeError | unpack_from() got an unexpected keyword argument 'bogus'
+uf_badoff | TypeError | 'str' object cannot be interpreted as an integer
+uf_offkw_badtype | TypeError | 'str' object cannot be interpreted as an integer
+s.uf_dupbuf | TypeError | argument for unpack_from() given by name ('buffer') and position (1)
+pack_ok -> 00000001
+unpack_ok -> (5,)
+unpack_from_ok -> (7,)
+pack_into_ok -> 0000000900000000
+== exception:
+== stderr:
