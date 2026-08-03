@@ -16,6 +16,14 @@ func TestReversed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	arr, err := objects.NewArray(s("i"), newList(i(10), i(20), i(30)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mv, err := objects.NewMemoryView(objects.NewBytes([]byte("abc")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
 		name     string
 		in       objects.Object
@@ -30,6 +38,13 @@ func TestReversed(t *testing.T) {
 		{"str", s("abc"), "reversed", "'c','b','a'", ""},
 		{"range", objects.NewRange(1, 10, 2), "range_iterator", "9,7,5,3,1", ""},
 		{"dict", d, "dict_reversekeyiterator", "'b','a'", ""},
+		// array and the buffer sequences reverse over the len+getitem
+		// protocol, giving a plain reversed iterator over their items.
+		{"array", arr, "reversed", "30,20,10", ""},
+		{"array-empty", func() objects.Object { a, _ := objects.NewArray(s("i"), newList()); return a }(), "reversed", "", ""},
+		{"bytes", objects.NewBytes([]byte("abc")), "reversed", "99,98,97", ""},
+		{"bytearray", objects.NewByteArray([]byte("abc")), "reversed", "99,98,97", ""},
+		{"memoryview", mv, "reversed", "99,98,97", ""},
 		{"set", st, "", "", "TypeError: 'set' object is not reversible"},
 		{"int", i(5), "", "", "TypeError: 'int' object is not reversible"},
 	}
