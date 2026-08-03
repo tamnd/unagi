@@ -2,6 +2,43 @@ package objects
 
 import "testing"
 
+func TestExcMessageLineModuleQualified(t *testing.T) {
+	// The traceback type name qualifies a user exception with its __module__
+	// (decimal.InvalidOperation) unless the module is builtins or __main__, where
+	// the bare __qualname__ shows. A built-in exception carries no Class and
+	// reads back its bare Kind.
+	base, _ := ExcClass("Exception")
+	userClass := func(module, qual string) *classObject {
+		var names []string
+		var vals []Object
+		if module != "" {
+			names = []string{"__module__"}
+			vals = []Object{NewStr(module)}
+		}
+		c, err := newClassCore(nil, "E", qual, []Object{base}, names, vals, nil, nil)
+		if err != nil {
+			t.Fatalf("build class %q: %v", qual, err)
+		}
+		return c.(*classObject)
+	}
+	cases := []struct {
+		name string
+		exc  *Exception
+		want string
+	}{
+		{"imported", &Exception{Kind: "E", Args: []Object{NewStr("boom")}, Class: userClass("mypkg", "mypkg.E")}, "mypkg.E: boom"},
+		{"imported nested", &Exception{Kind: "Inner", Args: []Object{NewStr("boom")}, Class: userClass("mypkg", "mypkg.Outer.Inner")}, "mypkg.Outer.Inner: boom"},
+		{"main", &Exception{Kind: "E", Args: []Object{NewStr("boom")}, Class: userClass("__main__", "__main__.E")}, "E: boom"},
+		{"builtins module", &Exception{Kind: "E", Args: []Object{NewStr("boom")}, Class: userClass("builtins", "builtins.E")}, "E: boom"},
+		{"builtin exc", &Exception{Kind: "ValueError", Args: []Object{NewStr("boom")}}, "ValueError: boom"},
+	}
+	for _, tc := range cases {
+		if got := ExcMessageLine(tc.exc); got != tc.want {
+			t.Errorf("%s: ExcMessageLine = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestExcClassHierarchy(t *testing.T) {
 	// Every built-in exception name resolves to a class object whose MRO mirrors
 	// the base table, so it can be subclassed and matched like a user class.

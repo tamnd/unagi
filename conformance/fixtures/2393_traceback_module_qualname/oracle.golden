@@ -1,0 +1,12 @@
+== exit: 1
+== stdout:
+== exception:
+errs.Outer.Inner: imported nested gets the prefix
+  main.py:19 <module>
+context:
+LocalError: main stays bare
+  main.py:17 <module>
+context:
+ValueError: builtin stays bare
+  main.py:15 <module>
+== stderr:
