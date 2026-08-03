@@ -46,6 +46,18 @@ func WithFuncModule(fn Object, name string) Object {
 	return fn
 }
 
+// WithFuncModuleObj is the variant used when the defining module reassigned
+// __name__ (as _pydecimal does for pickling): the def's __module__ takes the
+// live __name__ value the compiler's `__module__ = __name__` would read rather
+// than the compile-time module name. A nil value (a __name__ that was deleted)
+// leaves the slot at its __main__ default the way an unset slot reads.
+func WithFuncModuleObj(fn Object, name Object) Object {
+	if f, ok := fn.(*functionObject); ok && name != nil {
+		f.overlay().module = name
+	}
+	return fn
+}
+
 // funcDict returns the function __dict__, allocating it on first use so the dict
 // identity is stable across reads (f.__dict__ is f.__dict__).
 func funcDict(fn *functionObject) *dictObject {

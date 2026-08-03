@@ -339,6 +339,12 @@ func (e *emitter) withFirstLine(obj ast.Expr, line int) ast.Expr {
 // or vendored module needs the explicit name, which is what
 // test.support.check__all__ matches to detect a module's public functions.
 func (e *emitter) withModule(obj ast.Expr) ast.Expr {
+	if e.moduleVars["__name__"] {
+		// The module reassigned __name__ (as _pydecimal does for pickling), so
+		// __module__ must read the live value the same way the compiler's
+		// `__module__ = __name__` does, even in the main module.
+		return callExpr(e.obj("WithFuncModuleObj"), obj, ident(mangle("__name__")))
+	}
 	if e.modName == "" || e.modName == "__main__" {
 		return obj
 	}

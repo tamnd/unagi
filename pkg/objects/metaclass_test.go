@@ -1,12 +1,17 @@
 package objects
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // buildClass drives the ClassBuilder the way a lowered class statement does:
 // StartClass, one Set per body binding, Finish. It keeps these tests on the
-// ordered name/value shape they assert against.
+// ordered name/value shape they assert against. Callers pass the module-prefixed
+// qual, which StartClass now takes split into the __main__ module name and the
+// bare qualname suffix.
 func buildClass(meta Object, name, qual string, bases []Object, names []string, vals []Object, kwNames []string, kwVals []Object) (Object, error) {
-	b, err := StartClass(meta, "__main__", name, qual, 1, nil, bases, kwNames, kwVals)
+	b, err := StartClass(meta, NewStr("__main__"), name, strings.TrimPrefix(qual, "__main__."), 1, nil, bases, kwNames, kwVals)
 	if err != nil {
 		return nil, err
 	}

@@ -152,6 +152,15 @@ func (f *fnCtx) classDef(s *frontend.ClassDef) error {
 // binds through the enclosing builder. It emits the StartClass, body and Finish
 // statements into the current function, so a nested class's build runs inline in
 // source order inside its enclosing class body.
+// moduleNameExpr yields the class header's module name, the value the class
+// body's `__module__ = __name__` reads. It folds to the compile-time module
+// name in the common case and reads the live __name__ variable when the module
+// reassigned it (as _pydecimal does for pickling), so a class reports the
+// reassigned name the way CPython does.
+func (f *fnCtx) moduleNameExpr() (ast.Expr, error) {
+	return f.expr(&frontend.Name{Id: "__name__"})
+}
+
 func (f *fnCtx) classValue(s *frontend.ClassDef) (ast.Expr, error) {
 	// A nested class keys its emitted method names off the qualified classOrd
 	// key collectClasses registered; a top-level class keys off its plain name.
@@ -214,12 +223,16 @@ func (f *fnCtx) classValue(s *frontend.ClassDef) (ast.Expr, error) {
 		// StartClass runs metaclass determination and __prepare__, both
 		// fallible, and hands back the builder every body binding writes
 		// through.
+		moduleExpr, err := f.moduleNameExpr()
+		if err != nil {
+			return nil, err
+		}
 		bld := f.tmpVar()
 		f.fallible(bld, f.e.obj("StartClass"),
 			metaArg,
-			strLit(f.e.modName),
+			moduleExpr,
 			strLit(s.Name),
-			strLit(f.e.modName+"."+key),
+			strLit(key),
 			intLit(strconv.Itoa(s.Span().Line)),
 			docExpr,
 			f.objSlice(baseArgs),
@@ -420,12 +433,16 @@ func (f *fnCtx) classValueLocal(s *frontend.ClassDef, qual string) (ast.Expr, er
 		}
 	}
 
+	moduleExpr, err := f.moduleNameExpr()
+	if err != nil {
+		return nil, err
+	}
 	bld := f.tmpVar()
 	f.fallible(bld, f.e.obj("StartClass"),
 		metaArg,
-		strLit(f.e.modName),
+		moduleExpr,
 		strLit(s.Name),
-		strLit(f.e.modName+"."+qual),
+		strLit(qual),
 		intLit(strconv.Itoa(s.Span().Line)),
 		docExpr,
 		f.objSlice(baseArgs),
