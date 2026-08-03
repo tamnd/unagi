@@ -149,6 +149,14 @@ func (f *fnCtx) expr(e frontend.Expr) (ast.Expr, error) {
 			// it anywhere in scope makes it an ordinary variable handled above.
 			return callExpr(f.e.obj("NewStr"), strLit(f.e.modName)), nil
 		}
+		if e.Id == "__file__" {
+			// __file__ folds to the module's source path the way __name__ folds
+			// to its name. AOT bakes the compile-time path, which is where a
+			// program reading os.path.dirname(__file__) finds its sibling data.
+			// An assignment to it anywhere in scope makes it an ordinary variable
+			// handled above.
+			return callExpr(f.e.obj("NewStr"), strLit(f.e.file)), nil
+		}
 		if sing, ok := descriptorBuiltins[e.Id]; ok {
 			// staticmethod, classmethod, and property resolve to their builtin
 			// constructor objects, so they work as decorators and as direct

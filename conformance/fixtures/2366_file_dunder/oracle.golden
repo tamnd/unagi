@@ -1,0 +1,9 @@
+== exit: 0
+== stdout:
+is str: True
+basename: main.py
+in globals: True
+same inside func: True
+sibling leaf: data.txt
+== exception:
+== stderr:

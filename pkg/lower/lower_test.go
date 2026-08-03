@@ -269,6 +269,22 @@ func TestBuiltinReadAsValueLowering(t *testing.T) {
 // Reading globals as a value (timeit's `_globals = globals`) resolves to the
 // builtin object and makes main bind the module namespace onto __main__, so the
 // aliased call reads the same live storage the in-place globals() call does.
+// __file__ folds to the module's compile-time source path, the way __name__
+// folds to the module name, and it folds the same in a function body rather than
+// deferring to a runtime lookup that would raise NameError.
+func TestFileDunderFoldsToSourcePath(t *testing.T) {
+	got, err := lowerSrc(t, "print(__file__)\n\ndef where():\n    return __file__\n")
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	if n := strings.Count(got, `objects.NewStr("gen.py")`); n < 2 {
+		t.Errorf("__file__ folded to the source path %d times, want the module and function reads both:\n%s", n, got)
+	}
+	if strings.Contains(got, `LoadName(nil, "__file__")`) {
+		t.Errorf("__file__ read deferred to a NameError lookup instead of folding:\n%s", got)
+	}
+}
+
 func TestGlobalsReadAsValueMaterializesModule(t *testing.T) {
 	got, err := lowerSrc(t, "M = 1\ng = globals\nprint(g())\n")
 	if err != nil {
