@@ -821,6 +821,8 @@ func (lx *lexer) lexEscape(strPos Pos, sb *strings.Builder, warned *bool) {
 	case 'U':
 		lx.adv()
 		writeEscapedRune(sb, lx.unicodeEscape(escPos, 8, `\U`))
+	case 'N':
+		lx.namedEscape(escPos, sb, warned)
 	case '\n', '\r':
 		// A backslash before the newline joins the physical lines.
 		lx.consumeNewline()
@@ -854,6 +856,55 @@ func (lx *lexer) unicodeEscape(escPos Pos, width int, kind string) rune {
 		lx.err(escPos, "invalid %s escape", kind)
 	}
 	return rune(v)
+}
+
+// NamedUnicodeLookup resolves a \N{NAME} escape to the string it names, using
+// the pinned Unicode character-name database. The database (explicit names, the
+// algorithmic name ranges, the aliases and named sequences) lives in the runtime
+// package, which imports this one, so pkg/frontend stays a leaf and cannot pull
+// the tables in directly. The runtime wires this up in its init; when it is unset
+// (the frontend built without the runtime linked) a \N escape is left as an
+// unknown escape, the way any other unrecognised backslash sequence is.
+var NamedUnicodeLookup func(name string) (string, bool)
+
+// namedEscape handles a \N{NAME} escape. The backslash and N are already
+// consumed; the cursor sits on N. It reads the braced name, looks it up through
+// NamedUnicodeLookup and writes the resolved string. A missing brace, an empty or
+// unterminated name is the "malformed \N character escape" SyntaxError CPython
+// raises, and a name the database does not know is "unknown Unicode character
+// name". With no lookup wired in, the escape falls back to the unknown-escape
+// handling so a leaf build of the lexer still tokenises.
+func (lx *lexer) namedEscape(escPos Pos, sb *strings.Builder, warned *bool) {
+	lx.adv() // N
+	if NamedUnicodeLookup == nil {
+		if !*warned {
+			*warned = true
+			lx.escWarns = append(lx.escWarns, EscapeWarning{Line: escPos.Line, Col: escPos.Col, Char: "N"})
+		}
+		sb.WriteString(`\N`)
+		return
+	}
+	if lx.ch() != '{' {
+		lx.err(escPos, `malformed \N character escape`)
+	}
+	lx.adv() // {
+	nameStart := lx.off
+	for lx.ch() != '}' {
+		if c := lx.ch(); c == 0 || c == '\n' || c == '\r' {
+			lx.err(escPos, `malformed \N character escape`)
+		}
+		lx.adv()
+	}
+	name := string(lx.src[nameStart:lx.off])
+	lx.adv() // }
+	if name == "" {
+		lx.err(escPos, `malformed \N character escape`)
+	}
+	s, ok := NamedUnicodeLookup(name)
+	if !ok {
+		lx.err(escPos, `unknown Unicode character name`)
+	}
+	sb.WriteString(s)
 }
 
 // writeEscapedRune writes r into the string buffer, encoding a lone surrogate as
