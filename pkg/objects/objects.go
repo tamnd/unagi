@@ -280,6 +280,30 @@ type funcObject struct {
 	// to another slot still calls it with self. A plain builtin leaves this false
 	// and reads back unbound.
 	selfBound bool
+	// errName is the module-qualified name this builtin reports in its argument
+	// errors, so math.comb() reads with its module prefix the way CPython's C
+	// functions do while __name__ stays the bare name. It is empty for the
+	// builtins-module functions, which CPython leaves unqualified.
+	errName string
+}
+
+// callErrName is the name a builtin uses in its argument-error messages: the
+// module-qualified errName when one is set, else the bare __name__.
+func (fn *funcObject) callErrName() string {
+	if fn.errName != "" {
+		return fn.errName
+	}
+	return fn.name
+}
+
+// QualifyBuiltin records the module-qualified name a builtin function reports in
+// its argument errors, so math.comb() carries its module prefix the way
+// CPython's C functions do while __name__ stays the bare name. It is a no-op for
+// anything that is not a plain builtin function.
+func QualifyBuiltin(fn Object, qual string) {
+	if f, ok := fn.(*funcObject); ok {
+		f.errName = qual
+	}
 }
 
 func (*funcObject) TypeName() string { return "function" }

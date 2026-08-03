@@ -110,6 +110,15 @@ func TestFuncObjectRejectsKeywords(t *testing.T) {
 	}
 }
 
+func TestQualifyBuiltin(t *testing.T) {
+	f := NewFunc("comb", 2, func(args []Object) (Object, error) { return None, nil })
+	QualifyBuiltin(f, "math.comb")
+	_, err := CallKw(f, []Object{NewInt(1), NewInt(2)}, []string{"x"}, []Object{NewInt(3)})
+	checkErr(t, "qualified kw", err, "TypeError: math.comb() takes no keyword arguments")
+	// It is a no-op for anything that is not a plain builtin function.
+	QualifyBuiltin(NewInt(1), "math.x")
+}
+
 // TestFunctionCodeFirstLine checks __code__.co_firstlineno reports the def line
 // a def emit site recorded through WithFuncFirstLine, and stays 0 for a function
 // built with no line (the native module functions). Probed on 3.14: co_firstlineno

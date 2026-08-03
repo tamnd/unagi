@@ -1,0 +1,38 @@
+== exit: 0
+== stdout:
+comb | TypeError | math.comb() takes no keyword arguments
+perm | TypeError | math.perm() takes no keyword arguments
+gcd | TypeError | math.gcd() takes no keyword arguments
+lcm | TypeError | math.lcm() takes no keyword arguments
+factorial | TypeError | math.factorial() takes no keyword arguments
+isqrt | TypeError | math.isqrt() takes no keyword arguments
+floor | TypeError | math.floor() takes no keyword arguments
+ceil | TypeError | math.ceil() takes no keyword arguments
+trunc | TypeError | math.trunc() takes no keyword arguments
+gamma | TypeError | math.gamma() takes no keyword arguments
+lgamma | TypeError | math.lgamma() takes no keyword arguments
+hypot | TypeError | math.hypot() takes no keyword arguments
+dist | TypeError | math.dist() takes no keyword arguments
+fmod | TypeError | math.fmod() takes no keyword arguments
+remainder | TypeError | math.remainder() takes no keyword arguments
+ldexp | TypeError | math.ldexp() takes no keyword arguments
+copysign | TypeError | math.copysign() takes no keyword arguments
+atan2 | TypeError | math.atan2() takes no keyword arguments
+pow | TypeError | math.pow() takes no keyword arguments
+log | TypeError | math.log() takes no keyword arguments
+log2 | TypeError | math.log2() takes no keyword arguments
+log10 | TypeError | math.log10() takes no keyword arguments
+sqrt | TypeError | math.sqrt() takes no keyword arguments
+exp | TypeError | math.exp() takes no keyword arguments
+sin | TypeError | math.sin() takes no keyword arguments
+frexp | TypeError | math.frexp() takes no keyword arguments
+modf | TypeError | math.modf() takes no keyword arguments
+comb_name comb
+sqrt_name sqrt
+comb_qualname comb
+prod_badkw | TypeError | prod() got an unexpected keyword argument 'bogus'
+nextafter_badkw | TypeError | nextafter() got an unexpected keyword argument 'bogus'
+len_kw | TypeError | len() takes no keyword arguments
+abs_kw | TypeError | abs() takes no keyword arguments
+== exception:
+== stderr:
