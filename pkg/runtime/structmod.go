@@ -523,20 +523,54 @@ func packOne(f *structFormat, buf []byte, off int, code byte, width int, o objec
 }
 
 // packFloat writes a half, single or double precision float.
+//
+// CPython's _struct packs a value that overflows the target format by raising,
+// never by silently rounding to infinity. The message depends on the layer that
+// caught it: the float packers raise OverflowError "float too large to pack with
+// {e,f} format", but when the original argument was an int, s_pack_internal
+// rewrites that into struct.error "int too large to convert" (the same wording an
+// int too large for a double already produces on the int-to-double conversion).
 func packFloat(f *structFormat, buf []byte, off int, code byte, o objects.Object) error {
+	_, isInt := objects.AsBigInt(o)
 	v, ok := objects.AsFloat(o)
 	if !ok {
 		return structErrorf("required argument is not a float")
 	}
+	// An int too large to represent as a double fails the way PyFloat_AsDouble
+	// does before any format packing runs, and every float packer catches that
+	// and reports it as "required argument is not a float" (not the int-too-large
+	// wording, which only the format-level overflow below produces). A float
+	// infinity is a finite-format value the packers accept, so only int inputs
+	// reach this.
+	if isInt && math.IsInf(v, 0) {
+		return structErrorf("required argument is not a float")
+	}
 	switch code {
 	case 'e':
-		f.order.PutUint16(buf[off:], float16bits(v))
+		bits := float16bits(v)
+		if bits&0x7fff == 0x7c00 && !math.IsInf(v, 0) {
+			return packFloatOverflow(isInt, code)
+		}
+		f.order.PutUint16(buf[off:], bits)
 	case 'f':
+		if fv := float32(v); math.IsInf(float64(fv), 0) && !math.IsInf(v, 0) {
+			return packFloatOverflow(isInt, code)
+		}
 		f.order.PutUint32(buf[off:], math.Float32bits(float32(v)))
 	case 'd':
 		f.order.PutUint64(buf[off:], math.Float64bits(v))
 	}
 	return nil
+}
+
+// packFloatOverflow returns the error a finite value that overflows the e or f
+// format raises: struct.error "int too large to convert" when the argument was
+// an int, otherwise OverflowError "float too large to pack with {code} format".
+func packFloatOverflow(isInt bool, code byte) error {
+	if isInt {
+		return structErrorf("int too large to convert")
+	}
+	return objects.Raise(objects.OverflowError, "float too large to pack with %c format", code)
 }
 
 // packInt range-checks and writes an integer element in two's complement.
