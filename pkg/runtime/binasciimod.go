@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"fmt"
 	"hash/crc32"
 
@@ -59,6 +60,8 @@ func initBinascii(m *objects.Module) error {
 		{"a2b_uu", objects.NewFunc("a2b_uu", 1, binasciiA2bUu)},
 		{"crc32", objects.NewFunc("crc32", -1, binasciiCRC32)},
 		{"crc_hqx", objects.NewFunc("crc_hqx", 2, binasciiCRCHqx)},
+		{"a2b_qp", objects.NewFuncKw("a2b_qp", binasciiA2bQp)},
+		{"b2a_qp", objects.NewFuncKw("b2a_qp", binasciiB2aQp)},
 	}
 	for _, e := range entries {
 		if err := objects.StoreAttr(m, e.name, e.val); err != nil {
@@ -481,4 +484,231 @@ func binasciiCRCHqx(args []objects.Object) (objects.Object, error) {
 		}
 	}
 	return objects.NewInt(int64(crc)), nil
+}
+
+// qpMaxLineSize is CPython's MAXLINESIZE, the column at which b2a_qp inserts a
+// soft line break.
+const qpMaxLineSize = 76
+
+// qpToHex renders a byte as the two uppercase hex digits an =XX escape carries,
+// CPython's to_hex.
+func qpToHex(ch byte) (byte, byte) {
+	const hex = "0123456789ABCDEF"
+	return hex[ch>>4], hex[ch&0x0f]
+}
+
+// qpIsHexDigit reports whether ch is one of 0-9, A-F or a-f, the bytes an
+// =XX escape may carry.
+func qpIsHexDigit(ch byte) bool {
+	return (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F') || (ch >= 'a' && ch <= 'f')
+}
+
+// qpHexValue maps a hex digit byte to its numeric value; the callers only pass
+// bytes qpIsHexDigit already accepted.
+func qpHexValue(ch byte) byte {
+	switch {
+	case ch >= '0' && ch <= '9':
+		return ch - '0'
+	case ch >= 'a' && ch <= 'f':
+		return ch - 'a' + 10
+	default:
+		return ch - 'A' + 10
+	}
+}
+
+// binasciiA2bQp implements a2b_qp(data, header=False): decode a quoted-printable
+// block, a direct port of CPython's binascii_a2b_qp_impl. An =XX pair decodes to
+// the byte, an = before a newline is a soft break that drops the newline, and
+// with header true an underscore decodes to a space.
+func binasciiA2bQp(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if len(pos) < 1 || len(pos) > 2 {
+		return nil, objects.Raise(objects.TypeError, "a2b_qp() takes at most 2 arguments (%d given)", len(pos))
+	}
+	header := false
+	if len(pos) == 2 {
+		header = objects.Truth(pos[1])
+	}
+	for i, k := range kwNames {
+		switch k {
+		case "header":
+			header = objects.Truth(kwVals[i])
+		default:
+			return nil, objects.Raise(objects.TypeError, "a2b_qp() got an unexpected keyword argument '%s'", k)
+		}
+	}
+	data, err := binasciiData(pos[0])
+	if err != nil {
+		return nil, err
+	}
+	n := len(data)
+	var out []byte
+	in := 0
+	for in < n {
+		switch {
+		case data[in] == '=':
+			in++
+			if in >= n {
+				in = n
+				break
+			}
+			if data[in] == '\n' || data[in] == '\r' {
+				if data[in] != '\n' {
+					for in < n && data[in] != '\n' {
+						in++
+					}
+				}
+				if in < n {
+					in++
+				}
+			} else if data[in] == '=' {
+				out = append(out, '=')
+				in++
+			} else if in+1 < n && qpIsHexDigit(data[in]) && qpIsHexDigit(data[in+1]) {
+				ch := qpHexValue(data[in]) << 4
+				in++
+				ch |= qpHexValue(data[in])
+				in++
+				out = append(out, ch)
+			} else {
+				out = append(out, '=')
+			}
+		case header && data[in] == '_':
+			out = append(out, ' ')
+			in++
+		default:
+			out = append(out, data[in])
+			in++
+		}
+	}
+	return objects.NewBytes(out), nil
+}
+
+// qpNeedsQuote reports whether the byte at in must be emitted as an =XX escape,
+// the shared predicate of CPython's binascii_b2a_qp_impl (identical in its
+// measuring and writing passes).
+func qpNeedsQuote(data []byte, in, n int, header, istext, quotetabs bool, linelen int) bool {
+	c := data[in]
+	if c > 126 || c == '=' {
+		return true
+	}
+	if header && c == '_' {
+		return true
+	}
+	if c == '.' && linelen == 0 &&
+		(in+1 == n || data[in+1] == '\n' || data[in+1] == '\r' || data[in+1] == 0) {
+		return true
+	}
+	if !istext && (c == '\r' || c == '\n') {
+		return true
+	}
+	if (c == '\t' || c == ' ') && in+1 == n {
+		return true
+	}
+	if c < 33 && c != '\r' && c != '\n' && (quotetabs || (c != '\t' && c != ' ')) {
+		return true
+	}
+	return false
+}
+
+// binasciiB2aQp implements b2a_qp(data, quotetabs=False, istext=True,
+// header=False): encode a block as quoted-printable, a direct port of CPython's
+// binascii_b2a_qp_impl. Bytes outside the printable range (plus '=' and the
+// context-sensitive whitespace and leading dot) become =XX escapes, soft line
+// breaks keep lines under 76 columns, and the CRLF form is mirrored when the
+// input already uses it.
+func binasciiB2aQp(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if len(pos) < 1 || len(pos) > 4 {
+		return nil, objects.Raise(objects.TypeError, "b2a_qp() takes at most 4 arguments (%d given)", len(pos))
+	}
+	quotetabs, istext, header := false, true, false
+	if len(pos) >= 2 {
+		quotetabs = objects.Truth(pos[1])
+	}
+	if len(pos) >= 3 {
+		istext = objects.Truth(pos[2])
+	}
+	if len(pos) >= 4 {
+		header = objects.Truth(pos[3])
+	}
+	for i, k := range kwNames {
+		switch k {
+		case "quotetabs":
+			quotetabs = objects.Truth(kwVals[i])
+		case "istext":
+			istext = objects.Truth(kwVals[i])
+		case "header":
+			header = objects.Truth(kwVals[i])
+		default:
+			return nil, objects.Raise(objects.TypeError, "b2a_qp() got an unexpected keyword argument '%s'", k)
+		}
+	}
+	data, err := binasciiData(pos[0])
+	if err != nil {
+		return nil, err
+	}
+	n := len(data)
+	// crlf mirrors CPython's memchr probe: the first newline preceded by a
+	// carriage return marks the input as CRLF, so the soft breaks match its form.
+	crlf := false
+	if idx := bytes.IndexByte(data, '\n'); idx > 0 && data[idx-1] == '\r' {
+		crlf = true
+	}
+	var out []byte
+	linelen := 0
+	in := 0
+	for in < n {
+		if qpNeedsQuote(data, in, n, header, istext, quotetabs, linelen) {
+			if linelen+3 >= qpMaxLineSize {
+				out = append(out, '=')
+				if crlf {
+					out = append(out, '\r')
+				}
+				out = append(out, '\n')
+				linelen = 0
+			}
+			h1, h2 := qpToHex(data[in])
+			out = append(out, '=', h1, h2)
+			in++
+			linelen += 3
+			continue
+		}
+		if istext && (data[in] == '\n' || (in+1 < n && data[in] == '\r' && data[in+1] == '\n')) {
+			linelen = 0
+			// A space or tab immediately before a hard newline is quoted so it
+			// survives transport, CPython rewriting the already-emitted byte.
+			if len(out) > 0 && (out[len(out)-1] == ' ' || out[len(out)-1] == '\t') {
+				ch := out[len(out)-1]
+				out[len(out)-1] = '='
+				h1, h2 := qpToHex(ch)
+				out = append(out, h1, h2)
+			}
+			if crlf {
+				out = append(out, '\r')
+			}
+			out = append(out, '\n')
+			if data[in] == '\r' {
+				in += 2
+			} else {
+				in++
+			}
+			continue
+		}
+		if in+1 != n && data[in+1] != '\n' && linelen+1 >= qpMaxLineSize {
+			out = append(out, '=')
+			if crlf {
+				out = append(out, '\r')
+			}
+			out = append(out, '\n')
+			linelen = 0
+		}
+		linelen++
+		if header && data[in] == ' ' {
+			out = append(out, '_')
+			in++
+		} else {
+			out = append(out, data[in])
+			in++
+		}
+	}
+	return objects.NewBytes(out), nil
 }

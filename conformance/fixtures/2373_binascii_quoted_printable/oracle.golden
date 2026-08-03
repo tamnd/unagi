@@ -1,0 +1,33 @@
+== exit: 0
+== stdout:
+b2a plain => b'hello world'
+b2a latin1 => b'caf=E9 na=EFve'
+b2a equals => b'1=3D1 always'
+b2a space before nl => b'trail  =20\nnext'
+b2a tab before nl => b'tab=09\nnext'
+b2a leading dot => b'=2E\n.line\nmid.dot'
+b2a quotetabs => b'a=09b=20c=09d'
+b2a header spaces => b'key_=3D_value_here'
+b2a istext false => b'a=0D=0Ab=0Ac'
+b2a controls => b'x=00=01=07=1F y'
+b2a high range => b'xyz{|}~=7F=80=81=82=83=84=85=86=87'
+b2a long line wrap => b'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=\naaaaa'
+b2a long then nl => b'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz=\nzzzzzzzzzzzzzzzzzzzzzzzzz\ntail'
+b2a crlf input => b'one\r\ntwo\r\nthree'
+b2a positional => b'a=09b=20c'
+b2a empty => b''
+a2b plain => b'hello world'
+a2b latin1 => b'caf\xe9'
+a2b lower hex => b'\xe9\xff'
+a2b soft lf => b'joinedup'
+a2b soft crlf => b'joinedup'
+a2b escaped eq => b'a=3Db'
+a2b header underscore => b'a b c'
+a2b bad escape kept => b'a=Zb=Gh'
+a2b trailing eq => b'tail'
+a2b single hex tail => b'ab=E'
+roundtrip => True
+b2a bad keyword => ERR TypeError b2a_qp() got an unexpected keyword argument 'nope'
+a2b bad keyword => ERR TypeError a2b_qp() got an unexpected keyword argument 'nope'
+== exception:
+== stderr:
