@@ -80,6 +80,45 @@ func TestLoadNameConsultsInjectedBuiltin(t *testing.T) {
 	checkErr(t, "still undefined", err, "NameError: name '_never_injected_probe' is not defined")
 }
 
+// TestLoadModuleNameConsultsInjectedBuiltin checks the imported-module name path
+// takes the same live-builtins fallback as LoadName, so a bare name that
+// gettext.install wrote into builtins resolves from inside an imported module
+// too, not only the main module. Before the fix LoadModuleName fell back to the
+// static builtin table alone and raised NameError for an injected name.
+func TestLoadModuleNameConsultsInjectedBuiltin(t *testing.T) {
+	mo, err := ImportModule("builtins")
+	if err != nil {
+		t.Fatalf("import builtins: %v", err)
+	}
+	const name = "_injected_module_probe"
+	val := objects.NewStr("resolved")
+	if err := objects.StoreAttr(mo, name, val); err != nil {
+		t.Fatalf("inject %s: %v", name, err)
+	}
+	t.Cleanup(func() { _ = objects.DelAttr(mo, name) })
+
+	// An imported module that never bound the name resolves it from builtins.
+	pkg := objects.NewModule("pkg", "pkg.py")
+	got, err := LoadModuleName(pkg, name)
+	if err != nil {
+		t.Fatalf("LoadModuleName(pkg, %s) = %v", name, err)
+	}
+	if got != val {
+		t.Errorf("LoadModuleName(pkg, %s) = %v, want the injected value", name, got)
+	}
+
+	// A module binding still shadows the injected builtin.
+	own := objects.NewStr("own")
+	pkg.SetGlobal(name, own)
+	if got, _ := LoadModuleName(pkg, name); got != own {
+		t.Errorf("a module binding should win over the injected builtin, got %v", got)
+	}
+
+	// A name in neither the module nor the builtins module still raises.
+	_, err = LoadModuleName(pkg, "_never_injected_module_probe")
+	checkErr(t, "still undefined", err, "NameError: name '_never_injected_module_probe' is not defined")
+}
+
 func TestDelLocalAndDelName(t *testing.T) {
 	if err := DelLocal(objects.None, "x"); err != nil {
 		t.Errorf("DelLocal(bound) = %v", err)
