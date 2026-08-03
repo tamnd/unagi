@@ -151,6 +151,22 @@ func TestMathNextafterSteps(t *testing.T) {
 	}
 }
 
+func TestMathQualifiedKeywordError(t *testing.T) {
+	// A stray keyword reports under the module-qualified name.
+	for _, name := range []string{"comb", "sqrt", "log", "floor", "hypot"} {
+		_, err := objects.CallKw(mathFn(t, name), []objects.Object{objects.NewInt(4)}, []string{"bogus"}, []objects.Object{objects.NewInt(1)})
+		want := "math." + name + "() takes no keyword arguments"
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s keyword error = %v, want to contain %q", name, err, want)
+		}
+	}
+	// __name__ stays bare even though the error is qualified.
+	comb := mathFn(t, "comb")
+	if n, err := objects.LoadAttr(comb, "__name__"); err != nil || objects.Repr(n) != "'comb'" {
+		t.Errorf("math.comb.__name__ = %v (err %v), want 'comb'", n, err)
+	}
+}
+
 func TestMathDomainErrors(t *testing.T) {
 	cases := []struct {
 		fn   string

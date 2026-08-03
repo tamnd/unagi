@@ -21,6 +21,10 @@ func init() {
 
 func initMath(m *objects.Module) error {
 	set := func(name string, v objects.Object) error {
+		// CPython's C math functions report their argument errors under the
+		// module-qualified name, so a stray keyword reads "math.comb() takes no
+		// keyword arguments"; this is a no-op for the module constants.
+		objects.QualifyBuiltin(v, "math."+name)
 		return objects.StoreAttr(m, name, v)
 	}
 	consts := []struct {
