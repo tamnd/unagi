@@ -1,0 +1,59 @@
+== exit: 0
+== stdout:
+d -> b'5 apples'
+i pad neg -> b'-0042'
+u -> b'12'
+x alt -> b'0xff'
+X -> b'DEADBEEF'
+o alt -> b'0o10'
+plus -> b'+7'
+space -> b' 7'
+f -> b'3.14'
+e -> b'1.234568e+04'
+E -> b'1.234568E+04'
+g small -> b'0.0001'
+bignum d -> b'1180591620717411303424'
+float d truncates -> b'3'
+s bytes -> b'hi!'
+b bytes -> b'hi!'
+s bytearray -> b'ba'
+s memoryview -> b'mv'
+s dunder -> b'custom'
+b dunder -> b'custom'
+s prec -> b'abc'
+s width -> b'    ab|'
+s left -> b'ab    |'
+s str fails -> TypeError %b requires a bytes-like object, or an object that implements __bytes__, not 'str'
+b int fails -> TypeError %b requires a bytes-like object, or an object that implements __bytes__, not 'int'
+a str -> b"'caf\\xe9'"
+r bytes -> b"b'x\\ny'"
+a int -> b'5'
+c int -> b'A'
+c byte -> b'Z'
+c bytearray -> b'Q'
+c bool -> b'\x01'
+c width -> b'    A|'
+c range hi -> OverflowError %c arg not in range(256)
+c range lo -> OverflowError %c arg not in range(256)
+c big -> OverflowError %c arg not in range(256)
+c bytes len -> TypeError %c requires an integer in range(256) or a single byte, not a bytes object of length 2
+c bytearray len -> TypeError %c requires an integer in range(256) or a single byte, not a bytearray object of length 2
+c float -> TypeError %c requires an integer in range(256) or a single byte, not float
+star width -> b'   7|'
+star neg width -> b'3    |'
+star prec -> b'3.142'
+tuple -> b'x-2'
+mapping -> b'key=9'
+mapping missing -> KeyError b'z'
+mapping needs map -> TypeError format requires a mapping
+pct literal -> b'a%b 1'
+empty -> b''
+too many -> TypeError not all arguments converted during bytes formatting
+too few -> TypeError not enough arguments for format string
+bad char -> ValueError unsupported format character 'y' (0x79) at index 1
+incomplete -> ValueError incomplete format
+bytes type -> 'bytes'
+bytearray fmt -> bytearray(b'5 apples')
+bytearray type -> 'bytearray'
+== exception:
+== stderr:
