@@ -37,6 +37,15 @@ func init() {
 		if len(pos) == 2 {
 			init = pos[1]
 		}
+		// CPython 3.14 deprecates the 'u' (wchar_t) type code in favour of 'w', and
+		// warns while building the array, before the initializer is validated, so a
+		// bad initializer still leaves the warning behind. A filter that promotes it
+		// to an error aborts the construction the way CPython's does.
+		if s, ok := objects.AsStr(pos[0]); ok && s == "u" {
+			if err := arrayUDeprecationWarn(); err != nil {
+				return nil, err
+			}
+		}
 		return objects.NewArray(pos[0], init)
 	})
 
@@ -53,4 +62,38 @@ func initArray(m *objects.Module) error {
 		return err
 	}
 	return objects.StoreAttr(m, "typecodes", objects.NewStr("bBuwhHiIlLqQfd"))
+}
+
+// arrayUDeprecationMsg is verbatim from CPython 3.14 so a caller filtering or
+// matching on it — unittest.assertWarns, a warnings filter — sees exactly the
+// text it does there. The 'u' code is scheduled for removal in Python 3.16.
+const arrayUDeprecationMsg = "The 'u' type code is deprecated and will be removed in Python 3.16"
+
+// arrayUDeprecationWarn routes the 'u' type-code DeprecationWarning through the
+// public warnings module, so it flows through the same filters and
+// catch_warnings capture as any other warning. It mirrors the invert-bool hook:
+// best-effort, since unagi bundles only the modules a program imports, so a
+// script that never touches warnings has no warnings module to route through and
+// the deprecation is silently skipped while the array still builds. Any program
+// that observes warnings has imported it and sees the warning fire.
+func arrayUDeprecationWarn() error {
+	w, err := ImportModule("warnings")
+	if err != nil {
+		if isModuleNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	fn, err := objects.LoadAttr(w, "warn")
+	if err != nil {
+		return err
+	}
+	cat, ok := objects.ExcClass("DeprecationWarning")
+	if !ok {
+		return objects.Raise(objects.RuntimeError, "DeprecationWarning class unavailable")
+	}
+	_, err = objects.CallKwT(objects.MainThread(), fn,
+		[]objects.Object{objects.NewStr(arrayUDeprecationMsg), cat},
+		[]string{"stacklevel"}, []objects.Object{objects.NewInt(2)})
+	return err
 }
