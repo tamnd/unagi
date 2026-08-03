@@ -74,6 +74,59 @@ func TestStructFloatOverflow(t *testing.T) {
 	}
 }
 
+// TestStructReprFormat checks that a Struct reprs as its type name applied to
+// the repr of its format string, matching CPython, and that the format
+// attribute is always a str even when the Struct was built from a bytes format.
+func TestStructReprFormat(t *testing.T) {
+	m, err := ImportModule("_struct")
+	if err != nil {
+		t.Fatalf("import _struct: %v", err)
+	}
+	structClass, err := objects.LoadAttr(m, "Struct")
+	if err != nil {
+		t.Fatalf("_struct.Struct: %v", err)
+	}
+
+	// A str format reprs and reports as itself.
+	s, err := objects.Call(structClass, []objects.Object{objects.NewStr(">i")})
+	if err != nil {
+		t.Fatalf("Struct('>i'): %v", err)
+	}
+	if got := objects.Repr(s); got != "Struct('>i')" {
+		t.Fatalf("repr(Struct('>i')) = %s, want Struct('>i')", got)
+	}
+	fmtObj, _ := objects.LoadAttr(s, "format")
+	if fmtObj.TypeName() != "str" {
+		t.Fatalf("Struct('>i').format type = %s, want str", fmtObj.TypeName())
+	}
+
+	// A bytes format is normalised to a str, so both the repr and the format
+	// attribute report the decoded str, not the bytes.
+	sb, err := objects.Call(structClass, []objects.Object{objects.NewBytes([]byte(">d"))})
+	if err != nil {
+		t.Fatalf("Struct(b'>d'): %v", err)
+	}
+	if got := objects.Repr(sb); got != "Struct('>d')" {
+		t.Fatalf("repr(Struct(b'>d')) = %s, want Struct('>d')", got)
+	}
+	fmtB, _ := objects.LoadAttr(sb, "format")
+	if fmtB.TypeName() != "str" {
+		t.Fatalf("Struct(b'>d').format type = %s, want str", fmtB.TypeName())
+	}
+	if got := objects.Repr(fmtB); got != "'>d'" {
+		t.Fatalf("Struct(b'>d').format = %s, want '>d'", got)
+	}
+
+	// The empty format reprs cleanly rather than as a default object address.
+	se, err := objects.Call(structClass, []objects.Object{objects.NewStr("")})
+	if err != nil {
+		t.Fatalf("Struct(''): %v", err)
+	}
+	if got := objects.Repr(se); got != "Struct('')" {
+		t.Fatalf("repr(Struct('')) = %s, want Struct('')", got)
+	}
+}
+
 // bytesHex renders raw bytes as lowercase hex, matching bytes.hex() in the oracle.
 func bytesHex(b []byte) string {
 	const digits = "0123456789abcdef"
