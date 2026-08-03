@@ -535,6 +535,20 @@ func Mod(a, b Object) (Object, error) {
 	if s, ok := a.(*strObject); ok {
 		return percentFormat(s.v, b)
 	}
+	if bo, ok := a.(*bytesObject); ok {
+		out, err := percentFormatBytes(bo.v, b)
+		if err != nil {
+			return nil, err
+		}
+		return NewBytes(out), nil
+	}
+	if ba, ok := a.(*bytearrayObject); ok {
+		out, err := percentFormatBytes(ba.snapshot(), b)
+		if err != nil {
+			return nil, err
+		}
+		return NewByteArray(out), nil
+	}
 	if ai, bi, ok := bothInt(a, b); ok {
 		if bi == 0 {
 			return nil, Raise(ZeroDivisionError, "division by zero")
