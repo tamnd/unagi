@@ -87,6 +87,24 @@ func TestSeedFromHash(t *testing.T) {
 	}
 }
 
+// TestGetrandbitsRange checks getrandbits reports CPython's clinic messages for a
+// negative and an oversized bit count, and still assembles a wide word.
+func TestGetrandbitsRange(t *testing.T) {
+	// The count is validated before the engine is loaded, so a placeholder self
+	// is fine for the error paths.
+	self := objects.None
+	if _, err := randomGetrandbits([]objects.Object{self, objects.NewInt(-1)}); err == nil || !strings.Contains(err.Error(), "Cannot convert negative int") {
+		t.Errorf("getrandbits(-1) error = %v", err)
+	}
+	tooBig := objects.NewIntFromBig(new(big.Int).Lsh(big.NewInt(1), 64))
+	if _, err := randomGetrandbits([]objects.Object{self, tooBig}); err == nil || !strings.Contains(err.Error(), "Python int too large for C uint64_t") {
+		t.Errorf("getrandbits(2**64) error = %v", err)
+	}
+	if _, err := randomGetrandbits([]objects.Object{self}); err == nil || !strings.Contains(err.Error(), "Random.getrandbits() takes exactly one argument (0 given)") {
+		t.Errorf("getrandbits() arity error = %v", err)
+	}
+}
+
 // TestGetrandbits100 checks the wide-word assembly against CPython.
 func TestGetrandbits100(t *testing.T) {
 	s := seededFromInt(12345)
