@@ -1,6 +1,9 @@
 package objects
 
-import "testing"
+import (
+	"math/big"
+	"testing"
+)
 
 func mvOf(t *testing.T, o Object) *memoryviewObject {
 	t.Helper()
@@ -136,6 +139,83 @@ func TestMemoryViewConstructorErrors(t *testing.T) {
 	}
 	if _, err := MemoryViewOf([]Object{NewInt(5)}); !isKind(err, TypeError) {
 		t.Fatalf("non-buffer error = %v, want TypeError", err)
+	}
+}
+
+func arrayOf(t *testing.T, code string, elts ...Object) *arrayObject {
+	t.Helper()
+	a, err := NewArray(NewStr(code), NewList(elts))
+	if err != nil {
+		t.Fatalf("NewArray(%q): %v", code, err)
+	}
+	return a.(*arrayObject)
+}
+
+func TestMemoryViewOverArray(t *testing.T) {
+	a := arrayOf(t, "i", NewInt(1), NewInt(2), NewInt(3), NewInt(4))
+	m := mvOf(t, a)
+	if m.readonly {
+		t.Fatal("view over array should be writable")
+	}
+	if m.format != "i" || m.itemsize != 4 {
+		t.Fatalf("format/itemsize = %q/%d, want i/4", m.format, m.itemsize)
+	}
+	if n, _ := Len(m); n != 4 {
+		t.Fatalf("len = %d, want 4", n)
+	}
+	got, _ := GetItem(m, NewInt(2))
+	if i, _ := AsInt(got); i != 3 {
+		t.Fatalf("m[2] = %d, want 3", i)
+	}
+	// A store lands back in the array so the view aliases it.
+	if err := SetItem(m, NewInt(1), NewInt(20)); err != nil {
+		t.Fatalf("SetItem: %v", err)
+	}
+	if v, _ := AsInt(a.elts[1]); v != 20 {
+		t.Fatalf("array[1] = %v, want 20", a.elts[1])
+	}
+	// A wrong type is the invalid-type TypeError, an out-of-range value the
+	// invalid-value ValueError.
+	if err := SetItem(m, NewInt(0), NewFloat(1.5)); !isKind(err, TypeError) {
+		t.Fatalf("float store error = %v, want TypeError", err)
+	}
+	if err := SetItem(m, NewInt(0), NewInt(1<<40)); !isKind(err, ValueError) {
+		t.Fatalf("overflow store error = %v, want ValueError", err)
+	}
+	// A same-format, same-count slice assignment writes each element through.
+	src := mvOf(t, arrayOf(t, "i", NewInt(200), NewInt(300)))
+	if err := SetSlice(m, NewInt(1), NewInt(3), None, src); err != nil {
+		t.Fatalf("SetSlice: %v", err)
+	}
+	if v2, _ := AsInt(a.elts[2]); v2 != 300 {
+		t.Fatalf("array after slice = %v, want [.,200,300,.]", a.elts)
+	}
+	// A source of a different format is the structures ValueError.
+	bad := mvOf(t, arrayOf(t, "d", NewFloat(1), NewFloat(2)))
+	if err := SetSlice(m, NewInt(1), NewInt(3), None, bad); !isKind(err, ValueError) {
+		t.Fatalf("cross-format slice error = %v, want ValueError", err)
+	}
+}
+
+func TestMemoryViewArrayTypedDecode(t *testing.T) {
+	// Floats decode to floats.
+	md := mvOf(t, arrayOf(t, "d", NewFloat(1.5), NewFloat(2.5)))
+	d0, _ := GetItem(md, NewInt(0))
+	if f, ok := d0.(*floatObject); !ok || f.v != 1.5 {
+		t.Fatalf("d[0] = %v, want 1.5 float", d0)
+	}
+	// An unsigned 8-byte value past int64 widens to a big int.
+	want := new(big.Int).SetUint64(uint64(1)<<63 + 5)
+	mq := mvOf(t, arrayOf(t, "Q", NewIntFromBig(want)))
+	q0, _ := GetItem(mq, NewInt(0))
+	if got, ok := AsBigInt(q0); !ok || got.Cmp(want) != 0 {
+		t.Fatalf("Q[0] = %v, want %s", q0, want)
+	}
+	// A signed long round-trips negative.
+	ml := mvOf(t, arrayOf(t, "l", NewInt(-7)))
+	l0, _ := GetItem(ml, NewInt(0))
+	if v, _ := AsInt(l0); v != -7 {
+		t.Fatalf("l[0] = %v, want -7", l0)
 	}
 }
 

@@ -3,6 +3,8 @@ package objects
 import (
 	"encoding/hex"
 	"fmt"
+	"math"
+	"math/big"
 	"reflect"
 )
 
@@ -41,6 +43,12 @@ func NewMemoryView(o Object) (Object, error) {
 		return &memoryviewObject{base: b, readonly: false, off: 0, length: len(b.snapshot()), format: "B", itemsize: 1}, nil
 	case *memoryviewObject:
 		return &memoryviewObject{base: b.base, readonly: b.readonly, off: b.off, length: b.length, format: b.format, itemsize: b.itemsize}, nil
+	case *arrayObject:
+		// An array exposes the buffer protocol: the view aliases the array's
+		// storage, carries the typecode as its format and stays writable, so a
+		// store through the view lands back in the array. Probed on 3.14:
+		// memoryview(array('i', [1,2,3])).format is 'i' and itemsize 4.
+		return &memoryviewObject{base: b, readonly: false, off: 0, length: len(b.elts), format: string(b.code), itemsize: arrayItemSize(b.code)}, nil
 	}
 	return nil, Raise(TypeError, "memoryview: a bytes-like object is required, not '%s'", o.TypeName())
 }
@@ -67,6 +75,8 @@ func mvBaseBytes(m *memoryviewObject) []byte {
 		return b.v
 	case *bytearrayObject:
 		return b.snapshot()
+	case *arrayObject:
+		return b.tobytes()
 	}
 	return nil
 }
@@ -75,14 +85,19 @@ func mvBaseBytes(m *memoryviewObject) []byte {
 // elements each itemsize wide.
 func mvByteLen(m *memoryviewObject) int { return m.length * m.itemsize }
 
-// mvElements decodes the whole view into a list of int objects under its
-// format, the shape iteration and membership walk it element by element.
-func mvElements(m *memoryviewObject) []Object {
+// mvElements decodes the whole view into a list of objects under its format,
+// the shape iteration and membership walk it element by element. A typed view
+// yields ints or floats the way its format decodes.
+func mvElements(m *memoryviewObject) ([]Object, error) {
 	out := make([]Object, m.length)
 	for i := 0; i < m.length; i++ {
-		out[i] = NewInt(mvDecodeElem(m, i))
+		o, err := mvDecodeObj(m, i)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = o
 	}
-	return out
+	return out, nil
 }
 
 // mvSpan copies out the bytes this view exposes: the byte-length window that
@@ -145,31 +160,56 @@ func mvGetItem(m *memoryviewObject, key Object) (Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewInt(mvDecodeElem(m, j)), nil
+	return mvDecodeObj(m, j)
 }
 
-// mvDecodeElem reads element e as a native little-endian integer of the view's
-// itemsize, signed when the format code is lower case. A 'B' view returns the
-// plain byte; a cast to 'I' packs four bytes into an unsigned word.
-func mvDecodeElem(m *memoryviewObject, e int) int64 {
+// mvRawWord reads element e as the little-endian machine word of the view's
+// itemsize, before any sign or float interpretation.
+func mvRawWord(m *memoryviewObject, e int) uint64 {
 	full := mvBaseBytes(m)
 	base := m.off + e*m.itemsize
 	var u uint64
 	for k := 0; k < m.itemsize; k++ {
 		u |= uint64(full[base+k]) << (8 * k)
 	}
-	if mvSigned(m.format) && m.itemsize < 8 {
-		shift := uint(64 - 8*m.itemsize)
-		return int64(u<<shift) >> shift
+	return u
+}
+
+// mvDecodeObj reads element e as the object its format decodes to: a float for
+// the 'f' and 'd' codes, a signed int for the lower-case integer codes, and an
+// unsigned int (widening past int64 for an 8-byte code) otherwise. The array
+// 'u' and 'w' wide-char codes raise the way CPython's buffer decode does.
+// Probed on 3.14: memoryview(array('Q', [2**63+5]))[0] is 9223372036854775813
+// and memoryview(array('w', 'a')).tolist() raises "memoryview: format w not
+// supported".
+func mvDecodeObj(m *memoryviewObject, e int) (Object, error) {
+	switch m.format {
+	case "u", "w":
+		return nil, Raise("NotImplementedError", "memoryview: format %s not supported", m.format)
+	case "f":
+		return NewFloat(float64(math.Float32frombits(uint32(mvRawWord(m, e))))), nil
+	case "d":
+		return NewFloat(math.Float64frombits(mvRawWord(m, e))), nil
 	}
-	return int64(u)
+	u := mvRawWord(m, e)
+	if mvSigned(m.format) {
+		if m.itemsize < 8 {
+			shift := uint(64 - 8*m.itemsize)
+			return NewInt(int64(u<<shift) >> shift), nil
+		}
+		return NewInt(int64(u)), nil
+	}
+	if u > math.MaxInt64 {
+		return NewIntFromBig(new(big.Int).SetUint64(u)), nil
+	}
+	return NewInt(int64(u)), nil
 }
 
 // mvSigned reports whether a struct format code is a signed integer, the lower
-// case letters in the set memoryview.cast accepts.
+// case letters in the set memoryview.cast and the array typecodes cover.
 func mvSigned(format string) bool {
 	switch format {
-	case "b", "h", "i", "q":
+	case "b", "h", "i", "l", "q":
 		return true
 	}
 	return false
@@ -194,8 +234,9 @@ func mvFormatSize(format string) (int, bool) {
 }
 
 // mvSetItem writes mv[key] = val. A read-only view rejects every write; a
-// non-integer key is the invalid-slice-key TypeError, and the value runs
-// through the format-'B' byte coercion.
+// non-integer key is the invalid-slice-key TypeError. A view over an array
+// stores a whole typed element back into the array, while a byte view runs the
+// value through the format-'B' byte coercion.
 func mvSetItem(m *memoryviewObject, key, val Object) error {
 	if m.readonly {
 		return Raise(TypeError, "cannot modify read-only memory")
@@ -208,11 +249,43 @@ func mvSetItem(m *memoryviewObject, key, val Object) error {
 	if err != nil {
 		return err
 	}
+	if a, ok := m.base.(*arrayObject); ok {
+		return mvArraySet(m, a, j, val)
+	}
 	b, err := mvByteFromObj(val)
 	if err != nil {
 		return err
 	}
 	mvSetByte(m, j, b)
+	return nil
+}
+
+// mvArraySet writes val into the array element the view exposes at position j.
+// The type and range are checked with memoryview's own format-named messages,
+// then the value is normalised the way an array store would (an 'f' element
+// rounds to single precision), and the store lands in the array's element so
+// the view aliases it. Probed on 3.14: memoryview(array('i',...))[0] = 1.5 is
+// the invalid-type TypeError and = 2**40 the invalid-value ValueError.
+func mvArraySet(m *memoryviewObject, a *arrayObject, j int, val Object) error {
+	switch m.format {
+	case "u", "w":
+		return Raise("NotImplementedError", "memoryview: format %s not supported", m.format)
+	case "f", "d":
+		switch val.(type) {
+		case *intObject, *boolObject, *floatObject:
+		default:
+			return Raise(TypeError, "memoryview: invalid type for format '%s'", m.format)
+		}
+	default:
+		if _, ok := AsBigInt(val); !ok {
+			return Raise(TypeError, "memoryview: invalid type for format '%s'", m.format)
+		}
+	}
+	cv, err := arrayCoerce(a.code, val)
+	if err != nil {
+		return Raise(ValueError, "memoryview: invalid value for format '%s'", m.format)
+	}
+	a.elts[m.off/m.itemsize+j] = cv
 	return nil
 }
 
@@ -244,6 +317,9 @@ func mvSetSlice(m *memoryviewObject, lo, hi, step, val Object) error {
 	if m.readonly {
 		return Raise(TypeError, "cannot modify read-only memory")
 	}
+	if a, ok := m.base.(*arrayObject); ok {
+		return mvArraySetSlice(m, a, lo, hi, step, val)
+	}
 	repl, ok := asBytesLike(val)
 	if !ok {
 		if bl, ok := mvBytesLike(val); ok {
@@ -263,6 +339,63 @@ func mvSetSlice(m *memoryviewObject, lo, hi, step, val Object) error {
 		mvSetByte(m, j, repl[i])
 	}
 	return nil
+}
+
+// mvArraySetSlice writes mv[lo:hi:step] = val for a view over an array. The
+// rvalue must carry the same struct format and the same element count as the
+// slice, matching CPython's structure check, and each element is normalised and
+// stored back into the array so the view aliases it. Probed on 3.14:
+// memoryview(array('i',[1,2,3,4]))[1:3] = memoryview(array('i',[20,30])) leaves
+// [1,20,30,4], while a bytes rvalue of the same byte length raises "different
+// structures".
+func mvArraySetSlice(m *memoryviewObject, a *arrayObject, lo, hi, step, val Object) error {
+	start, st, n, err := sliceIndices(lo, hi, step, m.length)
+	if err != nil {
+		return err
+	}
+	elts, format, ok := mvSliceElems(val)
+	if !ok {
+		return Raise(TypeError, "memoryview: invalid slice key")
+	}
+	if format != m.format || len(elts) != n {
+		return Raise(ValueError, "memoryview assignment: lvalue and rvalue have different structures")
+	}
+	base := m.off / m.itemsize
+	for i, j := 0, start; i < n; i, j = i+1, j+st {
+		cv, err := arrayCoerce(a.code, elts[i])
+		if err != nil {
+			return Raise(ValueError, "memoryview: invalid value for format '%s'", m.format)
+		}
+		a.elts[base+j] = cv
+	}
+	return nil
+}
+
+// mvSliceElems returns the elements a slice-assignment rvalue contributes and
+// the struct format they carry, so the destination can reject a source whose
+// structure does not match. A memoryview and an array report their own format;
+// any other bytes-like reads as unsigned bytes.
+func mvSliceElems(val Object) ([]Object, string, bool) {
+	switch v := val.(type) {
+	case *memoryviewObject:
+		elts, err := mvElements(v)
+		if err != nil {
+			return nil, "", false
+		}
+		return elts, v.format, true
+	case *arrayObject:
+		out := make([]Object, len(v.elts))
+		copy(out, v.elts)
+		return out, string(v.code), true
+	}
+	if b, ok := mvBytesLike(val); ok {
+		out := make([]Object, len(b))
+		for i, c := range b {
+			out[i] = NewInt(int64(c))
+		}
+		return out, "B", true
+	}
+	return nil, "", false
 }
 
 // mvBytesLike returns the bytes behind a bytes-like object including a
@@ -305,9 +438,9 @@ func memoryviewMethod(m *memoryviewObject, name string, args []Object) (Object, 
 	case "tobytes":
 		return NewBytes(mvSpan(m)), nil
 	case "tolist":
-		out := make([]Object, m.length)
-		for i := 0; i < m.length; i++ {
-			out[i] = NewInt(mvDecodeElem(m, i))
+		out, err := mvElements(m)
+		if err != nil {
+			return nil, err
 		}
 		return NewList(out), nil
 	case "hex":
