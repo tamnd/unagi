@@ -1,0 +1,31 @@
+== exit: 0
+== stdout:
+log_big -> 2302.5850929940457
+log2_big -> 3321.9280948873625
+log10_big -> 1000.0
+log_big_base10 -> 999.9999999999999
+log_big_base2 -> 3321.9280948873625
+log2_2pow -> 2000.0
+log10_10pow -> 500.0
+log_hugebase -> 2.0
+log_biggest -> 69314.71805599453
+log_int -> 18.63140176616802
+log2_exact -> 60.0
+log10_1000 -> 3.0
+log_1 -> 0.0
+log2_1 -> 0.0
+log_negint | ValueError | expected a positive input
+log_zeroint | ValueError | expected a positive input
+log_negbig | ValueError | expected a positive input
+log2_negint | ValueError | expected a positive input
+log10_zeroint | ValueError | expected a positive input
+log_negfloat | ValueError | expected a positive input, got -5.0
+log_zerofloat | ValueError | expected a positive input, got 0.0
+log2_negfloat | ValueError | expected a positive input, got -2.5
+log10_negfloat | ValueError | expected a positive input, got -1.0
+log_noargs | TypeError | log expected at least 1 argument, got 0
+log_3args | TypeError | log expected at most 2 arguments, got 3
+log_base -> 3.0
+log_base_e -> 1.0
+== exception:
+== stderr:
