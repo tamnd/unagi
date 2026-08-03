@@ -188,7 +188,7 @@ func (f *fnCtx) stmt(s frontend.Stmt) error {
 				dfltsExpr = f.objSlice(dflts)
 			}
 			fnObj, err := f.withAnnotations(
-				f.e.withFirstLine(f.e.withDoc(callExpr(f.e.obj("NewFunctionT"), strLit(s.Name), f.e.paramSpecLit(s.Params), dfltsExpr, ident(f.e.implName(s))), s.Body), s.Pos_.Line),
+				f.e.withModule(f.e.withFirstLine(f.e.withDoc(callExpr(f.e.obj("NewFunctionT"), strLit(s.Name), f.e.paramSpecLit(s.Params), dfltsExpr, ident(f.e.implName(s))), s.Body), s.Pos_.Line)),
 				s.Params, s.Returns)
 			if err != nil {
 				return nil, err

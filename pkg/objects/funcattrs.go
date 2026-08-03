@@ -31,6 +31,21 @@ func WithFuncFirstLine(fn Object, line int) Object {
 	return fn
 }
 
+// WithFuncModule records the module a def belongs to so its __module__ reads
+// back the defining module's __name__, and returns the function so a def, method
+// or lambda emit site can wrap the freshly built object the way WithFuncDoc does.
+// A def in the main module leaves the slot at its __main__ default; a def in an
+// imported or vendored module carries that module's name, which is what
+// test.support.check__all__ compares against to decide a name is part of the
+// module's public API. It is an ordinary writable slot, so a later assignment
+// overrides it, matching CPython where a function's __module__ is settable.
+func WithFuncModule(fn Object, name string) Object {
+	if f, ok := fn.(*functionObject); ok {
+		f.overlay().module = NewStr(name)
+	}
+	return fn
+}
+
 // funcDict returns the function __dict__, allocating it on first use so the dict
 // identity is stable across reads (f.__dict__ is f.__dict__).
 func funcDict(fn *functionObject) *dictObject {

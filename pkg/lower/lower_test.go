@@ -124,6 +124,36 @@ func TestDefWrapsFirstLine(t *testing.T) {
 	}
 }
 
+// TestDefWrapsModule checks a def in an imported module records the module name
+// so the function's __module__ reads it back, while a def in the main module
+// stays unwrapped because __module__ already defaults to __main__.
+func TestDefWrapsModule(t *testing.T) {
+	src := "def f():\n    return 1\n"
+	mod, err := frontend.Parse([]byte(src), "mymod.py")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	// An imported module carries its name onto every def it defines.
+	pkg, err := lowerModule(mod, "mymod.py", nil, "mymod", true, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("lower pkg: %v", err)
+	}
+	if !strings.Contains(string(pkg), "objects.WithFuncModule(") {
+		t.Errorf("an imported def should wrap the function in WithFuncModule:\n%s", pkg)
+	}
+	if !strings.Contains(string(pkg), "NewFunctionT(\"f\"") || !strings.Contains(string(pkg), ", \"mymod\")") {
+		t.Errorf("the module name should reach the emit as WithFuncModule(..., \"mymod\"):\n%s", pkg)
+	}
+	// The main module leaves the default in place, so no wrap is emitted.
+	main, err := lowerSrc(t, src)
+	if err != nil {
+		t.Fatalf("lower main: %v", err)
+	}
+	if strings.Contains(main, "WithFuncModule(") {
+		t.Errorf("a main-module def should not wrap WithFuncModule:\n%s", main)
+	}
+}
+
 func TestFunctionLowering(t *testing.T) {
 	mod := &frontend.Module{Body: []frontend.Stmt{
 		&frontend.FuncDef{Name: "add", Params: params("a", "b"), Body: []frontend.Stmt{

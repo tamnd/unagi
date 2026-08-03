@@ -332,6 +332,19 @@ func (e *emitter) withFirstLine(obj ast.Expr, line int) ast.Expr {
 	return callExpr(e.obj("WithFuncFirstLine"), obj, intLit(strconv.Itoa(line)))
 }
 
+// withModule wraps a freshly built function-object expression so its __module__
+// reads back the defining module's __name__, the way CPython sets a function's
+// __module__ from the module that ran its def. The main module is left unwrapped
+// because a function's __module__ already defaults to __main__; only an imported
+// or vendored module needs the explicit name, which is what
+// test.support.check__all__ matches to detect a module's public functions.
+func (e *emitter) withModule(obj ast.Expr) ast.Expr {
+	if e.modName == "" || e.modName == "__main__" {
+		return obj
+	}
+	return callExpr(e.obj("WithFuncModule"), obj, strLit(e.modName))
+}
+
 // cleanDoc dedents a docstring the way the CPython 3.13+ compiler does before it
 // stores __doc__. The first line loses its leading whitespace. For the remaining
 // lines the compiler expands leading tabs to spaces at an eight-column tabstop,

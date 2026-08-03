@@ -333,11 +333,11 @@ func (f *fnCtx) classMethodBind(s *frontend.FuncDef) error {
 	if err != nil {
 		return err
 	}
-	methodObj, err := f.withAnnotations(f.e.withFirstLine(f.e.withDoc(callExpr(f.e.obj("NewFunctionT"),
+	methodObj, err := f.withAnnotations(f.e.withModule(f.e.withFirstLine(f.e.withDoc(callExpr(f.e.obj("NewFunctionT"),
 		strLit(key+"."+s.Name),
 		f.e.paramSpecLit(s.Params),
 		dflts,
-		ident(f.e.methodImplName(c, s.Name, f.methodOrd[s]))), s.Body), s.Pos_.Line), s.Params, s.Returns)
+		ident(f.e.methodImplName(c, s.Name, f.methodOrd[s]))), s.Body), s.Pos_.Line)), s.Params, s.Returns)
 	if err != nil {
 		return err
 	}
@@ -471,11 +471,11 @@ func (f *fnCtx) classValueLocal(s *frontend.ClassDef, qual string) (ast.Expr, er
 			if err != nil {
 				return nil, err
 			}
-			methodObj, err := f.withAnnotations(f.e.withFirstLine(f.e.withDoc(callExpr(f.e.obj("NewFunctionT"),
+			methodObj, err := f.withAnnotations(f.e.withModule(f.e.withFirstLine(f.e.withDoc(callExpr(f.e.obj("NewFunctionT"),
 				strLit(mqual),
 				f.e.paramSpecLit(st.Params),
 				dflts,
-				impl), st.Body), st.Pos_.Line), st.Params, st.Returns)
+				impl), st.Body), st.Pos_.Line)), st.Params, st.Returns)
 			if err != nil {
 				return nil, err
 			}
