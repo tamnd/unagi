@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+Struct('>i') | format= '>i' | type= str
+Struct('') | format= '' | type= str
+Struct('<10s2H') | format= '<10s2H' | type= str
+Struct('@ci') | format= '@ci' | type= str
+Struct('>2i0b') | format= '>2i0b' | type= str
+Struct('!4b') | format= '!4b' | type= str
+Struct('>d') | format= '>d' | type= str
+MyStruct('>i')
+MyStruct('<f')
+Struct('>hhl')
+packed size is 8 for Struct('>hhl')
+0000000100000002 (1, 2)
+== exception:
+== stderr:

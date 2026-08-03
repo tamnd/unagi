@@ -154,10 +154,11 @@ func initStruct(m *objects.Module) error {
 // wrapper over the same free-function machinery.
 func buildStructClass() (objects.Object, error) {
 	names := []string{
-		"__init__", "pack", "unpack", "pack_into", "unpack_from", "iter_unpack",
+		"__init__", "__repr__", "pack", "unpack", "pack_into", "unpack_from", "iter_unpack",
 	}
 	vals := []objects.Object{
 		objects.NewMethod("__init__", 2, structClassInit),
+		objects.NewMethod("__repr__", 1, structClassRepr),
 		objects.NewMethod("pack", -1, structClassPack),
 		objects.NewMethod("unpack", 2, structClassUnpack),
 		objects.NewMethod("pack_into", -1, structClassPackInto),
@@ -175,13 +176,32 @@ func structClassInit(args []objects.Object) (objects.Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := objects.StoreAttr(self, "format", args[1]); err != nil {
+	// Store the normalised str format, matching CPython's Struct.format, which is
+	// always a str even when the Struct was built from a bytes format.
+	fmtStr, _ := structFormatText(args[1])
+	if err := objects.StoreAttr(self, "format", objects.NewStr(fmtStr)); err != nil {
 		return nil, err
 	}
 	if err := objects.StoreAttr(self, "size", objects.NewInt(int64(f.size))); err != nil {
 		return nil, err
 	}
 	return objects.None, nil
+}
+
+// structClassRepr renders a Struct the way CPython does, as the type name
+// applied to the repr of its format string, so repr(Struct('>i')) is
+// "Struct('>i')". The type name is read from the instance so a subclass reprs
+// under its own name.
+func structClassRepr(args []objects.Object) (objects.Object, error) {
+	fmtObj, err := objects.LoadAttr(args[0], "format")
+	if err != nil {
+		return nil, err
+	}
+	r, err := objects.ReprE(fmtObj)
+	if err != nil {
+		return nil, err
+	}
+	return objects.NewStr(args[0].TypeName() + "(" + r + ")"), nil
 }
 
 // structFormatOfSelf re-parses the format stored on a Struct instance.
@@ -271,13 +291,24 @@ type structItem struct {
 // parseStructArg parses a format given as a str or bytes, the way the _struct
 // functions accept either.
 func parseStructArg(o objects.Object) (*structFormat, error) {
+	s, ok := structFormatText(o)
+	if !ok {
+		return nil, objects.Raise(objects.TypeError, "Struct() argument 1 must be a str or bytes object, not %s", o.TypeName())
+	}
+	return parseStructFormat(s)
+}
+
+// structFormatText extracts the format string from a str or bytes argument.
+// CPython accepts either and normalises a bytes format to the str it decodes
+// to, so a Struct built from bytes still reports a str format.
+func structFormatText(o objects.Object) (string, bool) {
 	if s, ok := objects.AsStr(o); ok {
-		return parseStructFormat(s)
+		return s, true
 	}
 	if b, ok := objects.AsBytesLike(o); ok {
-		return parseStructFormat(string(b))
+		return string(b), true
 	}
-	return nil, objects.Raise(objects.TypeError, "Struct() argument 1 must be a str or bytes object, not %s", o.TypeName())
+	return "", false
 }
 
 // parseStructFormat scans a format string into a structFormat. The first
