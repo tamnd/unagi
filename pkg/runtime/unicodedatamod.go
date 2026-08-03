@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/tamnd/unagi/pkg/frontend"
 	"github.com/tamnd/unagi/pkg/objects"
 )
 
@@ -65,6 +66,13 @@ func init() {
 	// does.
 	objects.IDStartHook = func(r rune) bool { return inRuneRanges(ucdXidStart, r) }
 	objects.IDContinueHook = func(r rune) bool { return inRuneRanges(ucdXidContinue, r) }
+	// Resolve the frontend lexer's \N{NAME} string escape through the same pinned
+	// name database lookup() uses, so a \N escape in a source literal names the
+	// same character unicodedata.lookup would.
+	frontend.NamedUnicodeLookup = func(name string) (string, bool) {
+		nameOnce.Do(buildNameIndex)
+		return charLookup(name)
+	}
 }
 
 // caseFoldLookup returns the full case fold of a code point, or nil when the

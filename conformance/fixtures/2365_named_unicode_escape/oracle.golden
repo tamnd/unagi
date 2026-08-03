@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+nbsp: 160
+narrow: 8239
+bullet: 8226
+arrow: 8594
+null alias: 0
+latin a: a
+hangul: 가
+joined: a•b
+fstring: [x]•
+agrees lookup: True
+unknown name raises: True
+malformed raises: True
+== exception:
+== stderr:

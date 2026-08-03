@@ -290,6 +290,83 @@ func TestLexEscapeWarnings(t *testing.T) {
 	}
 }
 
+// TestLexNamedUnicodeEscape checks the \N{NAME} escape resolves through the
+// wired-in name lookup in both plain strings and f-string literal parts, that a
+// missing brace, an empty or unterminated name and an unknown name raise the
+// SyntaxError CPython raises, and that with no lookup wired in the escape is left
+// alone as an unknown escape.
+func TestLexNamedUnicodeEscape(t *testing.T) {
+	// Set up a tiny stub name database, restored afterwards so the package var is
+	// not left pointing at test data.
+	prev := NamedUnicodeLookup
+	t.Cleanup(func() { NamedUnicodeLookup = prev })
+	NamedUnicodeLookup = func(name string) (string, bool) {
+		switch name {
+		case "NO-BREAK SPACE":
+			return "~", true
+		case "BULLET":
+			return "•", true
+		default:
+			return "", false
+		}
+	}
+
+	ok := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"plain string", `x = '\N{NO-BREAK SPACE}'`, `x = str:"~" NL EOF`},
+		{"joined with text", `x = 'a\N{BULLET}b'`, `x = str:"a•b" NL EOF`},
+		{"fstring literal part", `x = f'a\N{BULLET}b'`, `x = fstart:f' fmid:"a•b" fend:' NL EOF`},
+		{"raw string keeps escape", `x = r'\N{BULLET}'`, `x = str:"\\N{BULLET}" NL EOF`},
+	}
+	for _, tt := range ok {
+		t.Run(tt.name, func(t *testing.T) {
+			toks, _, err := lex([]byte(tt.src), "test.py")
+			if err != nil {
+				t.Fatalf("lex(%q) error: %v", tt.src, err)
+			}
+			if got := lexRender(toks); got != tt.want {
+				t.Errorf("lex(%q)\n got  %s\n want %s", tt.src, got, tt.want)
+			}
+		})
+	}
+
+	bad := []struct {
+		name    string
+		src     string
+		wantErr string
+	}{
+		{"no brace", `x = '\N'`, `malformed \N character escape`},
+		{"letter after N", `x = '\Nx'`, `malformed \N character escape`},
+		{"empty name", `x = '\N{}'`, `malformed \N character escape`},
+		{"unterminated name", `x = '\N{NO-BREAK SPACE'`, `malformed \N character escape`},
+		{"unknown name", `x = '\N{NOPE}'`, `unknown Unicode character name`},
+	}
+	for _, tt := range bad {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, _, err := lex([]byte(tt.src), "test.py"); err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("lex(%q)\n got  %v\n want substring %q", tt.src, err, tt.wantErr)
+			}
+		})
+	}
+
+	// With no lookup wired in, \N is an unknown escape: the backslash is kept and a
+	// single EscapeWarning is recorded, the way any other unrecognised escape is.
+	NamedUnicodeLookup = nil
+	toks, warns, err := lex([]byte(`x = '\N{BULLET}'`), "test.py")
+	if err != nil {
+		t.Fatalf("lex with no lookup: %v", err)
+	}
+	if got, want := lexRender(toks), `x = str:"\\N{BULLET}" NL EOF`; got != want {
+		t.Errorf("no lookup lex\n got  %s\n want %s", got, want)
+	}
+	if len(warns) != 1 || warns[0].Char != "N" {
+		t.Errorf("no lookup warnings = %+v, want one for \"N\"", warns)
+	}
+}
+
 func TestLexPositions(t *testing.T) {
 	toks, _, err := lex([]byte("x = 1\n  y"), "test.py")
 	if err != nil {
