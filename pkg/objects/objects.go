@@ -174,10 +174,30 @@ var DeoptSignal error = &Deopt{}
 // Text, so the traceback renderer calls this instead to honour a subclass that
 // overrides __str__.
 func ExcMessageLine(e *Exception) string {
+	name := excTypeName(e)
 	if s := Str(e); s != "" {
-		return e.Kind + ": " + s
+		return name + ": " + s
 	}
-	return e.Kind
+	return name
+}
+
+// excTypeName is the type name the traceback header prints for an exception.
+// CPython qualifies it with the class __module__ (decimal.InvalidOperation)
+// unless the module is builtins or __main__, where the bare __qualname__ shows.
+// A built-in exception carries no Class, so its Kind already reads back bare.
+func excTypeName(e *Exception) string {
+	if e.Class == nil {
+		return e.Kind
+	}
+	mod := "builtins"
+	if m, ok := e.Class.dict["__module__"].(*strObject); ok {
+		mod = m.v
+	}
+	qualname := strings.TrimPrefix(e.Class.qual, mod+".")
+	if mod != "" && mod != "builtins" && mod != "__main__" {
+		return mod + "." + qualname
+	}
+	return qualname
 }
 
 // Raise builds an *Exception with one formatted string argument. This is
