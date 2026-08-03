@@ -50,6 +50,36 @@ func TestLoadName(t *testing.T) {
 	}
 }
 
+// TestLoadNameConsultsInjectedBuiltin checks a name written into the builtins
+// module at runtime resolves the way CPython's __builtins__ fallback resolves
+// it. Probed on 3.14: builtins.__dict__['_'] = str.upper then reading _ inside
+// a function returns the injected value, while a name in neither the globals nor
+// the builtins still raises NameError.
+func TestLoadNameConsultsInjectedBuiltin(t *testing.T) {
+	mo, err := ImportModule("builtins")
+	if err != nil {
+		t.Fatalf("import builtins: %v", err)
+	}
+	const name = "_injected_probe"
+	val := objects.NewStr("resolved")
+	if err := objects.StoreAttr(mo, name, val); err != nil {
+		t.Fatalf("inject %s: %v", name, err)
+	}
+	t.Cleanup(func() { _ = objects.DelAttr(mo, name) })
+
+	got, err := LoadName(nil, name)
+	if err != nil {
+		t.Fatalf("LoadName(nil, %s) = %v", name, err)
+	}
+	if got != val {
+		t.Errorf("LoadName(nil, %s) = %v, want the injected value", name, got)
+	}
+
+	// A name in neither the globals nor the builtins module still raises.
+	_, err = LoadName(nil, "_never_injected_probe")
+	checkErr(t, "still undefined", err, "NameError: name '_never_injected_probe' is not defined")
+}
+
 func TestDelLocalAndDelName(t *testing.T) {
 	if err := DelLocal(objects.None, "x"); err != nil {
 		t.Errorf("DelLocal(bound) = %v", err)

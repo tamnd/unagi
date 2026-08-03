@@ -21,7 +21,16 @@ func init() {
 	moduleTable["builtins"] = &moduleEntry{builtin: true, exec: initBuiltins}
 }
 
+// builtinsModule is the live builtins module object once it has been imported.
+// Name resolution consults it after the static builtin table so a name injected
+// at runtime (gettext.install doing builtins.__dict__['_'] = ...) resolves the
+// way it does under CPython, where the fallback is the __builtins__ namespace.
+// It stays nil until the module is imported, which is also the only way a name
+// can be injected, so the nil check costs nothing when nothing was injected.
+var builtinsModule *objects.Module
+
 func initBuiltins(m *objects.Module) error {
+	builtinsModule = m
 	for name, obj := range builtins {
 		if err := objects.StoreAttr(m, name, obj); err != nil {
 			return err

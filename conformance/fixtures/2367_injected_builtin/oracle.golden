@@ -1,0 +1,9 @@
+== exit: 0
+== stdout:
+inside func: HELLO
+via setattr: hi there
+injected works: True
+undefined raises: NameError
+after del raises: NameError
+== exception:
+== stderr:
