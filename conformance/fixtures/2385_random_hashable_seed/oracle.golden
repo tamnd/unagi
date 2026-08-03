@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+[0.3039190124834461, 0.23014450764056538, 0.9120431245165537, 0.5775594121232248]
+[0.41877545666909954, 0.9404475600150654, 0.17813953767439972, 0.33680201158388134]
+[0.7101153317194698, 0.0007908885101512997, 0.9725187281079903, 0.5638800687220683]
+[0.8444218515250481, 0.7579544029403025, 0.420571580830845, 0.25891675029296335]
+True
+True
+True
+True
+True
+True
+False
+True
+TypeError unhashable type: 'list'
+TypeError unhashable type: 'dict'
+TypeError unhashable type: 'set'
+The only supported seed types are:
+None, int, float, str, bytes, and bytearray.
+The only supported seed types are:
+None, int, float, str, bytes, and bytearray.
+== exception:
+== stderr:

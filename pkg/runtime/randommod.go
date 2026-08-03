@@ -175,8 +175,13 @@ func (s *mtStateObject) seedFromUrandom() error {
 }
 
 // newSeededState builds an engine seeded from an argument the way
-// _random.Random.seed does: None draws from urandom, an int uses all its bits.
-// random.py hashes str/bytes to an int itself, so only int and None reach here.
+// _random.Random.seed does: None draws from urandom, an int uses the bits of its
+// absolute value, and anything else seeds from its hash cast to an unsigned
+// size_t (this is what makes random.Random(3.5) and other hashable seeds work).
+// random.py rejects the genuinely unsupported types and hashes str/bytes to an
+// int itself before it ever calls super().seed(), but _random.Random accepts any
+// hashable object directly, so a float or tuple seeds from its hash and an
+// unhashable one surfaces the "unhashable type" TypeError that hashing raises.
 func newSeededState(arg objects.Object) (*mtStateObject, error) {
 	s := &mtStateObject{}
 	if arg == nil || arg == objects.None {
@@ -187,8 +192,11 @@ func newSeededState(arg objects.Object) (*mtStateObject, error) {
 	}
 	b, ok := objects.AsBigInt(arg)
 	if !ok {
-		return nil, objects.Raise(objects.TypeError,
-			"The only supported seed types are: None,\nint, float, str, bytes, and bytearray.")
+		h, err := objects.PyHash(arg)
+		if err != nil {
+			return nil, err
+		}
+		b = new(big.Int).SetUint64(uint64(h))
 	}
 	s.initByArray(seedKeyFromBig(b))
 	return s, nil
