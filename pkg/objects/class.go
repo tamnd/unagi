@@ -3023,6 +3023,14 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return x.fn, nil
 		case "__self__":
 			return x.self, nil
+		case "__call__":
+			// A bound method is callable with self already bound, so its __call__
+			// forwards to the method itself. Proxying to the underlying function's
+			// __call__ would drop self and leave the first parameter unfilled.
+			bm := x
+			return NewFuncKwT("__call__", func(t *Thread, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+				return CallKwT(t, bm, pos, kwNames, kwVals)
+			}), nil
 		}
 		return LoadAttr(x.fn, name)
 	case *funcObject:

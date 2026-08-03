@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+func has __call__: True
+lambda has __call__: True
+add.__call__(4): 7
+add.__call__(4, b=10): 14
+square.__call__(6): 36
+method has __call__: True
+c.method.__call__(41): 42
+callable(add): True
+callable(square): True
+callable(c.method): True
+== exception:
+== stderr:

@@ -231,6 +231,15 @@ func functionLoadAttr(fn *functionObject, name string) (Object, error) {
 			}
 			return &boundMethod{fn: fn, self: args[0]}, nil
 		}), nil
+	case "__call__":
+		// A function is callable, so it carries a __call__ that forwards to it the
+		// way CPython exposes a method-wrapper bound to the function: f.__call__(x)
+		// invokes f(x). What matters beyond faithful calling is that
+		// getattr(f, '__call__', None) is not None, which is how callable() and
+		// unittest.mock._callable recognise a plain function or lambda.
+		return NewFuncKwT("__call__", func(t *Thread, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+			return CallKwT(t, fn, pos, kwNames, kwVals)
+		}), nil
 	case "__wrapped__":
 		// __wrapped__ is an ordinary __dict__ entry, so it reads from there when
 		// update_wrapper set it and is otherwise absent.
