@@ -35,13 +35,21 @@ func LoadLocal(v objects.Object, name string) (objects.Object, error) {
 // falls back to builtins the way CPython's LOAD_GLOBAL does (so a name
 // that shadows a builtin at module scope reverts to the builtin once it is
 // deleted or was never bound), and raises NameError only when neither a
-// global binding nor a builtin exists.
+// global binding nor a builtin exists. The fallback also consults the live
+// builtins module, so a name injected into it at runtime (the _ and gettext
+// family that gettext.install writes into builtins.__dict__) resolves the way
+// CPython's __builtins__ fallback resolves it.
 func LoadName(v objects.Object, name string) (objects.Object, error) {
 	if v != nil {
 		return v, nil
 	}
 	if f, ok := Builtin(name); ok {
 		return f, nil
+	}
+	if builtinsModule != nil {
+		if f, ok := builtinsModule.Get(name); ok {
+			return f, nil
+		}
 	}
 	return nil, nameNotDefined(name)
 }
