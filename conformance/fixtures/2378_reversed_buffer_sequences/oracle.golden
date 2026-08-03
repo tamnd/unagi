@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+array_i reversed True [30, 20, 10]
+array_d reversed True [2.5, 1.5]
+array_b reversed True [3, 2, 1]
+array_empty reversed True []
+bytes reversed True [99, 98, 97]
+bytes_empty reversed True []
+bytearray reversed True [122, 121, 120]
+memoryview reversed True [3, 2, 1]
+105 104
+stop
+b'abc'
+== exception:
+== stderr:

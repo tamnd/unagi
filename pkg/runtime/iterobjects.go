@@ -92,6 +92,11 @@ func Reversed(o objects.Object) (objects.Object, error) {
 		name = "list_reverseiterator"
 	case "tuple", "str":
 		name = "reversed"
+	case "array.array", "bytes", "bytearray", "memoryview":
+		// These are reversible through the len+getitem sequence protocol,
+		// yielding a plain reversed iterator like tuple and str. bytes,
+		// bytearray and memoryview reverse over their ints.
+		name = "reversed"
 	case "range":
 		name = "range_iterator"
 	case "collections.deque":
