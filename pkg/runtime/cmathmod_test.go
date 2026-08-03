@@ -73,6 +73,55 @@ func TestCmathRoutines(t *testing.T) {
 	}
 }
 
+// sameFloat compares two floats for the special-value tables, matching
+// infinities exactly and finite values within a last-ULP tolerance.
+func sameFloat(got, want float64) bool {
+	if math.IsInf(want, 0) {
+		return got == want
+	}
+	return math.Abs(got-want) <= 1e-15
+}
+
+func TestCmathSpecialValues(t *testing.T) {
+	ninf := math.Inf(-1)
+	pinf := math.Inf(1)
+	cases := []struct {
+		name           string
+		re, im         float64
+		wantRe, wantIm float64
+	}{
+		// acosh(-inf-infj) = (inf, -3pi/4). This cell was wrong-signed
+		// (+3pi/4) before the port matched CPython's table.
+		{"acosh", ninf, ninf, pinf, -0.75 * math.Pi},
+		// asinh(inf-infj) = (inf, -pi/4).
+		{"asinh", pinf, ninf, pinf, -0.25 * math.Pi},
+		// sqrt of a negative real stays exact on the imaginary axis.
+		{"sqrt", -4, 0, 0, 2},
+	}
+	for _, c := range cases {
+		re, im := callComplex(t, cmathFn(t, c.name), objects.NewComplex(c.re, c.im))
+		if !sameFloat(re, c.wantRe) || !sameFloat(im, c.wantIm) {
+			t.Errorf("%s(%v%+vj) = (%v,%v), want (%v,%v)", c.name, c.re, c.im, re, im, c.wantRe, c.wantIm)
+		}
+	}
+}
+
+func TestCmathOverflowAndSign(t *testing.T) {
+	// A finite large real part overflows exp/cosh/sinh to OverflowError
+	// rather than silently returning an infinity.
+	for _, name := range []string{"exp", "cosh", "sinh"} {
+		if _, err := objects.Call(cmathFn(t, name), []objects.Object{objects.NewComplex(1e4, 1)}); err == nil {
+			t.Errorf("cmath.%s(1e4+1j) did not overflow", name)
+		}
+	}
+	// atan's real part carries the sign of the real argument; the ported
+	// atan was wrong-signed before it was derived through atanh(iz).
+	re, im := callComplex(t, cmathFn(t, "atan"), objects.NewComplex(2, 0.5))
+	if math.Abs(re-1.1265564408348223) > 1e-15 || math.Abs(im-0.09641562020299617) > 1e-15 {
+		t.Errorf("atan(2+0.5j) = (%v,%v)", re, im)
+	}
+}
+
 func TestCmathPredicatesAndErrors(t *testing.T) {
 	isnan := cmathFn(t, "isnan")
 	mo, _ := ImportModule("cmath")

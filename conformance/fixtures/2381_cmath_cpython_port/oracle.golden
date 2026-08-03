@@ -1,0 +1,378 @@
+== exit: 0
+== stdout:
+acos (-inf-infj) -> (2.356194490192345+infj)
+acos (-inf-0j) -> (3.141592653589793+infj)
+acos (-inf+0j) -> (3.141592653589793-infj)
+acos (-inf+infj) -> (2.356194490192345-infj)
+acos (-inf+nanj) -> (nan+infj)
+acos (-0-infj) -> (1.5707963267948966+infj)
+acos (-0-0j) -> (1.5707963267948966+0j)
+acos (-0+0j) -> (1.5707963267948966-0j)
+acos (-0+infj) -> (1.5707963267948966-infj)
+acos (-0+nanj) -> (1.5707963267948966+nanj)
+acos -infj -> (1.5707963267948966+infj)
+acos -0j -> (1.5707963267948966+0j)
+acos 0j -> (1.5707963267948966-0j)
+acos infj -> (1.5707963267948966-infj)
+acos nanj -> (1.5707963267948966+nanj)
+acos (inf-infj) -> (0.7853981633974483+infj)
+acos (inf-0j) -> infj
+acos (inf+0j) -> -infj
+acos (inf+infj) -> (0.7853981633974483-infj)
+acos (inf+nanj) -> (nan+infj)
+acos (nan-infj) -> (nan+infj)
+acos (nan-0j) -> (nan+nanj)
+acos (nan+0j) -> (nan+nanj)
+acos (nan+infj) -> (nan-infj)
+acos (nan+nanj) -> (nan+nanj)
+acosh (-inf-infj) -> (inf-2.356194490192345j)
+acosh (-inf-0j) -> (inf-3.141592653589793j)
+acosh (-inf+0j) -> (inf+3.141592653589793j)
+acosh (-inf+infj) -> (inf+2.356194490192345j)
+acosh (-inf+nanj) -> (inf+nanj)
+acosh (-0-infj) -> (inf-1.5707963267948966j)
+acosh (-0-0j) -> -1.5707963267948966j
+acosh (-0+0j) -> 1.5707963267948966j
+acosh (-0+infj) -> (inf+1.5707963267948966j)
+acosh (-0+nanj) -> (nan+1.5707963267948966j)
+acosh -infj -> (inf-1.5707963267948966j)
+acosh -0j -> -1.5707963267948966j
+acosh 0j -> 1.5707963267948966j
+acosh infj -> (inf+1.5707963267948966j)
+acosh nanj -> (nan+1.5707963267948966j)
+acosh (inf-infj) -> (inf-0.7853981633974483j)
+acosh (inf-0j) -> (inf-0j)
+acosh (inf+0j) -> (inf+0j)
+acosh (inf+infj) -> (inf+0.7853981633974483j)
+acosh (inf+nanj) -> (inf+nanj)
+acosh (nan-infj) -> (inf+nanj)
+acosh (nan-0j) -> (nan+nanj)
+acosh (nan+0j) -> (nan+nanj)
+acosh (nan+infj) -> (inf+nanj)
+acosh (nan+nanj) -> (nan+nanj)
+asin (-inf-infj) -> (-0.7853981633974483-infj)
+asin (-inf-0j) -> (-1.5707963267948966-infj)
+asin (-inf+0j) -> (-1.5707963267948966+infj)
+asin (-inf+infj) -> (-0.7853981633974483+infj)
+asin (-inf+nanj) -> (nan-infj)
+asin (-0-infj) -> (-0-infj)
+asin (-0-0j) -> (-0-0j)
+asin (-0+0j) -> (-0+0j)
+asin (-0+infj) -> (-0+infj)
+asin (-0+nanj) -> (-0+nanj)
+asin -infj -> -infj
+asin -0j -> -0j
+asin 0j -> 0j
+asin infj -> infj
+asin nanj -> nanj
+asin (inf-infj) -> (0.7853981633974483-infj)
+asin (inf-0j) -> (1.5707963267948966-infj)
+asin (inf+0j) -> (1.5707963267948966+infj)
+asin (inf+infj) -> (0.7853981633974483+infj)
+asin (inf+nanj) -> (nan-infj)
+asin (nan-infj) -> (nan-infj)
+asin (nan-0j) -> (nan+nanj)
+asin (nan+0j) -> (nan+nanj)
+asin (nan+infj) -> (nan+infj)
+asin (nan+nanj) -> (nan+nanj)
+asinh (-inf-infj) -> (-inf-0.7853981633974483j)
+asinh (-inf-0j) -> (-inf-0j)
+asinh (-inf+0j) -> (-inf+0j)
+asinh (-inf+infj) -> (-inf+0.7853981633974483j)
+asinh (-inf+nanj) -> (-inf+nanj)
+asinh (-0-infj) -> (-inf-1.5707963267948966j)
+asinh (-0-0j) -> (-0-0j)
+asinh (-0+0j) -> (-0+0j)
+asinh (-0+infj) -> (-inf+1.5707963267948966j)
+asinh (-0+nanj) -> (nan+nanj)
+asinh -infj -> (inf-1.5707963267948966j)
+asinh -0j -> -0j
+asinh 0j -> 0j
+asinh infj -> (inf+1.5707963267948966j)
+asinh nanj -> (nan+nanj)
+asinh (inf-infj) -> (inf-0.7853981633974483j)
+asinh (inf-0j) -> (inf-0j)
+asinh (inf+0j) -> (inf+0j)
+asinh (inf+infj) -> (inf+0.7853981633974483j)
+asinh (inf+nanj) -> (inf+nanj)
+asinh (nan-infj) -> (inf+nanj)
+asinh (nan-0j) -> (nan-0j)
+asinh (nan+0j) -> (nan+0j)
+asinh (nan+infj) -> (inf+nanj)
+asinh (nan+nanj) -> (nan+nanj)
+atan (-inf-infj) -> (-1.5707963267948966-0j)
+atan (-inf-0j) -> (-1.5707963267948966-0j)
+atan (-inf+0j) -> (-1.5707963267948966+0j)
+atan (-inf+infj) -> (-1.5707963267948966+0j)
+atan (-inf+nanj) -> (-1.5707963267948966-0j)
+atan (-0-infj) -> (-1.5707963267948966-0j)
+atan (-0-0j) -> (-0-0j)
+atan (-0+0j) -> (-0+0j)
+atan (-0+infj) -> (-1.5707963267948966+0j)
+atan (-0+nanj) -> (nan+nanj)
+atan -infj -> (1.5707963267948966-0j)
+atan -0j -> -0j
+atan 0j -> 0j
+atan infj -> (1.5707963267948966+0j)
+atan nanj -> (nan+nanj)
+atan (inf-infj) -> (1.5707963267948966-0j)
+atan (inf-0j) -> (1.5707963267948966-0j)
+atan (inf+0j) -> (1.5707963267948966+0j)
+atan (inf+infj) -> (1.5707963267948966+0j)
+atan (inf+nanj) -> (1.5707963267948966-0j)
+atan (nan-infj) -> (nan-0j)
+atan (nan-0j) -> (nan-0j)
+atan (nan+0j) -> (nan+0j)
+atan (nan+infj) -> (nan+0j)
+atan (nan+nanj) -> (nan+nanj)
+atanh (-inf-infj) -> (-0-1.5707963267948966j)
+atanh (-inf-0j) -> (-0-1.5707963267948966j)
+atanh (-inf+0j) -> (-0+1.5707963267948966j)
+atanh (-inf+infj) -> (-0+1.5707963267948966j)
+atanh (-inf+nanj) -> (-0+nanj)
+atanh (-0-infj) -> (-0-1.5707963267948966j)
+atanh (-0-0j) -> (-0-0j)
+atanh (-0+0j) -> (-0+0j)
+atanh (-0+infj) -> (-0+1.5707963267948966j)
+atanh (-0+nanj) -> (-0+nanj)
+atanh -infj -> -1.5707963267948966j
+atanh -0j -> -0j
+atanh 0j -> 0j
+atanh infj -> 1.5707963267948966j
+atanh nanj -> nanj
+atanh (inf-infj) -> -1.5707963267948966j
+atanh (inf-0j) -> -1.5707963267948966j
+atanh (inf+0j) -> 1.5707963267948966j
+atanh (inf+infj) -> 1.5707963267948966j
+atanh (inf+nanj) -> nanj
+atanh (nan-infj) -> -1.5707963267948966j
+atanh (nan-0j) -> (nan+nanj)
+atanh (nan+0j) -> (nan+nanj)
+atanh (nan+infj) -> 1.5707963267948966j
+atanh (nan+nanj) -> (nan+nanj)
+cos (-inf-infj) | ValueError math domain error
+cos (-inf-0j) | ValueError math domain error
+cos (-inf+0j) | ValueError math domain error
+cos (-inf+infj) | ValueError math domain error
+cos (-inf+nanj) -> (nan+nanj)
+cos (-0-infj) -> (inf-0j)
+cos (-0-0j) -> (1-0j)
+cos (-0+0j) -> (1+0j)
+cos (-0+infj) -> (inf+0j)
+cos (-0+nanj) -> (nan+0j)
+cos -infj -> (inf+0j)
+cos -0j -> (1+0j)
+cos 0j -> (1-0j)
+cos infj -> (inf-0j)
+cos nanj -> (nan+0j)
+cos (inf-infj) | ValueError math domain error
+cos (inf-0j) | ValueError math domain error
+cos (inf+0j) | ValueError math domain error
+cos (inf+infj) | ValueError math domain error
+cos (inf+nanj) -> (nan+nanj)
+cos (nan-infj) -> (inf+nanj)
+cos (nan-0j) -> (nan+0j)
+cos (nan+0j) -> (nan+0j)
+cos (nan+infj) -> (inf+nanj)
+cos (nan+nanj) -> (nan+nanj)
+cosh (-inf-infj) | ValueError math domain error
+cosh (-inf-0j) -> (inf+0j)
+cosh (-inf+0j) -> (inf-0j)
+cosh (-inf+infj) | ValueError math domain error
+cosh (-inf+nanj) -> (inf+nanj)
+cosh (-0-infj) | ValueError math domain error
+cosh (-0-0j) -> (1+0j)
+cosh (-0+0j) -> (1-0j)
+cosh (-0+infj) | ValueError math domain error
+cosh (-0+nanj) -> (nan+0j)
+cosh -infj | ValueError math domain error
+cosh -0j -> (1-0j)
+cosh 0j -> (1+0j)
+cosh infj | ValueError math domain error
+cosh nanj -> (nan+0j)
+cosh (inf-infj) | ValueError math domain error
+cosh (inf-0j) -> (inf-0j)
+cosh (inf+0j) -> (inf+0j)
+cosh (inf+infj) | ValueError math domain error
+cosh (inf+nanj) -> (inf+nanj)
+cosh (nan-infj) -> (nan+nanj)
+cosh (nan-0j) -> (nan+0j)
+cosh (nan+0j) -> (nan+0j)
+cosh (nan+infj) -> (nan+nanj)
+cosh (nan+nanj) -> (nan+nanj)
+exp (-inf-infj) -> 0j
+exp (-inf-0j) -> -0j
+exp (-inf+0j) -> 0j
+exp (-inf+infj) -> 0j
+exp (-inf+nanj) -> 0j
+exp (-0-infj) | ValueError math domain error
+exp (-0-0j) -> (1-0j)
+exp (-0+0j) -> (1+0j)
+exp (-0+infj) | ValueError math domain error
+exp (-0+nanj) -> (nan+nanj)
+exp -infj | ValueError math domain error
+exp -0j -> (1-0j)
+exp 0j -> (1+0j)
+exp infj | ValueError math domain error
+exp nanj -> (nan+nanj)
+exp (inf-infj) | ValueError math domain error
+exp (inf-0j) -> (inf-0j)
+exp (inf+0j) -> (inf+0j)
+exp (inf+infj) | ValueError math domain error
+exp (inf+nanj) -> (inf+nanj)
+exp (nan-infj) -> (nan+nanj)
+exp (nan-0j) -> (nan-0j)
+exp (nan+0j) -> (nan+0j)
+exp (nan+infj) -> (nan+nanj)
+exp (nan+nanj) -> (nan+nanj)
+sin (-inf-infj) | ValueError math domain error
+sin (-inf-0j) | ValueError math domain error
+sin (-inf+0j) | ValueError math domain error
+sin (-inf+infj) | ValueError math domain error
+sin (-inf+nanj) -> (nan+nanj)
+sin (-0-infj) -> (-0-infj)
+sin (-0-0j) -> (-0-0j)
+sin (-0+0j) -> (-0+0j)
+sin (-0+infj) -> (-0+infj)
+sin (-0+nanj) -> (-0+nanj)
+sin -infj -> -infj
+sin -0j -> -0j
+sin 0j -> 0j
+sin infj -> infj
+sin nanj -> nanj
+sin (inf-infj) | ValueError math domain error
+sin (inf-0j) | ValueError math domain error
+sin (inf+0j) | ValueError math domain error
+sin (inf+infj) | ValueError math domain error
+sin (inf+nanj) -> (nan+nanj)
+sin (nan-infj) -> (nan-infj)
+sin (nan-0j) -> (nan-0j)
+sin (nan+0j) -> (nan-0j)
+sin (nan+infj) -> (nan-infj)
+sin (nan+nanj) -> (nan+nanj)
+sinh (-inf-infj) | ValueError math domain error
+sinh (-inf-0j) -> (-inf-0j)
+sinh (-inf+0j) -> (-inf+0j)
+sinh (-inf+infj) | ValueError math domain error
+sinh (-inf+nanj) -> (inf+nanj)
+sinh (-0-infj) | ValueError math domain error
+sinh (-0-0j) -> (-0-0j)
+sinh (-0+0j) -> (-0+0j)
+sinh (-0+infj) | ValueError math domain error
+sinh (-0+nanj) -> nanj
+sinh -infj | ValueError math domain error
+sinh -0j -> -0j
+sinh 0j -> 0j
+sinh infj | ValueError math domain error
+sinh nanj -> nanj
+sinh (inf-infj) | ValueError math domain error
+sinh (inf-0j) -> (inf-0j)
+sinh (inf+0j) -> (inf+0j)
+sinh (inf+infj) | ValueError math domain error
+sinh (inf+nanj) -> (inf+nanj)
+sinh (nan-infj) -> (nan+nanj)
+sinh (nan-0j) -> (nan-0j)
+sinh (nan+0j) -> (nan+0j)
+sinh (nan+infj) -> (nan+nanj)
+sinh (nan+nanj) -> (nan+nanj)
+sqrt (-inf-infj) -> (inf-infj)
+sqrt (-inf-0j) -> -infj
+sqrt (-inf+0j) -> infj
+sqrt (-inf+infj) -> (inf+infj)
+sqrt (-inf+nanj) -> (nan+infj)
+sqrt (-0-infj) -> (inf-infj)
+sqrt (-0-0j) -> -0j
+sqrt (-0+0j) -> 0j
+sqrt (-0+infj) -> (inf+infj)
+sqrt (-0+nanj) -> (nan+nanj)
+sqrt -infj -> (inf-infj)
+sqrt -0j -> -0j
+sqrt 0j -> 0j
+sqrt infj -> (inf+infj)
+sqrt nanj -> (nan+nanj)
+sqrt (inf-infj) -> (inf-infj)
+sqrt (inf-0j) -> (inf-0j)
+sqrt (inf+0j) -> (inf+0j)
+sqrt (inf+infj) -> (inf+infj)
+sqrt (inf+nanj) -> (inf+nanj)
+sqrt (nan-infj) -> (inf-infj)
+sqrt (nan-0j) -> (nan+nanj)
+sqrt (nan+0j) -> (nan+nanj)
+sqrt (nan+infj) -> (inf+infj)
+sqrt (nan+nanj) -> (nan+nanj)
+tan (-inf-infj) -> -1j
+tan (-inf-0j) | ValueError math domain error
+tan (-inf+0j) | ValueError math domain error
+tan (-inf+infj) -> 1j
+tan (-inf+nanj) -> (nan+nanj)
+tan (-0-infj) -> (-0-1j)
+tan (-0-0j) -> (-0-0j)
+tan (-0+0j) -> (-0+0j)
+tan (-0+infj) -> (-0+1j)
+tan (-0+nanj) -> (-0+nanj)
+tan -infj -> -1j
+tan -0j -> -0j
+tan 0j -> 0j
+tan infj -> 1j
+tan nanj -> nanj
+tan (inf-infj) -> -1j
+tan (inf-0j) | ValueError math domain error
+tan (inf+0j) | ValueError math domain error
+tan (inf+infj) -> 1j
+tan (inf+nanj) -> (nan+nanj)
+tan (nan-infj) -> -1j
+tan (nan-0j) -> (nan-0j)
+tan (nan+0j) -> (nan+0j)
+tan (nan+infj) -> 1j
+tan (nan+nanj) -> (nan+nanj)
+tanh (-inf-infj) -> (-1+0j)
+tanh (-inf-0j) -> (-1-0j)
+tanh (-inf+0j) -> (-1+0j)
+tanh (-inf+infj) -> (-1+0j)
+tanh (-inf+nanj) -> (-1+0j)
+tanh (-0-infj) | ValueError math domain error
+tanh (-0-0j) -> (-0-0j)
+tanh (-0+0j) -> (-0+0j)
+tanh (-0+infj) | ValueError math domain error
+tanh (-0+nanj) -> (-0+nanj)
+tanh -infj | ValueError math domain error
+tanh -0j -> -0j
+tanh 0j -> 0j
+tanh infj | ValueError math domain error
+tanh nanj -> nanj
+tanh (inf-infj) -> (1+0j)
+tanh (inf-0j) -> (1-0j)
+tanh (inf+0j) -> (1+0j)
+tanh (inf+infj) -> (1+0j)
+tanh (inf+nanj) -> (1+0j)
+tanh (nan-infj) -> (nan+nanj)
+tanh (nan-0j) -> (nan-0j)
+tanh (nan+0j) -> (nan+0j)
+tanh (nan+infj) -> (nan+nanj)
+tanh (nan+nanj) -> (nan+nanj)
+exp big | OverflowError math range error
+cosh big | OverflowError math range error
+sinh big | OverflowError math range error
+atan (1.5707963267948966+0.5493061443340549j)
+atan2 (1.1265564408348223+0.09641562020299617j)
+atanh (0.5493061443340549+1.5707963267948966j)
+tanh-sat (1+0j)
+sqrt-fin 2j
+sqrt-tiny (1.09868411346781e-150+4.5508986056222734e-151j)
+log (1.6094379124341003+0.9272952180016122j)
+log-base (3+0j)
+log10 (2+1.3643763538418412j)
+phase 3.141592653589793
+polar (1.4142135623730951, 0.7853981633974483)
+rect (1.0000000000000002+1.7320508075688772j)
+isclose True
+isclose-far False
+isnan True
+isinf True
+isfinite True
+pi 3.141592653589793 e 2.718281828459045 tau 6.283185307179586
+inf inf nan-is-nan True
+infj infj nanj-is-nan True
+log0 | ValueError math domain error
+== exception:
+== stderr:
