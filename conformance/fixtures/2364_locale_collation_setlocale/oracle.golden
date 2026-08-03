@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+strcoll a<b: True
+strcoll a==a: True
+strcoll b>a: True
+strcoll null arg1: True
+strcoll null arg2: True
+strxfrm null: True
+all query str: True
+bad category: True
+unsupported locale: True
+== exception:
+== stderr:
