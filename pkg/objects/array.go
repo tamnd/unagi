@@ -547,6 +547,7 @@ var arrayMethodNames = map[string]bool{
 	"remove": true, "index": true, "count": true, "reverse": true,
 	"tolist": true, "fromlist": true, "tobytes": true, "frombytes": true,
 	"tounicode": true, "fromunicode": true, "byteswap": true, "buffer_info": true,
+	"tofile": true, "fromfile": true,
 }
 
 // arrayLoadAttr reads an attribute off an array: the typecode and itemsize data
@@ -717,8 +718,73 @@ func arrayMethod(a *arrayObject, name string, args []Object) (Object, error) {
 		// The address is best effort under a managed heap, so it reports 0; the
 		// length is the item count, matching CPython's (address, length) tuple.
 		return NewTuple([]Object{NewInt(0), NewInt(int64(len(a.elts)))}), nil
+	case "fromfile":
+		if len(args) < 2 {
+			return nil, Raise(TypeError, "fromfile() takes exactly 2 positional arguments (%d given)", len(args))
+		}
+		if len(args) > 2 {
+			return nil, Raise(TypeError, "fromfile() takes at most 2 arguments (%d given)", len(args))
+		}
+		return arrayFromFile(a, args[0], args[1])
+	case "tofile":
+		if len(args) == 0 {
+			return nil, Raise(TypeError, "tofile() takes exactly 1 positional argument (0 given)")
+		}
+		if len(args) > 1 {
+			return nil, Raise(TypeError, "tofile() takes at most 1 argument (%d given)", len(args))
+		}
+		return arrayToFile(a, args[0])
 	}
 	return nil, noAttr(a, name)
+}
+
+// arrayFromFile implements array.fromfile(f, n): read n items, n*itemsize bytes,
+// from f with a single f.read call, append what was read, then raise EOFError if
+// the read came up short. The append runs before the short-read check, so a read
+// that returns a non-multiple of itemsize raises from frombytes first, matching
+// CPython's order (the partial items read before a short EOF are kept).
+func arrayFromFile(a *arrayObject, f, nObj Object) (Object, error) {
+	n, ok := AsInt(nObj)
+	if !ok {
+		return nil, Raise(TypeError, "'%s' object cannot be interpreted as an integer", nObj.TypeName())
+	}
+	if n < 0 {
+		return nil, Raise(ValueError, "negative count")
+	}
+	nbytes := n * int64(arrayItemSize(a.code))
+	readM, err := LoadAttr(f, "read")
+	if err != nil {
+		return nil, err
+	}
+	res, err := Call(readM, []Object{NewInt(nbytes)})
+	if err != nil {
+		return nil, err
+	}
+	// CPython requires read() to return bytes exactly, not just a bytes-like.
+	data, ok := AsBytes(res)
+	if !ok {
+		return nil, Raise(TypeError, "read() didn't return bytes")
+	}
+	if err := a.frombytes(data); err != nil {
+		return nil, err
+	}
+	if int64(len(data)) < nbytes {
+		return nil, Raise("EOFError", "read() didn't return enough bytes")
+	}
+	return None, nil
+}
+
+// arrayToFile implements array.tofile(f): write the array's raw bytes to f with a
+// single f.write call.
+func arrayToFile(a *arrayObject, f Object) (Object, error) {
+	writeM, err := LoadAttr(f, "write")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := Call(writeM, []Object{NewBytes(a.tobytes())}); err != nil {
+		return nil, err
+	}
+	return None, nil
 }
 
 // arrayInsert places x before index i, clamping i into range the way
