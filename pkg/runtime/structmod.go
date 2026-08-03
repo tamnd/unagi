@@ -47,8 +47,14 @@ func initStruct(m *objects.Module) error {
 		return err
 	}
 
-	calcsize := objects.NewFunc("calcsize", 1, func(args []objects.Object) (objects.Object, error) {
-		f, err := parseStructArg(args[0])
+	calcsize := objects.NewFuncKw("calcsize", func(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+		if err := structNoKw("_struct.calcsize()", kwNames); err != nil {
+			return nil, err
+		}
+		if len(pos) != 1 {
+			return nil, objects.Raise(objects.TypeError, "_struct.calcsize() takes exactly one argument (%d given)", len(pos))
+		}
+		f, err := parseStructArg(pos[0])
 		if err != nil {
 			return nil, err
 		}
@@ -58,15 +64,18 @@ func initStruct(m *objects.Module) error {
 		return err
 	}
 
-	pack := objects.NewFunc("pack", -1, func(args []objects.Object) (objects.Object, error) {
-		if len(args) < 1 {
-			return nil, structErrorf("pack() takes at least 1 argument (0 given)")
+	pack := objects.NewFuncKw("pack", func(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+		if err := structNoKw("_struct.pack()", kwNames); err != nil {
+			return nil, err
 		}
-		f, err := parseStructArg(args[0])
+		if len(pos) < 1 {
+			return nil, objects.Raise(objects.TypeError, "missing format argument")
+		}
+		f, err := parseStructArg(pos[0])
 		if err != nil {
 			return nil, err
 		}
-		buf, err := structPack(f, args[1:])
+		buf, err := structPack(f, pos[1:])
 		if err != nil {
 			return nil, err
 		}
@@ -76,59 +85,73 @@ func initStruct(m *objects.Module) error {
 		return err
 	}
 
-	packInto := objects.NewFunc("pack_into", -1, func(args []objects.Object) (objects.Object, error) {
-		if len(args) < 3 {
-			return nil, structErrorf("pack_into() takes at least 3 arguments (%d given)", len(args))
+	packInto := objects.NewFuncKw("pack_into", func(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+		if err := structNoKw("_struct.pack_into()", kwNames); err != nil {
+			return nil, err
 		}
-		f, err := parseStructArg(args[0])
+		if err := structPackIntoArgCheck(pos); err != nil {
+			return nil, err
+		}
+		f, err := parseStructArg(pos[0])
 		if err != nil {
 			return nil, err
 		}
-		return structPackInto(f, args[1], args[2], args[3:])
+		return structPackInto(f, pos[1], pos[2], pos[3:])
 	})
 	if err := objects.StoreAttr(m, "pack_into", packInto); err != nil {
 		return err
 	}
 
-	unpack := objects.NewFunc("unpack", 2, func(args []objects.Object) (objects.Object, error) {
-		f, err := parseStructArg(args[0])
+	unpack := objects.NewFuncKw("unpack", func(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+		if err := structNoKw("_struct.unpack()", kwNames); err != nil {
+			return nil, err
+		}
+		if len(pos) != 2 {
+			return nil, objects.Raise(objects.TypeError, "unpack expected 2 arguments, got %d", len(pos))
+		}
+		f, err := parseStructArg(pos[0])
 		if err != nil {
 			return nil, err
 		}
-		return structUnpack(f, args[1])
+		return structUnpack(f, pos[1])
 	})
 	if err := objects.StoreAttr(m, "unpack", unpack); err != nil {
 		return err
 	}
 
-	unpackFrom := objects.NewFunc("unpack_from", -1, func(args []objects.Object) (objects.Object, error) {
-		if len(args) < 2 {
-			return nil, structErrorf("unpack_from() takes at least 2 arguments (%d given)", len(args))
+	unpackFrom := objects.NewFuncKw("unpack_from", func(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+		if len(pos) < 1 {
+			return nil, objects.Raise(objects.TypeError, "unpack_from() takes at least 1 positional argument (%d given)", len(pos))
 		}
-		f, err := parseStructArg(args[0])
+		if len(pos)+len(kwNames) > 3 {
+			return nil, objects.Raise(objects.TypeError, "unpack_from() takes at most 3 arguments (%d given)", len(pos)+len(kwNames))
+		}
+		f, err := parseStructArg(pos[0])
 		if err != nil {
 			return nil, err
 		}
-		off := 0
-		if len(args) >= 3 {
-			o, ok := objects.AsInt(args[2])
-			if !ok {
-				return nil, objects.Raise(objects.TypeError, "an integer is required")
-			}
-			off = int(o)
+		buffer, off, err := structUnpackFromArgs(pos[1:], kwNames, kwVals, 2)
+		if err != nil {
+			return nil, err
 		}
-		return structUnpackFrom(f, args[1], off)
+		return structUnpackFrom(f, buffer, off)
 	})
 	if err := objects.StoreAttr(m, "unpack_from", unpackFrom); err != nil {
 		return err
 	}
 
-	iterUnpack := objects.NewFunc("iter_unpack", 2, func(args []objects.Object) (objects.Object, error) {
-		f, err := parseStructArg(args[0])
+	iterUnpack := objects.NewFuncKw("iter_unpack", func(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+		if err := structNoKw("_struct.iter_unpack()", kwNames); err != nil {
+			return nil, err
+		}
+		if len(pos) != 2 {
+			return nil, objects.Raise(objects.TypeError, "iter_unpack expected 2 arguments, got %d", len(pos))
+		}
+		f, err := parseStructArg(pos[0])
 		if err != nil {
 			return nil, err
 		}
-		return structIterUnpack(f, args[1])
+		return structIterUnpack(f, pos[1])
 	})
 	if err := objects.StoreAttr(m, "iter_unpack", iterUnpack); err != nil {
 		return err
@@ -159,11 +182,11 @@ func buildStructClass() (objects.Object, error) {
 	vals := []objects.Object{
 		objects.NewMethod("__init__", 2, structClassInit),
 		objects.NewMethod("__repr__", 1, structClassRepr),
-		objects.NewMethod("pack", -1, structClassPack),
-		objects.NewMethod("unpack", 2, structClassUnpack),
-		objects.NewMethod("pack_into", -1, structClassPackInto),
-		objects.NewMethod("unpack_from", -1, structClassUnpackFrom),
-		objects.NewMethod("iter_unpack", 2, structClassIterUnpack),
+		objects.NewMethodKw("pack", structClassPack),
+		objects.NewMethodKw("unpack", structClassUnpack),
+		objects.NewMethodKw("pack_into", structClassPackInto),
+		objects.NewMethodKw("unpack_from", structClassUnpackFrom),
+		objects.NewMethodKw("iter_unpack", structClassIterUnpack),
 	}
 	return objects.NewClass("Struct", "Struct", nil, names, vals, nil, nil)
 }
@@ -213,62 +236,168 @@ func structFormatOfSelf(self objects.Object) (*structFormat, error) {
 	return parseStructArg(fmtObj)
 }
 
-func structClassPack(args []objects.Object) (objects.Object, error) {
-	f, err := structFormatOfSelf(args[0])
+func structClassPack(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if err := structNoKw("Struct.pack()", kwNames); err != nil {
+		return nil, err
+	}
+	f, err := structFormatOfSelf(pos[0])
 	if err != nil {
 		return nil, err
 	}
-	buf, err := structPack(f, args[1:])
+	buf, err := structPack(f, pos[1:])
 	if err != nil {
 		return nil, err
 	}
 	return objects.NewBytes(buf), nil
 }
 
-func structClassUnpack(args []objects.Object) (objects.Object, error) {
-	f, err := structFormatOfSelf(args[0])
+func structClassUnpack(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if err := structNoKw("Struct.unpack()", kwNames); err != nil {
+		return nil, err
+	}
+	if len(pos)-1 != 1 {
+		return nil, objects.Raise(objects.TypeError, "Struct.unpack() takes exactly one argument (%d given)", len(pos)-1)
+	}
+	f, err := structFormatOfSelf(pos[0])
 	if err != nil {
 		return nil, err
 	}
-	return structUnpack(f, args[1])
+	return structUnpack(f, pos[1])
 }
 
-func structClassPackInto(args []objects.Object) (objects.Object, error) {
-	if len(args) < 3 {
-		return nil, structErrorf("pack_into() takes at least 2 arguments (%d given)", len(args)-1)
+func structClassPackInto(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if err := structNoKw("Struct.pack_into()", kwNames); err != nil {
+		return nil, err
 	}
-	f, err := structFormatOfSelf(args[0])
+	// self carries the format, so the first user argument is the buffer; the
+	// missing buffer or offset messages match the module function's.
+	rest := pos[1:]
+	if len(rest) < 1 {
+		return nil, structErrorf("pack_into expected buffer argument")
+	}
+	if len(rest) < 2 {
+		return nil, structErrorf("pack_into expected offset argument")
+	}
+	f, err := structFormatOfSelf(pos[0])
 	if err != nil {
 		return nil, err
 	}
-	return structPackInto(f, args[1], args[2], args[3:])
+	return structPackInto(f, rest[0], rest[1], rest[2:])
 }
 
-func structClassUnpackFrom(args []objects.Object) (objects.Object, error) {
-	if len(args) < 2 {
-		return nil, structErrorf("unpack_from() takes at least 1 argument (%d given)", len(args)-1)
+func structClassUnpackFrom(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	rest := pos[1:]
+	if len(rest)+len(kwNames) > 2 {
+		return nil, objects.Raise(objects.TypeError, "unpack_from() takes at most 2 arguments (%d given)", len(rest)+len(kwNames))
 	}
-	f, err := structFormatOfSelf(args[0])
+	f, err := structFormatOfSelf(pos[0])
 	if err != nil {
 		return nil, err
 	}
-	off := 0
-	if len(args) >= 3 {
-		o, ok := objects.AsInt(args[2])
-		if !ok {
-			return nil, objects.Raise(objects.TypeError, "an integer is required")
+	buffer, off, err := structUnpackFromArgs(rest, kwNames, kwVals, 1)
+	if err != nil {
+		return nil, err
+	}
+	return structUnpackFrom(f, buffer, off)
+}
+
+func structClassIterUnpack(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if err := structNoKw("Struct.iter_unpack()", kwNames); err != nil {
+		return nil, err
+	}
+	if len(pos)-1 != 1 {
+		return nil, objects.Raise(objects.TypeError, "Struct.iter_unpack() takes exactly one argument (%d given)", len(pos)-1)
+	}
+	f, err := structFormatOfSelf(pos[0])
+	if err != nil {
+		return nil, err
+	}
+	return structIterUnpack(f, pos[1])
+}
+
+// structNoKw rejects keyword arguments for a struct entry point that accepts
+// none, matching CPython's "<qual> takes no keyword arguments" where qual is
+// the qualified name including the trailing "()".
+func structNoKw(qual string, kwNames []string) error {
+	if len(kwNames) > 0 {
+		return objects.Raise(objects.TypeError, "%s takes no keyword arguments", qual)
+	}
+	return nil
+}
+
+// structPackIntoArgCheck enforces the module pack_into's positional prefix
+// (format, buffer, offset) before the values, matching CPython's staged
+// messages: no format is the plain "missing format argument" TypeError, a
+// missing buffer or offset is a struct.error naming the argument. The Struct
+// method has the format bound, so it checks the buffer and offset directly.
+func structPackIntoArgCheck(pos []objects.Object) error {
+	if len(pos) < 1 {
+		return objects.Raise(objects.TypeError, "missing format argument")
+	}
+	if len(pos) < 2 {
+		return structErrorf("pack_into expected buffer argument")
+	}
+	if len(pos) < 3 {
+		return structErrorf("pack_into expected offset argument")
+	}
+	return nil
+}
+
+// structUnpackFromArgs resolves the (buffer, offset) pair for unpack_from,
+// shared by the module function and the Struct method. The format has already
+// been consumed, so rest is the positional arguments after it and bufPos is the
+// 1-based position the buffer sits at (2 for the module function, 1 for the
+// bound method). buffer may arrive positionally or as the 'buffer' keyword and
+// offset positionally or as 'offset', defaulting to 0, matching CPython's
+// Argument Clinic signature unpack_from(format, /, buffer, offset=0).
+func structUnpackFromArgs(rest []objects.Object, kwNames []string, kwVals []objects.Object, bufPos int) (objects.Object, int, error) {
+	var buffer objects.Object
+	offset := 0
+	haveOffset := false
+	if len(rest) >= 1 {
+		buffer = rest[0]
+	}
+	if len(rest) >= 2 {
+		o, err := structAsOffset(rest[1])
+		if err != nil {
+			return nil, 0, err
 		}
-		off = int(o)
+		offset, haveOffset = o, true
 	}
-	return structUnpackFrom(f, args[1], off)
+	for i, name := range kwNames {
+		switch name {
+		case "buffer":
+			if buffer != nil {
+				return nil, 0, objects.Raise(objects.TypeError, "argument for unpack_from() given by name ('buffer') and position (%d)", bufPos)
+			}
+			buffer = kwVals[i]
+		case "offset":
+			if haveOffset {
+				return nil, 0, objects.Raise(objects.TypeError, "argument for unpack_from() given by name ('offset') and position (%d)", bufPos+1)
+			}
+			o, err := structAsOffset(kwVals[i])
+			if err != nil {
+				return nil, 0, err
+			}
+			offset, haveOffset = o, true
+		default:
+			return nil, 0, objects.Raise(objects.TypeError, "unpack_from() got an unexpected keyword argument '%s'", name)
+		}
+	}
+	if buffer == nil {
+		return nil, 0, objects.Raise(objects.TypeError, "unpack_from() missing required argument 'buffer' (pos %d)", bufPos)
+	}
+	return buffer, offset, nil
 }
 
-func structClassIterUnpack(args []objects.Object) (objects.Object, error) {
-	f, err := structFormatOfSelf(args[0])
-	if err != nil {
-		return nil, err
+// structAsOffset coerces an offset argument to an int, raising CPython's
+// "'X' object cannot be interpreted as an integer" for anything else.
+func structAsOffset(o objects.Object) (int, error) {
+	n, ok := objects.AsInt(o)
+	if !ok {
+		return 0, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", o.TypeName())
 	}
-	return structIterUnpack(f, args[1])
+	return int(n), nil
 }
 
 // structFormat is a parsed format string: the byte order, whether native sizes
