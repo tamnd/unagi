@@ -148,3 +148,70 @@ func TestLocaleSetlocaleAndCollation(t *testing.T) {
 		t.Errorf("strxfrm(\"hello\") = %v, want \"hello\"", r)
 	}
 }
+
+// TestLocaleEmbeddedNull checks strcoll and strxfrm reject a string with an
+// embedded NUL with ValueError, the way CPython's wide-char conversion does,
+// since the underlying C functions take a NUL-terminated string.
+func TestLocaleEmbeddedNull(t *testing.T) {
+	mo, err := ImportModule("_locale")
+	if err != nil {
+		t.Fatalf("import _locale: %v", err)
+	}
+	strcoll, _ := objects.LoadAttr(mo, "strcoll")
+	strxfrm, _ := objects.LoadAttr(mo, "strxfrm")
+
+	isValueError := func(err error) bool {
+		e, ok := err.(*objects.Exception)
+		return ok && e.Kind == "ValueError"
+	}
+
+	// A NUL in either strcoll argument raises, so both conversion sites are
+	// covered.
+	if _, err := objects.Call(strcoll, objs(objects.NewStr("a\x00"), objects.NewStr("a"))); !isValueError(err) {
+		t.Errorf("strcoll(NUL, a) error = %v, want ValueError", err)
+	}
+	if _, err := objects.Call(strcoll, objs(objects.NewStr("a"), objects.NewStr("a\x00"))); !isValueError(err) {
+		t.Errorf("strcoll(a, NUL) error = %v, want ValueError", err)
+	}
+	if _, err := objects.Call(strxfrm, objs(objects.NewStr("a\x00"))); !isValueError(err) {
+		t.Errorf("strxfrm(NUL) error = %v, want ValueError", err)
+	}
+}
+
+// TestLocaleSetlocaleBadCategory checks a category integer outside the known LC_*
+// range raises _locale.Error rather than reporting the C locale, matching the
+// crasher guard CPython added in bug #7419.
+func TestLocaleSetlocaleBadCategory(t *testing.T) {
+	mo, err := ImportModule("_locale")
+	if err != nil {
+		t.Fatalf("import _locale: %v", err)
+	}
+	setlocale, _ := objects.LoadAttr(mo, "setlocale")
+	errCls, _ := objects.LoadAttr(mo, "Error")
+
+	isLocaleError := func(err error) bool {
+		e, ok := err.(*objects.Exception)
+		return ok && objects.ExcMatchesClass(e, errCls)
+	}
+
+	// Query mode (no locale) and set mode both reject an out-of-range category.
+	if _, err := objects.Call(setlocale, objs(objects.NewInt(12345))); !isLocaleError(err) {
+		t.Errorf("setlocale(12345) error = %v, want _locale.Error", err)
+	}
+	if _, err := objects.Call(setlocale, objs(objects.NewInt(-1))); !isLocaleError(err) {
+		t.Errorf("setlocale(-1) error = %v, want _locale.Error", err)
+	}
+	if _, err := objects.Call(setlocale, objs(objects.NewInt(12345), objects.NewStr("C"))); !isLocaleError(err) {
+		t.Errorf("setlocale(12345, C) error = %v, want _locale.Error", err)
+	}
+	// Every valid category still queries the C locale.
+	for cat := int64(0); cat <= 6; cat++ {
+		r, err := objects.Call(setlocale, objs(objects.NewInt(cat)))
+		if err != nil {
+			t.Fatalf("setlocale(%d): %v", cat, err)
+		}
+		if s, ok := objects.AsStr(r); !ok || s != "C" {
+			t.Errorf("setlocale(%d) = %v, want \"C\"", cat, r)
+		}
+	}
+}
