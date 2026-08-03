@@ -2770,6 +2770,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 		return frameLoadAttr(x, name)
 	case *codeObject:
 		return codeLoadAttr(x, name)
+	case *tracebackObject:
+		return tracebackLoadAttr(x, name)
 	case *superObject:
 		return superLoadAttr(x, name)
 	case *Exception:

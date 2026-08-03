@@ -658,11 +658,10 @@ func sysGetDefaultEncoding(args []objects.Object) (objects.Object, error) {
 // sysExcInfo is sys.exc_info(): the (type, value, traceback) triple for the
 // exception now being handled, or (None, None, None) outside an except block.
 // It reads the same handled-exception stack sys.exception() and bare raise use,
-// so the value is that exception and the type is its class. unagi models no
-// first-class traceback object, so the third slot is None, the documented
-// stand-in exc.__traceback__ also returns; unittest's testPartExecutor reads
-// exc_info() to record a failure, and traceback.format_exception tolerates a
-// None traceback by printing just the exception line.
+// so the value is that exception, the type is its class, and the traceback is
+// the exception's own __traceback__, the frame chain projected from its recorded
+// frames. unittest's testPartExecutor reads exc_info() to record a failure, and
+// traceback.format_exception walks the third slot to print the frames.
 func sysExcInfo(args []objects.Object) (objects.Object, error) {
 	if len(args) != 0 {
 		return nil, objects.Raise(objects.TypeError, "exc_info() takes no arguments (%d given)", len(args))
@@ -672,7 +671,11 @@ func sysExcInfo(args []objects.Object) (objects.Object, error) {
 		return objects.NewTuple([]objects.Object{objects.None, objects.None, objects.None}), nil
 	}
 	typ := objects.ExcTypeOf(e)
-	return objects.NewTuple([]objects.Object{typ, e, objects.None}), nil
+	tb, err := objects.LoadAttr(e, "__traceback__")
+	if err != nil {
+		return nil, err
+	}
+	return objects.NewTuple([]objects.Object{typ, e, tb}), nil
 }
 
 // sysIsFinalizing reports sys.is_finalizing(): whether the interpreter is

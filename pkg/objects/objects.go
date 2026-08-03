@@ -58,6 +58,18 @@ type Exception struct {
 	// BaseExceptionGroup; nil for every other exception. Args still keeps
 	// the two constructor arguments, so repr echoes the given sequence.
 	Group []*Exception
+	// TBSet marks that with_traceback stored an explicit __traceback__, so a
+	// read returns TB verbatim (including None) instead of projecting Frames.
+	// This keeps unittest's `exc.with_traceback(None)` reading back None while a
+	// caught exception that was never overridden still exposes its frame chain.
+	TBSet bool
+	TB    Object
+	// tbCache holds the traceback object projected from Frames, so repeated
+	// __traceback__ reads hand back the same object (CPython caches one tb per
+	// exception). tbCacheN records how many frames it was built from; if the
+	// exception unwinds further and Frames grows, the next read rebuilds.
+	tbCache  Object
+	tbCacheN int
 	// Reraised marks a bare `raise` so the next TB call skips its frame.
 	// CPython 3.14 keeps the original raise-site line for the re-raising
 	// function and adds no entry for the bare raise itself.
