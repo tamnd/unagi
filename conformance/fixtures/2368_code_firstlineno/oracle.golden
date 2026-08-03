@@ -1,0 +1,10 @@
+== exit: 0
+== stdout:
+module_func: 6
+method: 11
+lambda: 15
+nested inner: 19
+bound method: 11
+read-only: AttributeError
+== exception:
+== stderr:

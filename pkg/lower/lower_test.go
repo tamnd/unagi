@@ -107,6 +107,23 @@ func TestFunctionNoDocstringNoWrap(t *testing.T) {
 	}
 }
 
+// TestDefWrapsFirstLine checks a def emit site records the def's source line so
+// the function's __code__ reports it as co_firstlineno. The def header here sits
+// on line 3, so the emit wraps NewFunctionT in WithFuncFirstLine(..., 3).
+func TestDefWrapsFirstLine(t *testing.T) {
+	src := "x = 1\n\ndef f():\n    return x\n"
+	got, err := lowerSrc(t, src)
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	if !strings.Contains(got, "objects.WithFuncFirstLine(") {
+		t.Errorf("a def should wrap NewFunctionT in WithFuncFirstLine:\n%s", got)
+	}
+	if !strings.Contains(got, "WithFuncFirstLine(objects.NewFunctionT(\"f\"") || !strings.Contains(got, ", 3)") {
+		t.Errorf("the def line should reach the emit as WithFuncFirstLine(..., 3):\n%s", got)
+	}
+}
+
 func TestFunctionLowering(t *testing.T) {
 	mod := &frontend.Module{Body: []frontend.Stmt{
 		&frontend.FuncDef{Name: "add", Params: params("a", "b"), Body: []frontend.Stmt{

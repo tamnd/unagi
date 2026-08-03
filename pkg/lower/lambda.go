@@ -149,7 +149,7 @@ func (f *fnCtx) lambda(e *frontend.Lambda) (ast.Expr, error) {
 			ident("nil"),
 		}})
 		impl := &ast.FuncLit{Type: f.e.implType(), Body: in.pop()}
-		return callExpr(f.e.obj("NewFunctionT"), strLit(qual), f.e.paramSpecLit(e.Params), dfltsExpr, impl), nil
+		return f.e.withFirstLine(callExpr(f.e.obj("NewFunctionT"), strLit(qual), f.e.paramSpecLit(e.Params), dfltsExpr, impl), e.Pos_.Line), nil
 	}
 
 	in.recursionGuard()
@@ -160,5 +160,5 @@ func (f *fnCtx) lambda(e *frontend.Lambda) (ast.Expr, error) {
 	}
 	in.add(&ast.ReturnStmt{Results: []ast.Expr{v, ident("nil")}})
 	impl := &ast.FuncLit{Type: f.e.implType(), Body: in.pop()}
-	return callExpr(f.e.obj("NewFunctionT"), strLit(qual), f.e.paramSpecLit(e.Params), dfltsExpr, impl), nil
+	return f.e.withFirstLine(callExpr(f.e.obj("NewFunctionT"), strLit(qual), f.e.paramSpecLit(e.Params), dfltsExpr, impl), e.Pos_.Line), nil
 }

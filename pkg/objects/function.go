@@ -46,6 +46,11 @@ type functionObject struct {
 	// routes to whichever it finds.
 	impl  func(args []Object) (Object, error)
 	implT func(t *Thread, args []Object) (Object, error)
+	// firstline is the def's source line, the value __code__.co_firstlineno reads
+	// back. A def emit site sets it through WithFuncFirstLine; a function built
+	// with no line (the native module functions) leaves it 0, which reads back as
+	// co_firstlineno 0 the way it did before.
+	firstline int
 	// attrs holds the writable attribute state a function grows when code
 	// assigns to it: the __dict__ of arbitrary attributes plus overrides for the
 	// __name__/__qualname__/__doc__/__module__/__annotations__ slots. It stays nil
@@ -107,8 +112,9 @@ func funcName(qual string) string {
 
 // functionCode builds the code object a function hands back as __code__. unagi
 // keeps no bytecode, so co_code and the constant and name pools are out of
-// scope, and the source location a function does not carry (co_filename,
-// co_firstlineno) reads as "" and 0. The argument shape is faithful: the counts
+// scope, and co_filename a function does not carry reads as "". co_firstlineno
+// is the def's source line when the emit site recorded one, else 0. The argument
+// shape is faithful: the counts
 // and co_varnames come straight from the declared parameters, and co_flags
 // carries the standard OPTIMIZED|NEWLOCALS bits plus VARARGS/VARKEYWORDS when
 // the signature has *args or **kwargs, matching CPython for these fields.
@@ -149,13 +155,14 @@ func functionCode(fn *functionObject) *codeObject {
 		varnames = append(varnames, starStarName)
 	}
 	return &codeObject{
-		name:     funcName(fn.qual),
-		qualname: fn.qual,
-		argcount: argcount,
-		posonly:  posonly,
-		kwonly:   kwonly,
-		flags:    flags,
-		varnames: varnames,
+		name:      funcName(fn.qual),
+		qualname:  fn.qual,
+		firstline: fn.firstline,
+		argcount:  argcount,
+		posonly:   posonly,
+		kwonly:    kwonly,
+		flags:     flags,
+		varnames:  varnames,
 	}
 }
 

@@ -321,6 +321,17 @@ func (e *emitter) withDoc(obj ast.Expr, body []frontend.Stmt) ast.Expr {
 	return obj
 }
 
+// withFirstLine wraps a freshly built function-object expression so its __code__
+// reports the def's source line as co_firstlineno, the way CPython carries the
+// line the def header sits on. A line of zero (no position recorded) is left
+// unwrapped so the object keeps the default co_firstlineno 0.
+func (e *emitter) withFirstLine(obj ast.Expr, line int) ast.Expr {
+	if line == 0 {
+		return obj
+	}
+	return callExpr(e.obj("WithFuncFirstLine"), obj, intLit(strconv.Itoa(line)))
+}
+
 // cleanDoc dedents a docstring the way the CPython 3.13+ compiler does before it
 // stores __doc__. The first line loses its leading whitespace. For the remaining
 // lines the compiler expands leading tabs to spaces at an eight-column tabstop,
