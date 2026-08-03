@@ -62,6 +62,27 @@ func TestWithFuncModule(t *testing.T) {
 	}
 }
 
+func TestFunctionCallAttr(t *testing.T) {
+	// mkAttrFn returns a[0], so a one-argument call echoes its argument. The
+	// __call__ wrapper is what callable() and unittest.mock._callable read to
+	// recognise a plain function, so it must be present and forward the call.
+	fn := mkAttrFn("f")
+	call, err := LoadAttr(fn, "__call__")
+	if err != nil {
+		t.Fatalf("read __call__: %v", err)
+	}
+	if call == nil || call == None {
+		t.Fatal("__call__ should be a non-None callable")
+	}
+	got, err := CallKw(call, []Object{NewInt(9)}, nil, nil)
+	if err != nil {
+		t.Fatalf("call through __call__: %v", err)
+	}
+	if n, _ := AsInt(got); n != 9 {
+		t.Errorf("f.__call__(9) = %v, want 9", got)
+	}
+}
+
 func TestFunctionArbitraryAttr(t *testing.T) {
 	fn := mkAttrFn("f")
 	if err := StoreAttr(fn, "tag", NewInt(7)); err != nil {
