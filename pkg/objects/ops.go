@@ -906,7 +906,12 @@ func equals(a, b Object) bool {
 		return ok && string(x.snapshot()) == string(yv)
 	case *memoryviewObject:
 		// A memoryview compares equal to any bytes-like object with the same
-		// bytes, another memoryview included; a non-buffer is simply unequal.
+		// bytes, another memoryview included; a non-buffer is simply unequal. A
+		// released view backs no bytes, so it compares unequal rather than
+		// raising.
+		if x.released {
+			return false
+		}
 		yv, ok := mvBytesLike(b)
 		return ok && string(mvSpan(x)) == string(yv)
 	case *listObject:
@@ -1642,6 +1647,9 @@ func SetItem(o, key, val Object) error {
 func Len(o Object) (int, error) {
 	switch x := o.(type) {
 	case *memoryviewObject:
+		if x.released {
+			return 0, mvReleased()
+		}
 		return x.length, nil
 	case *strObject:
 		return strLen(x.v), nil
