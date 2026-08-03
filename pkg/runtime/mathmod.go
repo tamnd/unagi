@@ -55,8 +55,6 @@ func initMath(m *objects.Module) error {
 		{"exp", math.Exp, true, domGeneric},
 		{"exp2", math.Exp2, true, domGeneric},
 		{"expm1", math.Expm1, true, domGeneric},
-		{"log2", math.Log2, false, domPositive},
-		{"log10", math.Log10, false, domPositive},
 		{"log1p", math.Log1p, false, domLog1p},
 		{"sin", math.Sin, false, domGeneric},
 		{"cos", math.Cos, false, domGeneric},
@@ -78,6 +76,31 @@ func initMath(m *objects.Module) error {
 				return nil, err
 			}
 			return mathResult(o.fn(x), x, o.canOverflow, o.domain)
+		})); err != nil {
+			return err
+		}
+	}
+
+	// log2 and log10 go through CPython's loghelper so an int argument is
+	// worked exactly, keeping the log of an arbitrarily large int finite where
+	// a plain float conversion would overflow to infinity.
+	logs := []struct {
+		name string
+		fn   func(float64) float64
+	}{
+		{"log2", math.Log2},
+		{"log10", math.Log10},
+	}
+	for _, lg := range logs {
+		if err := set(lg.name, objects.NewFunc(lg.name, -1, func(args []objects.Object) (objects.Object, error) {
+			if len(args) != 1 {
+				return nil, objects.Raise(objects.TypeError, "math.%s() takes exactly one argument (%d given)", lg.name, len(args))
+			}
+			r, err := mathLogHelper(args[0], lg.fn)
+			if err != nil {
+				return nil, err
+			}
+			return objects.NewFloat(r), nil
 		})); err != nil {
 			return err
 		}
@@ -279,7 +302,6 @@ func pyFloatRepr(x float64) string { return objects.Repr(objects.NewFloat(x)) }
 // The per-function domain messages CPython 3.14 raises for an out-of-range
 // argument. Several quote the argument through its float repr.
 func domGeneric(float64) string  { return "math domain error" }
-func domPositive(float64) string { return "expected a positive input" }
 func domNonneg(x float64) string { return "expected a nonnegative input, got " + pyFloatRepr(x) }
 func domLog1p(x float64) string  { return "expected argument value > -1, got " + pyFloatRepr(x) }
 func domUnitRange(x float64) string {
@@ -292,31 +314,57 @@ func domAtanh(x float64) string { return "expected a number between -1 and 1, go
 
 // mathLog is log(x) or log(x, base); the domain error covers x <= 0.
 func mathLog(args []objects.Object) (objects.Object, error) {
-	if len(args) < 1 || len(args) > 2 {
+	if len(args) < 1 {
+		return nil, objects.Raise(objects.TypeError, "log expected at least 1 argument, got %d", len(args))
+	}
+	if len(args) > 2 {
 		return nil, objects.Raise(objects.TypeError, "log expected at most 2 arguments, got %d", len(args))
 	}
-	x, err := mathToFloat(args[0])
-	if err != nil {
-		return nil, err
-	}
-	lx, err := mathResult(math.Log(x), x, false, domPositive)
+	num, err := mathLogHelper(args[0], math.Log)
 	if err != nil {
 		return nil, err
 	}
 	if len(args) == 1 {
-		return lx, nil
+		return objects.NewFloat(num), nil
 	}
-	base, err := mathToFloat(args[1])
+	den, err := mathLogHelper(args[1], math.Log)
 	if err != nil {
 		return nil, err
 	}
-	lb, err := mathResult(math.Log(base), base, false, domPositive)
-	if err != nil {
-		return nil, err
+	return objects.NewFloat(num / den), nil
+}
+
+// mathLogHelper is CPython's loghelper. For an int argument it works on the
+// exact value, splitting an int too large for a double into a mantissa and a
+// power of two (n ~= m * 2**e, so log(n) ~= fn(m) + fn(2)*e) so the log stays
+// finite instead of overflowing. A non-positive int is a domain error that
+// does not quote the value, matching CPython, since the argument can be huge.
+// Anything else goes through the float path, where a non-positive input is a
+// domain error that quotes the argument through its repr.
+func mathLogHelper(o objects.Object, fn func(float64) float64) (float64, error) {
+	if bi, ok := objects.AsBigInt(o); ok {
+		if bi.Sign() <= 0 {
+			return 0, objects.Raise(objects.ValueError, "expected a positive input")
+		}
+		x := new(big.Float).SetInt(bi)
+		xf, _ := x.Float64()
+		if math.IsInf(xf, 0) {
+			mant := new(big.Float)
+			e := x.MantExp(mant)
+			m, _ := mant.Float64()
+			return fn(m) + fn(2.0)*float64(e), nil
+		}
+		return fn(xf), nil
 	}
-	lxv, _ := objects.AsFloat(lx)
-	lbv, _ := objects.AsFloat(lb)
-	return objects.NewFloat(lxv / lbv), nil
+	x, err := mathToFloat(o)
+	if err != nil {
+		return 0, err
+	}
+	r := fn(x)
+	if (math.IsNaN(r) && !math.IsNaN(x)) || (math.IsInf(r, 0) && !math.IsInf(x, 0)) {
+		return 0, objects.Raise(objects.ValueError, "expected a positive input, got %s", pyFloatRepr(x))
+	}
+	return r, nil
 }
 
 func mathTwoFloats(args []objects.Object, name string) (float64, float64, error) {

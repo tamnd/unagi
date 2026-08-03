@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"math"
+	"math/big"
 	"strings"
 	"testing"
 
@@ -76,6 +77,40 @@ func TestMathIntegerRoutines(t *testing.T) {
 		if got := objects.Repr(v); got != c.want {
 			t.Errorf("%s = %s, want %s", c.fn, got, c.want)
 		}
+	}
+}
+
+func TestMathLogBigInt(t *testing.T) {
+	// An int too large to convert to a double must not overflow to infinity;
+	// loghelper splits it into a mantissa and a power of two.
+	big1000 := new(big.Int).Exp(big.NewInt(10), big.NewInt(1000), nil)
+	arg := objects.NewIntFromBig(big1000)
+	cases := []struct {
+		fn   string
+		want float64
+	}{
+		{"log", math.Log(10) * 1000},
+		{"log2", math.Log2(10) * 1000},
+		{"log10", 1000},
+	}
+	for _, c := range cases {
+		got := callFloat(t, mathFn(t, c.fn), arg)
+		if math.IsInf(got, 0) || math.Abs(got-c.want) > 1e-9 {
+			t.Errorf("%s(10**1000) = %v, want ~%v", c.fn, got, c.want)
+		}
+	}
+	// log2 of an exact power of two stays exact through the frexp path.
+	pow := new(big.Int).Lsh(big.NewInt(1), 4000)
+	if got := callFloat(t, mathFn(t, "log2"), objects.NewIntFromBig(pow)); got != 4000 {
+		t.Errorf("log2(1<<4000) = %v, want 4000", got)
+	}
+	// A non-positive int reports without quoting the value; a non-positive
+	// float quotes its repr.
+	if _, err := objects.Call(mathFn(t, "log"), []objects.Object{objects.NewIntFromBig(new(big.Int).Neg(big1000))}); err == nil || !strings.Contains(err.Error(), "expected a positive input") || strings.Contains(err.Error(), "got") {
+		t.Errorf("log(-10**1000) error = %v", err)
+	}
+	if _, err := objects.Call(mathFn(t, "log"), []objects.Object{objects.NewFloat(-5)}); err == nil || !strings.Contains(err.Error(), "expected a positive input, got -5.0") {
+		t.Errorf("log(-5.0) error = %v", err)
 	}
 }
 
