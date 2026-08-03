@@ -11,6 +11,21 @@ func ExcType(kind string) Object {
 	return TypeSingleton(kind)
 }
 
+// ExcTypeOf returns the class object for a raised exception, resolving it the way
+// type(e) and except matching do: the carried Class for a user-defined subclass,
+// otherwise the built-in class its Kind names. Passing the exception rather than
+// just its Kind matters for a user subclass, whose Kind names no registered
+// built-in, so a Kind-only lookup would hand back a bare type singleton that
+// fails an identity or issubclass check against the real class (what
+// unittest.assertRaises does under the hood). It falls back to a bare type value
+// only for a kind with no class at all, so a caller still gets a non-None type.
+func ExcTypeOf(e *Exception) Object {
+	if c, ok := excClassOf(e); ok {
+		return c
+	}
+	return TypeSingleton(e.Kind)
+}
+
 // WithEnter runs the entry half of the context-manager protocol under the main
 // thread, the wrapper a t-less caller takes.
 func WithEnter(mgr Object) (exitFn Object, entered Object, err error) {
