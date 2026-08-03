@@ -27,7 +27,7 @@ func buildIOBufferedReader() (objects.Object, error) {
 		"read", "read1", "readinto", "readinto1", "peek", "seek", "tell",
 		"readable", "writable", "seekable", "fileno", "isatty",
 		"flush", "detach", "close",
-		"raw", "closed",
+		"raw", "closed", "name", "mode",
 	}
 	vals := []objects.Object{
 		slots,
@@ -53,6 +53,8 @@ func buildIOBufferedReader() (objects.Object, error) {
 		ioMethod("close", 1, ioBufReaderClose),
 		objects.NewProperty(objects.NewFunc("raw", 1, ioBufReaderRawProp), nil, nil),
 		objects.NewProperty(objects.NewFunc("closed", 1, ioBufReaderClosedProp), nil, nil),
+		ioBufAttrDelegate("name"),
+		ioBufAttrDelegate("mode"),
 	}
 	return objects.NewClass("BufferedReader", "_io.BufferedReader",
 		[]objects.Object{ioBufferedIOBase}, names, vals, nil, nil)
@@ -398,6 +400,22 @@ func ioBufReaderDelegate(name string) objects.Object {
 		}
 		return objects.CallMethod(raw, name, nil)
 	})
+}
+
+// ioBufAttrDelegate builds a read-only property that forwards a plain attribute
+// (name, mode) to the wrapped raw stream, the way CPython's buffered classes
+// expose the underlying file's name and mode. It is shared across the Buffered*
+// family since each stores its raw stream in the _raw slot. A raw that carries no
+// such attribute (a BytesIO under the buffer) propagates its AttributeError, and
+// a detached buffer raises the ValueError raw access raises.
+func ioBufAttrDelegate(attr string) objects.Object {
+	return objects.NewProperty(objects.NewFunc(attr, 1, func(args []objects.Object) (objects.Object, error) {
+		raw, err := brRawErr(args[0])
+		if err != nil {
+			return nil, err
+		}
+		return objects.LoadAttr(raw, attr)
+	}), nil, nil)
 }
 
 // brReadN reads up to n bytes (fewer only at EOF). It serves buffered bytes
