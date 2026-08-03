@@ -113,6 +113,11 @@ func initPosix(m *objects.Module) error {
 		return err
 	}
 
+	// uname_result is the structseq os.uname returns; os.py re-exports it.
+	if err := set("uname_result", posixUnameResultType); err != nil {
+		return err
+	}
+
 	// DirEntry and the scandir iterator are Go classObjects, built once and
 	// shared across imports. scandir yields DirEntry values; os.py re-exports
 	// DirEntry and os.walk drives scandir.
@@ -179,6 +184,7 @@ func initPosix(m *objects.Module) error {
 		{"mkdir", posixMkdir},
 		{"rmdir", posixRmdir},
 		{"rename", posixRename},
+		{"uname", posixUname},
 	}
 	for _, f := range fns {
 		if err := set(f.name, objects.NewFunc(f.name, -1, f.fn)); err != nil {

@@ -166,3 +166,62 @@ func TestPosixSkeleton(t *testing.T) {
 		t.Error("__all__ missing getcwd")
 	}
 }
+
+func TestPosixUname(t *testing.T) {
+	mo, err := ImportModule("posix")
+	if err != nil {
+		t.Fatalf("import posix: %v", err)
+	}
+	uname, err := objects.LoadAttr(mo, "uname")
+	if err != nil {
+		t.Fatalf("posix.uname: %v", err)
+	}
+	res, err := objects.Call(uname, nil)
+	if err != nil {
+		t.Fatalf("uname(): %v", err)
+	}
+	if tn := res.TypeName(); tn != "uname_result" {
+		t.Errorf("uname() type is %s, want uname_result", tn)
+	}
+
+	// The result is a five-field structseq. Each field is readable both by name
+	// and by its sequence index, and the two views agree.
+	n, err := objects.Len(res)
+	if err != nil {
+		t.Fatalf("len(uname()): %v", err)
+	}
+	if n != 5 {
+		t.Errorf("uname() has %d fields, want 5", n)
+	}
+	fields := []string{"sysname", "nodename", "release", "version", "machine"}
+	for i, name := range fields {
+		byName, err := objects.LoadAttr(res, name)
+		if err != nil {
+			t.Fatalf("uname().%s: %v", name, err)
+		}
+		s, ok := objects.AsStr(byName)
+		if !ok {
+			t.Errorf("uname().%s is not str", name)
+			continue
+		}
+		byIndex, err := objects.GetItem(res, objects.NewInt(int64(i)))
+		if err != nil {
+			t.Fatalf("uname()[%d]: %v", i, err)
+		}
+		si, ok := objects.AsStr(byIndex)
+		if !ok || si != s {
+			t.Errorf("uname()[%d]=%q disagrees with .%s=%q", i, si, name, s)
+		}
+	}
+
+	// sysname names the OS and is never empty on a real host.
+	sysname, _ := objects.LoadAttr(res, "sysname")
+	if s, _ := objects.AsStr(sysname); s == "" {
+		t.Error("uname().sysname is empty")
+	}
+
+	// uname takes no arguments.
+	if _, err := objects.Call(uname, []objects.Object{objects.NewInt(1)}); err == nil {
+		t.Error("uname(1) should raise")
+	}
+}
