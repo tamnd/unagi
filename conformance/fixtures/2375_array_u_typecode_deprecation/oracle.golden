@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+u build: ['h', 'i'] ['DeprecationWarning']
+u message: The 'u' type code is deprecated and will be removed in Python 3.16
+u bad init: TypeError ['DeprecationWarning']
+w and i: []
+promotion: The 'u' type code is deprecated and will be removed in Python 3.16
+tounicode: cafe
+typecode: u itemsize: 4
+typecodes: bBuwhHiIlLqQfd
+== exception:
+== stderr:
