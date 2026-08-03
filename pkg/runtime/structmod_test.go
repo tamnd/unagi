@@ -244,6 +244,62 @@ func TestStructArgumentParsing(t *testing.T) {
 	}
 }
 
+// TestStructNativeOffset checks that a native-format unpack_from or pack_into at
+// a nonzero offset measures alignment from the record's own start, not from the
+// absolute buffer offset. The old code padded on the absolute offset, so a
+// native unpack_from at a nonzero offset walked past the record and panicked.
+// pack_into also zeroes the native alignment gap the way CPython does. The
+// expected results were taken from CPython 3.14.6.
+func TestStructNativeOffset(t *testing.T) {
+	m, err := ImportModule("_struct")
+	if err != nil {
+		t.Fatalf("import _struct: %v", err)
+	}
+	unpackFrom, err := objects.LoadAttr(m, "unpack_from")
+	if err != nil {
+		t.Fatalf("_struct.unpack_from: %v", err)
+	}
+	packInto, err := objects.LoadAttr(m, "pack_into")
+	if err != nil {
+		t.Fatalf("_struct.pack_into: %v", err)
+	}
+
+	// A native "i" reads at each offset without the pad walking off the record.
+	for off := 0; off <= 4; off++ {
+		b := make([]byte, off)
+		b = append(b, 0x00, 0x00, 0x00, 0x05, 0xff, 0xff)
+		res, err := objects.Call(unpackFrom, []objects.Object{objects.NewStr("i"), objects.NewBytes(b), objects.NewInt(int64(off))})
+		if err != nil {
+			t.Fatalf("unpack_from(\"i\", off=%d): %v", off, err)
+		}
+		if got := objects.Repr(res); got != "(83886080,)" {
+			t.Fatalf("unpack_from(\"i\", off=%d) = %s, want (83886080,)", off, got)
+		}
+	}
+
+	// A native "bi" at a nonzero offset unpacks b then the aligned i.
+	compound := []byte{'z', 'z', 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07}
+	res, err := objects.Call(unpackFrom, []objects.Object{objects.NewStr("bi"), objects.NewBytes(compound), objects.NewInt(2)})
+	if err != nil {
+		t.Fatalf("unpack_from(\"bi\", off=2): %v", err)
+	}
+	if got := objects.Repr(res); got != "(1, 117440512)" {
+		t.Fatalf("unpack_from(\"bi\", off=2) = %s, want (1, 117440512)", got)
+	}
+
+	// pack_into lays "bi" down at offset 2, zeroing the alignment gap and
+	// leaving the surrounding bytes untouched.
+	dst := objects.NewByteArray([]byte{0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa})
+	_, err = objects.Call(packInto, []objects.Object{objects.NewStr("bi"), dst, objects.NewInt(2), objects.NewInt(1), objects.NewInt(7)})
+	if err != nil {
+		t.Fatalf("pack_into(\"bi\", off=2): %v", err)
+	}
+	raw, _ := objects.AsBytesLike(dst)
+	if got := bytesHex(raw); got != "aaaa0100000007000000aaaa" {
+		t.Fatalf("pack_into(\"bi\", off=2) = %s, want aaaa0100000007000000aaaa", got)
+	}
+}
+
 // bytesHex renders raw bytes as lowercase hex, matching bytes.hex() in the oracle.
 func bytesHex(b []byte) string {
 	const digits = "0123456789abcdef"

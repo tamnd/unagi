@@ -1,0 +1,22 @@
+== exit: 0
+== stdout:
+uf_i_off0 -> (83886080,)
+uf_i_off1 -> (83886080,)
+uf_i_off2 -> (83886080,)
+uf_i_off3 -> (83886080,)
+uf_i_off4 -> (83886080,)
+calcsize_bi -> 8
+uf_bi_off0 -> (1, 117440512)
+uf_bi_off2 -> (1, 117440512)
+calcsize_hi -> 8
+s.uf_hi_off2 -> (2, 9)
+s.uf_hi_kwoff -> (2, 9)
+iter_bi -> [(1, 117440512), (2, 134217728)]
+pi_i_off1 -> aa05000000aaaaaaaaaaaaaaaaaaaaaa
+pi_bi_off2 -> aaaa0100000007000000aaaaaaaaaaaa
+s.pi_hi_off3 -> aaaaaa0200000009000000aaaaaaaaaa
+uf_short | error | unpack_from requires a buffer of at least 4 bytes for unpacking 4 bytes at offset 0 (actual buffer size is 2)
+uf_neg -> (83886080,)
+uf_off_oob | error | unpack_from requires a buffer of at least 5 bytes for unpacking 4 bytes at offset 1 (actual buffer size is 4)
+== exception:
+== stderr:
