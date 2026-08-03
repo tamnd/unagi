@@ -1,0 +1,39 @@
+== exit: 0
+== stdout:
+'.2f' '1.50+2.50j'
+'.3g' '3+4j'
+'.2e' '1.00e+00+2.00e+00j'
+'.1f' '1.0-2.0j'
+'+.1f' '+1.0+2.0j'
+' ' '( 3+4j)'
+'.2f' '0.00+4.00j'
+'F' '1.000000+2.000000j'
+'E' '1.000000E+00+2.000000E+00j'
+'n' '1+2j'
+'#.0f' '1.+2.j'
+'.1f' 'nan+2.0j'
+'z.1f' '0.0+2.0j'
+',.1f' '1,234.5+6,789.1j'
+'_.1f' '1_234.5+6_789.1j'
+'^20.1f' '      1.0+2.0j      '
+'20.1f' '            1.0+2.0j'
+'<20.1f' '1.0+2.0j            '
+'*^20.1f' '******1.0+2.0j******'
+'>20' '              (3+4j)'
+'<20' '4j                  '
+'+' '+4j'
+',' '(1,234.5+6,789.1j)'
+'.3' '(1.23e+03+6.79e+03j)'
+1.50+2.50j
+        1.5+2.5j
+3+4j
+4j
+0.1f ValueError Zero padding is not allowed in complex format specifier
+020.1f ValueError Zero padding is not allowed in complex format specifier
+0<20.1f ValueError Zero padding is not allowed in complex format specifier
+=20.1f ValueError '=' alignment flag is not allowed in complex format specifier
+d ValueError Unknown format code 'd' for object of type 'complex'
+% ValueError Unknown format code '%' for object of type 'complex'
+s ValueError Unknown format code 's' for object of type 'complex'
+== exception:
+== stderr:
