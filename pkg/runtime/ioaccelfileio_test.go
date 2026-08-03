@@ -136,6 +136,44 @@ func TestIOOpenBinaryAndOpenCode(t *testing.T) {
 	_, _ = objects.CallMethod(r, "close", nil)
 }
 
+// TestIOBufferedNameMode checks a buffered stream from open() delegates name and
+// mode to the wrapped raw file, the way CPython's buffered classes do, and that a
+// buffered stream over a raw with no name (a BytesIO) propagates its
+// AttributeError. gettext._parse reads a file's name with getattr(fp, "name", "")
+// on a file opened "rb", so this is what carries the .mo path onto the OSError it
+// raises.
+func TestIOBufferedNameMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "buf.bin")
+
+	w := ioFileCall(t, "open", objects.NewStr(path), objects.NewStr("wb"))
+	if n, _ := objects.LoadAttr(w, "name"); objects.Repr(n) != objects.Repr(objects.NewStr(path)) {
+		t.Fatalf("BufferedWriter name = %s, want %s", objects.Repr(n), objects.Repr(objects.NewStr(path)))
+	}
+	if m, _ := objects.LoadAttr(w, "mode"); objects.Repr(m) != "'wb'" {
+		t.Fatalf("BufferedWriter mode = %s, want 'wb'", objects.Repr(m))
+	}
+	_, _ = objects.CallMethod(w, "write", []objects.Object{objects.NewBytes([]byte("x"))})
+	_, _ = objects.CallMethod(w, "close", nil)
+
+	r := ioFileCall(t, "open", objects.NewStr(path), objects.NewStr("rb"))
+	if n, _ := objects.LoadAttr(r, "name"); objects.Repr(n) != objects.Repr(objects.NewStr(path)) {
+		t.Fatalf("BufferedReader name = %s, want %s", objects.Repr(n), objects.Repr(objects.NewStr(path)))
+	}
+	if m, _ := objects.LoadAttr(r, "mode"); objects.Repr(m) != "'rb'" {
+		t.Fatalf("BufferedReader mode = %s, want 'rb'", objects.Repr(m))
+	}
+	_, _ = objects.CallMethod(r, "close", nil)
+
+	// A buffered reader over a BytesIO has no name to delegate to, so the access
+	// propagates the raw's AttributeError the way CPython does.
+	buf := ioFileCall(t, "BufferedReader", newIOInstance(t, "BytesIO"))
+	if _, err := objects.LoadAttr(buf, "name"); err == nil {
+		t.Fatal("BufferedReader(BytesIO()).name did not raise")
+	} else if e, ok := err.(*objects.Exception); !ok || e.Kind != "AttributeError" {
+		t.Fatalf("BufferedReader(BytesIO()).name = %v, want AttributeError", err)
+	}
+}
+
 func TestIOOpenModeErrors(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "e.txt")
 	// A bad mode letter is a ValueError.

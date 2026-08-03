@@ -32,7 +32,7 @@ func buildIOBufferedRandom() (objects.Object, error) {
 		"write", "flush", "seek", "tell", "truncate",
 		"readable", "writable", "seekable", "fileno", "isatty",
 		"detach", "close",
-		"raw", "closed",
+		"raw", "closed", "name", "mode",
 	}
 	vals := []objects.Object{
 		slots,
@@ -56,6 +56,8 @@ func buildIOBufferedRandom() (objects.Object, error) {
 		ioMethod("close", 1, ioBufRandomClose),
 		objects.NewProperty(objects.NewFunc("raw", 1, ioBufRandomRawProp), nil, nil),
 		objects.NewProperty(objects.NewFunc("closed", 1, ioBufRandomClosedProp), nil, nil),
+		ioBufAttrDelegate("name"),
+		ioBufAttrDelegate("mode"),
 	}
 	return objects.NewClass("BufferedRandom", "_io.BufferedRandom",
 		[]objects.Object{ioBufferedIOBase}, names, vals, nil, nil)

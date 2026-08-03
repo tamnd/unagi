@@ -26,7 +26,7 @@ func buildIOBufferedWriter() (objects.Object, error) {
 		"write", "flush", "seek", "tell",
 		"readable", "writable", "seekable", "fileno", "isatty",
 		"detach", "close",
-		"raw", "closed",
+		"raw", "closed", "name", "mode",
 	}
 	vals := []objects.Object{
 		slots,
@@ -46,6 +46,8 @@ func buildIOBufferedWriter() (objects.Object, error) {
 		ioMethod("close", 1, ioBufWriterClose),
 		objects.NewProperty(objects.NewFunc("raw", 1, ioBufWriterRawProp), nil, nil),
 		objects.NewProperty(objects.NewFunc("closed", 1, ioBufWriterClosedProp), nil, nil),
+		ioBufAttrDelegate("name"),
+		ioBufAttrDelegate("mode"),
 	}
 	return objects.NewClass("BufferedWriter", "_io.BufferedWriter",
 		[]objects.Object{ioBufferedIOBase}, names, vals, nil, nil)

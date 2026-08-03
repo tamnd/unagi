@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+wb type: BufferedWriter
+wb name basename: buffered_probe.bin
+wb name is str: True
+wb mode: wb
+rb type: BufferedReader
+rb name basename: buffered_probe.bin
+rb mode: rb
+rb name after read: buffered_probe.bin
+bytesio name raises: True
+getattr real: buffered_probe.bin
+getattr nameless: ''
+== exception:
+== stderr:
