@@ -364,6 +364,51 @@ func TestFormatBool(t *testing.T) {
 	})
 }
 
+func TestFormatComplex(t *testing.T) {
+	runFmtCases(t, []fmtCase{
+		// Presentation types render each part, join on the imaginary sign and
+		// append 'j'. Probed on 3.14.
+		{"fixed", NewComplex(1.5, 2.5), ".2f", "1.50+2.50j", ""},
+		{"g", NewComplex(3, 4), ".3g", "3+4j", ""},
+		{"e", NewComplex(1, 2), ".2e", "1.00e+00+2.00e+00j", ""},
+		{"neg imag", NewComplex(1, -2), ".1f", "1.0-2.0j", ""},
+		{"plus sign", NewComplex(1, 2), "+.1f", "+1.0+2.0j", ""},
+		{"space sign", NewComplex(3, 4), " ", "( 3+4j)", ""},
+		{"pure imag typed", NewComplex(0, 4), ".2f", "0.00+4.00j", ""},
+		{"upper F", NewComplex(1, 2), "F", "1.000000+2.000000j", ""},
+		{"upper E", NewComplex(1, 2), "E", "1.000000E+00+2.000000E+00j", ""},
+		{"n is g", NewComplex(1, 2), "n", "1+2j", ""},
+		{"alternate", NewComplex(1, 2), "#.0f", "1.+2.j", ""},
+		{"nan real", NewComplex(math.NaN(), 2), ".1f", "nan+2.0j", ""},
+		{"z coerce", NewComplex(math.Copysign(0, -1), 2), "z.1f", "0.0+2.0j", ""},
+		// Grouping applies to each part. Probed on 3.14.
+		{"comma group", NewComplex(1234.5, 6789.1), ",.1f", "1,234.5+6,789.1j", ""},
+		{"under group", NewComplex(1234.5, 6789.1), "_.1f", "1_234.5+6_789.1j", ""},
+		// The overall width, fill and alignment apply once to the assembly.
+		// The default alignment is '>'. Probed on 3.14.
+		{"center", NewComplex(1, 2), "^20.1f", "      1.0+2.0j      ", ""},
+		{"default align", NewComplex(1, 2), "20.1f", "            1.0+2.0j", ""},
+		{"left", NewComplex(1, 2), "<20.1f", "1.0+2.0j            ", ""},
+		{"fill center", NewComplex(1, 2), "*^20.1f", "******1.0+2.0j******", ""},
+		// An omitted type is str(complex): the parenthesized form, with a
+		// bare-imaginary shortcut when the real part is a positive zero.
+		// Probed on 3.14.
+		{"repr width", NewComplex(3, 4), ">20", "              (3+4j)", ""},
+		{"repr skip re", NewComplex(0, 4), "<20", "4j                  ", ""},
+		{"repr skip sign", NewComplex(0, 4), "+", "+4j", ""},
+		{"repr group", NewComplex(1234.5, 6789.1), ",", "(1,234.5+6,789.1j)", ""},
+		{"repr prec is g", NewComplex(1234.5, 6789.1), ".3", "(1.23e+03+6.79e+03j)", ""},
+		// Errors probed on 3.14.
+		{"zero pad", NewComplex(1, 2), "0.1f", "", "ValueError: Zero padding is not allowed in complex format specifier"},
+		{"zero pad width", NewComplex(1, 2), "020.1f", "", "ValueError: Zero padding is not allowed in complex format specifier"},
+		{"zero fill", NewComplex(1, 2), "0<20.1f", "", "ValueError: Zero padding is not allowed in complex format specifier"},
+		{"equals align", NewComplex(1, 2), "=20.1f", "", "ValueError: '=' alignment flag is not allowed in complex format specifier"},
+		{"unknown d", NewComplex(1, 2), "d", "", "ValueError: Unknown format code 'd' for object of type 'complex'"},
+		{"unknown percent", NewComplex(1, 2), "%", "", "ValueError: Unknown format code '%' for object of type 'complex'"},
+		{"unknown s", NewComplex(1, 2), "s", "", "ValueError: Unknown format code 's' for object of type 'complex'"},
+	})
+}
+
 func TestFormatObject(t *testing.T) {
 	runFmtCases(t, []fmtCase{
 		// object.__format__: empty spec is str(o), anything else raises.

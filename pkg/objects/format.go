@@ -205,6 +205,8 @@ func Format(o Object, spec string) (Object, error) {
 		return formatInt(&intObject{v: v}, "bool", spec)
 	case *floatObject:
 		return formatFloat(x.v, "float", spec)
+	case *complexObject:
+		return formatComplex(x.re, x.im, spec)
 	}
 	// object.__format__: any non-empty spec is a TypeError. Probed on
 	// 3.14: format(None, '>5') and format([1, 2], 'd').
@@ -500,6 +502,127 @@ func formatFloat(v float64, typeName, spec string) (Object, error) {
 	// Probed on 3.14: format(3.14, 'd') and format(3.14, 'c') both take
 	// this path.
 	return nil, Raise(ValueError, "Unknown format code '%c' for object of type '%s'", sp.verb, typeName)
+}
+
+// formatComplex renders a complex under format(). It ports CPython's
+// format_complex_internal: the real and imaginary parts each render with an
+// inner float spec, joined by the imaginary sign and a trailing 'j', and the
+// overall fill, width and alignment apply once to the whole thing. An omitted
+// type mirrors str(complex), the "(re+imj)" form with a bare-imaginary shortcut
+// when the real part is a positive zero. Zero padding and '=' alignment are
+// rejected outright. All shapes probed on 3.14.
+func formatComplex(re, im float64, spec string) (Object, error) {
+	sp, err := parseFmtSpec(spec, "complex", 0)
+	if err != nil {
+		return nil, err
+	}
+	// Probed on 3.14: format(1+2j, '020.1f') and format(1+2j, '0<20.1f') both
+	// raise, and format(1+2j, '=20.1f') has its own wording.
+	if sp.zeroPad || sp.fill == '0' {
+		return nil, Raise(ValueError, "Zero padding is not allowed in complex format specifier")
+	}
+	if sp.align == '=' {
+		return nil, Raise(ValueError, "'=' alignment flag is not allowed in complex format specifier")
+	}
+	switch sp.verb {
+	case 0, 'e', 'E', 'f', 'F', 'g', 'G', 'n':
+	default:
+		// Probed on 3.14: format(1+2j, 'd') and format(1+2j, '%') both name
+		// the code and 'complex'.
+		return nil, Raise(ValueError, "Unknown format code '%c' for object of type 'complex'", sp.verb)
+	}
+	// An omitted type renders each part with the shortest repr, or with 'g'
+	// once an explicit precision is given. 'n' is 'g' without a locale here.
+	reprMode := false
+	innerVerb := sp.verb
+	switch sp.verb {
+	case 0:
+		if sp.hasPrec {
+			innerVerb = 'g'
+		} else {
+			reprMode = true
+		}
+	case 'n':
+		innerVerb = 'g'
+	}
+	// The parenthesized form and the bare-imaginary shortcut belong to the
+	// omitted type only. A positive-zero real part is dropped, and the
+	// imaginary part then keeps the spec's own sign instead of a forced '+'.
+	skipRe := false
+	addParens := false
+	if sp.verb == 0 {
+		if re == 0 && !math.Signbit(re) {
+			skipRe = true
+		} else {
+			addParens = true
+		}
+	}
+	// Each part renders without the overall width, fill and alignment.
+	inner := sp
+	inner.verb = innerVerb
+	inner.width = 0
+	inner.zeroPad = false
+	inner.fill = 0
+	inner.align = 0
+
+	reInner := inner
+	reInner.sign = sp.sign
+	imInner := inner
+	if skipRe {
+		imInner.sign = sp.sign
+	} else {
+		imInner.sign = '+'
+	}
+
+	var body string
+	if !skipRe {
+		s, err := renderComplexPart(re, reInner, reprMode)
+		if err != nil {
+			return nil, err
+		}
+		body = s
+	}
+	imStr, err := renderComplexPart(im, imInner, reprMode)
+	if err != nil {
+		return nil, err
+	}
+	body += imStr + "j"
+	if addParens {
+		body = "(" + body + ")"
+	}
+	fill := sp.fill
+	if fill == 0 {
+		fill = ' '
+	}
+	align := sp.align
+	if align == 0 {
+		align = '>'
+	}
+	return NewStr(padText(body, fill, align, sp.width)), nil
+}
+
+// renderComplexPart formats one component of a complex. A presentation type
+// hands straight to the float formatter; the omitted type takes the shortest
+// repr without the trailing ".0" a float would grow, then applies the sign and
+// any grouping the same way the float path does.
+func renderComplexPart(v float64, sp fmtSpec, reprMode bool) (string, error) {
+	if !reprMode {
+		o, err := formatFloatSpec(v, sp)
+		if err != nil {
+			return "", err
+		}
+		return o.(*strObject).v, nil
+	}
+	neg := math.Signbit(v)
+	body := complexPart(math.Abs(v))
+	if sp.fracGroup != 0 {
+		body = groupFraction(body, sp.fracGroup)
+	}
+	i := 0
+	for i < len(body) && body[i] >= '0' && body[i] <= '9' {
+		i++
+	}
+	return buildNumber(sp, signStr(neg, sp.sign), "", body[:i], body[i:], 3), nil
 }
 
 // formatFloatSpec renders a float under an already validated spec. The
