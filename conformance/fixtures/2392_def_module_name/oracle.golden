@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+class      -> fakename
+method     -> fakename
+func       -> fakename
+lambda     -> fakename
+nested     -> fakename
+imp class  -> othermod
+imp method -> othermod
+imp func   -> othermod
+imp lambda -> othermod
+== exception:
+== stderr:

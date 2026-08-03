@@ -242,7 +242,7 @@ func TestMethodDefaultLowering(t *testing.T) {
 	}
 	got := string(src)
 	for _, want := range []string{
-		`t1, err := objects.StartClass(nil, "__main__", "C", "__main__.C"`,
+		`t1, err := objects.StartClass(nil, objects.NewStr("__main__"), "C", "C"`,
 		"t2 := objects.NewInt(1)",
 		`objects.NewFunctionT("C.m"`,
 		"[]objects.Object{nil, t2}",
@@ -281,6 +281,32 @@ func TestMethodKeywordCallLowering(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("emitted source missing %q:\n%s", want, got)
 		}
+	}
+}
+
+// A module that reassigns __name__ (the _pydecimal pickling pattern) makes a
+// def and a lambda read their __module__ from the live __name__ value rather
+// than the compile-time module name, so both wrap through WithFuncModuleObj.
+// The lambda reaching this path is the regression guard: a lambda now carries
+// __module__ the same way a def does.
+func TestReassignedNameRoutesDefAndLambda(t *testing.T) {
+	mod := &frontend.Module{Body: []frontend.Stmt{
+		&frontend.Assign{
+			Targets: []frontend.Expr{&frontend.Name{Id: "__name__"}},
+			Value:   &frontend.StrLit{Val: "fakename"},
+		},
+		&frontend.FuncDef{Name: "f", Body: []frontend.Stmt{&frontend.Pass{}}},
+		&frontend.Assign{
+			Targets: []frontend.Expr{&frontend.Name{Id: "g"}},
+			Value:   &frontend.Lambda{Body: &frontend.IntLit{Text: "1"}},
+		},
+	}}
+	src, err := Module(mod, "m.py", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(src), "objects.WithFuncModuleObj("); n != 2 {
+		t.Errorf("want 2 WithFuncModuleObj wraps (def and lambda), got %d:\n%s", n, src)
 	}
 }
 

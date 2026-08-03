@@ -1,7 +1,5 @@
 package objects
 
-import "strings"
-
 // A class statement builds its class through a ClassBuilder, following the
 // order CPython's __build_class__ uses: determine the winning metaclass, ask
 // its __prepare__ for the namespace mapping, write the compiler-synthesized
@@ -33,10 +31,14 @@ type ClassBuilder struct {
 // __prepare__, and the synthesized namespace members CPython writes before
 // the body executes, __module__, __qualname__, __firstlineno__, and __doc__
 // when the body opens with a docstring (doc is nil otherwise). meta is the
-// explicit metaclass= argument or nil; module is the defining module's
-// __name__, which qual carries as its leading segment; kwNames and kwVals
-// are the remaining class keywords, which __prepare__ receives too.
-func StartClass(meta Object, module, name, qual string, firstLine int, doc Object, bases []Object, kwNames []string, kwVals []Object) (*ClassBuilder, error) {
+// explicit metaclass= argument or nil; moduleName is the value the defining
+// module's __name__ currently holds, the same read the class body's
+// `__module__ = __name__` performs, so a module that reassigns __name__ (as
+// _pydecimal does for pickling) has its classes report the reassigned name.
+// qualSuffix is the bare __qualname__; the module segment is prepended here to
+// form the module.qualname repr string. kwNames and kwVals are the remaining
+// class keywords, which __prepare__ receives too.
+func StartClass(meta Object, moduleName Object, name, qualSuffix string, firstLine int, doc Object, bases []Object, kwNames []string, kwVals []Object) (*ClassBuilder, error) {
 	// PEP 560: resolve any subscripted generic base (Mapping[str, str]) to the
 	// real type its __mro_entries__ names before metaclass determination and the
 	// namespace prepare, both of which read the bases. The original tuple becomes
@@ -73,11 +75,19 @@ func StartClass(meta Object, module, name, qual string, firstLine int, doc Objec
 	if err != nil {
 		return nil, err
 	}
+	// The class's qualified name for repr is module.qualname; __qualname__ drops
+	// the module. When __name__ is a string the module segment is its value; a
+	// non-string __name__ (the rare edge CPython also allows) leaves the repr as
+	// the bare qualname, while __module__ still stores the object as-is.
+	qual := qualSuffix
+	if mod, ok := AsStr(moduleName); ok {
+		qual = mod + "." + qualSuffix
+	}
 	b := &ClassBuilder{meta: winner, callable: callable, name: name, qual: qual, bases: bases, ns: ns, kwNames: kwNames, kwVals: kwVals}
-	if err := b.Set("__module__", NewStr(module)); err != nil {
+	if err := b.Set("__module__", moduleName); err != nil {
 		return nil, err
 	}
-	if err := b.Set("__qualname__", NewStr(strings.TrimPrefix(qual, module+"."))); err != nil {
+	if err := b.Set("__qualname__", NewStr(qualSuffix)); err != nil {
 		return nil, err
 	}
 	if err := b.Set("__firstlineno__", NewInt(int64(firstLine))); err != nil {
