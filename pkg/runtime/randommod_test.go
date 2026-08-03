@@ -1,8 +1,12 @@
 package runtime
 
 import (
+	"math"
 	"math/big"
+	"strings"
 	"testing"
+
+	"github.com/tamnd/unagi/pkg/objects"
 )
 
 // seededFromInt is a test helper mirroring the int-seed path.
@@ -55,6 +59,31 @@ func TestMTAgainstCPython(t *testing.T) {
 	s = seededFromInt(12345)
 	if s.mt[0] != 2147483648 || s.mt[1] != 2105189241 || s.mt[2] != 1699489545 || s.index != mtN {
 		t.Fatalf("state head = %d %d %d idx %d", s.mt[0], s.mt[1], s.mt[2], s.index)
+	}
+}
+
+// TestSeedFromHash checks that a non-int seed uses the hash of the value cast to
+// an unsigned size_t, the path that makes random.Random(3.5) work and stay
+// reproducible. An unhashable seed surfaces the TypeError hashing raises.
+func TestSeedFromHash(t *testing.T) {
+	arg := objects.NewFloat(3.5)
+	s, err := newSeededState(arg)
+	if err != nil {
+		t.Fatalf("newSeededState(3.5): %v", err)
+	}
+	h, _ := objects.PyHash(arg)
+	want := &mtStateObject{}
+	want.initByArray(seedKeyFromBig(new(big.Int).SetUint64(uint64(h))))
+	if s.mt != want.mt || s.index != want.index {
+		t.Fatal("float seed did not match hash-based seeding")
+	}
+	// The first draw is the value CPython 3.14.6 produces for Random(3.5).
+	if got := s.randomDouble(); math.Abs(got-0.3039190124834461) > 1e-15 {
+		t.Errorf("Random(3.5).random() = %v", got)
+	}
+	// An unhashable seed surfaces the TypeError hashing raises.
+	if _, err := newSeededState(objects.NewList(nil)); err == nil || !strings.Contains(err.Error(), "unhashable type: 'list'") {
+		t.Errorf("list seed error = %v", err)
 	}
 }
 
