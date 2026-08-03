@@ -114,6 +114,43 @@ func TestMathLogBigInt(t *testing.T) {
 	}
 }
 
+func TestMathNextafterSteps(t *testing.T) {
+	na := mathFn(t, "nextafter")
+	// Three steps up equals one step applied three times.
+	one := callFloat(t, na, objects.NewFloat(1), objects.NewFloat(2))
+	two := math.Nextafter(one, 2)
+	three := math.Nextafter(two, 2)
+	got, err := objects.Call(na, []objects.Object{objects.NewFloat(1), objects.NewFloat(2), objects.NewInt(3)})
+	if err == nil {
+		t.Errorf("positional steps should be rejected, got %v", got)
+	}
+	v, err := objects.CallKw(na, []objects.Object{objects.NewFloat(1), objects.NewFloat(2)}, []string{"steps"}, []objects.Object{objects.NewInt(3)})
+	if err != nil {
+		t.Fatalf("nextafter steps=3: %v", err)
+	}
+	if f, _ := objects.AsFloat(v); f != three {
+		t.Errorf("nextafter(1,2,steps=3) = %v, want %v", f, three)
+	}
+	// steps=0 returns x unchanged.
+	v0, _ := objects.CallKw(na, []objects.Object{objects.NewFloat(1), objects.NewFloat(2)}, []string{"steps"}, []objects.Object{objects.NewInt(0)})
+	if f, _ := objects.AsFloat(v0); f != 1 {
+		t.Errorf("nextafter(1,2,steps=0) = %v, want 1", f)
+	}
+	// A huge count saturates onto y.
+	big30 := new(big.Int).Exp(big.NewInt(10), big.NewInt(30), nil)
+	vs, _ := objects.CallKw(na, []objects.Object{objects.NewFloat(1), objects.NewFloat(2)}, []string{"steps"}, []objects.Object{objects.NewIntFromBig(big30)})
+	if f, _ := objects.AsFloat(vs); f != 2 {
+		t.Errorf("nextafter(1,2,steps=1e30) = %v, want 2", f)
+	}
+	// A negative count is a ValueError, a float count a TypeError.
+	if _, err := objects.CallKw(na, []objects.Object{objects.NewFloat(1), objects.NewFloat(2)}, []string{"steps"}, []objects.Object{objects.NewInt(-1)}); err == nil || !strings.Contains(err.Error(), "steps must be a non-negative integer") {
+		t.Errorf("negative steps error = %v", err)
+	}
+	if _, err := objects.CallKw(na, []objects.Object{objects.NewFloat(1), objects.NewFloat(2)}, []string{"steps"}, []objects.Object{objects.NewFloat(2)}); err == nil || !strings.Contains(err.Error(), "cannot be interpreted as an integer") {
+		t.Errorf("float steps error = %v", err)
+	}
+}
+
 func TestMathDomainErrors(t *testing.T) {
 	cases := []struct {
 		fn   string

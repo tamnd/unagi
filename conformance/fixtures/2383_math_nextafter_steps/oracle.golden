@@ -1,0 +1,29 @@
+== exit: 0
+== stdout:
+default -> 1.0000000000000002
+none -> 1.0000000000000002
+steps3_up -> 1.0000000000000007
+steps3_down -> 0.9999999999999997
+steps0 -> 1.0
+steps_bool -> 1.0000000000000002
+steps_equal -> 1.0
+steps_overshoot -> 1.0000000000000004
+cross_up -> 5e-324
+cross_from_neg -> 5e-324
+cross_subnormal -> 1.5e-323
+cross_down -> -4e-323
+saturate -> 2.0
+saturate_huge -> 2.0
+nan_x -> nan
+nan_y -> nan
+neg_steps | ValueError | steps must be a non-negative integer
+float_steps | TypeError | 'float' object cannot be interpreted as an integer
+str_steps | TypeError | 'str' object cannot be interpreted as an integer
+positional_steps | TypeError | nextafter() takes exactly 2 positional arguments (3 given)
+one_arg | TypeError | nextafter() takes exactly 2 positional arguments (1 given)
+four_args | TypeError | nextafter() takes at most 3 arguments (4 given)
+bad_kw | TypeError | nextafter() got an unexpected keyword argument 'foo'
+keyword_xy | TypeError | nextafter() takes exactly 2 positional arguments (0 given)
+x_not_real | TypeError | must be real number, not str
+== exception:
+== stderr:
