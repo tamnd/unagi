@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+010002000300
+ffffffff02010000
+b''
+array('i', [7, 8])
+array('i', [5]) 0
+array('f', [1.5, -2.25])
+EOFError read() didn't return enough bytes
+array('i', [99, 7])
+ValueError bytes length not a multiple of item size
+array('i', [42])
+ValueError negative count
+0
+TypeError 'str' object cannot be interpreted as an integer
+AttributeError 'object' object has no attribute 'write'
+AttributeError 'object' object has no attribute 'read'
+TypeError fromfile() takes exactly 2 positional arguments (1 given)
+TypeError fromfile() takes at most 2 arguments (3 given)
+TypeError tofile() takes exactly 1 positional argument (0 given)
+TypeError tofile() takes at most 1 argument (2 given)
+== exception:
+== stderr:
