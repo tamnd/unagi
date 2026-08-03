@@ -44,3 +44,58 @@ func TestBinasciiUu(t *testing.T) {
 		t.Fatal("a2b_uu trailing garbage did not raise")
 	}
 }
+
+func TestBinasciiQp(t *testing.T) {
+	// Importing binascii runs its init so binascii.Error is built for the error paths.
+	if _, err := ImportModule("binascii"); err != nil {
+		t.Fatalf("import binascii: %v", err)
+	}
+	b := func(s string) []objects.Object { return []objects.Object{objects.NewBytes([]byte(s))} }
+
+	// b2a_qp escapes a non-printable byte as =XX and leaves plain text alone; the
+	// values here were taken from CPython 3.14.6.
+	enc, err := binasciiB2aQp(b("caf\xe9"), nil, nil)
+	if err != nil {
+		t.Fatalf("b2a_qp: %v", err)
+	}
+	if got := objects.Repr(enc); got != "b'caf=E9'" {
+		t.Fatalf("b2a_qp = %s, want b'caf=E9'", got)
+	}
+	// A space before a hard newline is quoted so it survives transport.
+	enc, err = binasciiB2aQp(b("hi \nthere"), nil, nil)
+	if err != nil {
+		t.Fatalf("b2a_qp space eol: %v", err)
+	}
+	if got := objects.Repr(enc); got != "b'hi=20\\nthere'" {
+		t.Fatalf("b2a_qp space eol = %s", got)
+	}
+	// a2b_qp decodes the =XX escape back to the byte.
+	dec, err := binasciiA2bQp(b("caf=E9"), nil, nil)
+	if err != nil {
+		t.Fatalf("a2b_qp: %v", err)
+	}
+	if got := objects.Repr(dec); got != "b'caf\\xe9'" {
+		t.Fatalf("a2b_qp = %s", got)
+	}
+	// An = before a newline is a soft break that drops the newline.
+	dec, err = binasciiA2bQp(b("long=\nline"), nil, nil)
+	if err != nil {
+		t.Fatalf("a2b_qp soft break: %v", err)
+	}
+	if got := objects.Repr(dec); got != "b'longline'" {
+		t.Fatalf("a2b_qp soft break = %s", got)
+	}
+	// With header true, b2a_qp writes a space as '_' and a2b_qp reads it back.
+	enc, err = binasciiB2aQp(b("a b"), []string{"header"}, []objects.Object{objects.True})
+	if err != nil || objects.Repr(enc) != "b'a_b'" {
+		t.Fatalf("b2a_qp header = %s, %v", objects.Repr(enc), err)
+	}
+	dec, err = binasciiA2bQp(b("a_b"), []string{"header"}, []objects.Object{objects.True})
+	if err != nil || objects.Repr(dec) != "b'a b'" {
+		t.Fatalf("a2b_qp header = %s, %v", objects.Repr(dec), err)
+	}
+	// An unexpected keyword raises TypeError.
+	if _, err := binasciiB2aQp(b("x"), []string{"bogus"}, []objects.Object{objects.True}); err == nil {
+		t.Fatal("b2a_qp with bad keyword did not raise")
+	}
+}
