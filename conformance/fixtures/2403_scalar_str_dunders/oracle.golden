@@ -1,0 +1,20 @@
+== exit: 0
+== stdout:
+int True True True
+bool True True True
+float True True True
+5 5 5 ff
+1.5 1.5 1.5 1.500
+True True 1
+-0.0 2.5e+300 100
+1000000000000000000000000000000 1,000,000,000,000,000,000,000,000,000,000
+TypeError expected 0 arguments, got 1
+TypeError expected 0 arguments, got 1
+TypeError int.__format__() takes exactly one argument (0 given)
+TypeError float.__format__() takes exactly one argument (0 given)
+TypeError __format__() argument must be str, not int
+TypeError __format__() argument must be str, not int
+ValueError Unknown format code 'q' for object of type 'int'
+ValueError Unknown format code 'd' for object of type 'float'
+== exception:
+== stderr:

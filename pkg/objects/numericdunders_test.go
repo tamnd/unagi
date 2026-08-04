@@ -213,3 +213,29 @@ func TestIntRoundHalfEven(t *testing.T) {
 		t.Error("(5).__round__(1.5) should raise TypeError")
 	}
 }
+
+// TestIntStrDunders checks int and bool expose __repr__, __str__ and __format__
+// as instance attributes, each read as a bound callable that matches the value's
+// own string form.
+func TestIntStrDunders(t *testing.T) {
+	if got := callDunder(t, NewInt(255), "__repr__"); Str(got) != "255" {
+		t.Errorf("(255).__repr__() = %q, want 255", Str(got))
+	}
+	if got := callDunder(t, NewInt(255), "__str__"); Str(got) != "255" {
+		t.Errorf("(255).__str__() = %q, want 255", Str(got))
+	}
+	if got := callDunder(t, NewInt(255), "__format__", NewStr("x")); Str(got) != "ff" {
+		t.Errorf("(255).__format__('x') = %q, want ff", Str(got))
+	}
+	if got := callDunder(t, True, "__str__"); Str(got) != "True" {
+		t.Errorf("True.__str__() = %q, want True", Str(got))
+	}
+	// __format__ with a non-str spec is a TypeError, a bad code a ValueError.
+	fn, _ := LoadAttr(NewInt(5), "__format__")
+	if _, err := Call(fn, []Object{NewInt(5)}); err == nil {
+		t.Error("(5).__format__(5) should raise TypeError")
+	}
+	if _, err := Call(fn, []Object{NewStr("q")}); err == nil {
+		t.Error("(5).__format__('q') should raise ValueError")
+	}
+}

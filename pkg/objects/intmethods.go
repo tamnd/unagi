@@ -19,6 +19,7 @@ var intMethodNames = map[string]bool{
 	"as_integer_ratio": true, "is_integer": true,
 	"to_bytes": true, "from_bytes": true,
 	"__index__": true, "__int__": true, "__trunc__": true, "__float__": true,
+	"__repr__": true, "__str__": true, "__format__": true,
 }
 
 // intMethod dispatches n.name(args) for an int or bool receiver.
@@ -77,6 +78,25 @@ func intMethod(o Object, name string, args []Object) (Object, error) {
 		}
 		f, _ := new(big.Float).SetInt(b).Float64()
 		return NewFloat(f), nil
+	case "__repr__":
+		if err := numericNoArgs(args); err != nil {
+			return nil, err
+		}
+		return NewStr(Repr(o)), nil
+	case "__str__":
+		if err := numericNoArgs(args); err != nil {
+			return nil, err
+		}
+		return NewStr(Str(o)), nil
+	case "__format__":
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "int.__format__() takes exactly one argument (%d given)", len(args))
+		}
+		spec, ok := AsStr(args[0])
+		if !ok {
+			return nil, Raise(TypeError, "__format__() argument must be str, not %s", args[0].TypeName())
+		}
+		return Format(o, spec)
 	}
 	// An operator dunder called with method syntax, (5).__add__(3), lowers to a
 	// fused method call that reaches here rather than through intLoadAttr, so the
