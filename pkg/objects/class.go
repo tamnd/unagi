@@ -2777,15 +2777,7 @@ func LoadAttr(o Object, name string) (Object, error) {
 	case *Exception:
 		return excLoadAttr(x, name)
 	case *complexObject:
-		switch name {
-		case "real":
-			return NewFloat(x.re), nil
-		case "imag":
-			return NewFloat(x.im), nil
-		case "__doc__":
-			return None, nil
-		}
-		return nil, Raise(AttributeError, "'complex' object has no attribute '%s'", name)
+		return complexLoadAttr(x, name)
 	case *contextVar:
 		if name == "name" {
 			return NewStr(x.name), nil

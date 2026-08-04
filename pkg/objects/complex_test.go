@@ -185,6 +185,88 @@ func TestParseComplex(t *testing.T) {
 	}
 }
 
+// TestComplexDunderAttrs checks a complex exposes its operator and special
+// dunders as readable callables, the way int already does. A bound read
+// (c.__add__) and a direct call agree, a non-numeric operand declines with
+// NotImplemented rather than raising, and the argument-free slots reject a
+// positional argument.
+func TestComplexDunderAttrs(t *testing.T) {
+	c := NewComplex(1, 2)
+	call := func(name string, args ...Object) Object {
+		t.Helper()
+		fn, err := LoadAttr(c, name)
+		if err != nil {
+			t.Fatalf("LoadAttr %s: %v", name, err)
+		}
+		v, err := Call(fn, args)
+		if err != nil {
+			t.Fatalf("call %s: %v", name, err)
+		}
+		return v
+	}
+	wantComplex(t, call("__add__", NewInt(3)), 4, 2)
+	wantComplex(t, call("__radd__", NewInt(3)), 4, 2)
+	wantComplex(t, call("__rsub__", NewInt(3)), 2, -2)
+	wantComplex(t, call("__mul__", NewInt(2)), 2, 4)
+	wantComplex(t, call("__pow__", NewInt(2)), -3, 4)
+	wantComplex(t, call("__neg__"), -1, -2)
+	wantComplex(t, call("__pos__"), 1, 2)
+	wantComplex(t, call("conjugate"), 1, -2)
+}
+
+func TestComplexDunderValues(t *testing.T) {
+	c := NewComplex(1, 2)
+	call := func(name string, args ...Object) (Object, error) {
+		fn, err := LoadAttr(c, name)
+		if err != nil {
+			return nil, err
+		}
+		return Call(fn, args)
+	}
+	// A non-numeric operand declines with NotImplemented, not a raise.
+	if v, err := call("__add__", NewStr("x")); err != nil || v != NotImplemented {
+		t.Errorf("__add__(str) = %v, %v, want NotImplemented", v, err)
+	}
+	// __abs__ is the magnitude and __bool__ tracks a non-zero value.
+	abs4, _ := call("__abs__")
+	if f, _ := AsFloat(abs4); f == 0 {
+		t.Errorf("__abs__ = %v, want the magnitude", abs4)
+	}
+	if v, _ := call("__bool__"); v != True {
+		t.Errorf("__bool__ of 1+2j = %v, want True", v)
+	}
+	// __eq__ compares numerics and declines a string with NotImplemented.
+	if v, _ := call("__eq__", NewComplex(1, 2)); v != True {
+		t.Errorf("__eq__ self = %v, want True", v)
+	}
+	if v, _ := call("__eq__", NewStr("x")); v != NotImplemented {
+		t.Errorf("__eq__(str) = %v, want NotImplemented", v)
+	}
+	// __getnewargs__ is the (real, imag) float pair.
+	tup, _ := call("__getnewargs__")
+	if Repr(tup) != "(1.0, 2.0)" {
+		t.Errorf("__getnewargs__ = %s, want (1.0, 2.0)", Repr(tup))
+	}
+	// An argument-free slot rejects a positional argument.
+	if _, err := call("__neg__", NewInt(1)); err == nil {
+		t.Errorf("__neg__(1) should raise")
+	}
+}
+
+func TestComplexAbsOverflow(t *testing.T) {
+	// A finite pair whose magnitude overflows raises, matching CPython's abs.
+	if _, err := ComplexAbs(1.7e308, 1.7e308); err == nil {
+		t.Errorf("ComplexAbs(1.7e308, 1.7e308) should overflow")
+	}
+	// A finite in-range pair and an infinite part both compute without error.
+	if r, err := ComplexAbs(3, 4); err != nil || r != 5 {
+		t.Errorf("ComplexAbs(3,4) = %v, %v, want 5", r, err)
+	}
+	if r, err := ComplexAbs(math.Inf(1), 1); err != nil || !math.IsInf(r, 1) {
+		t.Errorf("ComplexAbs(inf,1) = %v, %v, want +inf", r, err)
+	}
+}
+
 func TestComplexConjugateAndAttrs(t *testing.T) {
 	c := NewComplex(1, 2)
 	conj, err := CallMethod(c, "conjugate", nil)

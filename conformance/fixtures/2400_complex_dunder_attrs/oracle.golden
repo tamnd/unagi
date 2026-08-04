@@ -1,0 +1,30 @@
+== exit: 0
+== stdout:
+(4+2j) (2.5+2j) (1+3j) NotImplemented
+(4+2j) (2-2j) (0.4-0.8j)
+(1+1j) (2+4j) (2-1j)
+(-3+4j) (9+0j) (-3+4j)
+(-1-2j) (1+2j) 2.23606797749979
+True False NotImplemented
+False True NotImplemented
+True False
+2000007 3
+(1+2j) (1+2j) (1+2j)
+'    (1+2j)' '1.50+2.50j'
+(1.0, 2.0)
+(1+2j) True
+(1-2j) (1-2j)
+True True True
+False False False
+1.4142135623730951e+308
+OverflowError absolute value too large
+inf
+ValueError complex modulo
+TypeError expected 0 arguments, got 1
+TypeError expected 1 argument, got 0
+TypeError __format__() argument must be str, not int
+TypeError complex.__getnewargs__() takes no arguments (1 given)
+TypeError complex.__complex__() takes no arguments (1 given)
+AttributeError 'complex' object has no attribute 'nope'
+== exception:
+== stderr:

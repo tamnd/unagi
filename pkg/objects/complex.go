@@ -180,16 +180,211 @@ func cPow(ar, ai, br, bi float64) Object {
 	return NewComplex(length*math.Cos(phase), length*math.Sin(phase))
 }
 
-// complexMethod dispatches the complex methods. Only conjugate exists so far;
-// any other name is the standard no-attribute error.
+// ComplexAbs is the magnitude hypot(re, im), raising OverflowError when a finite
+// pair produces an infinite result, the way CPython's _Py_c_abs signals ERANGE.
+// An infinite part yields inf without error and a nan part yields nan, so abs()
+// and complex.__abs__ agree on the whole domain.
+func ComplexAbs(re, im float64) (float64, error) {
+	r := math.Hypot(re, im)
+	if math.IsInf(r, 0) && !math.IsInf(re, 0) && !math.IsInf(im, 0) {
+		return 0, Raise(OverflowError, "absolute value too large")
+	}
+	return r, nil
+}
+
+// complexMethodNames is the method and operator-dunder surface a complex answers,
+// so a bound read (c.__add__) and a direct call (c.__add__(x)) agree on what a
+// complex exposes and hasattr matches CPython. complex carries its arithmetic
+// dunders the same additive way int does: the operators still route through Add
+// and friends, this only makes the slots readable as callables.
+var complexMethodNames = map[string]bool{
+	"conjugate": true,
+	"__add__":   true, "__radd__": true,
+	"__sub__": true, "__rsub__": true,
+	"__mul__": true, "__rmul__": true,
+	"__truediv__": true, "__rtruediv__": true,
+	"__pow__": true, "__rpow__": true,
+	"__neg__": true, "__pos__": true, "__abs__": true,
+	"__eq__": true, "__ne__": true,
+	"__bool__": true, "__hash__": true,
+	"__repr__": true, "__str__": true, "__format__": true,
+	"__getnewargs__": true, "__complex__": true,
+}
+
+// complexMethod dispatches a complex method or operator dunder. The arithmetic
+// dunders decline a non-numeric operand with NotImplemented rather than raising,
+// exactly like int's slots, so a mixed pair hands off to the other operand.
 func complexMethod(c *complexObject, name string, args []Object) (Object, error) {
-	if name != "conjugate" {
-		return nil, noAttr(c, name)
+	switch name {
+	case "conjugate":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "conjugate() takes no arguments (%d given)", len(args))
+		}
+		return NewComplex(c.re, -c.im), nil
+	case "__add__":
+		return complexBinDunder(c, '+', args, false)
+	case "__radd__":
+		return complexBinDunder(c, '+', args, true)
+	case "__sub__":
+		return complexBinDunder(c, '-', args, false)
+	case "__rsub__":
+		return complexBinDunder(c, '-', args, true)
+	case "__mul__":
+		return complexBinDunder(c, '*', args, false)
+	case "__rmul__":
+		return complexBinDunder(c, '*', args, true)
+	case "__truediv__":
+		return complexBinDunder(c, '/', args, false)
+	case "__rtruediv__":
+		return complexBinDunder(c, '/', args, true)
+	case "__pow__":
+		return complexPowDunder(c, args, false)
+	case "__rpow__":
+		return complexPowDunder(c, args, true)
+	case "__neg__":
+		if err := complexNoArgs(args); err != nil {
+			return nil, err
+		}
+		return NewComplex(-c.re, -c.im), nil
+	case "__pos__":
+		if err := complexNoArgs(args); err != nil {
+			return nil, err
+		}
+		return NewComplex(c.re, c.im), nil
+	case "__abs__":
+		if err := complexNoArgs(args); err != nil {
+			return nil, err
+		}
+		r, err := ComplexAbs(c.re, c.im)
+		if err != nil {
+			return nil, err
+		}
+		return NewFloat(r), nil
+	case "__eq__", "__ne__":
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "expected 1 argument, got %d", len(args))
+		}
+		or, oi, ok := asComplex(args[0])
+		if !ok {
+			return NotImplemented, nil
+		}
+		eq := c.re == or && c.im == oi
+		if name == "__ne__" {
+			eq = !eq
+		}
+		return NewBool(eq), nil
+	case "__bool__":
+		if err := complexNoArgs(args); err != nil {
+			return nil, err
+		}
+		return NewBool(c.re != 0 || c.im != 0), nil
+	case "__hash__":
+		if err := complexNoArgs(args); err != nil {
+			return nil, err
+		}
+		h, err := PyHash(c)
+		if err != nil {
+			return nil, err
+		}
+		return NewInt(h), nil
+	case "__repr__", "__str__":
+		if err := complexNoArgs(args); err != nil {
+			return nil, err
+		}
+		return NewStr(complexRepr(c.re, c.im)), nil
+	case "__format__":
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "complex.__format__() takes exactly one argument (%d given)", len(args))
+		}
+		spec, ok := AsStr(args[0])
+		if !ok {
+			return nil, Raise(TypeError, "__format__() argument must be str, not %s", args[0].TypeName())
+		}
+		return Format(c, spec)
+	case "__getnewargs__":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "complex.__getnewargs__() takes no arguments (%d given)", len(args))
+		}
+		return NewTuple([]Object{NewFloat(c.re), NewFloat(c.im)}), nil
+	case "__complex__":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "complex.__complex__() takes no arguments (%d given)", len(args))
+		}
+		return c, nil
 	}
+	return nil, noAttr(c, name)
+}
+
+// complexNoArgs rejects a positional argument for the argument-free complex
+// dunders, matching the C slot wrapper's "expected 0 arguments" wording.
+func complexNoArgs(args []Object) error {
 	if len(args) != 0 {
-		return nil, Raise(TypeError, "conjugate() takes no arguments (%d given)", len(args))
+		return Raise(TypeError, "expected 0 arguments, got %d", len(args))
 	}
-	return NewComplex(c.re, -c.im), nil
+	return nil
+}
+
+// complexBinDunder computes one of complex's +, -, * or / operator dunders,
+// swapping the operands for a reflected slot and declining a non-numeric operand
+// with NotImplemented the way int's slots do.
+func complexBinDunder(c *complexObject, op byte, args []Object, reflected bool) (Object, error) {
+	if len(args) != 1 {
+		return nil, Raise(TypeError, "expected 1 argument, got %d", len(args))
+	}
+	var self Object = c
+	a, b := self, args[0]
+	if reflected {
+		a, b = args[0], self
+	}
+	res, ok, err := complexArith(op, a, b)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return NotImplemented, nil
+	}
+	return res, nil
+}
+
+// complexPowDunder computes complex's __pow__/__rpow__. The optional second
+// argument is the modulo slot ternary pow passes; a complex has no modulo so any
+// value but None raises, matching CPython's "complex modulo".
+func complexPowDunder(c *complexObject, args []Object, reflected bool) (Object, error) {
+	if len(args) < 1 || len(args) > 2 {
+		return nil, Raise(TypeError, "expected 1 or 2 arguments, got %d", len(args))
+	}
+	if len(args) == 2 && args[1] != None {
+		return nil, Raise(ValueError, "complex modulo")
+	}
+	or, oi, ok := asComplex(args[0])
+	if !ok {
+		return NotImplemented, nil
+	}
+	if reflected {
+		return complexPow(or, oi, c.re, c.im)
+	}
+	return complexPow(c.re, c.im, or, oi)
+}
+
+// complexLoadAttr reads an attribute off a complex: real and imag answer the
+// parts, a method or operator-dunder name binds a callable, and anything else is
+// the complex AttributeError.
+func complexLoadAttr(c *complexObject, name string) (Object, error) {
+	switch name {
+	case "real":
+		return NewFloat(c.re), nil
+	case "imag":
+		return NewFloat(c.im), nil
+	case "__doc__":
+		return None, nil
+	}
+	if complexMethodNames[name] {
+		method := name
+		return NewFunc(name, -1, func(args []Object) (Object, error) {
+			return complexMethod(c, method, args)
+		}), nil
+	}
+	return nil, Raise(AttributeError, "'complex' object has no attribute '%s'", name)
 }
 
 // complexFromDunder resolves a user instance to complex components the way

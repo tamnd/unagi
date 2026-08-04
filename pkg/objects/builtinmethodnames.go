@@ -105,7 +105,8 @@ var tupleMethodNames = map[string]bool{
 // instance descriptors land here.
 var builtinTypeMethodNames = map[string]map[string]bool{
 	"int": intMethodNames, "bool": intMethodNames, "float": floatMethodNames,
-	"str": strMethodNames, "bytes": bytesMethodNames, "bytearray": bytearrayMethodNames,
+	"complex": complexMethodNames,
+	"str":     strMethodNames, "bytes": bytesMethodNames, "bytearray": bytearrayMethodNames,
 	"list": listMethodNames, "tuple": tupleMethodNames,
 	"set": setMethodNames, "frozenset": frozensetMethodNames, "dict": dictMethodNames,
 }
