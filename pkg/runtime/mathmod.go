@@ -278,11 +278,21 @@ func mathFloatArg(args []objects.Object, name string) (float64, error) {
 }
 
 func mathToFloat(o objects.Object) (float64, error) {
-	x, ok := objects.AsFloat(o)
-	if !ok {
-		return 0, objects.Raise(objects.TypeError, "must be real number, not %s", o.TypeName())
+	if x, ok := objects.AsFloat(o); ok {
+		return x, nil
 	}
-	return x, nil
+	// CPython's math functions coerce through PyFloat_AsDouble, which honours an
+	// object's __float__ then __index__, so a Fraction, a Decimal or any user
+	// object that spells one of those converts the way it does under float(),
+	// rather than being rejected outright. FloatFromDunder carries CPython's own
+	// non-float and non-int return-type messages.
+	if r, ok, err := objects.FloatFromDunder(o); err != nil {
+		return 0, err
+	} else if ok {
+		x, _ := objects.AsFloat(r)
+		return x, nil
+	}
+	return 0, objects.Raise(objects.TypeError, "must be real number, not %s", o.TypeName())
 }
 
 // mathResult applies CPython's errno-shaped convention to a libm result: a NaN

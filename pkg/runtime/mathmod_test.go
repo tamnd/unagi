@@ -167,6 +167,47 @@ func TestMathQualifiedKeywordError(t *testing.T) {
 	}
 }
 
+// TestMathAcceptsFloatDunder checks a math function coerces an argument through
+// __float__ then __index__, matching CPython's PyFloat_AsDouble, and still
+// rejects an object that spells neither with the real-number TypeError.
+func TestMathAcceptsFloatDunder(t *testing.T) {
+	instWith := func(dunder string, ret objects.Object) objects.Object {
+		m := objects.NewMethod(dunder, 1, func(args []objects.Object) (objects.Object, error) {
+			return ret, nil
+		})
+		cls, err := objects.NewClass("N", "N", nil, []string{dunder}, []objects.Object{m}, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		inst, err := objects.Call(cls, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return inst
+	}
+	// __float__ returning 4.0 converts, so sqrt is 2.0.
+	if got := callFloat(t, mathFn(t, "sqrt"), instWith("__float__", objects.NewFloat(4))); got != 2 {
+		t.Errorf("sqrt(obj.__float__ -> 4.0) = %v, want 2", got)
+	}
+	// __index__ returning 9 converts through the int, so sqrt is 3.0.
+	if got := callFloat(t, mathFn(t, "sqrt"), instWith("__index__", objects.NewInt(9))); got != 3 {
+		t.Errorf("sqrt(obj.__index__ -> 9) = %v, want 3", got)
+	}
+	// An object with neither keeps CPython's real-number TypeError.
+	empty, err := objects.NewClass("E", "E", nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst, err := objects.Call(empty, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = objects.Call(mathFn(t, "sqrt"), []objects.Object{inst})
+	if err == nil || !strings.Contains(err.Error(), "must be real number, not E") {
+		t.Errorf("sqrt(no-dunder) error = %v, want to contain \"must be real number, not E\"", err)
+	}
+}
+
 func TestMathDomainErrors(t *testing.T) {
 	cases := []struct {
 		fn   string
