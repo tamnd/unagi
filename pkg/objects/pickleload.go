@@ -436,6 +436,9 @@ func (u *unpickler) findClass(module, name string) (Object, error) {
 	if fn := lookupPickleFunction(module, name); fn != nil {
 		return fn, nil
 	}
+	if b := lookupPickleBuiltin(module, name); b != nil {
+		return b, nil
+	}
 	return &pickleGlobalRef{module: module, qualname: name}, nil
 }
 
@@ -530,10 +533,11 @@ func (u *unpickler) reduce() error {
 		}
 		u.push(res)
 		return nil
-	case *functionObject, *classObject:
-		// A user reduction names a real module-level function or class, registered
-		// as its module executed; applying it to the argument tuple rebuilds the
-		// object, the same call CPython makes when it resolves the global by import.
+	case *functionObject, *classObject, *funcObject:
+		// A user reduction names a real module-level function or class, and a builtin
+		// reduction (array._array_reconstructor, array.array) names a runtime funcObject,
+		// each registered as its module executed; applying it to the argument tuple
+		// rebuilds the object, the same call CPython makes when it resolves the global.
 		res, err := Call(fn, args.elts)
 		if err != nil {
 			return err

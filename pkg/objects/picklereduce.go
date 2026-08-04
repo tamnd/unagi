@@ -78,6 +78,22 @@ func (p *pickler) moduleNameObj(module string) *strObject {
 // fix_imports is on) so `builtins` becomes `__builtin__`. The global is memoized
 // either way, so a repeated reference fetches it back.
 func (p *pickler) saveGlobal(module, qualname string) error {
+	return p.saveGlobalObj(module, qualname, p.moduleNameObj(module))
+}
+
+// saveBuiltinGlobalName writes a builtin's global reference with a fresh module
+// string each time. A C module's type and function carry distinct __module__ str
+// objects, not the one shared name a Python module's classes do, so CPython emits
+// and memoizes the module name anew for each builtin global rather than fetching it
+// back; a fresh strObject reproduces that.
+func (p *pickler) saveBuiltinGlobalName(module, qualname string) error {
+	return p.saveGlobalObj(module, qualname, NewStr(module).(*strObject))
+}
+
+// saveGlobalObj writes a global reference using moduleObj as the module name's memo
+// identity, so a caller controls whether the module string is shared across globals
+// (a Python module's classes) or written fresh (a C module's builtins).
+func (p *pickler) saveGlobalObj(module, qualname string, moduleObj *strObject) error {
 	ref := p.globalRef(module, qualname)
 	if p.memoGet(ref) {
 		return nil
@@ -88,7 +104,7 @@ func (p *pickler) saveGlobal(module, qualname string) error {
 		// module fetches the name from the memo instead of re-emitting it. Interning
 		// the module strObject per pickle reproduces that shared identity; the
 		// qualname is a per-class object, so it is written fresh each time.
-		if err := p.saveStr(module, p.moduleNameObj(module)); err != nil {
+		if err := p.saveStr(module, moduleObj); err != nil {
 			return err
 		}
 		if err := p.saveStr(qualname, NewStr(qualname)); err != nil {

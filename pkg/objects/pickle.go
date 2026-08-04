@@ -200,6 +200,24 @@ func (p *pickler) save(o Object) error {
 		return p.saveClassGlobal(v)
 	case *functionObject:
 		return p.saveFunctionGlobal(v)
+	case *funcObject:
+		// A builtin type or function pickles as a global reference when the runtime
+		// registered it, the same by-name form a module-level def takes.
+		return p.saveBuiltinGlobal(v)
+	case *arrayObject:
+		// An array rebuilds through the reduction array.__reduce_ex__ emits: below
+		// protocol 3 the array type applied to (typecode, list), and from protocol 3
+		// up array._array_reconstructor applied to the raw machine bytes. Both
+		// callables resolve through the builtin registry. A second reference to the
+		// same array fetches the memoized result rather than reducing it again.
+		if p.memoGet(o) {
+			return nil
+		}
+		reduction, err := CallMethod(o, "__reduce_ex__", []Object{NewInt(int64(p.proto))})
+		if err != nil {
+			return err
+		}
+		return p.saveReduceValue(reduction, o)
 	}
 	// CPython raises TypeError (not PicklingError) for a type with no pickle
 	// support once reduction has been tried, e.g. "cannot pickle 'module' object".
