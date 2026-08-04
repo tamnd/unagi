@@ -34,6 +34,53 @@ func intList(vals ...int64) objects.Object {
 	return objects.NewList(elts)
 }
 
+// TestIterBuiltinInstanceIdentity checks that iter() over a class instance whose
+// __iter__ returns self hands back the very same object (iter(x) is x) rather
+// than wrapping it in a generic iterator, matching CPython's type(x).__iter__(x)
+// contract.
+func TestIterBuiltinInstanceIdentity(t *testing.T) {
+	selfIter := func(args []objects.Object) (objects.Object, error) { return args[0], nil }
+	next := func(args []objects.Object) (objects.Object, error) {
+		return nil, objects.NewException("StopIteration", nil)
+	}
+	cls, err := objects.NewClass("SelfIter", "SelfIter", nil,
+		[]string{"__iter__", "__next__"},
+		[]objects.Object{objects.NewMethod("__iter__", 1, selfIter), objects.NewMethod("__next__", 1, next)},
+		nil, nil)
+	if err != nil {
+		t.Fatalf("NewClass: %v", err)
+	}
+	inst, err := objects.Call(cls, nil)
+	if err != nil {
+		t.Fatalf("instantiate: %v", err)
+	}
+	got, err := Iter([]objects.Object{inst})
+	if err != nil {
+		t.Fatalf("Iter: %v", err)
+	}
+	if got != inst {
+		t.Fatalf("iter(x) returned a different object of type %s, want the instance itself", got.TypeName())
+	}
+}
+
+// TestIterBuiltinNonIterator checks that iter() over a class whose __iter__
+// returns a non-iterator raises TypeError eagerly, the way CPython does.
+func TestIterBuiltinNonIterator(t *testing.T) {
+	badIter := func(args []objects.Object) (objects.Object, error) { return objects.NewInt(42), nil }
+	cls, err := objects.NewClass("BadIter", "BadIter", nil,
+		[]string{"__iter__"}, []objects.Object{objects.NewMethod("__iter__", 1, badIter)}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewClass: %v", err)
+	}
+	inst, err := objects.Call(cls, nil)
+	if err != nil {
+		t.Fatalf("instantiate: %v", err)
+	}
+	if _, err := Iter([]objects.Object{inst}); err == nil {
+		t.Fatal("iter() over a __iter__ that returns a non-iterator should raise")
+	}
+}
+
 func TestIterOneArg(t *testing.T) {
 	o, err := Iter([]objects.Object{intList(1, 2, 3)})
 	if err != nil {

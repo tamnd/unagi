@@ -25,6 +25,44 @@ func lenFromResult(res Object) (int, error) {
 	return int(n), nil
 }
 
+// IterBuiltinResult implements the iter() builtin's contract for a user
+// instance: iter(x) is type(x).__iter__(x), and it returns exactly the object
+// __iter__ handed back. This is what lets an iterator whose __iter__ returns
+// self satisfy iter(x) is x, and lets the result keep its own type instead of a
+// generic handle. It reports ok=false for anything that is not a user instance
+// defining __iter__, so the iter() builtin falls back to its wrapping Iter path
+// (which drives internal for-loop iteration and old-style __getitem__ objects).
+// A result that is not itself an iterator raises the TypeError CPython raises.
+func IterBuiltinResult(o Object) (res Object, ok bool, err error) {
+	x, isInst := o.(*instanceObject)
+	if !isInst {
+		return nil, false, nil
+	}
+	if _, has := x.cls.lookup("__iter__"); !has {
+		return nil, false, nil
+	}
+	res, _, err = instanceSpecial(x, "__iter__")
+	if err != nil {
+		return nil, false, err
+	}
+	if !isIteratorObject(res) {
+		return nil, false, Raise(TypeError, "iter() returned non-iterator of type '%s'", res.TypeName())
+	}
+	return res, true, nil
+}
+
+// isIteratorObject reports whether res satisfies the iterator protocol: a Go
+// iterator, or a user instance whose type defines __next__. It mirrors the check
+// iterInstance makes on an __iter__ result.
+func isIteratorObject(res Object) bool {
+	if inst, ok := res.(*instanceObject); ok {
+		_, has := inst.cls.lookup("__next__")
+		return has
+	}
+	_, ok := res.(Iterator)
+	return ok
+}
+
 // iterInstance builds a Go iterator over a user instance. A defined __iter__
 // supplies the iterator object, whose __next__ is driven each step; otherwise a
 // defined __getitem__ drives the old-style sequence protocol from index zero.
