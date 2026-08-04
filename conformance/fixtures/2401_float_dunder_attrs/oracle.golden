@@ -1,0 +1,28 @@
+== exit: 0
+== stdout:
+5.5 5.5 4.5 NotImplemented NotImplemented
+5.5 -1.5 2.0
+2.5 7.0 1.75
+1.0 2.0 1.5 3.0
+(1.0, 1.5) (2.0, 3.0) (-2.0, 0.5)
+12.25 9.0 12.25
+complex 1.0 1.732050808
+3.5 3.5 3.5
+True False
+1152921504606846979 2
+(3.5,)
+True True True
+False False
+TypeError expected 0 arguments, got 1
+TypeError expected 0 arguments, got 1
+TypeError float.__getnewargs__() takes no arguments (1 given)
+TypeError expected 1 argument, got 0
+TypeError expected 1 argument, got 2
+TypeError expected 1 argument, got 0
+TypeError pow() 3rd argument not allowed unless all arguments are integers
+TypeError expected 1 or 2 arguments, got 3
+TypeError pow() 3rd argument not allowed unless all arguments are integers
+ZeroDivisionError division by zero
+ZeroDivisionError division by zero
+== exception:
+== stderr:
