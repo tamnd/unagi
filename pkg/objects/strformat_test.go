@@ -3,8 +3,7 @@ package objects
 import "testing"
 
 // strFmtCase drives one str.format call. Every want and wantErr value
-// was probed on CPython 3.14; the two deliberate divergences (field
-// paths like {0.x} and {0[1]}) are called out inline.
+// was probed on CPython 3.14.
 type strFmtCase struct {
 	name    string
 	tmpl    string
@@ -170,4 +169,46 @@ func TestStrFormatParseErrors(t *testing.T) {
 		{"bang then eof", "{!", []Object{NewInt(1)}, "",
 			"ValueError: end of string while looking for conversion specifier"},
 	})
+}
+
+func TestStrFormatMap(t *testing.T) {
+	// format_map resolves named fields through the mapping object directly, so a
+	// dict and a path off a dict value both work, while a positional field is
+	// the ValueError CPython raises since format_map takes no positional args.
+	mapping, err := NewDict([]Object{NewStr("name"), NewStr("age")}, []Object{NewStr("x"), NewInt(5)})
+	if err != nil {
+		t.Fatalf("build mapping: %v", err)
+	}
+	got, err := CallMethod(NewStr("{name} is {age}"), "format_map", []Object{mapping})
+	if err != nil {
+		t.Fatalf("format_map: %v", err)
+	}
+	if s, _ := AsStr(got); s != "x is 5" {
+		t.Errorf("format_map = %q, want %q", s, "x is 5")
+	}
+
+	// A path off a mapped value walks the same getattr/getitem steps as format.
+	listMap, _ := NewDict([]Object{NewStr("xs")}, []Object{L(NewInt(7), NewInt(8))})
+	got, err = CallMethod(NewStr("{xs[1]}"), "format_map", []Object{listMap})
+	if err != nil {
+		t.Fatalf("format_map path: %v", err)
+	}
+	if s, _ := AsStr(got); s != "8" {
+		t.Errorf("format_map path = %q, want %q", s, "8")
+	}
+
+	// A positional field, auto or numbered, is rejected outright.
+	empty, _ := NewDict(nil, nil)
+	for _, tmpl := range []string{"{}", "{0}"} {
+		_, err := CallMethod(NewStr(tmpl), "format_map", []Object{empty})
+		checkErr(t, "positional "+tmpl, err, "ValueError: Format string contains positional fields")
+	}
+
+	// A missing key surfaces the KeyError the mapping's getitem raises.
+	_, err = CallMethod(NewStr("{missing}"), "format_map", []Object{empty})
+	checkErr(t, "missing key", err, "KeyError: 'missing'")
+
+	// The method takes exactly one argument.
+	_, err = CallMethod(NewStr("x"), "format_map", nil)
+	checkErr(t, "arity 0", err, "TypeError: str.format_map() takes exactly one argument (0 given)")
 }

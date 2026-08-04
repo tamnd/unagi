@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+grid is 5
+10/20
+3.0:4.0
+    42
+'hi'
+{literal} 1
+1<b>
+D
+plain
+7 True
+positional auto RAISES ValueError Format string contains positional fields
+positional num RAISES ValueError Format string contains positional fields
+missing key RAISES KeyError 'nope'
+list mapping RAISES TypeError list indices must be integers or slices, not str
+arity zero RAISES TypeError str.format_map() takes exactly one argument (0 given)
+== exception:
+== stderr:

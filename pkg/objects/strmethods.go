@@ -399,6 +399,11 @@ func strMethod(x *strObject, name string, args []Object) (Object, error) {
 		return NewStr(strExpandTabs(s, tabsize)), nil
 	case "format":
 		return strFormat(s, args)
+	case "format_map":
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "str.format_map() takes exactly one argument (%d given)", len(args))
+		}
+		return strFormatMap(s, args[0])
 	case "translate":
 		return strTranslate(s, args)
 	case "encode":
@@ -1631,7 +1636,20 @@ func strFormat(tmpl string, args []Object) (Object, error) {
 // for a plain positional format, so the two callers share one renderer.
 func strFormatKw(tmpl string, args []Object, kw map[string]Object) (Object, error) {
 	var num strFmtNumbering
-	out, err := strFormatMarkup(tmpl, args, kw, &num, 0)
+	out, err := strFormatMarkup(tmpl, args, kw, nil, &num, 0)
+	if err != nil {
+		return nil, err
+	}
+	return NewStr(out), nil
+}
+
+// strFormatMap renders a template for str.format_map: named fields resolve
+// through the mapping object directly (so a __getitem__ or __missing__ hook
+// fires), and a positional field is the ValueError CPython raises since
+// format_map takes no positional args.
+func strFormatMap(tmpl string, mapping Object) (Object, error) {
+	var num strFmtNumbering
+	out, err := strFormatMarkup(tmpl, nil, nil, mapping, &num, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -1641,7 +1659,7 @@ func strFormatKw(tmpl string, args []Object, kw map[string]Object) (Object, erro
 // strFormatMarkup renders one template. depth guards nested format
 // specs: CPython allows a replacement field inside a spec once, then
 // raises. Probed on 3.14: "{0:{1:{2}}}".format("x", 5, 3).
-func strFormatMarkup(tmpl string, args []Object, kw map[string]Object, num *strFmtNumbering, depth int) (string, error) {
+func strFormatMarkup(tmpl string, args []Object, kw map[string]Object, kwObj Object, num *strFmtNumbering, depth int) (string, error) {
 	rs := []rune(tmpl)
 	var b strings.Builder
 	i, n := 0, len(rs)
@@ -1663,7 +1681,7 @@ func strFormatMarkup(tmpl string, args []Object, kw map[string]Object, num *strF
 			if i+1 >= n {
 				return "", Raise(ValueError, "Single '{' encountered in format string")
 			}
-			rendered, next, err := strFormatField(rs, i+1, args, kw, num, depth)
+			rendered, next, err := strFormatField(rs, i+1, args, kw, kwObj, num, depth)
 			if err != nil {
 				return "", err
 			}
@@ -1681,7 +1699,7 @@ func strFormatMarkup(tmpl string, args []Object, kw map[string]Object, num *strF
 // just past its '{'. It returns the rendered text and the index after
 // the closing '}'. The parse order and every error text mirror
 // CPython's unicode_format.h, all probed on 3.14.
-func strFormatField(rs []rune, i int, args []Object, kw map[string]Object, num *strFmtNumbering, depth int) (string, int, error) {
+func strFormatField(rs []rune, i int, args []Object, kw map[string]Object, kwObj Object, num *strFmtNumbering, depth int) (string, int, error) {
 	n := len(rs)
 	var name []rune
 	term := rune(0)
@@ -1757,7 +1775,7 @@ scan:
 		}
 	}
 
-	value, err := strFormatLookup(string(name), args, kw, num)
+	value, err := strFormatLookup(string(name), args, kw, kwObj, num)
 	if err != nil {
 		return "", 0, err
 	}
@@ -1780,7 +1798,7 @@ scan:
 		if depth >= 1 {
 			return "", 0, Raise(ValueError, "Max string recursion exceeded")
 		}
-		specStr, err = strFormatMarkup(specStr, args, kw, num, depth+1)
+		specStr, err = strFormatMarkup(specStr, args, kw, kwObj, num, depth+1)
 		if err != nil {
 			return "", 0, err
 		}
@@ -1800,7 +1818,7 @@ scan:
 // the mapping object. A trailing '.attr' or '[key]' path is then walked
 // off the resolved base. Probed on 3.14: "{a.b}".format() is KeyError:
 // 'a' and "{0.real}".format(3+4j) is '3.0'.
-func strFormatLookup(name string, args []Object, kw map[string]Object, num *strFmtNumbering) (Object, error) {
+func strFormatLookup(name string, args []Object, kw map[string]Object, kwObj Object, num *strFmtNumbering) (Object, error) {
 	base, path := name, ""
 	for k, r := range name {
 		if r == '.' || r == '[' {
@@ -1808,13 +1826,27 @@ func strFormatLookup(name string, args []Object, kw map[string]Object, num *strF
 			break
 		}
 	}
+	// format_map takes no positional args, so an auto '{}' or a numeric
+	// '{0}' field is the ValueError CPython raises rather than an index.
+	if kwObj != nil && (base == "" || strAllDigits(base)) {
+		return nil, Raise(ValueError, "Format string contains positional fields")
+	}
 	var val Object
 	var idx int
 	switch {
 	case base != "" && !strAllDigits(base):
-		// A named field reads from the keyword map; a miss is the KeyError
-		// CPython raises for an absent keyword. base64 reaches this with
-		// '{encoding}'.format(encoding='base32') at import.
+		// A named field reads from the keyword map, or under format_map from
+		// the mapping object directly so a __getitem__/__missing__ hook fires;
+		// a miss is the KeyError CPython raises for an absent key. base64
+		// reaches the keyword path with '{encoding}'.format(encoding='base32').
+		if kwObj != nil {
+			v, err := GetItem(kwObj, NewStr(base))
+			if err != nil {
+				return nil, err
+			}
+			val = v
+			break
+		}
 		v, ok := kw[base]
 		if !ok {
 			return nil, NewException(KeyError, []Object{NewStr(base)})
