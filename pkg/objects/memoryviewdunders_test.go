@@ -134,11 +134,10 @@ func TestMemoryViewHashAndContextDunders(t *testing.T) {
 
 // TestMemoryViewMethodAttrs checks a memoryview binds its methods as readable
 // callables, mv.tobytes reads back and calls the same as mv.tobytes(), the read
-// answers on a released view since the wrapper lives on the type, and count and
-// index stay absent since unagi does not implement them yet.
+// answers on a released view since the wrapper lives on the type.
 func TestMemoryViewMethodAttrs(t *testing.T) {
 	m := mvOf(t, NewByteArray([]byte("abc")))
-	for _, name := range []string{"tobytes", "tolist", "hex", "cast", "toreadonly", "release"} {
+	for _, name := range []string{"tobytes", "tolist", "hex", "cast", "toreadonly", "release", "count", "index"} {
 		fn, err := LoadAttr(m, name)
 		if err != nil {
 			t.Errorf("LoadAttr(%s) = %v, want a bound method", name, err)
@@ -152,13 +151,6 @@ func TestMemoryViewMethodAttrs(t *testing.T) {
 	if v, err := Call(fn, nil); err != nil || Repr(v) != "b'abc'" {
 		t.Errorf("tobytes() = %s, %v, want b'abc'", Repr(v), err)
 	}
-	// count and index are CPython 3.14 additions unagi does not carry, so they
-	// stay absent rather than binding a wrapper that would fail on a call.
-	for _, name := range []string{"count", "index"} {
-		if _, err := LoadAttr(m, name); err == nil {
-			t.Errorf("LoadAttr(%s) should miss until the method is implemented", name)
-		}
-	}
 	// A method reads back off a released view too; only a call raises.
 	m.released = true
 	rfn, err := LoadAttr(m, "tobytes")
@@ -167,5 +159,59 @@ func TestMemoryViewMethodAttrs(t *testing.T) {
 	}
 	if _, err := Call(rfn, nil); !isKind(err, ValueError) {
 		t.Errorf("released tobytes() = %v, want ValueError", err)
+	}
+}
+
+// TestMemoryViewCountIndex checks memoryview.count and index, the sequence search
+// CPython 3.14 added: count tallies elements equal to the value with Python
+// equality, index returns the first position within an optional start/stop window
+// and raises past the end, and both read the format-decoded elements so a value
+// finds a byte across an int-vs-float compare.
+func TestMemoryViewCountIndex(t *testing.T) {
+	m := mvOf(t, NewByteArray([]byte("abcabc")))
+	count := func(args ...Object) (Object, error) { return memoryviewMethod(m, "count", args) }
+	index := func(args ...Object) (Object, error) { return memoryviewMethod(m, "index", args) }
+	if v, _ := count(NewInt('a')); Repr(v) != "2" {
+		t.Errorf("count(97) = %s, want 2", Repr(v))
+	}
+	// count compares with Python equality, so a float finds the byte and a
+	// non-number never matches.
+	if v, _ := count(NewFloat(97.0)); Repr(v) != "2" {
+		t.Errorf("count(97.0) = %s, want 2", Repr(v))
+	}
+	if v, _ := count(None); Repr(v) != "0" {
+		t.Errorf("count(None) = %s, want 0", Repr(v))
+	}
+	if v, _ := index(NewInt('b')); Repr(v) != "1" {
+		t.Errorf("index(98) = %s, want 1", Repr(v))
+	}
+	// A start skips the first match; a stop excludes it again.
+	if v, _ := index(NewInt('a'), NewInt(1)); Repr(v) != "3" {
+		t.Errorf("index(97, 1) = %s, want 3", Repr(v))
+	}
+	if _, err := index(NewInt('a'), NewInt(1), NewInt(3)); !isKind(err, ValueError) {
+		t.Errorf("index(97, 1, 3) = %v, want ValueError", err)
+	}
+	// A missing value raises the not-found ValueError.
+	if _, err := index(NewInt(122)); !isKind(err, ValueError) {
+		t.Errorf("index(122) = %v, want ValueError", err)
+	}
+	// The arity errors carry each method's own wording.
+	if _, err := count(); !isKind(err, TypeError) {
+		t.Errorf("count() = %v, want TypeError", err)
+	}
+	if _, err := index(); !isKind(err, TypeError) {
+		t.Errorf("index() = %v, want TypeError", err)
+	}
+	if _, err := index(NewInt(1), NewInt(2), NewInt(3), NewInt(4)); !isKind(err, TypeError) {
+		t.Errorf("index with four args = %v, want TypeError", err)
+	}
+	// Both raise on a released view through the element read.
+	m.released = true
+	if _, err := count(NewInt(1)); !isKind(err, ValueError) {
+		t.Errorf("released count = %v, want ValueError", err)
+	}
+	if _, err := index(NewInt(1)); !isKind(err, ValueError) {
+		t.Errorf("released index = %v, want ValueError", err)
 	}
 }

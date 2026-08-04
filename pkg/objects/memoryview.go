@@ -464,12 +464,44 @@ func mvDelItem(m *memoryviewObject) error {
 
 // memoryviewMethodNames is the set of memoryview methods that read back as bound
 // callables off an instance, so mv.tobytes and mv.cast bind the way CPython's
-// built-in method wrappers do. It lists the methods memoryviewMethod implements;
-// count and index are CPython 3.14 additions unagi does not carry yet, so they
-// stay off the set rather than binding a wrapper that would fail on a call.
+// built-in method wrappers do. It lists the methods memoryviewMethod implements.
 var memoryviewMethodNames = map[string]bool{
-	"tobytes": true, "tolist": true, "hex": true,
-	"cast": true, "toreadonly": true, "release": true,
+	"tobytes": true, "tolist": true, "hex": true, "cast": true,
+	"toreadonly": true, "release": true, "count": true, "index": true,
+}
+
+// memoryviewIndex runs memoryview.index(value, start=0, stop=len), the sequence
+// search CPython 3.14 added to memoryview. It reads the format-decoded elements
+// and returns the first position where an element compares equal to value within
+// the optional start/stop window (negative and out-of-range bounds clamped the
+// way a slice is), raising the not-found ValueError past the end. The value is
+// compared with Python equality, so 97.0 finds a byte 97 and a non-number never
+// matches, and a released view raises through mvElements.
+func memoryviewIndex(m *memoryviewObject, args []Object) (Object, error) {
+	if len(args) < 1 {
+		return nil, Raise(TypeError, "index expected at least 1 argument, got %d", len(args))
+	}
+	if len(args) > 3 {
+		return nil, Raise(TypeError, "index expected at most 3 arguments, got %d", len(args))
+	}
+	elts, err := mvElements(m)
+	if err != nil {
+		return nil, err
+	}
+	n := len(elts)
+	start, stop := 0, n
+	if len(args) >= 2 {
+		start = clampIndex(args[1], n)
+	}
+	if len(args) == 3 {
+		stop = clampIndex(args[2], n)
+	}
+	for i := start; i < stop && i < n; i++ {
+		if equals(elts[i], args[0]) {
+			return NewInt(int64(i)), nil
+		}
+	}
+	return nil, Raise(ValueError, "memoryview.index(x): x not found")
 }
 
 // memoryviewMethod dispatches the memoryview method surface: tobytes, tolist,
@@ -506,6 +538,23 @@ func memoryviewMethod(m *memoryviewObject, name string, args []Object) (Object, 
 		return NewStr(hex.EncodeToString(mvSpan(m))), nil
 	case "cast":
 		return mvCast(m, args)
+	case "count":
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "memoryview.count() takes exactly one argument (%d given)", len(args))
+		}
+		elts, err := mvElements(m)
+		if err != nil {
+			return nil, err
+		}
+		n := 0
+		for _, e := range elts {
+			if equals(e, args[0]) {
+				n++
+			}
+		}
+		return NewInt(int64(n)), nil
+	case "index":
+		return memoryviewIndex(m, args)
 	case "toreadonly":
 		if len(args) != 0 {
 			return nil, Raise(TypeError, "memoryview.toreadonly() takes no arguments (%d given)", len(args))
