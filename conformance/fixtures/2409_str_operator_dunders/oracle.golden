@@ -1,0 +1,32 @@
+== exit: 0
+== stdout:
+has: ['__add__', '__mul__', '__rmul__', '__mod__', '__rmod__', '__repr__', '__str__', '__hash__', '__format__', '__getnewargs__']
+add 'abc'
+add wrong type ERR TypeError can only concatenate str (not "int") to str
+mul 'abab'
+mul zero ''
+mul neg ''
+mul float ERR TypeError 'float' object cannot be interpreted as an integer
+rmul 'abab'
+mod tuple '5-x'
+mod one '5'
+rmod str 'x'
+rmod int NotImplemented
+mul index 'ababab'
+rmul index 'ababab'
+hash eq: True
+str 'ab'
+repr '"a\'b"'
+format empty 'ab'
+format spec '   ab'
+format bad code ERR ValueError Unknown format code 'd' for object of type 'str'
+format nonstr ERR TypeError __format__() argument must be str, not int
+getnewargs ('ab',)
+add noargs ERR TypeError expected 1 argument, got 0
+add 2args ERR TypeError expected 1 argument, got 2
+str extra ERR TypeError expected 0 arguments, got 1
+format noargs ERR TypeError str.__format__() takes exactly one argument (0 given)
+format 2args ERR TypeError str.__format__() takes exactly one argument (2 given)
+getnewargs extra ERR TypeError str.__getnewargs__() takes no arguments (1 given)
+== exception:
+== stderr:
