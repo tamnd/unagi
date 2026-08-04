@@ -1604,6 +1604,87 @@ func writeFile(t *testing.T, path, content string) {
 
 // TestEmitGoKeepsModule checks that --emit-go leaves a buildable module
 // behind with the slim runtime copy in place.
+// TestReachesRuntimeCodec checks the codec seeding rule the AST way: a program
+// that spells out, as a string literal, a codec beyond the utf-8/ascii/latin-1
+// core through str.encode, bytes.decode or a two-argument str/bytes constructor
+// is flagged, while a program that only touches the core codecs, or names a
+// non-core codec dynamically, is not. This is the pure predicate that decides
+// whether collectModules drags the roughly hundred-module encodings package in,
+// tested here without the cost of actually lowering it.
+func TestReachesRuntimeCodec(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want bool
+	}{
+		{"non-core literal encode", `print("x".encode("utf-16"))`, true},
+		{"non-core literal decode", `print(b"x".decode("utf-16"))`, true},
+		{"keyword literal codec", `print("x".encode(encoding="utf-16"))`, true},
+		{"two-arg bytes constructor", `print(bytes("x", "utf-16"))`, true},
+		{"two-arg str constructor", `print(str(b"x", "utf-16"))`, true},
+		{"nested in call arg", `print(len("x".encode("utf-16")))`, true},
+		{"inside function body", "def f():\n    return \"x\".encode(\"utf-16\")\n", true},
+		{"variable codec not seeded", "e = \"utf-16\"\nprint(\"x\".encode(e))", false},
+		{"core literal utf-8", `print("x".encode("utf-8"))`, false},
+		{"core literal latin-1", `print("x".encode("latin-1"))`, false},
+		{"bare encode default utf-8", `print("x".encode())`, false},
+		{"one-arg str", `print(str(1))`, false},
+		{"no codec at all", `print(1 + 1)`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mod, err := frontend.Parse([]byte(tc.src), "main.py")
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if got := reachesRuntimeCodec(mod.Body); got != tc.want {
+				t.Errorf("reachesRuntimeCodec = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCollectModulesSeedsEncodings checks the seeding wires through end to end:
+// a non-core literal codec lands the encodings package in the compiled table
+// even though the program never imports codecs, and a core-only program does
+// not. The AST decision itself is covered exhaustively by TestReachesRuntimeCodec;
+// this keeps just one case each side because lowering encodings is expensive.
+func TestCollectModulesSeedsEncodings(t *testing.T) {
+	if testing.Short() {
+		t.Skip("lowers the encodings package; skipped in -short")
+	}
+	cases := []struct {
+		name string
+		src  string
+		want bool
+	}{
+		{"non-core literal seeds", `print("x".encode("utf-16"))`, true},
+		{"core literal does not", `print("x".encode("utf-8"))`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mod, err := frontend.Parse([]byte(tc.src), "main.py")
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			mods, _, err := collectModules(filepath.Join(t.TempDir(), "main.py"), mod)
+			if err != nil {
+				t.Fatalf("collectModules: %v", err)
+			}
+			got := false
+			for _, m := range mods {
+				if m.name == "encodings" {
+					got = true
+					break
+				}
+			}
+			if got != tc.want {
+				t.Errorf("encodings seeded = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestEmitGoKeepsModule(t *testing.T) {
 	if testing.Short() {
 		t.Skip("compiles binaries; skipped in -short")

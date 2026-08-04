@@ -22,6 +22,7 @@ import (
 	"github.com/tamnd/unagi/pkg/floor"
 	"github.com/tamnd/unagi/pkg/frontend"
 	"github.com/tamnd/unagi/pkg/lower"
+	"github.com/tamnd/unagi/pkg/objects"
 	"github.com/tamnd/unagi/pkg/partition"
 	"github.com/tamnd/unagi/pkg/report"
 	unagirt "github.com/tamnd/unagi/pkg/runtime"
@@ -375,6 +376,37 @@ func collectModules(pyPath string, entry *frontend.Module) ([]pymod, map[string]
 	if err := visit(entry.Body, ""); err != nil {
 		return nil, nil, err
 	}
+	// Seed the encodings package when a compiled module spells out, as a string
+	// literal, a codec beyond the utf-8/ascii/latin-1 core through str.encode,
+	// bytes.decode or a two-argument str/bytes constructor, a dependency the
+	// static import graph cannot see because the codec is named by a string
+	// rather than an import. CPython's codec machinery is always present, so
+	// "x".encode("utf-16") works with no import; here encodings is pulled in only
+	// for a literal non-core codec, so a program that only touches the core
+	// codecs stays lean and the roughly hundred-module encodings package is not
+	// compiled into every build. Once encodings is compiled, floorDynamicCore
+	// drags in the codec submodules the runtime registry resolves by name on its
+	// first lookup.
+	if !seen["encodings"] {
+		needEnc := reachesRuntimeCodec(entry.Body)
+		for _, p := range found {
+			if needEnc {
+				break
+			}
+			if p.mod != nil && reachesRuntimeCodec(p.mod.Body) {
+				needEnc = true
+			}
+		}
+		if needEnc {
+			if file, pkg, ns, fromFloor, ok := resolveModule(dir, floorFS, shimmed, "encodings"); ok {
+				seen["encodings"] = true
+				seenPkg["encodings"] = pkg
+				if err := compile("encodings", file, pkg, ns, fromFloor); err != nil {
+					return nil, nil, err
+				}
+			}
+		}
+	}
 	stars := map[string]lower.StarExports{}
 	// A built-in module has no source to read its exports from, so seed the
 	// star surface for the ones a floor module star-imports, like _types
@@ -406,6 +438,76 @@ func collectModules(pyPath string, entry *frontend.Module) ([]pymod, map[string]
 		out = append(out, pymod{name: p.name, file: p.file, pkg: p.pkg, src: goSrc})
 	}
 	return out, stars, nil
+}
+
+// reachesRuntimeCodec reports whether body names, as a string literal, a codec
+// beyond the utf-8/ascii/latin-1 core through str.encode, bytes.decode or a
+// two-argument str/bytes/bytearray constructor. It drives seeding the encodings
+// package for a program that spells out such a codec without importing codecs
+// itself, so "x".encode("utf-16") works the way it does in CPython. Only a
+// literal counts; see codecArgNeedsEncodings for why a dynamically named codec
+// is left to an explicit import.
+func reachesRuntimeCodec(body []frontend.Stmt) bool {
+	found := false
+	frontend.WalkCalls(body, func(call *frontend.Call) {
+		if found {
+			return
+		}
+		switch fn := call.Fn.(type) {
+		case *frontend.Attribute:
+			// str.encode / bytes.decode name the codec in the first argument.
+			if fn.Name == "encode" || fn.Name == "decode" {
+				if codecArgNeedsEncodings(call.Args, 0) {
+					found = true
+				}
+			}
+		case *frontend.Name:
+			// The two-argument str(obj, encoding) / bytes(s, encoding) form names
+			// the codec in the second argument; a one-argument call carries none.
+			if fn.Id == "str" || fn.Id == "bytes" || fn.Id == "bytearray" {
+				if codecArgNeedsEncodings(call.Args, 1) {
+					found = true
+				}
+			}
+		}
+	})
+	return found
+}
+
+// codecArgNeedsEncodings decides, for a call that takes a codec name at
+// positional slot idx, whether that codec is a non-core string literal the
+// encodings package must be compiled in to resolve. Only a literal is
+// considered: compiling the encodings package pulls roughly a hundred codec
+// modules and adds several seconds to a build, so it is pulled in only for a
+// codec the source spells out and the runtime cannot handle in its core, a
+// str.encode("utf-16") that would otherwise fail with no import. A codec named
+// dynamically (a variable, an attribute, a call result, a keyword whose value
+// is not a literal, an argument behind a splat) does not seed the package; a
+// program that reaches a non-core codec that way imports codecs to compile it
+// in, the way a program reaching an arbitrary stdlib module by name does. A
+// missing slot (a bare .encode() or a one-argument str()) is the utf-8 default,
+// a core codec, and needs nothing.
+func codecArgNeedsEncodings(args []frontend.Arg, idx int) bool {
+	var codec frontend.Expr
+	pos := 0
+	for _, a := range args {
+		switch {
+		case a.Star != 0:
+			continue
+		case a.Name == "encoding":
+			codec = a.Value
+		case a.Name == "":
+			if pos == idx {
+				codec = a.Value
+			}
+			pos++
+		}
+	}
+	lit, ok := codec.(*frontend.StrLit)
+	if !ok {
+		return false
+	}
+	return !objects.IsCoreCodec(lit.Val)
 }
 
 // readModuleSource reads a module's source: from the embedded floor when the

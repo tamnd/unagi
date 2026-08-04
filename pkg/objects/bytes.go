@@ -230,6 +230,20 @@ func EncodeStr(s, enc, errh string) ([]byte, error) {
 	return encodeStr(s, enc, errh)
 }
 
+// IsCoreCodec reports whether name is one of the utf-8, ascii or latin-1
+// families the core encodeStr/decodeCodec path handles directly, without the
+// encodings package and its runtime registry. The build reads it to decide
+// whether a str.encode/bytes.decode (or two-argument str/bytes constructor)
+// reaches a codec that needs encodings compiled in, so a program that only
+// touches the core codecs never drags the encodings package along.
+func IsCoreCodec(name string) bool {
+	switch normalizeCodec(name) {
+	case "utf8", "ascii", "latin1":
+		return true
+	}
+	return false
+}
+
 // normalizeCodec folds a codec name to a canonical key: lowercased with
 // spaces, hyphens and underscores dropped, so "UTF-8" and "utf_8" both map
 // to "utf8". Only the small set this build supports is recognized.
