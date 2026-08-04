@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+mv: (1,)
+array b: (1, 2, 3, 4)
+array i: (7, 9)
+bytearray: (2,)
+from mv: (5,)
+from mv off: (5,)
+from array off: (7,)
+iter mv: [(1,), (2,)]
+iter array: [(1,), (2,), (3,)]
+Struct.unpack mv: (3,)
+Struct.iter_unpack array: [(9,), (8,)]
+wrong len: unpack requires a buffer of 4 bytes
+reject str: a bytes-like object is required, not 'str'
+reject int: a bytes-like object is required, not 'int'
+reject list: a bytes-like object is required, not 'list'
+== exception:
+== stderr:
