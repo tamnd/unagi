@@ -8,6 +8,20 @@ import (
 	"strings"
 )
 
+// FloatInf returns positive or negative IEEE-754 infinity as a float64, sign
+// picking the direction the way math.Inf does. A Python float literal that
+// overflows the double range folds to an infinity at compile time (1e400 is
+// inf), and the lowering emits a call to this rather than a bare Go +Inf, which
+// is not a valid Go literal, so an overflowing float or imaginary literal
+// compiles instead of failing the Go build.
+func FloatInf(sign int) float64 { return math.Inf(sign) }
+
+// FloatNaN returns an IEEE-754 quiet NaN as a float64, the value a folded
+// non-finite float literal that is not an infinity carries. The lowering emits
+// a call to this for the same reason it uses FloatInf: NaN has no Go literal
+// spelling.
+func FloatNaN() float64 { return math.NaN() }
+
 // This file holds the float methods and the two number attributes every float
 // carries. Each method takes no arguments the way CPython's float methods do,
 // so (3.0).is_integer() is True and (0.25).as_integer_ratio() is (1, 4). The

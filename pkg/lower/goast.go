@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/format"
 	"go/token"
+	"math"
 	"strconv"
 )
 
@@ -39,8 +40,20 @@ func intLit(text string) *ast.BasicLit {
 }
 
 // floatLit renders a float with the shortest round-tripping form, the same
-// formatting the string emitter used.
-func floatLit(v float64) *ast.BasicLit {
+// formatting the string emitter used. A non-finite value has no Go literal
+// spelling (strconv prints +Inf/-Inf/NaN, none of which parse as Go floats), so
+// it lowers to an objects helper call that returns the float64 at run time; a
+// Python float literal that overflows the double range folds to an infinity at
+// compile time (1e400), and this keeps such a literal compiling.
+func floatLit(v float64) ast.Expr {
+	switch {
+	case math.IsInf(v, 1):
+		return callExpr(sel("objects", "FloatInf"), intLit("1"))
+	case math.IsInf(v, -1):
+		return callExpr(sel("objects", "FloatInf"), intLit("-1"))
+	case math.IsNaN(v):
+		return callExpr(sel("objects", "FloatNaN"))
+	}
 	return &ast.BasicLit{Kind: token.FLOAT, Value: strconv.FormatFloat(v, 'g', -1, 64)}
 }
 
