@@ -29,9 +29,9 @@ func binarySeqDunder(recv Object, name string) (Object, bool) {
 	case "__add__":
 		return bseqBinOp(name, func(other Object) (Object, error) { return Add(recv, other) }), true
 	case "__mul__":
-		return bseqBinOp(name, func(other Object) (Object, error) { return Mul(recv, other) }), true
+		return bseqBinOp(name, func(other Object) (Object, error) { return bseqRepeat(recv, other) }), true
 	case "__rmul__":
-		return bseqBinOp(name, func(other Object) (Object, error) { return Mul(other, recv) }), true
+		return bseqBinOp(name, func(other Object) (Object, error) { return bseqRepeat(recv, other) }), true
 	case "__mod__":
 		return bseqBinOp(name, func(other Object) (Object, error) { return Mod(recv, other) }), true
 	case "__rmod__":
@@ -132,6 +132,20 @@ func bseqReflectedMod(recv, other Object) (Object, error) {
 		}
 	}
 	return Mod(other, recv)
+}
+
+// bseqRepeat runs the sequence-repeat slot, b * n. Unlike the binary * operator,
+// the __mul__ and __rmul__ slots coerce the count through __index__ and raise the
+// interpreted-as-an-integer TypeError for a non-index operand, so
+// b"ab".__mul__(2.0) is that error while b"ab".__mul__(obj) repeats when obj
+// carries __index__. Once the count is an int the existing Mul builds the repeat,
+// keeping the negative-clamps-to-empty and result-type handling in one place.
+func bseqRepeat(recv, count Object) (Object, error) {
+	n, err := seqRepeatCount(count)
+	if err != nil {
+		return nil, err
+	}
+	return Mul(recv, NewInt(n))
 }
 
 // bseqBinOp wraps a one-argument binary dunder as a readable callable, checking

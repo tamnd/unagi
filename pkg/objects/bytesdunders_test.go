@@ -43,6 +43,41 @@ func TestBytesOperatorDunders(t *testing.T) {
 	}
 }
 
+// TestBytesRepeatIndexCoercion checks the __mul__ and __rmul__ slots coerce their
+// count through the sequence-repeat rules: a float raises the interpreted-as-an
+// -integer TypeError rather than the binary operator's sequence-repeat message,
+// and a negative count clamps to empty.
+func TestBytesRepeatIndexCoercion(t *testing.T) {
+	for _, tc := range []struct {
+		tag string
+		v   Object
+	}{
+		{"bytes", NewBytes([]byte("ab"))},
+		{"bytearray", NewByteArray([]byte("ab"))},
+	} {
+		call := func(name string, arg Object) (Object, error) {
+			fn, err := LoadAttr(tc.v, name)
+			if err != nil {
+				return nil, err
+			}
+			return Call(fn, []Object{arg})
+		}
+		// A float count raises the integer-coercion error, not the binary *
+		// operator's "can't multiply sequence" message.
+		if _, err := call("__mul__", NewFloat(2.0)); !isKind(err, TypeError) {
+			t.Errorf("%s __mul__(2.0) = %v, want TypeError", tc.tag, err)
+		}
+		// A negative count clamps to an empty result.
+		if _, err := call("__mul__", NewInt(-1)); err != nil {
+			t.Errorf("%s __mul__(-1) raised %v", tc.tag, err)
+		}
+		// A bool counts as the int it is.
+		if v, _ := call("__mul__", True); v == nil {
+			t.Errorf("%s __mul__(True) returned nil", tc.tag)
+		}
+	}
+}
+
 // TestBytesStringAndHashDunders checks bytes exposes __repr__, __str__, __hash__,
 // __bytes__ and __getnewargs__, each matching the value's own rendering, hash and
 // reconstruction tuple.

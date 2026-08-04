@@ -91,7 +91,7 @@ func strDunderCall(recv Object, name string, args []Object) (Object, bool, error
 // __index__. A negative count yields the empty string, the way CPython's repeat
 // clamps at zero.
 func strRepeatDunder(recv, count Object) (Object, error) {
-	n, err := strRepeatCount(count)
+	n, err := seqRepeatCount(count)
 	if err != nil {
 		return nil, err
 	}
@@ -101,11 +101,12 @@ func strRepeatDunder(recv, count Object) (Object, error) {
 	return NewStr(strings.Repeat(recv.(*strObject).v, int(n))), nil
 }
 
-// strRepeatCount reads the repeat count the way CPython's sequence-repeat slot
+// seqRepeatCount reads a sequence-repeat count the way CPython's sq_repeat slot
 // does: a plain int or bool passes through, an int too large to index spills to
 // the OverflowError, an operand carrying __index__ is coerced, and anything else
-// raises the interpreted-as-an-integer TypeError.
-func strRepeatCount(count Object) (int64, error) {
+// raises the interpreted-as-an-integer TypeError. str, bytes and bytearray share
+// it so their __mul__ and __rmul__ agree on the coercion.
+func seqRepeatCount(count Object) (int64, error) {
 	if n, ok := AsInt(count); ok {
 		return n, nil
 	}
