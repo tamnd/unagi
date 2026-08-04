@@ -1,0 +1,27 @@
+== exit: 0
+== stdout:
+'1000000000000000000000h' struct.error: total struct size too long
+'9223372036854775807h' struct.error: total struct size too long
+'9223372036854775808b' struct.error: total struct size too long
+'1152921504606846976q' struct.error: total struct size too long
+'4611686018427387904d' struct.error: total struct size too long
+'99999999999999999999999999999999999999h' struct.error: total struct size too long
+maxcount size: 9223372036854775807
+calcsize struct.error: total struct size too long
+Struct struct.error: total struct size too long
+pack struct.error: total struct size too long
+unpack struct.error: total struct size too long
+'>iih' 10
+'10s' 10
+'3f2d' 32
+'@qibh' 16
+'=4i' 16
+'100x' 100
+'0i' 0
+'' 0
+'@ci' 8
+'@cd' 16
+'100000000x' 100000000
+no code: repeat count given without format specifier
+== exception:
+== stderr:

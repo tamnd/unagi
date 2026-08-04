@@ -526,6 +526,57 @@ func TestStructIterUnpack(t *testing.T) {
 	}
 }
 
+// TestStructSizeOverflow checks that a repeat count large enough to overflow the
+// running byte size raises struct.error "total struct size too long" from
+// calcsize rather than wrapping to a bogus size, that the maximum in-range count
+// still sizes, and that an ordinary format is untouched. The boundary values are
+// PY_SSIZE_T_MAX and match CPython 3.14.6.
+func TestStructSizeOverflow(t *testing.T) {
+	m, err := ImportModule("_struct")
+	if err != nil {
+		t.Fatalf("import _struct: %v", err)
+	}
+	calcsize, err := objects.LoadAttr(m, "calcsize")
+	if err != nil {
+		t.Fatalf("_struct.calcsize: %v", err)
+	}
+
+	// Counts that overflow the running size raise the too-long error.
+	for _, fmt := range []string{
+		"1000000000000000000000h",
+		"9223372036854775807h",
+		"9223372036854775808b",
+		"4611686018427387904d",
+		"99999999999999999999999999h",
+	} {
+		_, err := objects.Call(calcsize, []objects.Object{objects.NewStr(fmt)})
+		if err == nil {
+			t.Fatalf("calcsize(%q) did not raise", fmt)
+		}
+		if got := err.Error(); !strings.Contains(got, "total struct size too long") {
+			t.Fatalf("calcsize(%q) error = %q, want total struct size too long", fmt, got)
+		}
+	}
+
+	// The maximum in-range count on a one-byte code sizes to exactly that count.
+	res, err := objects.Call(calcsize, []objects.Object{objects.NewStr("9223372036854775807b")})
+	if err != nil {
+		t.Fatalf("calcsize(maxcount): %v", err)
+	}
+	if got := objects.Repr(res); got != "9223372036854775807" {
+		t.Fatalf("calcsize(maxcount) = %s, want 9223372036854775807", got)
+	}
+
+	// An ordinary format is unaffected.
+	res, err = objects.Call(calcsize, []objects.Object{objects.NewStr(">iih")})
+	if err != nil {
+		t.Fatalf("calcsize(\">iih\"): %v", err)
+	}
+	if got := objects.Repr(res); got != "10" {
+		t.Fatalf("calcsize(\">iih\") = %s, want 10", got)
+	}
+}
+
 // bytesHex renders raw bytes as lowercase hex, matching bytes.hex() in the oracle.
 func bytesHex(b []byte) string {
 	const digits = "0123456789abcdef"

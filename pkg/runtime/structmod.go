@@ -556,6 +556,11 @@ func parseStructFormat(format string) (*structFormat, error) {
 			f.native, f.order, i = false, binary.BigEndian, 1
 		}
 	}
+	// maxStructSize is CPython's PY_SSIZE_T_MAX, the ceiling prepare_s enforces on
+	// the running size so a huge repeat count cannot overflow it. Go's int is the
+	// same width as ssize_t on the platforms we target, so its max coincides.
+	const maxStructSize = int(^uint(0) >> 1)
+
 	size := 0
 	for i < n {
 		c := format[i]
@@ -567,7 +572,13 @@ func parseStructFormat(format string) (*structFormat, error) {
 		if c >= '0' && c <= '9' {
 			count = 0
 			for i < n && format[i] >= '0' && format[i] <= '9' {
-				count = count*10 + int(format[i]-'0')
+				d := int(format[i] - '0')
+				// Overflow-safe count = count*10 + d, mirroring prepare_s: once the
+				// count would pass PY_SSIZE_T_MAX it is a struct too long to size.
+				if count >= maxStructSize/10 && (count > maxStructSize/10 || d > maxStructSize%10) {
+					return nil, structErrorf("total struct size too long")
+				}
+				count = count*10 + d
 				i++
 			}
 			if i >= n {
@@ -583,10 +594,24 @@ func parseStructFormat(format string) (*structFormat, error) {
 			return nil, structErrorf("bad char in struct format")
 		}
 		item := structItem{code: c, count: count}
+		// Native alignment padding comes first, then the item's own bytes. Both
+		// steps guard against running size past PY_SSIZE_T_MAX the way prepare_s
+		// does through align() and the num*itemsize check, so a format whose bytes
+		// do not fit an ssize_t raises rather than wrapping to a bogus size. The
+		// item size is one for the s, p and x codes and the element size times the
+		// count otherwise, exactly what width reports.
 		if f.native {
-			size += structAlignPad(size, c)
+			pad := structAlignPad(size, c)
+			if pad > maxStructSize-size {
+				return nil, structErrorf("total struct size too long")
+			}
+			size += pad
 		}
-		size += item.width(f.native)
+		itemsize := structElemSize(c, f.native)
+		if itemsize > 0 && count > (maxStructSize-size)/itemsize {
+			return nil, structErrorf("total struct size too long")
+		}
+		size += count * itemsize
 		f.items = append(f.items, item)
 	}
 	f.size = size
@@ -604,16 +629,6 @@ func isStructCode(c byte) bool {
 		return true
 	}
 	return false
-}
-
-// width is the number of bytes one item occupies, before native alignment.
-func (it structItem) width(native bool) int {
-	switch it.code {
-	case 's', 'p', 'x':
-		return it.count
-	default:
-		return structElemSize(it.code, native) * it.count
-	}
 }
 
 // structElemSize is the size of a single element of a code. Only l and L differ
