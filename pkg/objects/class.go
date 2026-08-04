@@ -3275,6 +3275,12 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return builtinMethodValue(x, name), nil
 		}
 	case *strObject:
+		// The arithmetic, hash and string dunders read back as callables, so
+		// "ab".__add__ and "ab".__mod__ resolve the way bytes and the numbers
+		// already do; the comparison and container dunders fall through below.
+		if v, ok := strDunder(x, name); ok {
+			return v, nil
+		}
 		// A method read binds as a callable, "ab".upper reads back and calls the
 		// same as "ab".upper(); anything else drops to the shared container
 		// handling below, so "ab".__len__ still resolves.

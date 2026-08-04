@@ -37,6 +37,13 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 	if res, ok, err := binarySeqDunderCall(o, name, args); ok {
 		return res, err
 	}
+	// A str operator, hash or string dunder called directly, "".__add__(x) or
+	// "ab".__mod__(v), lowers here rather than through LoadAttr, so the same slot
+	// surface answers in both places. The guard fires only for the concrete str
+	// builtin, never a user subclass.
+	if res, ok, err := strDunderCall(o, name, args); ok {
+		return res, err
+	}
 	switch x := o.(type) {
 	case *intObject, *boolObject:
 		return intMethod(o, name, args)
