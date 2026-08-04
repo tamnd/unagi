@@ -1,0 +1,54 @@
+== exit: 0
+== stdout:
+mean 2.5
+mean_frac Fraction(5, 12)
+fmean 2.5
+fmean_weighted 1.6666666666666667
+geometric_mean 4.0
+harmonic_mean 3.4285714286
+harmonic_mean_weighted 56.0
+median 2.5
+median_low 2
+median_high 3
+median_grouped 3.7
+mode 1
+multimode ['b']
+pvariance 2
+pstdev 1.4142135624
+variance 2.5
+stdev 1.5811388301
+quantiles [2.75, 5.5, 8.25]
+quantiles_inclusive [1.75, 2.5, 3.25]
+correlation 1.0
+covariance 5.0
+linear_regression LinearRegression(slope=2.0, intercept=0.0)
+nd_repr 'NormalDist(mu=2.0, sigma=3.0)'
+nd_attrs (2.0, 2.0, 2.0, 3.0, 9.0)
+nd_from_samples NormalDist(mu=3.0, sigma=1.5811388300841898)
+nd_pdf 0.3520653268
+nd_cdf 0.8413447461
+nd_inv_cdf 1.9599639845
+nd_overlap 0.6170750775
+nd_zscore 1.5
+nd_quantiles [-0.67449, 0.0, 0.67449]
+nd_add NormalDist(mu=4.0, sigma=4.47213595499958)
+nd_sub NormalDist(mu=4.0, sigma=2.23606797749979)
+nd_mul NormalDist(mu=4.0, sigma=6.0)
+nd_div NormalDist(mu=2.0, sigma=1.0)
+nd_eq True
+nd_hash_eq True
+kde_normal 0.1577610453
+kde_logistic 0.1259433761
+kde_epanechnikov 0.1759259259
+kde_cumulative 0.4204583553
+kde_random_len 3
+mean_empty ERR StatisticsError mean requires at least one data point
+variance_one ERR StatisticsError variance requires at least two data points
+mode_empty ERR StatisticsError no mode for empty data
+harmonic_negative ERR StatisticsError harmonic mean does not support negative values
+quantiles_n0 ERR StatisticsError n must be at least 1
+correlation_mismatch ERR StatisticsError correlation requires that both inputs have same number of data points
+nd_zero_sigma NormalDist(mu=0.0, sigma=0.0)
+kde_bad_kernel ERR StatisticsError Unknown kernel name: 'nope'
+== exception:
+== stderr:
