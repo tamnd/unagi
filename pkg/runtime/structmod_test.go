@@ -445,6 +445,87 @@ func TestStructPascalZeroWidth(t *testing.T) {
 	}
 }
 
+// TestStructIterUnpack pins the unpack_iterator iter_unpack returns: it yields
+// one record tuple per __next__, reports the remaining count through
+// __length_hint__, raises StopIteration at the end and stays exhausted, and is
+// its own iterator. CPython returns an unpack_iterator here, not a list, and the
+// expected values were taken from CPython 3.14.6.
+func TestStructIterUnpack(t *testing.T) {
+	m, err := ImportModule("_struct")
+	if err != nil {
+		t.Fatalf("import _struct: %v", err)
+	}
+	iterUnpack, err := objects.LoadAttr(m, "iter_unpack")
+	if err != nil {
+		t.Fatalf("_struct.iter_unpack: %v", err)
+	}
+
+	// Three records of a two-value format (>IH is six bytes) over eighteen bytes.
+	buf := objects.NewBytes([]byte{0, 0, 0, 1, 0, 2, 0, 0, 0, 3, 0, 4, 0, 0, 0, 0, 0, 0})
+	it, err := objects.Call(iterUnpack, []objects.Object{objects.NewStr(">IH"), buf})
+	if err != nil {
+		t.Fatalf("iter_unpack(\">IH\", ...): %v", err)
+	}
+	if got := it.TypeName(); got != "unpack_iterator" {
+		t.Fatalf("iter_unpack returned type %s, want unpack_iterator", got)
+	}
+
+	// __iter__ returns the iterator itself.
+	iterMethod, err := objects.LoadAttr(it, "__iter__")
+	if err != nil {
+		t.Fatalf("load __iter__: %v", err)
+	}
+	self, err := objects.Call(iterMethod, nil)
+	if err != nil {
+		t.Fatalf("call __iter__: %v", err)
+	}
+	if self != it {
+		t.Fatalf("__iter__ returned a different object")
+	}
+
+	lengthHint, err := objects.LoadAttr(it, "__length_hint__")
+	if err != nil {
+		t.Fatalf("load __length_hint__: %v", err)
+	}
+	next, err := objects.LoadAttr(it, "__next__")
+	if err != nil {
+		t.Fatalf("load __next__: %v", err)
+	}
+
+	// The hint counts down as records are drawn; each record is the expected tuple.
+	wants := []string{"(1, 2)", "(3, 4)", "(0, 0)"}
+	for i, want := range wants {
+		hint, err := objects.Call(lengthHint, nil)
+		if err != nil {
+			t.Fatalf("length_hint before draw %d: %v", i, err)
+		}
+		if got, _ := objects.AsInt(hint); got != int64(len(wants)-i) {
+			t.Fatalf("length_hint before draw %d = %d, want %d", i, got, len(wants)-i)
+		}
+		rec, err := objects.Call(next, nil)
+		if err != nil {
+			t.Fatalf("__next__ draw %d: %v", i, err)
+		}
+		if got := objects.Repr(rec); got != want {
+			t.Fatalf("record %d = %s, want %s", i, got, want)
+		}
+	}
+
+	// Drained: length_hint is zero and __next__ raises StopIteration, repeatedly.
+	hint, err := objects.Call(lengthHint, nil)
+	if err != nil {
+		t.Fatalf("length_hint when drained: %v", err)
+	}
+	if got, _ := objects.AsInt(hint); got != 0 {
+		t.Fatalf("length_hint when drained = %d, want 0", got)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := objects.Call(next, nil); err == nil {
+			t.Fatalf("__next__ on drained iterator returned no error (call %d)", i)
+		}
+	}
+}
+
 // bytesHex renders raw bytes as lowercase hex, matching bytes.hex() in the oracle.
 func bytesHex(b []byte) string {
 	const digits = "0123456789abcdef"
