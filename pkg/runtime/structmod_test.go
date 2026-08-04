@@ -393,6 +393,58 @@ func TestStructOffsetBoundaries(t *testing.T) {
 	}
 }
 
+// TestStructPascalZeroWidth checks that unpacking a zero-width p field returns
+// empty bytes instead of reading a length byte off the end of the buffer. A 0p
+// field carries no length byte, so unpacking a whole-zero-width format from an
+// empty buffer used to slice past the end and panic. The expected values were
+// taken from CPython 3.14.6.
+func TestStructPascalZeroWidth(t *testing.T) {
+	m, err := ImportModule("_struct")
+	if err != nil {
+		t.Fatalf("import _struct: %v", err)
+	}
+	unpack, err := objects.LoadAttr(m, "unpack")
+	if err != nil {
+		t.Fatalf("_struct.unpack: %v", err)
+	}
+
+	// A lone 0p over an empty buffer unpacks to a single empty-bytes value.
+	res, err := objects.Call(unpack, []objects.Object{objects.NewStr(">0p"), objects.NewBytes(nil)})
+	if err != nil {
+		t.Fatalf("unpack(\">0p\", b\"\"): %v", err)
+	}
+	if got := objects.Repr(res); got != "(b'',)" {
+		t.Fatalf("unpack(\">0p\", b\"\") = %s, want (b'',)", got)
+	}
+
+	// A run of zero-width p fields over an empty buffer unpacks to empty values.
+	res, err = objects.Call(unpack, []objects.Object{objects.NewStr(">0p0p0p"), objects.NewBytes(nil)})
+	if err != nil {
+		t.Fatalf("unpack(\">0p0p0p\", b\"\"): %v", err)
+	}
+	if got := objects.Repr(res); got != "(b'', b'', b'')" {
+		t.Fatalf("unpack(\">0p0p0p\", b\"\") = %s, want (b'', b'', b'')", got)
+	}
+
+	// A zero-width p mixed with sized fields consumes no bytes of its own.
+	res, err = objects.Call(unpack, []objects.Object{objects.NewStr(">0p4sb"), objects.NewBytes([]byte("data\x07"))})
+	if err != nil {
+		t.Fatalf("unpack(\">0p4sb\", ...): %v", err)
+	}
+	if got := objects.Repr(res); got != "(b'', b'data', 7)" {
+		t.Fatalf("unpack(\">0p4sb\", ...) = %s, want (b'', b'data', 7)", got)
+	}
+
+	// A sized p still clamps its content to width-1 and reads its length byte.
+	res, err = objects.Call(unpack, []objects.Object{objects.NewStr(">3p"), objects.NewBytes([]byte("\x02ab"))})
+	if err != nil {
+		t.Fatalf("unpack(\">3p\", ...): %v", err)
+	}
+	if got := objects.Repr(res); got != "(b'ab',)" {
+		t.Fatalf("unpack(\">3p\", ...) = %s, want (b'ab',)", got)
+	}
+}
+
 // bytesHex renders raw bytes as lowercase hex, matching bytes.hex() in the oracle.
 func bytesHex(b []byte) string {
 	const digits = "0123456789abcdef"

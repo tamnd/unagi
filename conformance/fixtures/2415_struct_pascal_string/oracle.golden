@@ -1,0 +1,29 @@
+== exit: 0
+== stdout:
+>0p size 0 packed b'' unpacked (b'',)
+>1p size 1 packed b'\x00' unpacked (b'',)
+>2p size 2 packed b'\x01h' unpacked (b'h',)
+>3p size 3 packed b'\x02he' unpacked (b'he',)
+>4p size 4 packed b'\x03hel' unpacked (b'hel',)
+>5p size 5 packed b'\x04hell' unpacked (b'hell',)
+>6p size 6 packed b'\x05hello' unpacked (b'hello',)
+>7p size 7 packed b'\x06hellow' unpacked (b'hellow',)
+>8p size 8 packed b'\x07hellowo' unpacked (b'hellowo',)
+>9p size 9 packed b'\x08hellowor' unpacked (b'hellowor',)
+>10p size 10 packed b'\thelloworl' unpacked (b'helloworl',)
+>11p size 11 packed b'\nhelloworld' unpacked (b'helloworld',)
+>5p b'\x04abcd' (b'abcd',)
+<5p b'\x04abcd' (b'abcd',)
+!5p b'\x04abcd' (b'abcd',)
+=5p b'\x04abcd' (b'abcd',)
+mixed packed: b'data\x07'
+mixed unpacked: (b'', b'data', 7)
+>0s b'' (b'',)
+>1s b'a' (b'a',)
+>4s b'abcd' (b'abcd',)
+>8s b'abcd\x00\x00\x00\x00' (b'abcd\x00\x00\x00\x00',)
+>3p packed: b'\x02ab' len byte: 2 unpacked: (b'ab',)
+calcsize 0p0p0p: 0
+unpack 0p0p0p: (b'', b'', b'')
+== exception:
+== stderr:

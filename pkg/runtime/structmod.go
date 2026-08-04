@@ -880,12 +880,15 @@ func structUnpackAt(f *structFormat, b []byte) ([]objects.Object, error) {
 			out = append(out, objects.NewBytes(append([]byte(nil), b[off:off+it.count]...)))
 			off += it.count
 		case 'p':
-			nlen := 0
+			// A zero-width p field carries no length byte and unpacks to empty
+			// bytes; reading b[off] there would run off the end of the buffer,
+			// which is empty when every field is zero width.
+			var data []byte
 			if it.count > 0 {
-				nlen = min(int(b[off]), it.count-1)
+				nlen := min(int(b[off]), it.count-1)
+				data = append([]byte(nil), b[off+1:off+1+nlen]...)
 			}
-			start := off + 1
-			out = append(out, objects.NewBytes(append([]byte(nil), b[start:start+nlen]...)))
+			out = append(out, objects.NewBytes(data))
 			off += it.count
 		default:
 			w := structElemSize(it.code, f.native)
