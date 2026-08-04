@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+pack maxsize -> struct.error: pack_into requires a buffer of at least 9223372036854775811 bytes for packing 4 bytes at offset 9223372036854775807 (actual buffer size is 10)
+unpack maxsize -> struct.error: unpack_from requires a buffer of at least 9223372036854775811 bytes for unpacking 4 bytes at offset 9223372036854775807 (actual buffer size is 10)
+pack maxsize-1 -> struct.error: pack_into requires a buffer of at least 9223372036854775810 bytes for packing 4 bytes at offset 9223372036854775806 (actual buffer size is 10)
+pack past end -> struct.error: pack_into requires a buffer of at least 12 bytes for packing 4 bytes at offset 8 (actual buffer size is 10)
+unpack past end -> struct.error: unpack_from requires a buffer of at least 12 bytes for unpacking 4 bytes at offset 8 (actual buffer size is 10)
+pack tiny buffer -> struct.error: pack_into requires a buffer of at least 4 bytes for packing 4 bytes at offset 0 (actual buffer size is 2)
+unpack tiny buffer -> struct.error: unpack_from requires a buffer of at least 4 bytes for unpacking 4 bytes at offset 0 (actual buffer size is 2)
+pack shallow neg -> struct.error: no space to pack 4 bytes at offset -2
+unpack shallow neg -> struct.error: not enough data to unpack 4 bytes at offset -2
+pack deep neg -> struct.error: offset -8 out of range for 4-byte buffer
+unpack deep neg -> struct.error: offset -8 out of range for 4-byte buffer
+unpack -maxsize -> struct.error: offset -9223372036854775807 out of range for 10-byte buffer
+packed: 0000000004030201
+unpack at 4: (16909060,)
+unpack at -4: (16909060,)
+unpack default offset: (9,)
+pack wide past end -> struct.error: pack_into requires a buffer of at least 8 bytes for packing 8 bytes at offset 0 (actual buffer size is 4)
+unpack wide maxsize -> struct.error: unpack_from requires a buffer of at least 9223372036854775815 bytes for unpacking 8 bytes at offset 9223372036854775807 (actual buffer size is 16)
+pack wide ok: 8877665544332211
+== exception:
+== stderr:
