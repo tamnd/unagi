@@ -3282,10 +3282,16 @@ func LoadAttr(o Object, name string) (Object, error) {
 			return builtinMethodValue(x, name), nil
 		}
 	case *bytesObject:
+		if v, ok := binarySeqDunder(x, name); ok {
+			return v, nil
+		}
 		if bytesMethodNames[name] {
 			return builtinMethodValue(x, name), nil
 		}
 	case *bytearrayObject:
+		if v, ok := binarySeqDunder(x, name); ok {
+			return v, nil
+		}
 		if bytearrayMethodNames[name] {
 			return builtinMethodValue(x, name), nil
 		}
