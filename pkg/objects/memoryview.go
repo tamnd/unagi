@@ -463,21 +463,19 @@ func mvDelItem(m *memoryviewObject) error {
 }
 
 // memoryviewMethod dispatches the memoryview method surface: tobytes, tolist,
-// hex and cast read the buffer, while release and the context-manager protocol
-// tear the view down. release() drops the buffer and is idempotent, __enter__
-// returns the view and __exit__ releases it, so a with-block frees the export on
-// the way out. A buffer read on a released view raises through the helpers.
+// hex and cast read the buffer, while release drops it. release() is idempotent
+// and the context-manager pair lives in memoryviewDunder, reached through the
+// hook above, so a with-block still frees the export on the way out. A buffer
+// read on a released view raises through the helpers.
 func memoryviewMethod(m *memoryviewObject, name string, args []Object) (Object, error) {
+	// A dunder called directly, mv.__len__() or mv.__enter__(), routes through the
+	// same surface the bound read binds, so the attribute and the call agree in both
+	// places, including the context-manager pair and the wrapper arity errors.
+	if res, ok, err := memoryviewDunderCall(m, name, args); ok {
+		return res, err
+	}
 	switch name {
 	case "release":
-		m.released = true
-		return None, nil
-	case "__enter__":
-		if m.released {
-			return nil, mvReleased()
-		}
-		return m, nil
-	case "__exit__":
 		m.released = true
 		return None, nil
 	case "tobytes":
@@ -555,6 +553,12 @@ func mvCast(m *memoryviewObject, args []Object) (Object, error) {
 // a one-dimensional contiguous unsigned-byte layout whose obj is the root
 // object the bytes live in.
 func memoryviewLoadAttr(m *memoryviewObject, name string) (Object, error) {
+	// A dunder read binds its method-wrapper the way CPython's type-level wrappers
+	// do, so hasattr and the bound read answer even on a released view; only a call
+	// through the wrapper raises. It runs before the released guard for that reason.
+	if v, ok := memoryviewDunder(m, name); ok {
+		return v, nil
+	}
 	if m.released {
 		return nil, mvReleased()
 	}
