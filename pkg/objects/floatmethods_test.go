@@ -1,6 +1,9 @@
 package objects
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 // TestFloatDunderAttrs checks a float exposes its arithmetic and unary operator
 // dunders as readable callables, the same additive attribute surface int carries.
@@ -125,5 +128,55 @@ func TestFloatStrDunders(t *testing.T) {
 	}
 	if _, err := call("__repr__", NewInt(1)); err == nil {
 		t.Error("(1.5).__repr__(1) should raise TypeError")
+	}
+}
+
+// TestFloatRoundDunder checks float.__round__ rounds to the nearest int with no
+// digit count and to a float with a count, sharing the decimal-exact rounding the
+// round() builtin uses, so (2.675).__round__(2) is 2.67 and a half rounds to even.
+func TestFloatRoundDunder(t *testing.T) {
+	call := func(args ...Object) (Object, error) {
+		fn, err := LoadAttr(NewFloat(2.5), "__round__")
+		if err != nil {
+			return nil, err
+		}
+		return Call(fn, args)
+	}
+	// No argument rounds to the nearest int, halves to even (2.5 and 3.5 both
+	// land on the even neighbour).
+	if got, _ := call(); Repr(got) != "2" {
+		t.Errorf("(2.5).__round__() = %s, want 2", Repr(got))
+	}
+	fn35, _ := LoadAttr(NewFloat(3.5), "__round__")
+	if r, _ := Call(fn35, nil); Repr(r) != "4" {
+		t.Errorf("(3.5).__round__() = %s, want 4", Repr(r))
+	}
+	// None is the same as no argument.
+	if got, _ := call(None); Repr(got) != "2" {
+		t.Errorf("(2.5).__round__(None) = %s, want 2", Repr(got))
+	}
+	// A digit count keeps the value a float, rounded exactly.
+	dec := func(v float64, nd int64) string {
+		fn, _ := LoadAttr(NewFloat(v), "__round__")
+		r, _ := Call(fn, []Object{NewInt(nd)})
+		return Repr(r)
+	}
+	if dec(2.675, 2) != "2.67" {
+		t.Errorf("(2.675).__round__(2) = %s, want 2.67", dec(2.675, 2))
+	}
+	if dec(2.5, 0) != "2.0" {
+		t.Errorf("(2.5).__round__(0) = %s, want 2.0", dec(2.5, 0))
+	}
+	// A non-integer digit count is a TypeError, and too many arguments too.
+	if _, err := call(NewFloat(1.5)); err == nil {
+		t.Error("(2.5).__round__(1.5) should raise TypeError")
+	}
+	if _, err := call(NewInt(1), NewInt(2)); err == nil {
+		t.Error("(2.5).__round__(1, 2) should raise TypeError")
+	}
+	// An infinite or nan value with no digit count cannot become an int.
+	fn, _ := LoadAttr(NewFloat(math.Inf(1)), "__round__")
+	if _, err := Call(fn, nil); err == nil {
+		t.Error("inf.__round__() should raise OverflowError")
 	}
 }

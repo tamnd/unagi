@@ -20,8 +20,8 @@ import (
 // bound-method read and a direct call agree on what a float answers. The
 // arithmetic dunders are exposed the same additive way int carries them: the
 // operators still route through Add and friends, this only makes the slots
-// readable. __round__ is not here yet because float's decimal-exact rounding
-// lives in the runtime package this one cannot import; it is a follow-up.
+// readable. __round__ shares its decimal-exact rounding with the round() builtin
+// through the RoundFloat helpers in round.go.
 var floatMethodNames = map[string]bool{
 	"is_integer": true, "as_integer_ratio": true, "conjugate": true,
 	"hex":       true,
@@ -33,7 +33,7 @@ var floatMethodNames = map[string]bool{
 	"__divmod__": true, "__rdivmod__": true, "__pow__": true, "__rpow__": true,
 	"__neg__": true, "__pos__": true, "__abs__": true,
 	"__bool__": true, "__hash__": true, "__getnewargs__": true,
-	"__repr__": true, "__str__": true, "__format__": true,
+	"__repr__": true, "__str__": true, "__format__": true, "__round__": true,
 }
 
 // floatBinDunders maps float's binary arithmetic dunders to the operator symbol
@@ -155,6 +155,20 @@ func floatMethod(o Object, name string, args []Object) (Object, error) {
 		return floatPowDunder(o, args, false)
 	case "__rpow__":
 		return floatPowDunder(o, args, true)
+	case "__round__":
+		if len(args) > 1 {
+			return nil, Raise(TypeError, "__round__ expected at most 1 argument, got %d", len(args))
+		}
+		// No digit count (or None) rounds to the nearest int; a count keeps the
+		// value a float, rounded to that many decimal places.
+		if len(args) == 0 || args[0] == None {
+			return RoundFloatToInt(f)
+		}
+		nd, err := asRoundDigits(args[0])
+		if err != nil {
+			return nil, err
+		}
+		return RoundFloat(f, nd)
 	case "__repr__":
 		if err := floatDunderNoArgs(args); err != nil {
 			return nil, err
