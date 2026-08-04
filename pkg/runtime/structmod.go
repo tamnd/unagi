@@ -899,7 +899,7 @@ func putUintWidth(buf []byte, off int, order binary.ByteOrder, width int, v uint
 
 // structUnpack unpacks a buffer whose length must equal the format's size.
 func structUnpack(f *structFormat, o objects.Object) (objects.Object, error) {
-	b, ok := objects.AsBytesLike(o)
+	b, ok := objects.AsBufferBytes(o)
 	if !ok {
 		return nil, objects.Raise(objects.TypeError, "a bytes-like object is required, not '%s'", o.TypeName())
 	}
@@ -916,7 +916,7 @@ func structUnpack(f *structFormat, o objects.Object) (objects.Object, error) {
 // structUnpackFrom unpacks starting at offset; the buffer needs offset+size
 // bytes.
 func structUnpackFrom(f *structFormat, o objects.Object, off int) (objects.Object, error) {
-	b, ok := objects.AsBytesLike(o)
+	b, ok := objects.AsBufferBytes(o)
 	if !ok {
 		return nil, objects.Raise(objects.TypeError, "a bytes-like object is required, not '%s'", o.TypeName())
 	}
@@ -953,7 +953,7 @@ func structUnpackFrom(f *structFormat, o objects.Object, off int) (objects.Objec
 // can fail partway that CPython would surface lazily), and the iterator yields
 // them one at a time so __next__ and __length_hint__ behave the way CPython's do.
 func structIterUnpack(f *structFormat, o objects.Object) (objects.Object, error) {
-	b, ok := objects.AsBytesLike(o)
+	b, ok := objects.AsBufferBytes(o)
 	if !ok {
 		return nil, objects.Raise(objects.TypeError, "a bytes-like object is required, not '%s'", o.TypeName())
 	}

@@ -577,6 +577,59 @@ func TestStructSizeOverflow(t *testing.T) {
 	}
 }
 
+// TestStructUnpackBuffer checks that unpack, unpack_from and iter_unpack read any
+// buffer-protocol object (here a memoryview) the same as the equivalent bytes,
+// and that a non-buffer is still rejected. CPython reads the bytes behind the
+// buffer; unagi used to accept only bytes and bytearray.
+func TestStructUnpackBuffer(t *testing.T) {
+	m, err := ImportModule("_struct")
+	if err != nil {
+		t.Fatalf("import _struct: %v", err)
+	}
+	load := func(name string) objects.Object {
+		fn, err := objects.LoadAttr(m, name)
+		if err != nil {
+			t.Fatalf("_struct.%s: %v", name, err)
+		}
+		return fn
+	}
+	unpack, unpackFrom, iterUnpack := load("unpack"), load("unpack_from"), load("iter_unpack")
+
+	mv, err := objects.NewMemoryView(objects.NewBytes([]byte{0, 0, 0, 5}))
+	if err != nil {
+		t.Fatalf("NewMemoryView: %v", err)
+	}
+
+	res, err := objects.Call(unpack, []objects.Object{objects.NewStr(">i"), mv})
+	if err != nil {
+		t.Fatalf("unpack over memoryview: %v", err)
+	}
+	if got := objects.Repr(res); got != "(5,)" {
+		t.Fatalf("unpack over memoryview = %s, want (5,)", got)
+	}
+
+	res, err = objects.Call(unpackFrom, []objects.Object{objects.NewStr(">h"), mv, objects.NewInt(2)})
+	if err != nil {
+		t.Fatalf("unpack_from over memoryview: %v", err)
+	}
+	if got := objects.Repr(res); got != "(5,)" {
+		t.Fatalf("unpack_from over memoryview = %s, want (5,)", got)
+	}
+
+	it, err := objects.Call(iterUnpack, []objects.Object{objects.NewStr(">h"), mv})
+	if err != nil {
+		t.Fatalf("iter_unpack over memoryview: %v", err)
+	}
+	if got := it.TypeName(); got != "unpack_iterator" {
+		t.Fatalf("iter_unpack over memoryview type = %s, want unpack_iterator", got)
+	}
+
+	// A non-buffer object is still a bytes-like TypeError.
+	if _, err := objects.Call(unpack, []objects.Object{objects.NewStr(">i"), objects.NewStr("abcd")}); err == nil {
+		t.Fatal("unpack over a str should raise")
+	}
+}
+
 // bytesHex renders raw bytes as lowercase hex, matching bytes.hex() in the oracle.
 func bytesHex(b []byte) string {
 	const digits = "0123456789abcdef"
