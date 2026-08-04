@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+hexlify mv: b'61626364'
+hexlify array: b'61626364'
+b2a_base64 mv: b'YWJjZA==\n'
+b2a_qp array: b'abcd'
+crc32 mv: 3984772369
+crc_hqx array: 43062
+a2b_hex mv: b'abcd'
+a2b_hex array: b'ab'
+a2b_base64 mv: b'abcd'
+unhexlify mv: b'abcd'
+a2b_hex str: b'ab'
+hexlify bytearray: b'7879'
+odd/bad: Odd-length string
+reject int: a bytes-like object is required, not 'int'
+reject list: a bytes-like object is required, not 'list'
+== exception:
+== stderr:
