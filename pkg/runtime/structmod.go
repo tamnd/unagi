@@ -29,6 +29,13 @@ import (
 // built once in initStruct and captured by the module closures.
 var structErrorClass objects.Object
 
+// structUnpackIterClass is _struct's unpack_iterator, the object iter_unpack
+// returns: a cursor over a buffer that yields one record tuple per __next__ and
+// reports the remaining record count through __length_hint__. CPython does not
+// expose the type as a module attribute, so it is only captured here and reached
+// through the value iter_unpack hands back. Built once in initStruct.
+var structUnpackIterClass objects.Object
+
 func init() {
 	moduleTable["_struct"] = &moduleEntry{builtin: true, exec: initStruct}
 }
@@ -164,11 +171,99 @@ func initStruct(m *objects.Module) error {
 		return err
 	}
 
+	unpackIterClass, err := buildUnpackIterClass()
+	if err != nil {
+		return err
+	}
+	structUnpackIterClass = unpackIterClass
+
 	structClass, err := buildStructClass()
 	if err != nil {
 		return err
 	}
 	return objects.StoreAttr(m, "Struct", structClass)
+}
+
+// buildUnpackIterClass builds _struct.unpack_iterator, the iterator iter_unpack
+// returns. Its __init__ takes the precomputed record list, so calling the type
+// with no arguments raises the TypeError CPython raises for an attempt to
+// construct one directly.
+func buildUnpackIterClass() (objects.Object, error) {
+	names := []string{"__init__", "__iter__", "__next__", "__length_hint__"}
+	vals := []objects.Object{
+		objects.NewMethod("__init__", 2, unpackIterInit),
+		objects.NewMethod("__iter__", 1, unpackIterIter),
+		objects.NewMethod("__next__", 1, unpackIterNext),
+		objects.NewMethod("__length_hint__", 1, unpackIterLengthHint),
+	}
+	return objects.NewClass("unpack_iterator", "unpack_iterator", nil, names, vals, nil, nil)
+}
+
+// unpackIterInit stores the record list and a cursor at the front.
+func unpackIterInit(args []objects.Object) (objects.Object, error) {
+	if err := objects.StoreAttr(args[0], "_records", args[1]); err != nil {
+		return nil, err
+	}
+	if err := objects.StoreAttr(args[0], "_index", objects.NewInt(0)); err != nil {
+		return nil, err
+	}
+	return objects.None, nil
+}
+
+// unpackIterIter returns the iterator itself, the __iter__ every iterator has.
+func unpackIterIter(args []objects.Object) (objects.Object, error) { return args[0], nil }
+
+// unpackIterNext yields the record at the cursor and advances it, raising
+// StopIteration once the records are exhausted (and staying exhausted after).
+func unpackIterNext(args []objects.Object) (objects.Object, error) {
+	self := args[0]
+	recs, idx, n, err := unpackIterState(self)
+	if err != nil {
+		return nil, err
+	}
+	if idx >= n {
+		return nil, objects.NewException("StopIteration", nil)
+	}
+	item, err := objects.GetItem(recs, objects.NewInt(idx))
+	if err != nil {
+		return nil, err
+	}
+	if err := objects.StoreAttr(self, "_index", objects.NewInt(idx+1)); err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
+// unpackIterLengthHint reports the number of records still to yield.
+func unpackIterLengthHint(args []objects.Object) (objects.Object, error) {
+	_, idx, n, err := unpackIterState(args[0])
+	if err != nil {
+		return nil, err
+	}
+	rem := n - idx
+	if rem < 0 {
+		rem = 0
+	}
+	return objects.NewInt(rem), nil
+}
+
+// unpackIterState reads the record list, the cursor, and the record count off an
+// unpack_iterator instance.
+func unpackIterState(self objects.Object) (recs objects.Object, idx, n int64, err error) {
+	recs, err = objects.LoadAttr(self, "_records")
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	idxObj, err := objects.LoadAttr(self, "_index")
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	idx, _ = objects.AsInt(idxObj)
+	count, err := objects.Len(recs)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	return recs, idx, int64(count), nil
 }
 
 // buildStructClass builds _struct.Struct, a compiled format bound to pack and
@@ -837,8 +932,11 @@ func structUnpackFrom(f *structFormat, o objects.Object, off int) (objects.Objec
 	return objects.NewTuple(vals), nil
 }
 
-// structIterUnpack returns a list of per-record tuples over a buffer whose
-// length must be a positive multiple of the format's size.
+// structIterUnpack returns an unpack_iterator over a buffer whose length must be
+// a positive multiple of the format's size, matching CPython's iter_unpack: the
+// records are read up front (each unpack is total for a valid format, so nothing
+// can fail partway that CPython would surface lazily), and the iterator yields
+// them one at a time so __next__ and __length_hint__ behave the way CPython's do.
 func structIterUnpack(f *structFormat, o objects.Object) (objects.Object, error) {
 	b, ok := objects.AsBytesLike(o)
 	if !ok {
@@ -858,7 +956,7 @@ func structIterUnpack(f *structFormat, o objects.Object) (objects.Object, error)
 		}
 		records = append(records, objects.NewTuple(vals))
 	}
-	return objects.NewList(records), nil
+	return objects.Call(structUnpackIterClass, []objects.Object{objects.NewList(records)})
 }
 
 // structUnpackAt reads one record's values from b, which must be exactly the
