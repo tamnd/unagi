@@ -624,6 +624,13 @@ func Pow(a, b Object) (Object, error) {
 		if af == 0 && bf < 0 {
 			return nil, Raise(ZeroDivisionError, "zero to a negative power")
 		}
+		// A negative base raised to a non-integral finite power is complex, so
+		// CPython's float_pow hands this case to complex power rather than
+		// returning the nan libm's pow would. An infinite or nan exponent, or an
+		// infinite base, is handled by math.Pow below the way CPython handles it.
+		if af < 0 && !math.IsInf(af, 0) && !math.IsInf(bf, 0) && !math.IsNaN(bf) && bf != math.Floor(bf) {
+			return complexPow(af, 0, bf, 0)
+		}
 		r := math.Pow(af, bf)
 		if math.IsInf(r, 0) && !math.IsInf(af, 0) && !math.IsInf(bf, 0) {
 			return nil, Raise(OverflowError, "(34, 'Result too large')")

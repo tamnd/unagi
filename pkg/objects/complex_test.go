@@ -69,6 +69,42 @@ func TestComplexPow(t *testing.T) {
 	wantComplex(t, inv, 0.2, -0.4)
 }
 
+// TestFloatPowNegativeFractional checks a negative float base raised to a
+// non-integral finite power returns the complex value CPython's float_pow falls
+// through to, not the nan libm's pow yields. An integral exponent stays a real
+// float, and an infinite base or exponent keeps the real handling below.
+func TestFloatPowNegativeFractional(t *testing.T) {
+	// (-4.0) ** 0.5 == 2j, exact through the polar path (hypot 4, pow 2, cos of
+	// pi/2 is 0 to a rounding wobble, sin is 1), so the real part is tiny.
+	got, err := Pow(NewFloat(-4), NewFloat(0.5))
+	if err != nil {
+		t.Fatalf("pow: %v", err)
+	}
+	c, ok := got.(*complexObject)
+	if !ok {
+		t.Fatalf("(-4.0) ** 0.5: want complex, got %T", got)
+	}
+	if math.Abs(c.re) > 1e-9 || math.Abs(c.im-2) > 1e-9 {
+		t.Errorf("(-4.0) ** 0.5 = (%v,%v), want ~(0,2)", c.re, c.im)
+	}
+	// An integral exponent on a negative base stays a real float.
+	sq, err := Pow(NewFloat(-8), NewFloat(2))
+	if err != nil {
+		t.Fatalf("pow: %v", err)
+	}
+	if f, ok := sq.(*floatObject); !ok || f.v != 64 {
+		t.Errorf("(-8.0) ** 2.0 = %v, want float 64", sq)
+	}
+	// An infinite base is left to the real path, not routed to complex.
+	inf, err := Pow(NewFloat(math.Inf(-1)), NewFloat(0.5))
+	if err != nil {
+		t.Fatalf("pow: %v", err)
+	}
+	if _, ok := inf.(*floatObject); !ok {
+		t.Errorf("(-inf) ** 0.5 = %T, want float", inf)
+	}
+}
+
 func TestComplexDivZero(t *testing.T) {
 	_, err := TrueDiv(NewComplex(1, 2), NewComplex(0, 0))
 	checkErr(t, "cdiv0", err, "ZeroDivisionError: division by zero")
