@@ -30,6 +30,13 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 	if res, ok, err := scalarCompareCall(o, name, args); ok {
 		return res, err
 	}
+	// A bytes or bytearray operator, hash or string dunder called directly,
+	// b"".__add__(x) or bytearray(b"").__repr__(), lowers here rather than through
+	// LoadAttr, so the same slot surface answers in both places. The guard fires
+	// only for the concrete binary builtins, never a user subclass.
+	if res, ok, err := binarySeqDunderCall(o, name, args); ok {
+		return res, err
+	}
 	switch x := o.(type) {
 	case *intObject, *boolObject:
 		return intMethod(o, name, args)

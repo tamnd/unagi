@@ -1,0 +1,35 @@
+== exit: 0
+== stdout:
+bytes: ['__add__', '__mul__', '__rmul__', '__mod__', '__rmod__', '__hash__', '__repr__', '__str__', '__bytes__', '__getnewargs__']
+barr : ['__add__', '__mul__', '__rmul__', '__mod__', '__rmod__', '__hash__', '__repr__', '__str__', '__iadd__', '__imul__']
+b.__add__ b'abcde'
+b.__add__int ERR TypeError can't concat int to bytes
+b.__mul__ b'abcabc'
+b.__rmul__ b'abcabc'
+b.__mod__ b'2 has 3'
+b.__rmod__bytes b'x'
+b.__rmod__int NotImplemented
+b.__hash__eq True
+b.__repr__ "b'abc'"
+b.__str__ "b'abc'"
+b.__bytes__ b'abc'
+b.__getnewargs__ (b'abc',)
+b.__repr__arg ERR TypeError expected 0 arguments, got 1
+b.__add__noarg ERR TypeError expected 1 argument, got 0
+b.__add__2arg ERR TypeError expected 1 argument, got 2
+ba.__add__ bytearray(b'abcde')
+ba.__mul__ bytearray(b'abcabc')
+ba.__mod__ bytearray(b'7')
+ba.__repr__ "bytearray(b'abc')"
+ba.__str__ "bytearray(b'abc')"
+ba.__hash__is_none True
+ba.__hash__call ERR TypeError 'NoneType' object is not callable
+ba has __bytes__ False
+ba has __getnewargs__ False
+ba.__iadd__ (True, b'xy')
+ba.__imul__ (True, b'ababab')
+ba.__imul__zero b''
+ba.__iadd__str ERR TypeError can't concat str to bytearray
+ba.__imul__str ERR TypeError 'str' object cannot be interpreted as an integer
+== exception:
+== stderr:
