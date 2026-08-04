@@ -71,6 +71,12 @@ func initArray(m *objects.Module) error {
 	if err := objects.StoreAttr(m, "_array_reconstructor", reconstructor); err != nil {
 		return err
 	}
+	// Both callables array.__reduce_ex__ names must pickle as global references and
+	// resolve back on unpickling, so record them under the (module, qualname) the
+	// reference carries: array.array for the type, array._array_reconstructor for
+	// the rebuild hook. Registering here means an imported array module is picklable.
+	objects.RegisterPickleBuiltin("array", "array", arrayType)
+	objects.RegisterPickleBuiltin("array", "_array_reconstructor", reconstructor)
 	return objects.StoreAttr(m, "typecodes", objects.NewStr("bBuwhHiIlLqQfd"))
 }
 
