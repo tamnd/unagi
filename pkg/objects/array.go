@@ -547,7 +547,7 @@ var arrayMethodNames = map[string]bool{
 	"remove": true, "index": true, "count": true, "reverse": true,
 	"tolist": true, "fromlist": true, "tobytes": true, "frombytes": true,
 	"tounicode": true, "fromunicode": true, "byteswap": true, "buffer_info": true,
-	"tofile": true, "fromfile": true,
+	"tofile": true, "fromfile": true, "__reduce_ex__": true,
 }
 
 // arrayLoadAttr reads an attribute off an array: the typecode and itemsize data
@@ -734,8 +734,105 @@ func arrayMethod(a *arrayObject, name string, args []Object) (Object, error) {
 			return nil, Raise(TypeError, "tofile() takes at most 1 argument (%d given)", len(args))
 		}
 		return arrayToFile(a, args[0])
+	case "__reduce_ex__":
+		return arrayReduceEx(a, args)
 	}
 	return nil, noAttr(a, name)
+}
+
+// ArrayReconstructor is array._array_reconstructor, the pickling hook that
+// rebuilds an array from its raw machine bytes. It lives in pkg/runtime (next to
+// the array module registration) but the protocol-3-and-up reduction built here
+// names it as the reduction callable, so pkg/runtime sets this at import time.
+// It stays nil until the array module has been imported, which is always the
+// case when an actual array object exists to reduce.
+var ArrayReconstructor Object
+
+// arrayReduceMformat is typecode_to_mformat_code for this 64-bit little-endian
+// target, the machine format code array.__reduce_ex__ records for a given type
+// code so a protocol-3-and-up reduction pins the byte layout. It must agree with
+// the runtime reconstructor's own native-format table (pkg/runtime's
+// arrayNativeMformat), since the reduction it emits is fed straight back into the
+// reconstructor.
+func arrayReduceMformat(code rune) int64 {
+	switch code {
+	case 'b':
+		return 1 // SIGNED_INT8
+	case 'B':
+		return 0 // UNSIGNED_INT8
+	case 'h':
+		return 4 // SIGNED_INT16_LE
+	case 'H':
+		return 2 // UNSIGNED_INT16_LE
+	case 'i':
+		return 8 // SIGNED_INT32_LE
+	case 'I':
+		return 6 // UNSIGNED_INT32_LE
+	case 'l', 'q':
+		return 12 // SIGNED_INT64_LE (long is 8 bytes)
+	case 'L', 'Q':
+		return 10 // UNSIGNED_INT64_LE
+	case 'f':
+		return 14 // IEEE_754_FLOAT_LE
+	case 'd':
+		return 16 // IEEE_754_DOUBLE_LE
+	case 'u', 'w':
+		return 20 // UTF32_LE (wchar_t is 4 bytes)
+	}
+	return -1 // UNKNOWN_FORMAT, never reached for a valid array
+}
+
+// arrayReduceEx implements array.__reduce_ex__(protocol), a port of CPython's
+// array_array___reduce_ex___impl. It is the reduction pickle and copy read to
+// serialize an array. Below protocol 3 it reduces to the array type applied to
+// (typecode, list-of-elements), the form older pickles carry; from protocol 3 up
+// it reduces to _array_reconstructor applied to (arraytype, typecode, machine
+// format code, raw bytes) so a cross-platform pickle records the exact byte
+// layout. The trailing state slot is always None, since an array carries no
+// instance dict.
+func arrayReduceEx(a *arrayObject, args []Object) (Object, error) {
+	if len(args) == 0 {
+		return nil, Raise(TypeError, "__reduce_ex__() takes exactly 1 positional argument (0 given)")
+	}
+	if len(args) > 1 {
+		return nil, Raise(TypeError, "__reduce_ex__() takes at most 1 argument (%d given)", len(args))
+	}
+	if !isIntish(args[0]) {
+		return nil, Raise(TypeError, "__reduce_ex__ argument should be an integer")
+	}
+	if BuiltinTypeResolver == nil {
+		return nil, Raise(RuntimeError, "array type unavailable")
+	}
+	arrayTypeObj, ok := BuiltinTypeResolver("array.array")
+	if !ok {
+		return nil, Raise(RuntimeError, "array type unavailable")
+	}
+	typecode := NewStr(string(a.code))
+	// A protocol that overflows int64 is far past 3, so treat the read failure as
+	// a large protocol and take the machine-format path.
+	protocol, small := AsInt(args[0])
+	if small && protocol < 3 {
+		list := make([]Object, len(a.elts))
+		copy(list, a.elts)
+		return NewTuple([]Object{
+			arrayTypeObj,
+			NewTuple([]Object{typecode, NewList(list)}),
+			None,
+		}), nil
+	}
+	if ArrayReconstructor == nil {
+		return nil, Raise(RuntimeError, "array._array_reconstructor unavailable")
+	}
+	return NewTuple([]Object{
+		ArrayReconstructor,
+		NewTuple([]Object{
+			arrayTypeObj,
+			typecode,
+			NewInt(arrayReduceMformat(a.code)),
+			NewBytes(a.tobytes()),
+		}),
+		None,
+	}), nil
 }
 
 // arrayFromFile implements array.fromfile(f, n): read n items, n*itemsize bytes,

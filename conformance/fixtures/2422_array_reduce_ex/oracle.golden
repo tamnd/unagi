@@ -1,0 +1,65 @@
+== exit: 0
+== stdout:
+P0 b (<class 'array.array'>, ('b', [-1, 2]), None)
+P2 b (<class 'array.array'>, ('b', [-1, 2]), None)
+P5 b True (<class 'array.array'>, 'b', 1, b'\xff\x02') None
+copy b True b True b
+P0 B (<class 'array.array'>, ('B', [1, 255]), None)
+P2 B (<class 'array.array'>, ('B', [1, 255]), None)
+P5 B True (<class 'array.array'>, 'B', 0, b'\x01\xff') None
+copy B True B True B
+P0 h (<class 'array.array'>, ('h', [-2, 300]), None)
+P2 h (<class 'array.array'>, ('h', [-2, 300]), None)
+P5 h True (<class 'array.array'>, 'h', 4, b'\xfe\xff,\x01') None
+copy h True h True h
+P0 H (<class 'array.array'>, ('H', [1, 65535]), None)
+P2 H (<class 'array.array'>, ('H', [1, 65535]), None)
+P5 H True (<class 'array.array'>, 'H', 2, b'\x01\x00\xff\xff') None
+copy H True H True H
+P0 i (<class 'array.array'>, ('i', [1, 2, 3]), None)
+P2 i (<class 'array.array'>, ('i', [1, 2, 3]), None)
+P5 i True (<class 'array.array'>, 'i', 8, b'\x01\x00\x00\x00\x02\x00\x00\x00\x03\x00\x00\x00') None
+copy i True i True i
+P0 I (<class 'array.array'>, ('I', [1, 4000000000]), None)
+P2 I (<class 'array.array'>, ('I', [1, 4000000000]), None)
+P5 I True (<class 'array.array'>, 'I', 6, b'\x01\x00\x00\x00\x00(k\xee') None
+copy I True I True I
+P0 l (<class 'array.array'>, ('l', [10, 20]), None)
+P2 l (<class 'array.array'>, ('l', [10, 20]), None)
+P5 l True (<class 'array.array'>, 'l', 12, b'\n\x00\x00\x00\x00\x00\x00\x00\x14\x00\x00\x00\x00\x00\x00\x00') None
+copy l True l True l
+P0 L (<class 'array.array'>, ('L', [1, 2]), None)
+P2 L (<class 'array.array'>, ('L', [1, 2]), None)
+P5 L True (<class 'array.array'>, 'L', 10, b'\x01\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00') None
+copy L True L True L
+P0 q (<class 'array.array'>, ('q', [-5, 5]), None)
+P2 q (<class 'array.array'>, ('q', [-5, 5]), None)
+P5 q True (<class 'array.array'>, 'q', 12, b'\xfb\xff\xff\xff\xff\xff\xff\xff\x05\x00\x00\x00\x00\x00\x00\x00') None
+copy q True q True q
+P0 Q (<class 'array.array'>, ('Q', [7, 8]), None)
+P2 Q (<class 'array.array'>, ('Q', [7, 8]), None)
+P5 Q True (<class 'array.array'>, 'Q', 10, b'\x07\x00\x00\x00\x00\x00\x00\x00\x08\x00\x00\x00\x00\x00\x00\x00') None
+copy Q True Q True Q
+P0 f (<class 'array.array'>, ('f', [1.5, -2.0]), None)
+P2 f (<class 'array.array'>, ('f', [1.5, -2.0]), None)
+P5 f True (<class 'array.array'>, 'f', 14, b'\x00\x00\xc0?\x00\x00\x00\xc0') None
+copy f True f True f
+P0 d (<class 'array.array'>, ('d', [3.25]), None)
+P2 d (<class 'array.array'>, ('d', [3.25]), None)
+P5 d True (<class 'array.array'>, 'd', 16, b'\x00\x00\x00\x00\x00\x00\n@') None
+copy d True d True d
+P0 u (<class 'array.array'>, ('u', ['a', 'b', 'c']), None)
+P2 u (<class 'array.array'>, ('u', ['a', 'b', 'c']), None)
+P5 u True (<class 'array.array'>, 'u', 20, b'a\x00\x00\x00b\x00\x00\x00c\x00\x00\x00') None
+copy u True u True u
+P0 w (<class 'array.array'>, ('w', ['x', 'y']), None)
+P2 w (<class 'array.array'>, ('w', ['x', 'y']), None)
+P5 w True (<class 'array.array'>, 'w', 20, b'x\x00\x00\x00y\x00\x00\x00') None
+copy w True w True w
+no arg TypeError: __reduce_ex__() takes exactly 1 positional argument (0 given)
+two args TypeError: __reduce_ex__() takes at most 1 argument (2 given)
+str TypeError: __reduce_ex__ argument should be an integer
+none TypeError: __reduce_ex__ argument should be an integer
+bool (<class 'array.array'>, ('i', [1, 2, 3]), None)
+== exception:
+== stderr:
