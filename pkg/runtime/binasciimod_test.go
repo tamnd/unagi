@@ -45,6 +45,50 @@ func TestBinasciiUu(t *testing.T) {
 	}
 }
 
+func TestBinasciiBuffer(t *testing.T) {
+	// Importing binascii runs its init so binascii.Error is built for the error paths.
+	if _, err := ImportModule("binascii"); err != nil {
+		t.Fatalf("import binascii: %v", err)
+	}
+	// A memoryview is a read-only buffer, so the codecs read the bytes behind it
+	// the same as if bytes had been passed. binasciiData used to accept only
+	// bytes and bytearray, so a memoryview raised a bytes-like TypeError.
+	mv, err := objects.NewMemoryView(objects.NewBytes([]byte("abcd")))
+	if err != nil {
+		t.Fatalf("NewMemoryView: %v", err)
+	}
+	enc, err := binasciiHexlify([]objects.Object{mv})
+	if err != nil {
+		t.Fatalf("hexlify(memoryview): %v", err)
+	}
+	if got := objects.Repr(enc); got != "b'61626364'" {
+		t.Fatalf("hexlify(memoryview) = %s, want b'61626364'", got)
+	}
+	crc, err := binasciiCRC32([]objects.Object{mv})
+	if err != nil {
+		t.Fatalf("crc32(memoryview): %v", err)
+	}
+	if got := objects.Repr(crc); got != "3984772369" {
+		t.Fatalf("crc32(memoryview) = %s, want 3984772369", got)
+	}
+	// The a2b side reads a buffer too, decoding the hex behind the memoryview.
+	hexmv, err := objects.NewMemoryView(objects.NewBytes([]byte("61626364")))
+	if err != nil {
+		t.Fatalf("NewMemoryView hex: %v", err)
+	}
+	dec, err := binasciiUnhexlify([]objects.Object{hexmv})
+	if err != nil {
+		t.Fatalf("a2b_hex(memoryview): %v", err)
+	}
+	if got := objects.Repr(dec); got != "b'abcd'" {
+		t.Fatalf("a2b_hex(memoryview) = %s, want b'abcd'", got)
+	}
+	// A non-buffer object is still a bytes-like TypeError.
+	if _, err := binasciiHexlify([]objects.Object{objects.NewInt(42)}); err == nil {
+		t.Fatal("hexlify(int) did not raise")
+	}
+}
+
 func TestBinasciiQp(t *testing.T) {
 	// Importing binascii runs its init so binascii.Error is built for the error paths.
 	if _, err := ImportModule("binascii"); err != nil {

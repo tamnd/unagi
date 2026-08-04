@@ -83,10 +83,11 @@ func binasciiErrorf(format string, a ...any) error {
 	return objects.Raise("Error", "%s", format)
 }
 
-// binasciiData reads a bytes-like or ASCII str argument, the way the C codecs
-// accept a read-only buffer or (for the a2b functions) an ASCII string.
+// binasciiData reads a buffer or ASCII str argument, the way the C codecs
+// accept any read-only buffer (bytes, bytearray, memoryview, array) or, for the
+// a2b functions, an ASCII string.
 func binasciiData(o objects.Object) ([]byte, error) {
-	if b, ok := objects.AsBytesLike(o); ok {
+	if b, ok := objects.AsBufferBytes(o); ok {
 		return b, nil
 	}
 	if s, ok := objects.AsStr(o); ok {
