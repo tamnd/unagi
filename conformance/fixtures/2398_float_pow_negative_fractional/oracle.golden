@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+cbrt (1+1.732050808j)
+cbrt27 (1.5+2.598076211j)
+sqrt-1 1j
+sqrt-2 1.414213562j
+pow1.5 (-0-8j)
+negexp -0.353553391j
+intcbrt (1+1.732050808j)
+builtincbrt (1+1.732050808j)
+fraction (1+1.732050808j)
+square 64.0
+cube -512.0
+zeroexp 1.0
+intneg -0.125
+pos-sqrt 1.414213562
+pos-cbrt 2.0
+zerobase 0.0
+infexp+ inf
+infexp- 0.0
+infbase inf
+nanexp nan
+zeroneg ZeroDivisionError zero to a negative power
+== exception:
+== stderr:
