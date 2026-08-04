@@ -402,6 +402,24 @@ func IsTypeValue(o Object) bool {
 	return false
 }
 
+// TypeValueName returns the display name of a type value: a user or built-in
+// class, a typeObject singleton, or a built-in constructor that doubles as a
+// type (str, int, ...). ok is false for a value that is not a type object, so a
+// caller can tell "not a type at all" from "a type of the wrong kind".
+func TypeValueName(o Object) (string, bool) {
+	switch t := o.(type) {
+	case *classObject:
+		return t.name, true
+	case *typeObject:
+		return t.name, true
+	case *funcObject:
+		if IsBuiltinTypeName(t.name) {
+			return t.name, true
+		}
+	}
+	return "", false
+}
+
 // BuiltinFuncName returns the name of a builtin function object, the funcObject
 // the runtime registers for names like int, len, and type. ok is false for
 // every other object, including user functions.

@@ -1,0 +1,39 @@
+== exit: 0
+== stdout:
+array('b', [-1, 2])
+array('B', [128, 127, 0, 255])
+array('h', [-32768, 32767])
+array('d', [1.5, -2.0])
+H 3 H [32768, 32767, 65535]
+I 3 H [32768, 32767, 65535]
+L 3 H [32768, 32767, 65535]
+h 5 h [-32768, 32767, 0]
+i 5 h [-32768, 32767, 0]
+l 5 h [-32768, 32767, 0]
+I 7 I [2147483648, 4294967295]
+L 7 I [2147483648, 4294967295]
+i 9 i [-2147483648, 2147483647]
+l 9 i [-2147483648, 2147483647]
+L 11 Q [9223372036854775808, 18446744073709551615]
+l 13 q [-9223372036854775808, 9223372036854775807]
+f 15 f [1.5, -2.0]
+d 17 d [1.5, -2.0]
+u 18 u True
+u 19 u True
+u 20 u True
+u 21 u True
+w 18 w True
+w 19 w True
+w 20 w True
+w 21 w True
+TypeError: first argument must be a type object, not str
+TypeError: str is not a subtype of array.array
+TypeError: 'str' object cannot be interpreted as an integer
+TypeError: fourth argument should be bytes, not str
+ValueError: second argument must be a valid type code
+ValueError: third argument must be a valid machine format code.
+ValueError: third argument must be a valid machine format code.
+ValueError: string length not a multiple of item size
+TypeError: _array_reconstructor(): argument 2 must be a unicode character, not a string of length 2
+== exception:
+== stderr:
