@@ -1,0 +1,26 @@
+== exit: 0
+== stdout:
+37.6 73.2 36.0 18.3 1339.5600000000002 -36.6 3.5
+True True True True True
+36.6 36.6 36.60 0036.600
+True True float
+False True 0x1.4000000000000p+1
+(5, 2) 36.6 0.0 36.6
+(2.5,)
+4.0 3 2.67
+True -2
+6.0 True 6.0
+(4+4j) (6+8j) 5.0 (3-4j) 3.0 4.0
+True (3+4j) (3+4j) complex
+0.9272952180016122 (5.0, 0.9272952180016122) 1j
+(2.0, 3.0)
+a 1
+[0.5, 1.0, 2.0, 3.0]
+36.6 36.6 Celsius
+(3+4j) (3+4j) Weighted
+2 36.6 Celsius True (3+4j) Weighted True
+3 36.6 Celsius True (3+4j) Weighted True
+4 36.6 Celsius True (3+4j) Weighted True
+5 36.6 Celsius True (3+4j) Weighted True
+== exception:
+== stderr:

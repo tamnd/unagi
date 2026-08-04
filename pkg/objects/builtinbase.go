@@ -19,7 +19,7 @@ package objects
 func builtinBaseName(b Object) (string, bool) {
 	if f, ok := b.(*funcObject); ok {
 		switch f.name {
-		case "dict", "list", "set", "frozenset", "int", "str", "bytes", "tuple", "classmethod", "staticmethod", "property":
+		case "dict", "list", "set", "frozenset", "int", "float", "complex", "str", "bytes", "tuple", "classmethod", "staticmethod", "property":
 			return f.name, true
 		case "ref":
 			// weakref.ref is exposed as the builtin `ref`; weakref.py subclasses it
@@ -157,6 +157,35 @@ var strSubclassMethods = map[string]bool{
 	"translate": true, "upper": true, "zfill": true,
 }
 
+// floatSubclassMethods and complexSubclassMethods name the non-dunder members a
+// value subclass of the matching scalar inherits off its payload, the numeric twin
+// of strSubclassMethods. The operator, hash and string dunders resolve through the
+// object-dunder and operator paths already, so these sets carry only the named
+// methods (x.is_integer, x.hex) and the data attributes (x.real, x.imag) a call
+// reaches directly. A float subclass is what fractions and statistics test helpers
+// derive from, and complex is the other scalar that had no subclassing at all.
+var floatSubclassMethods = map[string]bool{
+	"is_integer": true, "as_integer_ratio": true, "conjugate": true, "hex": true,
+	"real": true, "imag": true, "__getnewargs__": true,
+}
+
+var complexSubclassMethods = map[string]bool{
+	"conjugate": true, "real": true, "imag": true, "__getnewargs__": true,
+}
+
+// numericSubclassAttr reads an inherited name off a scalar value subclass's
+// payload, so both a method (x.is_integer) and a data attribute (x.real) resolve to
+// the same value a plain float or complex would give. LoadAttr binds a method to
+// the payload and reads an attribute straight through, so the one call covers both,
+// the way the ChainMap subclass delegates to its payload.
+func numericSubclassAttr(payload Object, name string) (Object, bool) {
+	r, err := LoadAttr(payload, name)
+	if err != nil {
+		return nil, false
+	}
+	return r, true
+}
+
 // tupleSubclassMethods names the tuple methods a tuple subclass inherits, the
 // set LoadAttr hands back as callables bound to the payload when the class
 // defines no override. tuple's method surface is just count and index, so a
@@ -216,6 +245,16 @@ func valueSubclassAttr(x *instanceObject, name string) (Object, bool) {
 		return nil, false
 	}
 	switch p := v.(type) {
+	case *floatObject:
+		if !floatSubclassMethods[name] {
+			return nil, false
+		}
+		return numericSubclassAttr(v, name)
+	case *complexObject:
+		if !complexSubclassMethods[name] {
+			return nil, false
+		}
+		return numericSubclassAttr(v, name)
 	case *strObject:
 		if !strSubclassMethods[name] {
 			return nil, false

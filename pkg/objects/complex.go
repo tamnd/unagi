@@ -25,6 +25,13 @@ func ComplexParts(o Object) (re, im float64, ok bool) {
 	if c, isC := o.(*complexObject); isC {
 		return c.re, c.im, true
 	}
+	// A value subclass of complex reads as the parts its payload holds, the way
+	// CPython takes the stored value of a complex subclass directly.
+	if p, up := builtinUnwrap(o); up {
+		if c, isC := p.(*complexObject); isC {
+			return c.re, c.im, true
+		}
+	}
 	return 0, 0, false
 }
 
@@ -34,6 +41,10 @@ func ComplexParts(o Object) (re, im float64, ok bool) {
 func asComplex(o Object) (re, im float64, ok bool) {
 	if c, isC := o.(*complexObject); isC {
 		return c.re, c.im, true
+	}
+	// A value subclass of complex keeps the parts its payload holds.
+	if re, im, ok := ComplexParts(o); ok {
+		return re, im, true
 	}
 	if f, isF := AsFloat(o); isF {
 		return f, 0, true
@@ -462,7 +473,7 @@ func ComplexNew(real, imag Object) (Object, error) {
 		}
 		rr, ri = re, im
 		if !realIsC {
-			_, realIsC = real.(*complexObject)
+			_, _, realIsC = ComplexParts(real)
 		}
 	}
 	ie, ii := 0.0, 0.0
@@ -473,7 +484,7 @@ func ComplexNew(real, imag Object) (Object, error) {
 			return nil, Raise(TypeError, "complex() argument must be a string or a number, not %s", imag.TypeName())
 		}
 		ie, ii = e, i
-		_, imagIsC = imag.(*complexObject)
+		_, _, imagIsC = ComplexParts(imag)
 	}
 	// With plain real parts CPython sets the components directly, which keeps a
 	// signed zero: complex(0, -0.0) is -0j. Only a complex argument takes the

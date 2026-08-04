@@ -48,9 +48,25 @@ func pickleClassQualname(c *classObject) string {
 // other shape needs its own reduction (custom __reduce__, __getnewargs__, a
 // slotted state tuple, a value/dict subclass) and is refused until the slice that
 // backs it lands, so the pickler never emits bytes that would not round-trip.
+// pickleValueBases names the immutable scalar builtins whose value subclasses
+// reduce through NEWOBJ: each payload exposes __getnewargs__, so object.__new__(
+// cls, *args) rebuilds it. tuple is immutable too but its payload has no
+// __getnewargs__ yet, and the mutable containers (list, dict, set) reduce through
+// item iterators, so both stay on the unsupported path until their slices land.
+var pickleValueBases = map[string]bool{
+	"int": true, "float": true, "complex": true, "str": true, "bytes": true,
+}
+
 func pickleDefaultReducible(o *instanceObject) bool {
 	c := o.cls
-	return c.builtinBase == "" && !c.hasSlots &&
+	if c.builtinBase != "" {
+		// A value subclass of a scalar immutable builtin reduces through NEWOBJ with
+		// its payload supplying the new-args, so it is reducible as long as it carries
+		// no other unsupported state.
+		return pickleValueBases[c.builtinBase] && !c.hasSlots && o.slots == nil &&
+			o.dictData == nil && o.listData == nil && o.localData == nil && !isExcClass(c)
+	}
+	return !c.hasSlots &&
 		o.slots == nil && o.dictData == nil && o.builtinData == nil &&
 		o.listData == nil && o.localData == nil &&
 		!isExcClass(c)
@@ -93,7 +109,9 @@ func instanceReduceOverride(o *instanceObject, proto int) (reduction Object, cus
 func instanceNewargs(o *instanceObject) ([]Object, error) {
 	fn, ok := o.cls.lookup("__getnewargs__")
 	if !ok {
-		return nil, nil
+		// A value subclass with no class-level override inherits __getnewargs__ from
+		// its builtin payload, which supplies the reconstruction arguments.
+		return valueSubclassNewArgs(o)
 	}
 	bound, err := instanceGet(o, "__getnewargs__", fn)
 	if err != nil {
@@ -289,7 +307,7 @@ func lookupPickleClass(module, qualname string) *classObject {
 // plain object-rooted case it pickles, a bare instance with an empty __dict__;
 // new-arguments and specialized layouts arrive with the slices that pickle them.
 func pickleNewInstance(cls *classObject, args []Object) (Object, error) {
-	if cls.builtinBase != "" || cls.hasSlots {
+	if cls.hasSlots {
 		return nil, newUnpicklingError("cannot unpickle %s instance yet", cls.name)
 	}
 	// A class with a custom __new__ reconstructs through it, the staticmethod call
@@ -298,6 +316,13 @@ func pickleNewInstance(cls *classObject, args []Object) (Object, error) {
 	// MRO and gets a bare instance, the empty-argument default.
 	if newRaw, ok := cls.lookup("__new__"); ok {
 		return CallKw(staticNew(newRaw), append([]Object{Object(cls)}, args...), nil, nil)
+	}
+	// A value subclass of a builtin with no user __new__ rebuilds by constructing
+	// its payload for the subclass, the same object.__new__(cls, *args) NEWOBJ
+	// names. The immutable builtins run no meaningful __init__, so the constructor
+	// call reproduces the pickled value.
+	if cls.builtinBase != "" {
+		return Call(cls, args)
 	}
 	if len(args) != 0 {
 		return nil, newUnpicklingError("cannot unpickle %s with constructor arguments and no __new__", cls.name)

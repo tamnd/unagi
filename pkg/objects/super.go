@@ -359,7 +359,7 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 					inst.setData = &setObject{newSetCore(0)}
 				case "frozenset":
 					inst.setData = &frozensetObject{newSetCore(0)}
-				case "int", "str", "bytes", "tuple", "classmethod", "staticmethod", "property", "ref":
+				case "int", "float", "complex", "str", "bytes", "tuple", "classmethod", "staticmethod", "property", "ref":
 					// A namedtuple subclass reaches super().__new__(cls, *fields)
 					// with the fields spelled out, the signature the generated
 					// namedtuple __new__ carries (def __new__(cls, a, b)). The

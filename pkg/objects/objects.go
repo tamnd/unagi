@@ -947,6 +947,16 @@ func AsFloat(o Object) (float64, bool) {
 			return 1, true
 		}
 		return 0, true
+	default:
+		// A value subclass of float reads as the double its payload holds, the way
+		// CPython takes the stored value of a float subclass directly. Only a float
+		// payload is unwrapped here: an int subclass must keep integer dispatch in
+		// arithmetic, which reads AsFloat as a float type test, so it is left alone.
+		if p, ok := builtinUnwrap(o); ok {
+			if _, isFloat := p.(*floatObject); isFloat {
+				return AsFloat(p)
+			}
+		}
 	}
 	return 0, false
 }

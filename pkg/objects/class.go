@@ -2422,7 +2422,7 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 		inst.setData = &setObject{newSetCore(0)}
 	case "frozenset":
 		inst.setData = &frozensetObject{newSetCore(0)}
-	case "int", "str", "bytes", "tuple", "classmethod", "staticmethod", "property", "ref":
+	case "int", "float", "complex", "str", "bytes", "tuple", "classmethod", "staticmethod", "property", "ref":
 		// A value subclass builds its immutable payload through the builtin base's
 		// own conversion, the way int.__new__ or str.__new__ sets the value from
 		// the constructor arguments before __init__ runs. classmethod, staticmethod
@@ -3935,8 +3935,65 @@ func objectReduceNewobj(self Object) (Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	newArgs := NewTuple([]Object{cls})
+	// A value subclass of a builtin (float, complex, int, str, bytes, tuple ...)
+	// carries its payload as the new-args, the way CPython's reduce reads
+	// __getnewargs__ so object.__new__(cls, *args) rebuilds the underlying value.
+	// Without this a copied or pickled subclass would come back blank.
+	newArgsItems := []Object{cls}
+	if extra, err := valueSubclassNewArgs(self); err != nil {
+		return nil, err
+	} else {
+		newArgsItems = append(newArgsItems, extra...)
+	}
+	newArgs := NewTuple(newArgsItems)
 	return NewTuple([]Object{objectNewBuiltin, newArgs, state}), nil
+}
+
+// valueSubclassNewArgs returns the elements __getnewargs__ contributes to a
+// value subclass reduction. A user override on the instance's type wins; failing
+// that the immutable payload supplies them. A plain instance with no payload and
+// no override contributes nothing.
+func valueSubclassNewArgs(self Object) ([]Object, error) {
+	// A user-defined __getnewargs_ex__/__getnewargs__ on the class takes over.
+	if inst, ok := self.(*instanceObject); ok {
+		if _, has := inst.cls.lookup("__getnewargs_ex__"); has {
+			res, err := CallMethod(self, "__getnewargs_ex__", nil)
+			if err != nil {
+				return nil, err
+			}
+			pair := reduceTupleElts(res)
+			if len(pair) == 0 {
+				return nil, nil
+			}
+			return reduceTupleElts(pair[0]), nil
+		}
+		if _, has := inst.cls.lookup("__getnewargs__"); has {
+			res, err := CallMethod(self, "__getnewargs__", nil)
+			if err != nil {
+				return nil, err
+			}
+			return reduceTupleElts(res), nil
+		}
+	}
+	payload, ok := builtinUnwrap(self)
+	if !ok {
+		return nil, nil
+	}
+	res, err := CallMethod(payload, "__getnewargs__", nil)
+	if err != nil {
+		return nil, err
+	}
+	return reduceTupleElts(res), nil
+}
+
+// reduceTupleElts reads the elements of the tuple a __getnewargs__ style dunder
+// returns. These dunders always hand back a plain tuple, so a non-tuple result
+// contributes nothing.
+func reduceTupleElts(o Object) []Object {
+	if t, ok := o.(*tupleObject); ok {
+		return t.elts
+	}
+	return nil
 }
 
 // dirFromResult turns the value a user __dir__ returned into the sorted string
