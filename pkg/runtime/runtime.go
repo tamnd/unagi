@@ -433,7 +433,11 @@ func Abs(o objects.Object) (objects.Object, error) {
 		return objects.NewFloat(math.Abs(f)), nil
 	}
 	if re, im, ok := objects.ComplexParts(o); ok {
-		return objects.NewFloat(math.Hypot(re, im)), nil
+		r, err := objects.ComplexAbs(re, im)
+		if err != nil {
+			return nil, err
+		}
+		return objects.NewFloat(r), nil
 	}
 	return nil, objects.Raise(objects.TypeError, "bad operand type for abs(): '%s'", o.TypeName())
 }
