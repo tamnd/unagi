@@ -811,11 +811,24 @@ func structUnpackFrom(f *structFormat, o objects.Object, off int) (objects.Objec
 		return nil, objects.Raise(objects.TypeError, "a bytes-like object is required, not '%s'", o.TypeName())
 	}
 	if off < 0 {
+		// See structPackInto: a shallow negative offset leaves too little data,
+		// a deep one falls before the buffer start, and each test is rearranged
+		// so the small size and length never overflow the huge offset.
+		if off > -f.size {
+			return nil, structErrorf("not enough data to unpack %d bytes at offset %d", f.size, off)
+		}
+		if off < -len(b) {
+			return nil, structErrorf("offset %d out of range for %d-byte buffer", off, len(b))
+		}
 		off += len(b)
 	}
-	if off < 0 || off+f.size > len(b) {
-		return nil, structErrorf("unpack_from requires a buffer of at least %d bytes for unpacking %d bytes at offset %d (actual buffer size is %d)",
-			off+f.size, f.size, off, len(b))
+	// Compare against len(b)-off so a huge offset cannot overflow off+f.size past
+	// the guard, and form the required-size number with big.Int so the message
+	// matches CPython for an offset near sys.maxsize.
+	if len(b)-off < f.size {
+		need := new(big.Int).Add(big.NewInt(int64(off)), big.NewInt(int64(f.size)))
+		return nil, structErrorf("unpack_from requires a buffer of at least %s bytes for unpacking %d bytes at offset %d (actual buffer size is %d)",
+			need.String(), f.size, off, len(b))
 	}
 	vals, err := structUnpackAt(f, b[off:off+f.size])
 	if err != nil {
@@ -949,11 +962,26 @@ func structPackInto(f *structFormat, bufObj, offObj objects.Object, values []obj
 	}
 	o := int(off)
 	if o < 0 {
+		// A shallow negative offset points so near the end that the data would
+		// run past it; a deep one lands before the buffer start. Both use the
+		// comparison rearranged so the small size and length never overflow the
+		// huge offset (o + f.size > 0 becomes o > -f.size, and so on).
+		if o > -f.size {
+			return nil, structErrorf("no space to pack %d bytes at offset %d", f.size, o)
+		}
+		if o < -len(dst) {
+			return nil, structErrorf("offset %d out of range for %d-byte buffer", o, len(dst))
+		}
 		o += len(dst)
 	}
-	if o < 0 || o+f.size > len(dst) {
-		return nil, structErrorf("pack_into requires a buffer of at least %d bytes for packing %d bytes at offset %d (actual buffer size is %d)",
-			o+f.size, f.size, int(off), len(dst))
+	// Compare against len(dst)-o rather than forming o+f.size: a huge offset such
+	// as sys.maxsize overflows that sum and would slip past the guard into a
+	// negative slice bound, so the required-size number is formed with big.Int to
+	// print the true value CPython reports.
+	if len(dst)-o < f.size {
+		need := new(big.Int).Add(big.NewInt(int64(o)), big.NewInt(int64(f.size)))
+		return nil, structErrorf("pack_into requires a buffer of at least %s bytes for packing %d bytes at offset %d (actual buffer size is %d)",
+			need.String(), f.size, o, len(dst))
 	}
 	if err := structPackInto2(f, dst[o:o+f.size], values); err != nil {
 		return nil, err

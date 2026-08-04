@@ -300,6 +300,99 @@ func TestStructNativeOffset(t *testing.T) {
 	}
 }
 
+// TestStructOffsetBoundaries checks that pack_into and unpack_from validate the
+// offset the way CPython's _struct does before touching the buffer. A near
+// sys.maxsize offset used to overflow the internal offset+size sum and slip past
+// the bounds check into a negative slice bound; the guard now reports the true
+// required size (offset+4, past a 64-bit int) instead of panicking, and each
+// negative case maps to its own message. Expected results were taken from
+// CPython 3.14.6.
+func TestStructOffsetBoundaries(t *testing.T) {
+	m, err := ImportModule("_struct")
+	if err != nil {
+		t.Fatalf("import _struct: %v", err)
+	}
+	packInto, err := objects.LoadAttr(m, "pack_into")
+	if err != nil {
+		t.Fatalf("_struct.pack_into: %v", err)
+	}
+	unpackFrom, err := objects.LoadAttr(m, "unpack_from")
+	if err != nil {
+		t.Fatalf("_struct.unpack_from: %v", err)
+	}
+
+	maxsize := int64(math.MaxInt64) // sys.maxsize on a 64-bit build
+
+	cases := []struct {
+		name string
+		fn   objects.Object
+		args []objects.Object
+		msg  string
+	}{
+		{
+			"pack maxsize", packInto,
+			[]objects.Object{objects.NewStr("<I"), objects.NewByteArray(make([]byte, 10)), objects.NewInt(maxsize), objects.NewInt(1)},
+			"pack_into requires a buffer of at least 9223372036854775811 bytes for packing 4 bytes at offset 9223372036854775807 (actual buffer size is 10)",
+		},
+		{
+			"unpack maxsize", unpackFrom,
+			[]objects.Object{objects.NewStr("<I"), objects.NewBytes(make([]byte, 10)), objects.NewInt(maxsize)},
+			"unpack_from requires a buffer of at least 9223372036854775811 bytes for unpacking 4 bytes at offset 9223372036854775807 (actual buffer size is 10)",
+		},
+		{
+			"pack past end", packInto,
+			[]objects.Object{objects.NewStr("<I"), objects.NewByteArray(make([]byte, 10)), objects.NewInt(8), objects.NewInt(1)},
+			"pack_into requires a buffer of at least 12 bytes for packing 4 bytes at offset 8 (actual buffer size is 10)",
+		},
+		{
+			"pack shallow neg", packInto,
+			[]objects.Object{objects.NewStr("<I"), objects.NewByteArray(make([]byte, 10)), objects.NewInt(-2), objects.NewInt(1)},
+			"no space to pack 4 bytes at offset -2",
+		},
+		{
+			"unpack shallow neg", unpackFrom,
+			[]objects.Object{objects.NewStr("<I"), objects.NewBytes(make([]byte, 10)), objects.NewInt(-2)},
+			"not enough data to unpack 4 bytes at offset -2",
+		},
+		{
+			"pack deep neg", packInto,
+			[]objects.Object{objects.NewStr("<I"), objects.NewByteArray(make([]byte, 4)), objects.NewInt(-8), objects.NewInt(1)},
+			"offset -8 out of range for 4-byte buffer",
+		},
+		{
+			"unpack -maxsize", unpackFrom,
+			[]objects.Object{objects.NewStr("<I"), objects.NewBytes(make([]byte, 10)), objects.NewInt(-maxsize)},
+			"offset -9223372036854775807 out of range for 10-byte buffer",
+		},
+	}
+	for _, tc := range cases {
+		_, err := objects.Call(tc.fn, tc.args)
+		if err == nil {
+			t.Fatalf("%s: expected struct.error, got none", tc.name)
+		}
+		if got := err.Error(); !strings.Contains(got, tc.msg) {
+			t.Fatalf("%s error = %q, want to contain %q", tc.name, got, tc.msg)
+		}
+	}
+
+	// An in-range offset still packs and unpacks, including a valid negative one.
+	dst := objects.NewByteArray(make([]byte, 8))
+	if _, err := objects.Call(packInto, []objects.Object{objects.NewStr("<I"), dst, objects.NewInt(4), objects.NewInt(0x01020304)}); err != nil {
+		t.Fatalf("pack_into(off=4): %v", err)
+	}
+	raw, _ := objects.AsBytesLike(dst)
+	if got := bytesHex(raw); got != "0000000004030201" {
+		t.Fatalf("pack_into(off=4) = %s, want 0000000004030201", got)
+	}
+	res, err := objects.Call(unpackFrom, []objects.Object{objects.NewStr("<I"), dst, objects.NewInt(-4)})
+	if err != nil {
+		t.Fatalf("unpack_from(off=-4): %v", err)
+	}
+	if got := objects.Repr(res); got != "(16909060,)" {
+		t.Fatalf("unpack_from(off=-4) = %s, want (16909060,)", got)
+	}
+}
+
 // bytesHex renders raw bytes as lowercase hex, matching bytes.hex() in the oracle.
 func bytesHex(b []byte) string {
 	const digits = "0123456789abcdef"
