@@ -1,0 +1,24 @@
+== exit: 0
+== stdout:
+has: True True
+count(97) 2
+count(122) 0
+count(97.0) 2
+count(b'a') 0
+count(None) 0
+index(98) 1
+index(122) ERR ValueError memoryview.index(x): x not found
+index(97,1) 3
+index(97,1,3) ERR ValueError memoryview.index(x): x not found
+index(97,-3) 3
+index(97,0,100) 0
+count() ERR TypeError memoryview.count() takes exactly one argument (0 given)
+count(1,2) ERR TypeError memoryview.count() takes exactly one argument (2 given)
+index() ERR TypeError index expected at least 1 argument, got 0
+index(1,2,3,4) ERR TypeError index expected at most 3 arguments, got 4
+cast-i count(1) 1
+cast-i index(2) 1
+released count(1) ERR ValueError operation forbidden on released memoryview object
+released index(1) ERR ValueError operation forbidden on released memoryview object
+== exception:
+== stderr:
