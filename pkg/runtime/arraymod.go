@@ -63,8 +63,12 @@ func initArray(m *objects.Module) error {
 	}
 	// _array_reconstructor is the pickling hook array.__reduce_ex__ names to
 	// rebuild an array from its raw machine bytes; it is public on the module so
-	// an unpickler can import it.
-	if err := objects.StoreAttr(m, "_array_reconstructor", objects.NewFuncKw("_array_reconstructor", arrayReconstructor)); err != nil {
+	// an unpickler can import it. The same callable is handed to pkg/objects as
+	// the reduction callable array.__reduce_ex__ emits from protocol 3 up, so the
+	// reduction and the module attribute resolve to one object.
+	reconstructor := objects.NewFuncKw("_array_reconstructor", arrayReconstructor)
+	objects.ArrayReconstructor = reconstructor
+	if err := objects.StoreAttr(m, "_array_reconstructor", reconstructor); err != nil {
 		return err
 	}
 	return objects.StoreAttr(m, "typecodes", objects.NewStr("bBuwhHiIlLqQfd"))
