@@ -16,13 +16,49 @@ import (
 // not an Integral. as_integer_ratio and hex read the exact IEEE bits, so they
 // hold identically on every host.
 
-// floatMethodNames is the set of float methods, so a bound-method read and a
-// direct call agree on what a float answers.
+// floatMethodNames is the set of float methods and operator dunders, so a
+// bound-method read and a direct call agree on what a float answers. The
+// arithmetic dunders are exposed the same additive way int carries them: the
+// operators still route through Add and friends, this only makes the slots
+// readable. __round__ is not here yet because float's decimal-exact rounding
+// lives in the runtime package this one cannot import; it is a follow-up.
 var floatMethodNames = map[string]bool{
 	"is_integer": true, "as_integer_ratio": true, "conjugate": true,
 	"hex":       true,
 	"__trunc__": true, "__floor__": true, "__ceil__": true,
 	"__int__": true, "__float__": true,
+	"__add__": true, "__radd__": true, "__sub__": true, "__rsub__": true,
+	"__mul__": true, "__rmul__": true, "__truediv__": true, "__rtruediv__": true,
+	"__floordiv__": true, "__rfloordiv__": true, "__mod__": true, "__rmod__": true,
+	"__divmod__": true, "__rdivmod__": true, "__pow__": true, "__rpow__": true,
+	"__neg__": true, "__pos__": true, "__abs__": true,
+	"__bool__": true, "__hash__": true, "__getnewargs__": true,
+}
+
+// floatBinDunders maps float's binary arithmetic dunders to the operator symbol
+// binOp computes and whether the slot is reflected. float carries no bitwise
+// operators, and __pow__ is handled apart since it takes an optional modulo, so
+// this covers +, -, *, /, //, %. The operand domain is int, bool or float, so a
+// complex operand declines with NotImplemented the way CPython's float slots do.
+var floatBinDunders = map[string]binDunderSpec{
+	"__add__": {"+", false}, "__radd__": {"+", true},
+	"__sub__": {"-", false}, "__rsub__": {"-", true},
+	"__mul__": {"*", false}, "__rmul__": {"*", true},
+	"__truediv__": {"/", false}, "__rtruediv__": {"/", true},
+	"__floordiv__": {"//", false}, "__rfloordiv__": {"//", true},
+	"__mod__": {"%", false}, "__rmod__": {"%", true},
+}
+
+// isFloatOperand reports whether o is an operand float's arithmetic slots accept:
+// an int, a bool or a float. A complex, Fraction, Decimal or str is out of
+// domain, so the slot returns NotImplemented and the operand's own reflected
+// method runs.
+func isFloatOperand(o Object) bool {
+	switch o.(type) {
+	case *intObject, *boolObject, *floatObject:
+		return true
+	}
+	return false
 }
 
 // floatMethod dispatches f.name(args) for a float receiver.
@@ -76,8 +112,118 @@ func floatMethod(o Object, name string, args []Object) (Object, error) {
 			return nil, err
 		}
 		return floatToBigInt(f, math.Ceil)
+	case "__neg__":
+		if err := floatDunderNoArgs(args); err != nil {
+			return nil, err
+		}
+		return NewFloat(-f), nil
+	case "__pos__":
+		if err := floatDunderNoArgs(args); err != nil {
+			return nil, err
+		}
+		return NewFloat(f), nil
+	case "__abs__":
+		if err := floatDunderNoArgs(args); err != nil {
+			return nil, err
+		}
+		return NewFloat(math.Abs(f)), nil
+	case "__bool__":
+		if err := floatDunderNoArgs(args); err != nil {
+			return nil, err
+		}
+		return NewBool(f != 0), nil
+	case "__hash__":
+		if err := floatDunderNoArgs(args); err != nil {
+			return nil, err
+		}
+		h, err := PyHash(o)
+		if err != nil {
+			return nil, err
+		}
+		return NewInt(h), nil
+	case "__getnewargs__":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "float.__getnewargs__() takes no arguments (%d given)", len(args))
+		}
+		return NewTuple([]Object{NewFloat(f)}), nil
+	case "__divmod__":
+		return floatDivmodDunder(o, args, false)
+	case "__rdivmod__":
+		return floatDivmodDunder(o, args, true)
+	case "__pow__":
+		return floatPowDunder(o, args, false)
+	case "__rpow__":
+		return floatPowDunder(o, args, true)
+	}
+	if spec, ok := floatBinDunders[name]; ok {
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "expected 1 argument, got %d", len(args))
+		}
+		if !isFloatOperand(args[0]) {
+			return NotImplemented, nil
+		}
+		a, b := o, args[0]
+		if spec.reflected {
+			a, b = args[0], o
+		}
+		return binOp(spec.sym)(a, b)
 	}
 	return nil, noAttr(o, name)
+}
+
+// floatDunderNoArgs rejects a positional argument for float's argument-free
+// operator dunders, matching the C slot wrapper's "expected 0 arguments" wording
+// rather than the named "float.method()" wording the public methods use.
+func floatDunderNoArgs(args []Object) error {
+	if len(args) != 0 {
+		return Raise(TypeError, "expected 0 arguments, got %d", len(args))
+	}
+	return nil
+}
+
+// floatDivmodDunder computes float's __divmod__/__rdivmod__ as the
+// (floordiv, mod) pair, swapping the operands for the reflected slot and
+// declining a non-float operand with NotImplemented.
+func floatDivmodDunder(o Object, args []Object, reflected bool) (Object, error) {
+	if len(args) != 1 {
+		return nil, Raise(TypeError, "expected 1 argument, got %d", len(args))
+	}
+	if !isFloatOperand(args[0]) {
+		return NotImplemented, nil
+	}
+	a, b := o, args[0]
+	if reflected {
+		a, b = args[0], o
+	}
+	q, err := FloorDiv(a, b)
+	if err != nil {
+		return nil, err
+	}
+	r, err := Mod(a, b)
+	if err != nil {
+		return nil, err
+	}
+	return NewTuple([]Object{q, r}), nil
+}
+
+// floatPowDunder computes float's __pow__/__rpow__. The optional second argument
+// is the modulo slot ternary pow passes; a float power has no modulo, so any
+// value but None raises the integers-only error, matching CPython's float_pow.
+func floatPowDunder(o Object, args []Object, reflected bool) (Object, error) {
+	if len(args) < 1 || len(args) > 2 {
+		return nil, Raise(TypeError, "expected 1 or 2 arguments, got %d", len(args))
+	}
+	if len(args) == 2 && args[1] != None {
+		return nil, Raise(TypeError, "pow() 3rd argument not allowed unless all arguments are integers")
+	}
+	if !isFloatOperand(args[0]) {
+		return NotImplemented, nil
+	}
+	a, b := o, args[0]
+	if reflected {
+		a, b = args[0], o
+	}
+	return Pow(a, b)
 }
 
 // floatGetformat implements the float.__getformat__(typestr) classmethod, the
