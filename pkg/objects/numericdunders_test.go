@@ -137,3 +137,79 @@ func mustInt(t *testing.T, o Object) int64 {
 	}
 	return n
 }
+
+// TestIntSpecialDunders checks the argument-light special dunders int exposes
+// beyond the operator slots: the magnitude, the truth, the divmod pair, the
+// identity floor/ceil, the reconstruction tuple and the value hash, each read as
+// a bound callable the way an emitted method call reads it.
+func TestIntSpecialDunders(t *testing.T) {
+	if mustInt(t, callDunder(t, NewInt(-7), "__abs__")) != 7 {
+		t.Error("(-7).__abs__() should be 7")
+	}
+	if callDunder(t, NewInt(0), "__bool__") != False {
+		t.Error("(0).__bool__() should be False")
+	}
+	if callDunder(t, NewInt(5), "__bool__") != True {
+		t.Error("(5).__bool__() should be True")
+	}
+	// __divmod__ carries Python's floor/mod sign, not Go's truncated pair.
+	if got := Repr(callDunder(t, NewInt(-7), "__divmod__", NewInt(3))); got != "(-3, 2)" {
+		t.Errorf("(-7).__divmod__(3) = %s, want (-3, 2)", got)
+	}
+	if got := Repr(callDunder(t, NewInt(7), "__rdivmod__", NewInt(20))); got != "(2, 6)" {
+		t.Errorf("(7).__rdivmod__(20) = %s, want (2, 6)", got)
+	}
+	// __divmod__ declines a non-int operand with NotImplemented rather than raising.
+	if callDunder(t, NewInt(7), "__divmod__", NewStr("x")) != NotImplemented {
+		t.Error("(7).__divmod__('x') should be NotImplemented")
+	}
+	if mustInt(t, callDunder(t, NewInt(5), "__floor__")) != 5 {
+		t.Error("(5).__floor__() should be 5")
+	}
+	if mustInt(t, callDunder(t, NewInt(5), "__ceil__")) != 5 {
+		t.Error("(5).__ceil__() should be 5")
+	}
+	if got := Repr(callDunder(t, NewInt(5), "__getnewargs__")); got != "(5,)" {
+		t.Errorf("(5).__getnewargs__() = %s, want (5,)", got)
+	}
+	h, _ := PyHash(NewInt(5))
+	if mustInt(t, callDunder(t, NewInt(5), "__hash__")) != h {
+		t.Error("(5).__hash__() should match hash(5)")
+	}
+}
+
+// TestIntRoundHalfEven checks int.__round__ leaves a value unchanged for a
+// non-negative or absent digit count and rounds to a power of ten with ties to
+// the even multiple for a negative one, the way CPython's int rounding does.
+func TestIntRoundHalfEven(t *testing.T) {
+	cases := []struct {
+		recv    int64
+		ndigits Object
+		want    int64
+	}{
+		{12345, nil, 12345},
+		{12345, None, 12345},
+		{12345, NewInt(2), 12345},
+		{12345, NewInt(-2), 12300},
+		{15, NewInt(-1), 20},
+		{25, NewInt(-1), 20},
+		{-15, NewInt(-1), -20},
+		{-25, NewInt(-1), -20},
+		{5, NewInt(-100), 0},
+	}
+	for _, c := range cases {
+		var args []Object
+		if c.ndigits != nil {
+			args = []Object{c.ndigits}
+		}
+		got := callDunder(t, NewInt(c.recv), "__round__", args...)
+		if mustInt(t, got) != c.want {
+			t.Errorf("(%d).__round__(%v) = %v, want %d", c.recv, c.ndigits, got, c.want)
+		}
+	}
+	// A non-integer digit count is a TypeError, not a silent truncation.
+	fn, _ := LoadAttr(NewInt(5), "__round__")
+	if _, err := Call(fn, []Object{NewFloat(1.5)}); err == nil {
+		t.Error("(5).__round__(1.5) should raise TypeError")
+	}
+}
