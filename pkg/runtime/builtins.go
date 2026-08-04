@@ -246,25 +246,13 @@ func Round(args []objects.Object) (objects.Object, error) {
 	}
 	if f, ok := objects.AsFloat(x); ok {
 		if len(args) == 1 {
-			if math.IsInf(f, 0) {
-				return nil, objects.Raise(objects.OverflowError, "cannot convert float infinity to integer")
-			}
-			if math.IsNaN(f) {
-				return nil, objects.Raise(objects.ValueError, "cannot convert float NaN to integer")
-			}
-			r := math.RoundToEven(f)
-			if r >= -9.2e18 && r <= 9.2e18 {
-				return objects.NewInt(int64(r)), nil
-			}
-			// Probed: round(1e308) is the exact integer, like int().
-			b, _ := new(big.Float).SetFloat64(r).Int(nil)
-			return objects.NewIntFromBig(b), nil
+			return objects.RoundFloatToInt(f)
 		}
 		nd, err := roundDigits(args[1])
 		if err != nil {
 			return nil, err
 		}
-		return roundFloat(f, nd)
+		return objects.RoundFloat(f, nd)
 	}
 	// A user numeric drives round() through __round__: round(x) calls it with no
 	// argument, round(x, n) passes ndigits through verbatim (including None).
@@ -320,63 +308,6 @@ func roundIntNeg(b *big.Int, digits int64) *big.Int {
 		}
 	}
 	return q.Mul(q, p)
-}
-
-// roundFloat rounds a float to nd decimal digits through exact decimal
-// arithmetic on big.Rat, not math.Round, so round(2.675, 2) == 2.67
-// exactly as CPython's dtoa-based rounding gives.
-func roundFloat(f float64, nd int64) (objects.Object, error) {
-	if math.IsInf(f, 0) || math.IsNaN(f) {
-		// Probed: round(inf, 2) is inf, round(nan, 2) is nan.
-		return objects.NewFloat(f), nil
-	}
-	// A float64 has at most 1074 fractional decimal digits, and 10**309
-	// exceeds twice the largest float, so extreme nd values short-cut.
-	if nd > 1100 {
-		return objects.NewFloat(f), nil
-	}
-	if nd < -400 {
-		return objects.NewFloat(math.Copysign(0, f)), nil
-	}
-	r := new(big.Rat).SetFloat64(f)
-	digits := nd
-	if digits < 0 {
-		digits = -digits
-	}
-	scale := new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(digits), nil))
-	if nd >= 0 {
-		r.Mul(r, scale)
-	} else {
-		r.Quo(r, scale)
-	}
-	// Denominators are positive, so DivMod is floor division; then ties
-	// go to the even quotient.
-	q, rem := new(big.Int).DivMod(r.Num(), r.Denom(), new(big.Int))
-	rem.Lsh(rem, 1)
-	switch rem.Cmp(r.Denom()) {
-	case 1:
-		q.Add(q, big.NewInt(1))
-	case 0:
-		if q.Bit(0) == 1 {
-			q.Add(q, big.NewInt(1))
-		}
-	}
-	if q.Sign() == 0 {
-		// Keep the input's sign on zero: round(-0.5, 0) is -0.0.
-		return objects.NewFloat(math.Copysign(0, f)), nil
-	}
-	out := new(big.Rat).SetInt(q)
-	if nd >= 0 {
-		out.Quo(out, scale)
-	} else {
-		out.Mul(out, scale)
-	}
-	v, _ := out.Float64()
-	if math.IsInf(v, 0) {
-		// Probed: round(1.7976931348623157e308, -308) overflows.
-		return nil, objects.Raise(objects.OverflowError, "rounded value too large to represent")
-	}
-	return objects.NewFloat(v), nil
 }
 
 // DivMod implements divmod(a, b) as a (quotient, remainder) tuple with

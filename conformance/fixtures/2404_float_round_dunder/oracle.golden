@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+True True
+2 4 -2 0
+2 2 3
+2.67 2.0 0.12
+-0.0 1200.0 1234.57
+0.0 1.0
+2.67 2 1200.0 0 0.12
+inf nan
+OverflowError cannot convert float infinity to integer
+ValueError cannot convert float NaN to integer
+TypeError 'float' object cannot be interpreted as an integer
+TypeError __round__ expected at most 1 argument, got 2
+ok 1e+308
+== exception:
+== stderr:
