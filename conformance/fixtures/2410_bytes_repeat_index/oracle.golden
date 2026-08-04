@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+bytes mul 3 b'ababab'
+bytes mul 0 b''
+bytes mul -1 b''
+bytes rmul 3 b'ababab'
+bytes mul True b'ab'
+bytes mul 2.0 ERR TypeError 'float' object cannot be interpreted as an integer
+bytes mul Bad ERR TypeError 'Bad' object cannot be interpreted as an integer
+bytes mul Idx b'ababab'
+bytes rmul Idx b'ababab'
+bytearray mul 3 bytearray(b'ababab')
+bytearray mul 0 bytearray(b'')
+bytearray mul -1 bytearray(b'')
+bytearray rmul 3 bytearray(b'ababab')
+bytearray mul True bytearray(b'ab')
+bytearray mul 2.0 ERR TypeError 'float' object cannot be interpreted as an integer
+bytearray mul Bad ERR TypeError 'Bad' object cannot be interpreted as an integer
+bytearray mul Idx bytearray(b'ababab')
+bytearray rmul Idx bytearray(b'ababab')
+bytearray imul 3 bytearray(b'ababab')
+bytearray imul 2.0 ERR TypeError 'float' object cannot be interpreted as an integer
+bytes * 2.0 ERR TypeError can't multiply sequence by non-int of type 'float'
+== exception:
+== stderr:
