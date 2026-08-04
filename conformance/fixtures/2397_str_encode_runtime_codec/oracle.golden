@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+utf-16 b'\xff\xfea\x00\xb1\x03' True
+utf-16-le b'a\x00\xb1\x03' True
+utf-16-be b'\x00a\x03\xb1' True
+utf-32 b'\xff\xfe\x00\x00a\x00\x00\x00\xb1\x03\x00\x00' True
+utf-32-le b'a\x00\x00\x00\xb1\x03\x00\x00' True
+utf-32-be b'\x00\x00\x00a\x00\x00\x03\xb1' True
+utf-8-sig b'\xef\xbb\xbfa\xce\xb1' True
+utf-7 b'a+A7E-' True
+via variable: b'\xff\xfea\x00\xb1\x03'
+bom le: a
+bom be: a
+bytes ctor: b'\xff\xfeh\x00i\x00'
+str ctor: hi
+cp1252: UnicodeEncodeError
+unknown: LookupError unknown encoding: no-such-codec
+== exception:
+== stderr:
