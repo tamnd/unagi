@@ -33,6 +33,7 @@ var floatMethodNames = map[string]bool{
 	"__divmod__": true, "__rdivmod__": true, "__pow__": true, "__rpow__": true,
 	"__neg__": true, "__pos__": true, "__abs__": true,
 	"__bool__": true, "__hash__": true, "__getnewargs__": true,
+	"__repr__": true, "__str__": true, "__format__": true,
 }
 
 // floatBinDunders maps float's binary arithmetic dunders to the operator symbol
@@ -154,6 +155,25 @@ func floatMethod(o Object, name string, args []Object) (Object, error) {
 		return floatPowDunder(o, args, false)
 	case "__rpow__":
 		return floatPowDunder(o, args, true)
+	case "__repr__":
+		if err := floatDunderNoArgs(args); err != nil {
+			return nil, err
+		}
+		return NewStr(Repr(o)), nil
+	case "__str__":
+		if err := floatDunderNoArgs(args); err != nil {
+			return nil, err
+		}
+		return NewStr(Str(o)), nil
+	case "__format__":
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "float.__format__() takes exactly one argument (%d given)", len(args))
+		}
+		spec, ok := AsStr(args[0])
+		if !ok {
+			return nil, Raise(TypeError, "__format__() argument must be str, not %s", args[0].TypeName())
+		}
+		return Format(o, spec)
 	}
 	if spec, ok := floatBinDunders[name]; ok {
 		if len(args) != 1 {

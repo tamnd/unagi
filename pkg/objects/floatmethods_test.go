@@ -96,3 +96,34 @@ func TestFloatDunderDomainAndSpecials(t *testing.T) {
 		t.Errorf("__truediv__(0) should raise ZeroDivisionError")
 	}
 }
+
+// TestFloatStrDunders checks a float exposes __repr__, __str__ and __format__ as
+// instance attributes, each read as a bound callable matching the value's string
+// form, the same surface complex and int carry.
+func TestFloatStrDunders(t *testing.T) {
+	call := func(name string, args ...Object) (Object, error) {
+		fn, err := LoadAttr(NewFloat(1.5), name)
+		if err != nil {
+			return nil, err
+		}
+		return Call(fn, args)
+	}
+	if got, _ := call("__repr__"); Str(got) != "1.5" {
+		t.Errorf("(1.5).__repr__() = %q, want 1.5", Str(got))
+	}
+	if got, _ := call("__str__"); Str(got) != "1.5" {
+		t.Errorf("(1.5).__str__() = %q, want 1.5", Str(got))
+	}
+	if got, _ := call("__format__", NewStr(".3f")); Str(got) != "1.500" {
+		t.Errorf("(1.5).__format__('.3f') = %q, want 1.500", Str(got))
+	}
+	if _, err := call("__format__", NewInt(5)); err == nil {
+		t.Error("(1.5).__format__(5) should raise TypeError")
+	}
+	if _, err := call("__format__", NewStr("d")); err == nil {
+		t.Error("(1.5).__format__('d') should raise ValueError")
+	}
+	if _, err := call("__repr__", NewInt(1)); err == nil {
+		t.Error("(1.5).__repr__(1) should raise TypeError")
+	}
+}
