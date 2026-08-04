@@ -927,12 +927,35 @@ func mathRound(args []objects.Object, name string, round func(float64) float64) 
 	return mathFloatToInt(round(x))
 }
 
+// mathIndexBig coerces an argument to a big int the way CPython's integer math
+// routines do through _PyNumber_Index: a plain int or bool reads directly, and a
+// value that spells __index__ (an int subclass reading its stored value, or any
+// user object defining the slot) converts losslessly. ok is false for a value
+// with no __index__, leaving the caller's "not an integer" TypeError.
+func mathIndexBig(o objects.Object) (*big.Int, bool, error) {
+	if bi, ok := objects.AsBigInt(o); ok {
+		return bi, true, nil
+	}
+	r, ok, err := objects.IndexOf(o)
+	if err != nil {
+		return nil, true, err
+	}
+	if ok {
+		bi, _ := objects.AsBigInt(r)
+		return bi, true, nil
+	}
+	return nil, false, nil
+}
+
 // mathIntArgs pulls a run of integer arguments, raising CPython's TypeError for
 // a non-integer where an integer is required.
 func mathIntArgs(args []objects.Object) ([]*big.Int, error) {
 	out := make([]*big.Int, len(args))
 	for i, a := range args {
-		bi, ok := objects.AsBigInt(a)
+		bi, ok, err := mathIndexBig(a)
+		if err != nil {
+			return nil, err
+		}
 		if !ok {
 			return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", a.TypeName())
 		}
@@ -977,7 +1000,10 @@ func mathLcm(args []objects.Object) (objects.Object, error) {
 // mathIndexArg pulls an integer argument the combinatorial routines require,
 // raising CPython's TypeError for a value that is not an integer.
 func mathIndexArg(o objects.Object) (*big.Int, error) {
-	bi, ok := objects.AsBigInt(o)
+	bi, ok, err := mathIndexBig(o)
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
 		return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", o.TypeName())
 	}
@@ -1069,7 +1095,10 @@ func mathFactorial(args []objects.Object) (objects.Object, error) {
 	if len(args) != 1 {
 		return nil, objects.Raise(objects.TypeError, "math.factorial() takes exactly one argument (%d given)", len(args))
 	}
-	n, ok := objects.AsBigInt(args[0])
+	n, ok, err := mathIndexBig(args[0])
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
 		return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", args[0].TypeName())
 	}
@@ -1083,7 +1112,10 @@ func mathIsqrt(args []objects.Object) (objects.Object, error) {
 	if len(args) != 1 {
 		return nil, objects.Raise(objects.TypeError, "math.isqrt() takes exactly one argument (%d given)", len(args))
 	}
-	n, ok := objects.AsBigInt(args[0])
+	n, ok, err := mathIndexBig(args[0])
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
 		return nil, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", args[0].TypeName())
 	}

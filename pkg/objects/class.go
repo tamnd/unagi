@@ -3648,6 +3648,16 @@ func IndexOf(o Object) (Object, bool, error) {
 		return nil, false, nil
 	}
 	if _, has := x.cls.lookup("__index__"); !has {
+		// A value subclass of int with no __index__ override inherits int.__index__,
+		// which is its stored value, so it lossless-coerces the way CPython's int
+		// subclass does through PyNumber_Index. A float subclass has no __index__ and
+		// stays unhandled so the caller keeps its "not an integer" error.
+		if p, ok := builtinUnwrap(o); ok {
+			switch p.(type) {
+			case *intObject, *boolObject:
+				return p, true, nil
+			}
+		}
 		return nil, false, nil
 	}
 	r, _, err := instanceSpecial(x, "__index__")
