@@ -74,6 +74,16 @@ func Iter(args []objects.Object) (objects.Object, error) {
 			}
 			return args[0], nil
 		}
+		// A user instance's iter() is type(x).__iter__(x), and it must hand back
+		// exactly what __iter__ returned so an iterator whose __iter__ returns self
+		// satisfies iter(x) is x and a returned iterator keeps its own type. Only a
+		// non-instance or an old-style __getitem__ object falls through to the
+		// wrapping path below.
+		if res, ok, err := objects.IterBuiltinResult(args[0]); err != nil {
+			return nil, err
+		} else if ok {
+			return res, nil
+		}
 		it, err := objects.Iter(args[0])
 		if err != nil {
 			return nil, err

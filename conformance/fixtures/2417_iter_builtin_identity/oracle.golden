@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+self identity: True
+self type: SelfIter
+self list: [1, 2, 3]
+gen identity: True
+gen type: generator
+gen list: [1, 2]
+seq list: [10, 20, 30]
+seq iter is not seq: True
+seq iter next: 10 20
+reiter identity: True
+container is not self: True
+container list: [7, 8, 9]
+bad: iter() returned non-iterator of type 'int'
+== exception:
+== stderr:
