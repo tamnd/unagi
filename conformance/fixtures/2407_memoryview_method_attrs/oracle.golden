@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+has: ['tobytes', 'tolist', 'hex', 'cast', 'toreadonly', 'release']
+tobytes b'abc'
+tolist [97, 98, 99]
+hex '616263'
+cast tolist [97, 98, 99]
+toreadonly ro True
+released has tobytes: True
+released release() None
+released tobytes() ERR ValueError operation forbidden on released memoryview object
+== exception:
+== stderr:

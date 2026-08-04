@@ -462,6 +462,16 @@ func mvDelItem(m *memoryviewObject) error {
 	return Raise(TypeError, "cannot delete memory")
 }
 
+// memoryviewMethodNames is the set of memoryview methods that read back as bound
+// callables off an instance, so mv.tobytes and mv.cast bind the way CPython's
+// built-in method wrappers do. It lists the methods memoryviewMethod implements;
+// count and index are CPython 3.14 additions unagi does not carry yet, so they
+// stay off the set rather than binding a wrapper that would fail on a call.
+var memoryviewMethodNames = map[string]bool{
+	"tobytes": true, "tolist": true, "hex": true,
+	"cast": true, "toreadonly": true, "release": true,
+}
+
 // memoryviewMethod dispatches the memoryview method surface: tobytes, tolist,
 // hex and cast read the buffer, while release drops it. release() is idempotent
 // and the context-manager pair lives in memoryviewDunder, reached through the
@@ -558,6 +568,12 @@ func memoryviewLoadAttr(m *memoryviewObject, name string) (Object, error) {
 	// through the wrapper raises. It runs before the released guard for that reason.
 	if v, ok := memoryviewDunder(m, name); ok {
 		return v, nil
+	}
+	// A method name binds as a callable the same way, tobytes and cast read back
+	// and call as mv.tobytes() and mv.cast('i') do, and the read answers on a
+	// released view too since the wrapper lives on the type; only a call raises.
+	if memoryviewMethodNames[name] {
+		return builtinMethodValue(m, name), nil
 	}
 	if m.released {
 		return nil, mvReleased()

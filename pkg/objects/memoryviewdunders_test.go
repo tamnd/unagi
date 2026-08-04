@@ -131,3 +131,41 @@ func TestMemoryViewHashAndContextDunders(t *testing.T) {
 		t.Errorf("released __len__() = %v, want ValueError", err)
 	}
 }
+
+// TestMemoryViewMethodAttrs checks a memoryview binds its methods as readable
+// callables, mv.tobytes reads back and calls the same as mv.tobytes(), the read
+// answers on a released view since the wrapper lives on the type, and count and
+// index stay absent since unagi does not implement them yet.
+func TestMemoryViewMethodAttrs(t *testing.T) {
+	m := mvOf(t, NewByteArray([]byte("abc")))
+	for _, name := range []string{"tobytes", "tolist", "hex", "cast", "toreadonly", "release"} {
+		fn, err := LoadAttr(m, name)
+		if err != nil {
+			t.Errorf("LoadAttr(%s) = %v, want a bound method", name, err)
+		}
+		if _, ok := fn.(*funcObject); !ok {
+			t.Errorf("LoadAttr(%s) = %v, want a callable", name, fn)
+		}
+	}
+	// The bound read calls through to the method.
+	fn, _ := LoadAttr(m, "tobytes")
+	if v, err := Call(fn, nil); err != nil || Repr(v) != "b'abc'" {
+		t.Errorf("tobytes() = %s, %v, want b'abc'", Repr(v), err)
+	}
+	// count and index are CPython 3.14 additions unagi does not carry, so they
+	// stay absent rather than binding a wrapper that would fail on a call.
+	for _, name := range []string{"count", "index"} {
+		if _, err := LoadAttr(m, name); err == nil {
+			t.Errorf("LoadAttr(%s) should miss until the method is implemented", name)
+		}
+	}
+	// A method reads back off a released view too; only a call raises.
+	m.released = true
+	rfn, err := LoadAttr(m, "tobytes")
+	if err != nil {
+		t.Fatalf("reading tobytes off a released view = %v, want the wrapper", err)
+	}
+	if _, err := Call(rfn, nil); !isKind(err, ValueError) {
+		t.Errorf("released tobytes() = %v, want ValueError", err)
+	}
+}
