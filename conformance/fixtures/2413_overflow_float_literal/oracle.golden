@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+inf
+-inf
+inf
+True
+True
+True
+True
+nan
+nan
+0.0
+inf
+infj
+inf
+-infj
+[inf, -inf, nan]
+inf
+-inf
+inf
+-inf
+== exception:
+== stderr:
