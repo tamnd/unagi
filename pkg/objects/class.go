@@ -3104,6 +3104,15 @@ func LoadAttr(o Object, name string) (Object, error) {
 			if v, ok := builtinNumericUnboundDunder(x.name, name); ok {
 				return v, nil
 			}
+			// float, complex, bytes, bytearray and str expose their operator, unary,
+			// conversion and pickle-support dunders off the type the same way, so
+			// float.__add__(1.0, 2.0) and str.__mul__("a", 3) read back an unbound
+			// descriptor and dispatch through the argument's own bound slot. The
+			// string, hash and comparison dunders stay on the builtinTypeDunders path
+			// above, so this only fills the operator slots that fell through before.
+			if v, ok := builtinScalarUnboundDunder(x.name, name); ok {
+				return v, nil
+			}
 			// A container type exposes its subscript protocol dunders off the type as
 			// unbound method-wrappers, so dict.__setitem__(d, k, v) and the read-only
 			// tuple.__getitem__(t, i) resolve the way CPython's wrapper_descriptors

@@ -1,0 +1,34 @@
+== exit: 0
+== stdout:
+float has: ['__add__', '__mul__', '__abs__', '__neg__', '__getnewargs__']
+str has: ['__add__', '__mul__', '__rmul__', '__mod__', '__getnewargs__']
+bytes has: ['__add__', '__mul__', '__mod__', '__bytes__', '__getnewargs__']
+float.__add__(1.,2.) 3.0
+float.__mul__(2.,3.) 6.0
+float.__truediv__(1.,2.) 0.5
+float.__neg__(2.5) -2.5
+float.__abs__(-2.5) 2.5
+float.__getnewargs__(1.5) (1.5,)
+complex.__add__(1j,2j) 3j
+complex.__mul__(2j,3j) (-6+0j)
+complex.__abs__(3+4j) 5.0
+str.__add__('a','b') 'ab'
+str.__mul__('ab',3) 'ababab'
+str.__mod__('%d',5) '5'
+str.__getnewargs__('x') ('x',)
+bytes.__add__(b'a',b'b') b'ab'
+bytes.__mul__(b'a',3) b'aaa'
+bytes.__bytes__(b'x') b'x'
+bytearray.__add__(bytearray(b'a'),b'b') bytearray(b'ab')
+bytearray.__iadd__(bytearray(b'a'),b'b') bytearray(b'ab')
+float.__add__() ERR TypeError descriptor '__add__' of 'float' object needs an argument
+float.__add__(1.) ERR TypeError expected 1 argument, got 0
+float.__add__('x',2) ERR TypeError descriptor '__add__' requires a 'float' object but received a 'str'
+str.__add__(3,'b') ERR TypeError descriptor '__add__' requires a 'str' object but received a 'int'
+bytes.__mul__('x',3) ERR TypeError descriptor '__mul__' requires a 'bytes' object but received a 'str'
+bytes has __truediv__: False
+float has __getitem__: False
+str.__add__(MyStr('a'),'b') 'ab'
+int.__add__(1,2) 3
+== exception:
+== stderr:
