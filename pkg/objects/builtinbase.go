@@ -173,6 +173,23 @@ var complexSubclassMethods = map[string]bool{
 	"conjugate": true, "real": true, "imag": true, "__getnewargs__": true,
 }
 
+// intSubclassMethods names the non-dunder members an int value subclass inherits
+// off its payload, the integer twin of floatSubclassMethods. It carries the named
+// methods (x.bit_length, x.to_bytes, x.as_integer_ratio) and the rational-view
+// data attributes (x.numerator, x.denominator, x.real, x.imag) an int exposes,
+// so Fraction over an int subclass reads its numerator the way CPython does. The
+// operator, hash and string dunders resolve through the number-slot and object
+// paths already, and each inherited member reads off the plain int payload so it
+// returns a plain int rather than the subclass, matching CPython's int methods.
+// from_bytes is left out: it is a classmethod that builds cls, so honoring it
+// wants class-level construction rather than a payload read, a separate follow-up.
+var intSubclassMethods = map[string]bool{
+	"bit_length": true, "bit_count": true, "conjugate": true,
+	"as_integer_ratio": true, "is_integer": true, "to_bytes": true,
+	"numerator": true, "denominator": true,
+	"real": true, "imag": true, "__getnewargs__": true,
+}
+
 // numericSubclassAttr reads an inherited name off a scalar value subclass's
 // payload, so both a method (x.is_integer) and a data attribute (x.real) resolve to
 // the same value a plain float or complex would give. LoadAttr binds a method to
@@ -237,14 +254,19 @@ func tupleDunderAttr(x *instanceObject, name string) Object {
 // instance is not value-backed or the name is not one of the builtin's methods,
 // so LoadAttr keeps its ordinary AttributeError. A user override lives in the
 // class dict and is found before this fallback runs, so it never shadows one.
-// str and tuple carry a method surface here; the int payload exposes no methods
-// in this tier, matching how the int subclass slice left them.
+// int, float, complex, str and tuple each carry a method surface here, the
+// named methods and data attributes their payload exposes.
 func valueSubclassAttr(x *instanceObject, name string) (Object, bool) {
 	v, ok := builtinUnwrap(x)
 	if !ok {
 		return nil, false
 	}
 	switch p := v.(type) {
+	case *intObject, *boolObject:
+		if !intSubclassMethods[name] {
+			return nil, false
+		}
+		return numericSubclassAttr(v, name)
 	case *floatObject:
 		if !floatSubclassMethods[name] {
 			return nil, false
