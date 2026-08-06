@@ -590,6 +590,19 @@ func ByteArrayOf(args []objects.Object) (objects.Object, error) {
 	return objects.ByteArrayOf(args)
 }
 
+// BytesOfKw implements bytes() called with keyword arguments, binding the
+// source, encoding and errors parameters the way CPython's clinic signature
+// does, so bytes(source=b'x') and bytes('hi', encoding='utf-8') both work.
+func BytesOfKw(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	return objects.BytesOfKw(pos, kwNames, kwVals)
+}
+
+// ByteArrayOfKw implements bytearray() called with keyword arguments, the
+// mutable twin of BytesOfKw.
+func ByteArrayOfKw(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	return objects.ByteArrayOfKw(pos, kwNames, kwVals)
+}
+
 // ctorElts is the shared zero-or-one-iterable argument handling for the
 // container constructors.
 func ctorElts(name string, args []objects.Object) ([]objects.Object, error) {
@@ -739,8 +752,8 @@ func init() {
 		"enumerate": objects.NewFunc("enumerate", -1, Enumerate),
 		"zip":       objects.NewFunc("zip", -1, Zip),
 		"list":      objects.NewFunc("list", -1, ListOf),
-		"bytes":     objects.NewFunc("bytes", -1, BytesOf),
-		"bytearray": objects.NewFunc("bytearray", -1, ByteArrayOf),
+		"bytes":     objects.NewFuncKw("bytes", objects.BytesOfKw),
+		"bytearray": objects.NewFuncKw("bytearray", objects.ByteArrayOfKw),
 		"tuple":     objects.NewFunc("tuple", -1, TupleOf),
 		"dict":      objects.NewFunc("dict", -1, DictOf),
 		"set":       objects.NewFunc("set", -1, SetOf),
