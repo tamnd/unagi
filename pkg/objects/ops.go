@@ -221,9 +221,11 @@ func Add(a, b Object) (Object, error) {
 		}
 		return nil, Raise(TypeError, "can only concatenate str (not %q) to str", b.TypeName())
 	case *bytesObject:
-		// A bytes or bytearray right operand concatenates; the result keeps
-		// the left operand's type, so bytes + bytearray is bytes.
-		if yv, ok := asBytesLike(b); ok {
+		// Any bytes-like right operand concatenates through the buffer protocol, a
+		// bytes, bytearray, memoryview or array included; the result keeps the left
+		// operand's type, so bytes + bytearray is bytes and bytes + memoryview is
+		// bytes.
+		if yv, ok := mvBytesLike(b); ok {
 			out := make([]byte, 0, len(x.v)+len(yv))
 			out = append(out, x.v...)
 			out = append(out, yv...)
@@ -235,7 +237,7 @@ func Add(a, b Object) (Object, error) {
 		// Probed on 3.14: b"a" + "b" -> TypeError: can't concat str to bytes.
 		return nil, Raise(TypeError, "can't concat %s to bytes", b.TypeName())
 	case *bytearrayObject:
-		if yv, ok := asBytesLike(b); ok {
+		if yv, ok := mvBytesLike(b); ok {
 			xv := x.snapshot()
 			out := make([]byte, 0, len(xv)+len(yv))
 			out = append(out, xv...)
