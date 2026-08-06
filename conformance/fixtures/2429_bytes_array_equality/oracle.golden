@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+bytes,bytes (True, True, False, False)
+bytes,bytearray (True, True, False, False)
+bytes,array (False, False, True, True)
+bytes,mv (True, True, False, False)
+bytearray,array (True, True, False, False)
+bytearray,mv (True, True, False, False)
+array,mv (True, True, False, False)
+array,array (True, True, False, False)
+mv,mv (True, True, False, False)
+neq-bytes-array False
+neq-array-ba False
+neq-array-mv False
+int-array-vs-ba False
+dict-hit 1
+set-in True
+bytes-vs-subclass True
+array-vs-bytes-subclass False
+== exception:
+== stderr:

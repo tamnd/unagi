@@ -962,6 +962,15 @@ func equals(a, b Object) bool {
 		y, ok := AsStr(b)
 		return ok && x.v == y
 	case *bytesObject:
+		// bytes compares equal only to another bytes or bytearray by content, plus a
+		// memoryview which compares back against the bytes from its own side; it does
+		// not read an array as bytes-like. CPython's bytes_richcompare only accepts a
+		// bytes or bytearray, so bytes == array is False while bytes == memoryview is
+		// True through memoryview.__eq__, and mvBytesLike would otherwise take the
+		// array's buffer here and wrongly report equal.
+		if _, isArr := b.(*arrayObject); isArr {
+			return false
+		}
 		yv, ok := mvBytesLike(b)
 		return ok && string(x.v) == string(yv)
 	case *bytearrayObject:
@@ -984,8 +993,20 @@ func equals(a, b Object) bool {
 		y, ok := b.(*dequeObject)
 		return ok && dequeEquals(x, y)
 	case *arrayObject:
-		y, ok := b.(*arrayObject)
-		return ok && arrayEquals(x, y)
+		if y, ok := b.(*arrayObject); ok {
+			return arrayEquals(x, y)
+		}
+		// An array also compares equal to a bytearray or memoryview whose buffer
+		// holds the array's raw machine bytes, since each compares back against the
+		// array through the buffer protocol; it does not compare equal to a bytes,
+		// which reads only bytes and bytearray. CPython: array == bytearray and
+		// array == memoryview are True, array == bytes is False.
+		switch b.(type) {
+		case *bytearrayObject, *memoryviewObject:
+			yv, ok := mvBytesLike(b)
+			return ok && string(x.tobytes()) == string(yv)
+		}
+		return false
 	case *tupleObject:
 		y, ok := b.(*tupleObject)
 		return ok && seqEquals(x.elts, y.elts)
