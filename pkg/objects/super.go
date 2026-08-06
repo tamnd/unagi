@@ -317,6 +317,12 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 			return None, true, nil
 		}
 		if inst, ok := self.(*instanceObject); ok && inst.cls.builtinBase != "" {
+			// A bytearray subclass fills its payload in __init__, not __new__, so a
+			// super().__init__(source) call has to seed the contents rather than
+			// ignore them, the mutable twin of the list and set inits.
+			if ba, ok := inst.builtinData.(*bytearrayObject); ok && inst.cls.builtinBase == "bytearray" {
+				return None, true, bytearrayInit(ba, args, nil, nil)
+			}
 			// A value or descriptor subclass built its payload at construction, so
 			// the inherited builtin __init__ the super chain reaches here accepts
 			// the same arguments and ignores them, the way int.__init__ or
@@ -359,6 +365,12 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 					inst.setData = &setObject{newSetCore(0)}
 				case "frozenset":
 					inst.setData = &frozensetObject{newSetCore(0)}
+				case "bytearray":
+					// bytearray.__new__ returns an empty payload; the fill happens
+					// in bytearray.__init__, so super().__new__(cls, source) leaves
+					// the payload empty for the inherited __init__ to populate, the
+					// mutable twin of the list and set cases above.
+					inst.builtinData = NewByteArray(nil)
 				case "int", "float", "complex", "str", "bytes", "tuple", "classmethod", "staticmethod", "property", "ref":
 					// A namedtuple subclass reaches super().__new__(cls, *fields)
 					// with the fields spelled out, the signature the generated

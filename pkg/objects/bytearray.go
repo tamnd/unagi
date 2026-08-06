@@ -51,8 +51,14 @@ func asBytesLike(o Object) ([]byte, bool) {
 	// *bytesObject directly, so a subclass on the left dispatches its own value
 	// first.
 	if v, ok := builtinUnwrap(o); ok {
-		if x, ok := v.(*bytesObject); ok {
+		switch x := v.(type) {
+		case *bytesObject:
 			return x.v, true
+		case *bytearrayObject:
+			// A bytearray subclass reads as its underlying bytes the same way a
+			// plain bytearray does, so it works wherever a bytes-like value is
+			// accepted (a concat right operand, a bytes method argument).
+			return x.snapshot(), true
 		}
 	}
 	return nil, false
@@ -62,6 +68,25 @@ func asBytesLike(o Object) ([]byte, bool) {
 // callers outside this package like the io.BytesIO constructor.
 func AsBytesLike(o Object) ([]byte, bool) { return asBytesLike(o) }
 
+// bytearrayInplaceTarget returns the live bytearray payload behind an in-place
+// operand together with the object to rebind to the target, so bytearray += y
+// and *= n mutate the same store whether the operand is a plain bytearray or a
+// bytearray subclass instance, and the subclass keeps its type and aliases see
+// the change. ok is false for anything else.
+func bytearrayInplaceTarget(o Object) (ba *bytearrayObject, self Object, ok bool) {
+	switch x := o.(type) {
+	case *bytearrayObject:
+		return x, x, true
+	case *instanceObject:
+		if v, up := builtinUnwrap(x); up {
+			if b, isba := v.(*bytearrayObject); isba {
+				return b, x, true
+			}
+		}
+	}
+	return nil, nil, false
+}
+
 // AsMutableBytes returns the live backing slice of a bytearray, for a caller
 // that writes into it in place like struct.pack_into. Only a bytearray is
 // writable; a read-only bytes value returns false. The slice length is fixed,
@@ -69,6 +94,14 @@ func AsBytesLike(o Object) ([]byte, bool) { return asBytesLike(o) }
 func AsMutableBytes(o Object) ([]byte, bool) {
 	if x, ok := o.(*bytearrayObject); ok {
 		return x.v, true
+	}
+	// A bytearray subclass instance is writable through its live payload, so
+	// struct.pack_into and memoryview reach the same backing slice a plain
+	// bytearray exposes.
+	if v, ok := builtinUnwrap(o); ok {
+		if x, ok := v.(*bytearrayObject); ok {
+			return x.v, true
+		}
 	}
 	return nil, false
 }

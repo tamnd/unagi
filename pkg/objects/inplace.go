@@ -85,7 +85,7 @@ func inplaceConcat(a, b Object) (Object, bool, error) {
 	// protocol, a bytes, bytearray, memoryview or array (probed: += a list or str
 	// raises "can't concat X to bytearray"), so a non-buffer operand declines and
 	// the binary Add raises that exact concat error.
-	if ba, ok := a.(*bytearrayObject); ok {
+	if ba, self, ok := bytearrayInplaceTarget(a); ok {
 		bl, ok := mvBytesLike(b)
 		if !ok {
 			return nil, false, nil
@@ -93,7 +93,7 @@ func inplaceConcat(a, b Object) (Object, bool, error) {
 		ba.mu.Lock()
 		ba.v = append(ba.v, bl...)
 		ba.mu.Unlock()
-		return ba, true, nil
+		return self, true, nil
 	}
 	// array += extends in place with another array of the same typecode, and a
 	// non-array right operand raises the extend-with-array TypeError rather than
@@ -133,7 +133,7 @@ func inplaceConcat(a, b Object) (Object, bool, error) {
 // count declines (ok=false) so the binary Mul raises the same non-int or
 // overflow message it would for list * n.
 func inplaceRepeat(a, b Object) (Object, bool, error) {
-	if ba, ok := a.(*bytearrayObject); ok {
+	if ba, self, ok := bytearrayInplaceTarget(a); ok {
 		n, ok := AsInt(b)
 		if !ok {
 			return nil, false, nil
@@ -148,7 +148,7 @@ func inplaceRepeat(a, b Object) (Object, bool, error) {
 			}
 		}
 		ba.mu.Unlock()
-		return ba, true, nil
+		return self, true, nil
 	}
 	// array *= n repeats in place; a non-int count declines so the binary Mul
 	// raises the same non-int message array * n would.
