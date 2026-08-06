@@ -111,6 +111,68 @@ func mvElements(m *memoryviewObject) ([]Object, error) {
 	return out, nil
 }
 
+// mvEqDunder evaluates memoryview.__eq__(other) the way CPython's
+// memory_richcompare does for ==: a released view is equal only to the very same
+// object, and otherwise the view compares equal to any buffer operand whose
+// format-decoded elements match its own element by element, so a typed view and
+// a bytes of the same logical values are equal even though their raw bytes
+// differ. A non-buffer operand declines (handled=false) so the comparison falls
+// through to the other operand and then to unequal.
+func mvEqDunder(m *memoryviewObject, other Object) (bool, bool) {
+	if m.released {
+		// A released view backs no buffer, so it compares equal only to itself and
+		// declines nothing, matching CPython which answers a released view's
+		// equality by identity rather than raising.
+		return m == other, true
+	}
+	oe, ok := bufferElements(other)
+	if !ok {
+		return false, false
+	}
+	me, err := mvElements(m)
+	if err != nil {
+		// An unsupported element format (the wchar codes) cannot be decoded for a
+		// structural compare, so the view is simply unequal rather than raising.
+		return false, true
+	}
+	return seqEquals(me, oe), true
+}
+
+// bufferElements decodes any buffer builtin into its logical elements for a
+// structural memoryview comparison: a bytes or bytearray yields its bytes as
+// ints, an array its already-decoded elements, and a live memoryview its
+// format-decoded elements. ok is false for a non-buffer or a released view.
+func bufferElements(o Object) ([]Object, bool) {
+	switch v := o.(type) {
+	case *bytesObject:
+		return byteInts(v.v), true
+	case *bytearrayObject:
+		return byteInts(v.snapshot()), true
+	case *arrayObject:
+		return v.elts, true
+	case *memoryviewObject:
+		if v.released {
+			return nil, false
+		}
+		el, err := mvElements(v)
+		if err != nil {
+			return nil, false
+		}
+		return el, true
+	}
+	return nil, false
+}
+
+// byteInts expands raw bytes into a slice of int objects, the element view a
+// bytes or bytearray presents to a structural buffer comparison.
+func byteInts(b []byte) []Object {
+	out := make([]Object, len(b))
+	for i, c := range b {
+		out[i] = NewInt(int64(c))
+	}
+	return out
+}
+
 // mvSpan copies out the bytes this view exposes: the byte-length window that
 // starts at off in the root buffer.
 func mvSpan(m *memoryviewObject) []byte {

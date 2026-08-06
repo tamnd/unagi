@@ -954,6 +954,22 @@ func equals(a, b Object) bool {
 	if y, ok := b.(*chainMapObject); ok {
 		return chainMapEquals(y, a)
 	}
+	// The four buffer builtins (bytes, bytearray, array, memoryview) compare with
+	// CPython's order-sensitive per-type equality, not the symmetric switch below:
+	// a bytearray compares its raw bytes while a memoryview compares its
+	// format-decoded elements, so bytearray(b"ab") == memoryview(array('i', [97,
+	// 98])) is False (the byte lengths differ) yet the reverse is True. do_richcompare
+	// tries the left operand's __eq__, then the right's, then falls back to identity,
+	// and bufferEq drives that trial in the operands' own order.
+	if bufferEqType(a) || bufferEqType(b) {
+		if res, handled := bufferEqDunder(a, b); handled {
+			return res
+		}
+		if res, handled := bufferEqDunder(b, a); handled {
+			return res
+		}
+		return a == b
+	}
 	switch x := a.(type) {
 	case *noneObject:
 		_, ok := b.(*noneObject)
@@ -961,52 +977,12 @@ func equals(a, b Object) bool {
 	case *strObject:
 		y, ok := AsStr(b)
 		return ok && x.v == y
-	case *bytesObject:
-		// bytes compares equal only to another bytes or bytearray by content, plus a
-		// memoryview which compares back against the bytes from its own side; it does
-		// not read an array as bytes-like. CPython's bytes_richcompare only accepts a
-		// bytes or bytearray, so bytes == array is False while bytes == memoryview is
-		// True through memoryview.__eq__, and mvBytesLike would otherwise take the
-		// array's buffer here and wrongly report equal.
-		if _, isArr := b.(*arrayObject); isArr {
-			return false
-		}
-		yv, ok := mvBytesLike(b)
-		return ok && string(x.v) == string(yv)
-	case *bytearrayObject:
-		yv, ok := mvBytesLike(b)
-		return ok && string(x.snapshot()) == string(yv)
-	case *memoryviewObject:
-		// A memoryview compares equal to any bytes-like object with the same
-		// bytes, another memoryview included; a non-buffer is simply unequal. A
-		// released view backs no bytes, so it compares unequal rather than
-		// raising.
-		if x.released {
-			return false
-		}
-		yv, ok := mvBytesLike(b)
-		return ok && string(mvSpan(x)) == string(yv)
 	case *listObject:
 		y, ok := b.(*listObject)
 		return ok && seqEquals(x.elts, y.elts)
 	case *dequeObject:
 		y, ok := b.(*dequeObject)
 		return ok && dequeEquals(x, y)
-	case *arrayObject:
-		if y, ok := b.(*arrayObject); ok {
-			return arrayEquals(x, y)
-		}
-		// An array also compares equal to a bytearray or memoryview whose buffer
-		// holds the array's raw machine bytes, since each compares back against the
-		// array through the buffer protocol; it does not compare equal to a bytes,
-		// which reads only bytes and bytearray. CPython: array == bytearray and
-		// array == memoryview are True, array == bytes is False.
-		switch b.(type) {
-		case *bytearrayObject, *memoryviewObject:
-			yv, ok := mvBytesLike(b)
-			return ok && string(x.tobytes()) == string(yv)
-		}
-		return false
 	case *tupleObject:
 		y, ok := b.(*tupleObject)
 		return ok && seqEquals(x.elts, y.elts)
@@ -1059,6 +1035,47 @@ func equals(a, b Object) bool {
 		return ok && x.origin == y.origin
 	}
 	return a == b
+}
+
+// bufferEqType reports whether o is one of the four buffer builtins whose
+// equality follows CPython's per-type __eq__ rather than the symmetric switch in
+// equals: bytes, bytearray, array and memoryview. Their equality is order
+// sensitive, so it runs through the left-then-right dunder trial bufferEq drives.
+func bufferEqType(o Object) bool {
+	switch o.(type) {
+	case *bytesObject, *bytearrayObject, *arrayObject, *memoryviewObject:
+		return true
+	}
+	return false
+}
+
+// bufferEqDunder evaluates x.__eq__(other) for a buffer builtin x, returning the
+// result and handled=true when x's type answers definitively, or handled=false
+// for the NotImplemented decline that hands the comparison to the other operand.
+// It mirrors each type's tp_richcompare: bytes reads only a bytes or bytearray,
+// bytearray and its raw-byte compare read any buffer, array reads only an array,
+// and a memoryview compares its format-decoded elements through mvEqDunder.
+func bufferEqDunder(x, other Object) (bool, bool) {
+	switch v := x.(type) {
+	case *bytesObject:
+		if ov, ok := asBytesLike(other); ok {
+			return string(v.v) == string(ov), true
+		}
+		return false, false
+	case *bytearrayObject:
+		if ov, ok := mvBytesLike(other); ok {
+			return string(v.snapshot()) == string(ov), true
+		}
+		return false, false
+	case *arrayObject:
+		if oy, ok := other.(*arrayObject); ok {
+			return arrayEquals(v, oy), true
+		}
+		return false, false
+	case *memoryviewObject:
+		return mvEqDunder(v, other)
+	}
+	return false, false
 }
 
 func seqEquals(a, b []Object) bool {
