@@ -65,6 +65,46 @@ func builtinTypeClassmethod(typeName, name string) (Object, bool) {
 	return nil, false
 }
 
+// subclassConstructingClassmethod names the classmethods a value subclass
+// inherits that build an instance of the class they are read on: int.from_bytes,
+// float.fromhex and the bytes/bytearray fromhex each construct cls, so on a
+// subclass they must rebuild the subclass rather than the plain base type. Every
+// other builtinTypeClassmethod (maketrans, __getformat__, fromkeys) returns a
+// native result and inherits unchanged.
+var subclassConstructingClassmethod = map[string]map[string]bool{
+	"int":       {"from_bytes": true},
+	"bool":      {"from_bytes": true},
+	"float":     {"fromhex": true},
+	"bytes":     {"fromhex": true},
+	"bytearray": {"fromhex": true},
+}
+
+// valueSubclassClassmethod resolves a class-level classmethod a value subclass
+// inherits from its builtin base, the form MyInt.from_bytes(...) and
+// MyFloat.fromhex(...) take. A constructing classmethod is wrapped so its result
+// is rebuilt as the subclass (MyInt.from_bytes yields a MyInt, not a bare int),
+// matching CPython where the classmethod builds cls; a non-constructing one
+// inherits unchanged. ok is false when the base names no such classmethod.
+func valueSubclassClassmethod(cls *classObject, base, name string) (Object, bool) {
+	fn, ok := builtinTypeClassmethod(base, name)
+	if !ok {
+		return nil, false
+	}
+	if !subclassConstructingClassmethod[base][name] {
+		return fn, true
+	}
+	wrapped := func(pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+		v, err := CallKw(fn, pos, kwNames, kwVals)
+		if err != nil {
+			return nil, err
+		}
+		// Rebuild the value as the subclass, the way the classmethod constructs cls;
+		// calling the class runs its own construction so an override is honored.
+		return Call(cls, []Object{v})
+	}
+	return NewFuncKw(name, wrapped), true
+}
+
 func dictMethod(x *dictObject, name string, args []Object) (Object, error) {
 	switch name {
 	case "get":

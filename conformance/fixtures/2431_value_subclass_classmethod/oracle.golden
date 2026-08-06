@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+int-from_bytes 258 MyInt
+int-from_bytes-signed -1 MyInt
+int-from_bytes-little 513 MyInt
+float-fromhex 12.0 MyFloat
+float-fromhex-neg -16.0 MyFloat
+bytes-fromhex b'ab' MyBytes
+bytes-fromhex-space b'ab' MyBytes
+subclass-value 256 int
+subclass-bit_length 9 int
+float-fromhex-err ERR ValueError invalid hexadecimal floating-point string
+int-from_bytes-badorder ERR ValueError byteorder must be either 'little' or 'big'
+str-maketrans 'dict' str
+bytes-maketrans 'bytes' str
+float-getformat 'IEEE, little-endian' str
+override 'overridden' str
+plain-int 258 int
+plain-float 12.0 float
+== exception:
+== stderr:

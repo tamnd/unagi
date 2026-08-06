@@ -2695,6 +2695,15 @@ func LoadAttr(o Object, name string) (Object, error) {
 		if name == "__module__" {
 			return NewStr("builtins"), nil
 		}
+		// A value subclass inherits its builtin base's constructing classmethods,
+		// so MyInt.from_bytes and MyFloat.fromhex resolve and rebuild the subclass,
+		// the class-level counterpart to the instance-method inheritance a value
+		// subclass already carries. It runs last so a class-dict override still wins.
+		if x.builtinBase != "" {
+			if v, ok := valueSubclassClassmethod(x, x.builtinBase, name); ok {
+				return v, nil
+			}
+		}
 		return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
 	case *annotationsDescriptor:
 		// annotationlib binds `type.__dict__["__annotations__"].__get__` once and
