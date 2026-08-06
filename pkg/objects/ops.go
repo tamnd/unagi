@@ -1259,6 +1259,9 @@ func Compare(op CmpOp, a, b Object) (Object, error) {
 func Contains(container, item Object) (Object, error) {
 	switch x := container.(type) {
 	case *memoryviewObject:
+		if mvNdim(x) > 1 {
+			return nil, Raise("NotImplementedError", "multi-dimensional sub-views are not implemented")
+		}
 		elts, err := mvElements(x)
 		if err != nil {
 			return nil, err
@@ -1751,7 +1754,7 @@ func Len(o Object) (int, error) {
 		if x.released {
 			return 0, mvReleased()
 		}
-		return x.length, nil
+		return mvShape(x)[0], nil
 	case *strObject:
 		return strLen(x.v), nil
 	case *bytesObject:
@@ -1927,6 +1930,9 @@ func (it *bigRangeIter) Next() (Object, bool, error) {
 func Iter(o Object) (Iterator, error) {
 	switch x := o.(type) {
 	case *memoryviewObject:
+		if mvNdim(x) > 1 {
+			return nil, Raise("NotImplementedError", "multi-dimensional sub-views are not implemented")
+		}
 		elts, err := mvElements(x)
 		if err != nil {
 			return nil, err

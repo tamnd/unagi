@@ -356,6 +356,8 @@ func CallMethodKwT(t *Thread, o Object, name string, pos []Object, kwNames []str
 		return eventLoopMethodKw(x, name, pos, kwNames, kwVals)
 	case *contextObject:
 		return contextMethodKw(t, x, name, pos, kwNames, kwVals)
+	case *memoryviewObject:
+		return memoryviewMethodKw(x, name, pos, kwNames, kwVals)
 	case *boundMethod, *functionObject, *funcObject, *namedTupleType, *lruCacheObject, *singleDispatchObject, *propertyObject:
 		// A read-then-call the same way CallMethodT dispatches these, so a keyword
 		// call on a helper carried by a builtin works too: int.from_bytes(b, 'big',

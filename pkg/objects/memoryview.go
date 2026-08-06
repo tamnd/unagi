@@ -20,8 +20,17 @@ import (
 // length*itemsize wide. format is the struct code and itemsize its width: a
 // fresh view is the 'B' single-byte format, and cast() re-reads the same bytes
 // under a wider code. released is set once release() or the with-statement exit
-// has torn the view down, after which every buffer operation raises. Multi
-// dimensional shapes are a later slice.
+// has torn the view down, after which every buffer operation raises.
+//
+// shape and strides carry the multi-dimensional layout cast(format, shape)
+// builds: shape holds the per-dimension element counts and strides the
+// per-dimension byte steps, so a two-dimensional view over the same flat buffer
+// answers ndim, shape and strides the way CPython's cast does. Both are nil for
+// an ordinary one-dimensional view, whose shape is the implicit [length] and
+// whose strides are the contiguous [itemsize]; length always equals the product
+// of shape. A row slice of a multi-dimensional view keeps the same base and only
+// shifts off and dim zero, so a step of one stays C-contiguous and an extended
+// step becomes a strided view whose element reads walk strides.
 type memoryviewObject struct {
 	base     Object
 	readonly bool
@@ -30,6 +39,119 @@ type memoryviewObject struct {
 	format   string
 	itemsize int
 	released bool
+	shape    []int
+	strides  []int
+}
+
+// mvShape returns the per-dimension element counts, the implicit one-dimensional
+// [length] when the view carries no explicit shape.
+func mvShape(m *memoryviewObject) []int {
+	if m.shape == nil {
+		return []int{m.length}
+	}
+	return m.shape
+}
+
+// mvNdim is the number of dimensions the view exposes, one for an ordinary view
+// and len(shape) for a cast multi-dimensional one.
+func mvNdim(m *memoryviewObject) int {
+	if m.shape == nil {
+		return 1
+	}
+	return len(m.shape)
+}
+
+// cContigStrides derives the C-contiguous byte strides for a shape: the step of
+// a dimension is its itemsize times the product of every dimension below it.
+func cContigStrides(shape []int, itemsize int) []int {
+	out := make([]int, len(shape))
+	sd := itemsize
+	for k := len(shape) - 1; k >= 0; k-- {
+		out[k] = sd
+		sd *= shape[k]
+	}
+	return out
+}
+
+// mvStrides returns the per-dimension byte steps, deriving the contiguous
+// strides from the shape when the view carries none of its own.
+func mvStrides(m *memoryviewObject) []int {
+	if m.strides != nil {
+		return m.strides
+	}
+	return cContigStrides(mvShape(m), m.itemsize)
+}
+
+// intTuple boxes a run of ints into a tuple, the shape and strides metadata the
+// buffer attributes report.
+func intTuple(xs []int) Object {
+	out := make([]Object, len(xs))
+	for i, x := range xs {
+		out[i] = NewInt(int64(x))
+	}
+	return NewTuple(out)
+}
+
+// intProduct multiplies a run of dimension sizes, returning one for the empty
+// shape the way CPython's product of an empty shape is a single element.
+func intProduct(dims []int) int {
+	p := 1
+	for _, d := range dims {
+		p *= d
+	}
+	return p
+}
+
+// mvIsCContiguous reports whether the view's strides describe a C-contiguous
+// layout, following CPython's check that ignores dimensions of size one whose
+// stride is irrelevant. An ordinary view with no explicit strides is always
+// C-contiguous.
+func mvIsCContiguous(m *memoryviewObject) bool {
+	if m.strides == nil {
+		return true
+	}
+	shape, strides := mvShape(m), m.strides
+	sd := m.itemsize
+	for k := len(shape) - 1; k >= 0; k-- {
+		if shape[k] > 1 && strides[k] != sd {
+			return false
+		}
+		sd *= shape[k]
+	}
+	return true
+}
+
+// mvIsFContiguous reports whether the view is Fortran-contiguous, the column
+// major mirror of the C check: a one-dimensional or single-non-unit-dimension
+// contiguous view is both, matching CPython's f_contiguous.
+func mvIsFContiguous(m *memoryviewObject) bool {
+	shape, strides := mvShape(m), mvStrides(m)
+	sd := m.itemsize
+	for k := 0; k < len(shape); k++ {
+		if shape[k] > 1 && strides[k] != sd {
+			return false
+		}
+		sd *= shape[k]
+	}
+	return true
+}
+
+// mvElemByteOff maps a flat C-order element index to its byte offset in the root
+// buffer. A view with no explicit strides is contiguous, so the offset is a
+// plain stride from off; a strided view decomposes the flat index into a
+// multi-index and sums the per-dimension byte steps.
+func mvElemByteOff(m *memoryviewObject, e int) int {
+	if m.strides == nil {
+		return m.off + e*m.itemsize
+	}
+	shape, strides := mvShape(m), m.strides
+	off := m.off
+	rem := e
+	for k := len(shape) - 1; k >= 0; k-- {
+		off += (rem % shape[k]) * strides[k]
+		rem /= shape[k]
+	}
+	return off
 }
 
 // mvReleased is the error every buffer operation raises once the view has been
@@ -140,6 +262,12 @@ func mvEqDunder(m *memoryviewObject, other Object) (bool, bool) {
 	if !ok {
 		return false, false
 	}
+	if !intSliceEqual(mvShape(m), mvBufferShape(other, len(oe))) {
+		// CPython's memory compare is shape sensitive, so a two-dimensional view and
+		// a flat buffer of the same elements are unequal even though their element
+		// runs match.
+		return false, true
+	}
 	me, err := mvElements(m)
 	if err != nil {
 		// An unsupported element format (the wchar codes) cannot be decoded for a
@@ -147,6 +275,29 @@ func mvEqDunder(m *memoryviewObject, other Object) (bool, bool) {
 		return false, true
 	}
 	return seqEquals(me, oe), true
+}
+
+// mvBufferShape is the shape the other operand of a memoryview compare presents:
+// its own shape when it is a memoryview and the flat one-dimensional shape for a
+// bytes, bytearray or array whose element count is n.
+func mvBufferShape(other Object, n int) []int {
+	if v, ok := other.(*memoryviewObject); ok {
+		return mvShape(v)
+	}
+	return []int{n}
+}
+
+// intSliceEqual reports whether two dimension runs are element-wise equal.
+func intSliceEqual(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // bufferElements decodes any buffer builtin into its logical elements for a
@@ -184,23 +335,34 @@ func byteInts(b []byte) []Object {
 	return out
 }
 
-// mvSpan copies out the bytes this view exposes: the byte-length window that
-// starts at off in the root buffer.
+// mvSpan copies out the bytes this view exposes in C order. A contiguous view is
+// a single window that starts at off, while a strided view (a stepped slice of a
+// multi-dimensional view) is gathered element by element so tobytes and hex
+// still read the logical bytes rather than the raw span.
 func mvSpan(m *memoryviewObject) []byte {
 	full := mvBaseBytes(m)
 	n := mvByteLen(m)
-	out := make([]byte, n)
-	copy(out, full[m.off:m.off+n])
+	if mvIsCContiguous(m) {
+		out := make([]byte, n)
+		copy(out, full[m.off:m.off+n])
+		return out
+	}
+	out := make([]byte, 0, n)
+	for e := 0; e < m.length; e++ {
+		base := mvElemByteOff(m, e)
+		out = append(out, full[base:base+m.itemsize]...)
+	}
 	return out
 }
 
-// mvSetByte writes one byte into the writable base at the view-relative index i,
-// under the bytearray lock so the store is atomic.
+// mvSetByte writes one byte into the writable base at the flat element index i,
+// mapped through the view's strides so a byte store lands at the right offset
+// even for a multi-dimensional view, under the bytearray lock so it is atomic.
 func mvSetByte(m *memoryviewObject, i int, val byte) {
 	ba := m.base.(*bytearrayObject)
 	ba.mu.Lock()
 	defer ba.mu.Unlock()
-	ba.v[m.off+i] = val
+	ba.v[mvElemByteOff(m, i)] = val
 }
 
 // mvIndex normalizes a possibly negative element index against the view length,
@@ -232,16 +394,27 @@ func mvByteFromObj(o Object) (byte, error) {
 	return 0, Raise(TypeError, "memoryview: invalid type for format 'B'")
 }
 
-// mvGetItem reads mv[key]: an integer index returns the element as an int,
-// decoded from itemsize bytes under the view's format, and any non-integer key
-// that is not a slice is the probed invalid-slice-key TypeError.
+// mvGetItem reads mv[key]. A tuple key indexes a multi-dimensional view element
+// by element, an integer key reads the element on a one-dimensional view (and on
+// a multi-dimensional view raises the sub-view NotImplementedError CPython
+// raises), and any other non-slice key is the invalid-slice-key TypeError.
 func mvGetItem(m *memoryviewObject, key Object) (Object, error) {
 	if m.released {
 		return nil, mvReleased()
 	}
+	if t, ok := key.(*tupleObject); ok {
+		e, err := mvTupleIndex(m, t.elts)
+		if err != nil {
+			return nil, err
+		}
+		return mvDecodeObj(m, e)
+	}
 	i, ok := AsInt(key)
 	if !ok {
 		return nil, Raise(TypeError, "memoryview: invalid slice key")
+	}
+	if mvNdim(m) > 1 {
+		return nil, Raise("NotImplementedError", "multi-dimensional sub-views are not implemented")
 	}
 	j, err := mvIndex(m, i)
 	if err != nil {
@@ -250,11 +423,43 @@ func mvGetItem(m *memoryviewObject, key Object) (Object, error) {
 	return mvDecodeObj(m, j)
 }
 
+// mvTupleIndex resolves a tuple key to a flat C-order element index. A tuple
+// whose length matches the view's dimensions addresses one element, with each
+// component normalised against its own dimension and a per-dimension IndexError
+// naming the one-based dimension when it falls outside. A longer tuple is the
+// arity TypeError, and a shorter one (an empty tuple included) would name a
+// sub-view, which is not implemented.
+func mvTupleIndex(m *memoryviewObject, idx []Object) (int, error) {
+	shape := mvShape(m)
+	n := len(shape)
+	if len(idx) > n {
+		return 0, Raise(TypeError, "cannot index %d-dimension view with %d-element tuple", n, len(idx))
+	}
+	if len(idx) < n {
+		return 0, Raise("NotImplementedError", "sub-views are not implemented")
+	}
+	flat := 0
+	for k := 0; k < n; k++ {
+		i, ok := AsInt(idx[k])
+		if !ok {
+			return 0, Raise(TypeError, "memoryview: invalid slice key")
+		}
+		if i < 0 {
+			i += int64(shape[k])
+		}
+		if i < 0 || i >= int64(shape[k]) {
+			return 0, Raise(IndexError, "index out of bounds on dimension %d", k+1)
+		}
+		flat = flat*shape[k] + int(i)
+	}
+	return flat, nil
+}
+
 // mvRawWord reads element e as the little-endian machine word of the view's
 // itemsize, before any sign or float interpretation.
 func mvRawWord(m *memoryviewObject, e int) uint64 {
 	full := mvBaseBytes(m)
-	base := m.off + e*m.itemsize
+	base := mvElemByteOff(m, e)
 	var u uint64
 	for k := 0; k < m.itemsize; k++ {
 		u |= uint64(full[base+k]) << (8 * k)
@@ -331,22 +536,41 @@ func mvSetItem(m *memoryviewObject, key, val Object) error {
 	if m.readonly {
 		return Raise(TypeError, "cannot modify read-only memory")
 	}
-	i, ok := AsInt(key)
-	if !ok {
+	if t, ok := key.(*tupleObject); ok {
+		e, err := mvTupleIndex(m, t.elts)
+		if err != nil {
+			return err
+		}
+		return mvWriteElem(m, e, val)
+	}
+	if _, ok := AsInt(key); !ok {
 		return Raise(TypeError, "memoryview: invalid slice key")
 	}
+	if mvNdim(m) > 1 {
+		// A write through a single integer index on a multi-dimensional view would
+		// address a sub-view, which CPython leaves unimplemented.
+		return Raise("NotImplementedError", "sub-views are not implemented")
+	}
+	i, _ := AsInt(key)
 	j, err := mvIndex(m, i)
 	if err != nil {
 		return err
 	}
+	return mvWriteElem(m, j, val)
+}
+
+// mvWriteElem stores val into the flat element at index e. A view over an array
+// writes a whole typed element back, while a byte view runs the value through
+// the format-'B' byte coercion and writes it at the element's byte offset.
+func mvWriteElem(m *memoryviewObject, e int, val Object) error {
 	if a, ok := m.base.(*arrayObject); ok {
-		return mvArraySet(m, a, j, val)
+		return mvArraySet(m, a, e, val)
 	}
 	b, err := mvByteFromObj(val)
 	if err != nil {
 		return err
 	}
-	mvSetByte(m, j, b)
+	mvSetByte(m, e, b)
 	return nil
 }
 
@@ -375,7 +599,7 @@ func mvArraySet(m *memoryviewObject, a *arrayObject, j int, val Object) error {
 	if err != nil {
 		return Raise(ValueError, "memoryview: invalid value for format '%s'", m.format)
 	}
-	a.elts[m.off/m.itemsize+j] = cv
+	a.elts[mvElemByteOff(m, j)/m.itemsize] = cv
 	return nil
 }
 
@@ -386,6 +610,9 @@ func mvArraySet(m *memoryviewObject, a *arrayObject, j int, val Object) error {
 func mvGetSlice(m *memoryviewObject, lo, hi, step Object) (Object, error) {
 	if m.released {
 		return nil, mvReleased()
+	}
+	if mvNdim(m) > 1 {
+		return mvGetSliceMulti(m, lo, hi, step)
 	}
 	start, st, n, err := sliceIndices(lo, hi, step, m.length)
 	if err != nil {
@@ -401,6 +628,35 @@ func mvGetSlice(m *memoryviewObject, lo, hi, step Object) (Object, error) {
 		out = append(out, full[base:base+m.itemsize]...)
 	}
 	return &memoryviewObject{base: NewBytes(out), readonly: true, off: 0, length: n, format: m.format, itemsize: m.itemsize}, nil
+}
+
+// mvGetSliceMulti slices the leading dimension of a multi-dimensional view. The
+// slice picks rows out of dimension zero, keeping every inner dimension whole,
+// so the result shares the same root buffer at a shifted offset. A step of one
+// keeps the rows contiguous, while an extended step spaces them out into a
+// strided sub-view whose element reads walk the recorded strides, matching
+// CPython which returns a view rather than a copy here.
+func mvGetSliceMulti(m *memoryviewObject, lo, hi, step Object) (Object, error) {
+	shape := mvShape(m)
+	strides := mvStrides(m)
+	start, st, n, err := sliceIndices(lo, hi, step, shape[0])
+	if err != nil {
+		return nil, err
+	}
+	newShape := append([]int(nil), shape...)
+	newShape[0] = n
+	newStrides := append([]int(nil), strides...)
+	newStrides[0] = strides[0] * st
+	return &memoryviewObject{
+		base:     m.base,
+		readonly: m.readonly,
+		off:      m.off + start*strides[0],
+		length:   n * intProduct(shape[1:]),
+		format:   m.format,
+		itemsize: m.itemsize,
+		shape:    newShape,
+		strides:  newStrides,
+	}, nil
 }
 
 // mvSetSlice writes mv[lo:hi:step] = val. A memoryview slice assignment needs an
@@ -599,11 +855,7 @@ func memoryviewMethod(m *memoryviewObject, name string, args []Object) (Object, 
 		}
 		return NewBytes(mvSpan(m)), nil
 	case "tolist":
-		out, err := mvElements(m)
-		if err != nil {
-			return nil, err
-		}
-		return NewList(out), nil
+		return mvToList(m)
 	case "hex":
 		if m.released {
 			return nil, mvReleased()
@@ -642,6 +894,20 @@ func memoryviewMethod(m *memoryviewObject, name string, args []Object) (Object, 
 	return nil, noAttr(m, name)
 }
 
+// memoryviewMethodKw dispatches a keyword call on a memoryview. Only cast takes
+// keyword arguments, its format and shape both position-or-keyword; every other
+// method with no keywords routes to the positional surface, and a keyword passed
+// to one of them is the generic no-keyword-arguments TypeError.
+func memoryviewMethodKw(m *memoryviewObject, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	if name == "cast" {
+		return mvCastKw(m, pos, kwNames, kwVals)
+	}
+	if len(kwNames) == 0 {
+		return memoryviewMethod(m, name, pos)
+	}
+	return nil, Raise(TypeError, "memoryview.%s() takes no keyword arguments", name)
+}
+
 // mvCast implements memoryview.cast(format): it re-reads the same contiguous
 // bytes under a new struct format, the reinterpret _compiler._bytes_to_codes
 // runs to pack a byte block index array into engine words with cast('I'). One
@@ -649,36 +915,136 @@ func memoryviewMethod(m *memoryviewObject, name string, args []Object) (Object, 
 // the new itemsize, and the result shares the root buffer so a writable view
 // still aliases.
 func mvCast(m *memoryviewObject, args []Object) (Object, error) {
+	return mvCastKw(m, args, nil, nil)
+}
+
+// mvCastKw is the keyword-aware body of memoryview.cast(format, shape=...). Both
+// arguments are position-or-keyword the way CPython's clinic declares them, so
+// it binds the two slots from the positional run and the keyword names, raising
+// CPython's own duplicate, unknown-keyword and arity messages, then reads the
+// same bytes under the new format, one-dimensional by default or reshaped into
+// the given shape.
+func mvCastKw(m *memoryviewObject, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	if len(pos)+len(kwNames) > 2 {
+		return nil, Raise(TypeError, "cast() takes at most 2 arguments (%d given)", len(pos)+len(kwNames))
+	}
+	var slots [2]Object
+	var have [2]bool
+	for i, v := range pos {
+		slots[i], have[i] = v, true
+	}
+	for i, name := range kwNames {
+		var slot int
+		switch name {
+		case "format":
+			slot = 0
+		case "shape":
+			slot = 1
+		default:
+			return nil, Raise(TypeError, "cast() got an unexpected keyword argument '%s'", name)
+		}
+		if have[slot] {
+			return nil, Raise(TypeError, "argument for cast() given by name ('%s') and position (%d)", name, slot+1)
+		}
+		slots[slot], have[slot] = kwVals[i], true
+	}
+	if !have[0] {
+		return nil, Raise(TypeError, "cast() missing required argument 'format' (pos 1)")
+	}
+	format, ok := AsStr(slots[0])
+	if !ok {
+		return nil, Raise(TypeError, "cast() argument 1 must be str, not %s", slots[0].TypeName())
+	}
+	return mvCastCore(m, format, slots[1], have[1])
+}
+
+// mvCastCore re-reads the view's bytes under a new format, optionally reshaped.
+// The checks run in CPython's order: a released or non-C-contiguous view is
+// rejected first, then a shape argument must be a list or tuple, then the
+// destination format must be a supported single-character code, then a reshape
+// only casts a one-dimensional source, and neither side may be a wider format
+// unless the other is a single byte. Without a shape the byte span divides into
+// the new itemsize; with one the shape's elements are positive integers whose
+// product times the itemsize fills the buffer.
+func mvCastCore(m *memoryviewObject, format string, shapeObj Object, haveShape bool) (Object, error) {
 	if m.released {
 		return nil, mvReleased()
 	}
-	if len(args) != 1 {
-		return nil, Raise(TypeError, "cast() takes exactly 1 argument (%d given)", len(args))
+	if !mvIsCContiguous(m) {
+		return nil, Raise(TypeError, "memoryview: casts are restricted to C-contiguous views")
 	}
-	format, ok := AsStr(args[0])
-	if !ok {
-		return nil, Raise(TypeError, "cast() argument 1 must be str, not %s", args[0].TypeName())
+	var shapeElems []Object
+	if haveShape {
+		switch s := shapeObj.(type) {
+		case *listObject:
+			shapeElems = s.elts
+		case *tupleObject:
+			shapeElems = s.elts
+		default:
+			return nil, Raise(TypeError, "shape must be a list or a tuple")
+		}
 	}
 	size, ok := mvFormatSize(format)
 	if !ok {
 		return nil, Raise(ValueError,
 			"memoryview: destination format must be a native single character format prefixed with an optional '@'")
 	}
+	if haveShape && mvNdim(m) != 1 {
+		return nil, Raise(TypeError, "memoryview: cast must be 1D -> ND or ND -> 1D")
+	}
 	if m.itemsize != 1 && size != 1 {
 		return nil, Raise(TypeError, "memoryview: cannot cast between two non-byte formats")
 	}
 	byteLen := mvByteLen(m)
-	if byteLen%size != 0 {
-		return nil, Raise(TypeError, "memoryview: length is not a multiple of itemsize")
+	if !haveShape {
+		if byteLen%size != 0 {
+			return nil, Raise(TypeError, "memoryview: length is not a multiple of itemsize")
+		}
+		return &memoryviewObject{base: m.base, readonly: m.readonly, off: m.off, length: byteLen / size, format: format, itemsize: size}, nil
 	}
-	return &memoryviewObject{
-		base:     m.base,
-		readonly: m.readonly,
-		off:      m.off,
-		length:   byteLen / size,
-		format:   format,
-		itemsize: size,
-	}, nil
+	dims := make([]int, len(shapeElems))
+	for i, e := range shapeElems {
+		d, ok := AsInt(e)
+		if !ok {
+			return nil, Raise(TypeError, "memoryview.cast(): elements of shape must be integers")
+		}
+		if d <= 0 {
+			return nil, Raise(ValueError, "memoryview.cast(): elements of shape must be integers > 0")
+		}
+		dims[i] = int(d)
+	}
+	if intProduct(dims)*size != byteLen {
+		return nil, Raise(TypeError, "memoryview: product(shape) * itemsize != buffer size")
+	}
+	return &memoryviewObject{base: m.base, readonly: m.readonly, off: m.off, length: intProduct(dims), format: format, itemsize: size, shape: dims}, nil
+}
+
+// mvToList renders memoryview.tolist(): a one-dimensional view is a flat list of
+// its decoded elements, and a multi-dimensional view nests one list per
+// dimension the way CPython reshapes the flat elements in C order.
+func mvToList(m *memoryviewObject) (Object, error) {
+	elts, err := mvElements(m)
+	if err != nil {
+		return nil, err
+	}
+	if mvNdim(m) == 1 {
+		return NewList(elts), nil
+	}
+	return mvReshape(elts, mvShape(m)), nil
+}
+
+// mvReshape folds a flat C-order run of elements into the nested list structure a
+// shape describes, the innermost dimension becoming the leaf lists.
+func mvReshape(elts []Object, shape []int) Object {
+	if len(shape) == 1 {
+		return NewList(elts)
+	}
+	inner := intProduct(shape[1:])
+	rows := make([]Object, shape[0])
+	for i := 0; i < shape[0]; i++ {
+		rows[i] = mvReshape(elts[i*inner:(i+1)*inner], shape[1:])
+	}
+	return NewList(rows)
 }
 
 // memoryviewLoadAttr answers the read-only metadata attributes of a 'B' view:
@@ -706,17 +1072,21 @@ func memoryviewLoadAttr(m *memoryviewObject, name string) (Object, error) {
 	case "itemsize":
 		return NewInt(int64(m.itemsize)), nil
 	case "ndim":
-		return NewInt(1), nil
+		return NewInt(int64(mvNdim(m))), nil
 	case "shape":
-		return NewTuple([]Object{NewInt(int64(m.length))}), nil
+		return intTuple(mvShape(m)), nil
 	case "strides":
-		return NewTuple([]Object{NewInt(int64(m.itemsize))}), nil
+		return intTuple(mvStrides(m)), nil
 	case "nbytes":
 		return NewInt(int64(mvByteLen(m))), nil
 	case "readonly":
 		return NewBool(m.readonly), nil
-	case "contiguous", "c_contiguous", "f_contiguous":
-		return True, nil
+	case "c_contiguous":
+		return NewBool(mvIsCContiguous(m)), nil
+	case "f_contiguous":
+		return NewBool(mvIsFContiguous(m)), nil
+	case "contiguous":
+		return NewBool(mvIsCContiguous(m) || mvIsFContiguous(m)), nil
 	case "obj":
 		return m.base, nil
 	}
