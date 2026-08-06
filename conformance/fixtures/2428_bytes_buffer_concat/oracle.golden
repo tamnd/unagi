@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+b'abcd' b'abcd' b'abcd' b'abcd'
+bytearray(b'abcd') bytearray(b'abcd') bytearray(b'abcd')
+bytes bytearray
+b'[xy]' bytearray(b'[xy')
+b'abcd' bytearray(b'abcd')
+bytearray(b'abcdcdef') True bytearray(b'abcdcdef')
+bytes+str can't concat str to bytes
+bytes+list can't concat list to bytes
+bytes+int can't concat int to bytes
+ba+str can't concat str to bytearray
+ba+None can't concat NoneType to bytearray
+ba+=list can't concat list to bytearray
+ba+=str can't concat str to bytearray
+mv+bytes unsupported operand type(s) for +: 'memoryview' and 'bytes'
+== exception:
+== stderr:
