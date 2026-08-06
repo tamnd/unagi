@@ -25,43 +25,57 @@ func intByteorder(o Object) (bigEndian bool, err error) {
 }
 
 // intFromBytes implements int.from_bytes(bytes, byteorder='big', *,
-// signed=False). The first argument is any iterable of ints (a bytes-like value
-// or a list of byte values); the result is the big integer those bytes spell in
-// the chosen order, interpreted as two's complement when signed.
+// signed=False). bytes and byteorder are positional or keyword and signed is
+// keyword only. The bytes argument is any iterable of ints (a bytes-like value or
+// a list of byte values); the result is the big integer those bytes spell in the
+// chosen order, interpreted as two's complement when signed. The required-bytes
+// check precedes the byteorder validation, which precedes the bytes conversion,
+// matching CPython where the argument clinic fills the arguments (and reports a
+// missing one) before the body validates byteorder and reads the bytes.
 func intFromBytes(pos []Object, kwNames []string, kwVals []Object) (Object, error) {
-	if len(pos) < 1 {
-		return nil, Raise(TypeError, "from_bytes() missing required argument 'bytes' (pos 1)")
-	}
 	if len(pos) > 2 {
 		return nil, Raise(TypeError, "from_bytes() takes at most 2 positional arguments (%d given)", len(pos))
 	}
-	raw, err := intBytesFromIterable(pos[0])
-	if err != nil {
-		return nil, err
+	var bytesArg, orderArg Object
+	haveBytes, haveOrder := false, false
+	if len(pos) >= 1 {
+		bytesArg, haveBytes = pos[0], true
 	}
-	bigEndian := true
 	if len(pos) == 2 {
-		bigEndian, err = intByteorder(pos[1])
-		if err != nil {
-			return nil, err
-		}
+		orderArg, haveOrder = pos[1], true
 	}
 	signed := false
 	for i, n := range kwNames {
 		switch n {
+		case "bytes":
+			if haveBytes {
+				return nil, Raise(TypeError, "argument for from_bytes() given by name ('bytes') and position (1)")
+			}
+			bytesArg, haveBytes = kwVals[i], true
 		case "byteorder":
-			if len(pos) == 2 {
+			if haveOrder {
 				return nil, Raise(TypeError, "argument for from_bytes() given by name ('byteorder') and position (2)")
 			}
-			bigEndian, err = intByteorder(kwVals[i])
-			if err != nil {
-				return nil, err
-			}
+			orderArg, haveOrder = kwVals[i], true
 		case "signed":
 			signed = Truth(kwVals[i])
 		default:
 			return nil, Raise(TypeError, "from_bytes() got an unexpected keyword argument '%s'", n)
 		}
+	}
+	if !haveBytes {
+		return nil, Raise(TypeError, "from_bytes() missing required argument 'bytes' (pos 1)")
+	}
+	bigEndian := true
+	if haveOrder {
+		var err error
+		if bigEndian, err = intByteorder(orderArg); err != nil {
+			return nil, err
+		}
+	}
+	raw, err := intBytesFromIterable(bytesArg)
+	if err != nil {
+		return nil, err
 	}
 	// Normalize to big-endian for the magnitude scan.
 	b := raw
