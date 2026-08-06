@@ -507,19 +507,19 @@ func mvSigned(format string) bool {
 	return false
 }
 
-// mvFormatSize maps a struct format code to its byte width, the fixed-width
-// integer subset of codes memoryview.cast accepts. A code outside the set
-// reports not ok, the standard-size codes leaving out the platform-width l/L
-// and the float formats this tier does not decode.
+// mvFormatSize maps a struct format code to its byte width, the standard-size
+// subset of codes memoryview.cast accepts. A code outside the set reports not
+// ok, leaving out only the platform-width l/L this tier does not model. The
+// float codes f and d cast and read back like their array counterparts.
 func mvFormatSize(format string) (int, bool) {
 	switch format {
 	case "b", "B", "c":
 		return 1, true
 	case "h", "H":
 		return 2, true
-	case "i", "I":
+	case "i", "I", "f":
 		return 4, true
-	case "q", "Q":
+	case "q", "Q", "d":
 		return 8, true
 	}
 	return 0, false
@@ -560,47 +560,86 @@ func mvSetItem(m *memoryviewObject, key, val Object) error {
 }
 
 // mvWriteElem stores val into the flat element at index e. A view over an array
-// writes a whole typed element back, while a byte view runs the value through
-// the format-'B' byte coercion and writes it at the element's byte offset.
+// writes a whole typed element back into the array's element list, while a view
+// over a bytes-like buffer encodes the value under the view's format and writes
+// the element's machine bytes in place. The 'c' code and any format outside the
+// encodable set fall back to the single-byte format-'B' coercion.
 func mvWriteElem(m *memoryviewObject, e int, val Object) error {
 	if a, ok := m.base.(*arrayObject); ok {
-		return mvArraySet(m, a, e, val)
+		cv, err := mvCoerceForFormat(m.format, val)
+		if err != nil {
+			return err
+		}
+		a.elts[mvElemByteOff(m, e)/m.itemsize] = cv
+		return nil
 	}
-	b, err := mvByteFromObj(val)
+	if !mvEncodableFormat(m.format) {
+		b, err := mvByteFromObj(val)
+		if err != nil {
+			return err
+		}
+		mvSetByte(m, e, b)
+		return nil
+	}
+	cv, err := mvCoerceForFormat(m.format, val)
 	if err != nil {
 		return err
 	}
-	mvSetByte(m, e, b)
+	mvWriteBytes(m, e, arrayPackOne([]rune(m.format)[0], cv))
 	return nil
 }
 
-// mvArraySet writes val into the array element the view exposes at position j.
-// The type and range are checked with memoryview's own format-named messages,
-// then the value is normalised the way an array store would (an 'f' element
-// rounds to single precision), and the store lands in the array's element so
-// the view aliases it. Probed on 3.14: memoryview(array('i',...))[0] = 1.5 is
-// the invalid-type TypeError and = 2**40 the invalid-value ValueError.
-func mvArraySet(m *memoryviewObject, a *arrayObject, j int, val Object) error {
-	switch m.format {
-	case "u", "w":
-		return Raise("NotImplementedError", "memoryview: format %s not supported", m.format)
-	case "f", "d":
+// mvEncodableFormat reports whether a byte view's format is one arrayPackOne can
+// pack: the fixed-width integer and float codes. The single-byte 'c' code and
+// anything else route through the format-'B' byte coercion instead.
+func mvEncodableFormat(format string) bool {
+	switch format {
+	case "b", "B", "h", "H", "i", "I", "q", "Q", "f", "d":
+		return true
+	}
+	return false
+}
+
+// mvCoerceForFormat validates and normalises val for a store under the view's
+// format, with memoryview's own format-named messages: a wrong type is the
+// invalid-type TypeError, a value out of the format's range the invalid-value
+// ValueError, and the array 'u'/'w' wide-char codes stay unimplemented. The
+// returned object is the array-normalised element (an 'f' value rounded to
+// single precision). Probed on 3.14: a 'i' view stores 1.5 as the invalid-type
+// TypeError and 2**31 as the invalid-value ValueError.
+func mvCoerceForFormat(format string, val Object) (Object, error) {
+	code := []rune(format)[0]
+	switch code {
+	case 'u', 'w':
+		return nil, Raise("NotImplementedError", "memoryview: format %s not supported", format)
+	case 'f', 'd':
 		switch val.(type) {
 		case *intObject, *boolObject, *floatObject:
 		default:
-			return Raise(TypeError, "memoryview: invalid type for format '%s'", m.format)
+			return nil, Raise(TypeError, "memoryview: invalid type for format '%s'", format)
 		}
 	default:
 		if _, ok := AsBigInt(val); !ok {
-			return Raise(TypeError, "memoryview: invalid type for format '%s'", m.format)
+			return nil, Raise(TypeError, "memoryview: invalid type for format '%s'", format)
 		}
 	}
-	cv, err := arrayCoerce(a.code, val)
+	cv, err := arrayCoerce(code, val)
 	if err != nil {
-		return Raise(ValueError, "memoryview: invalid value for format '%s'", m.format)
+		return nil, Raise(ValueError, "memoryview: invalid value for format '%s'", format)
 	}
-	a.elts[mvElemByteOff(m, j)/m.itemsize] = cv
-	return nil
+	return cv, nil
+}
+
+// mvWriteBytes writes buf, one element's worth of machine bytes, at the element
+// e's byte offset in the writable bytearray base, under the buffer lock. The
+// element bytes are always contiguous even when the elements themselves stride,
+// so a straight copy at the element offset lands them correctly.
+func mvWriteBytes(m *memoryviewObject, e int, buf []byte) {
+	ba := m.base.(*bytearrayObject)
+	ba.mu.Lock()
+	defer ba.mu.Unlock()
+	base := mvElemByteOff(m, e)
+	copy(ba.v[base:base+len(buf)], buf)
 }
 
 // mvGetSlice reads mv[lo:hi:step]. A contiguous slice shares the root buffer as
