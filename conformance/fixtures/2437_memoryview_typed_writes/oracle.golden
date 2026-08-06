@@ -1,0 +1,27 @@
+== exit: 0
+== stdout:
+i [999, 0]
+h-neg [-5, 0]
+q [1099511627776, 0]
+Q-big [9223372036854775813, 0]
+i-neg [-2147483648, 0]
+f [1.5, 0.0]
+d [1.5, 0.0]
+b-neg [-1, 0]
+B [200, 0]
+bool [1, 0]
+H-over ERR ValueError memoryview: invalid value for format 'H'
+i-over ERR ValueError memoryview: invalid value for format 'i'
+b-over ERR ValueError memoryview: invalid value for format 'b'
+B-over ERR ValueError memoryview: invalid value for format 'B'
+i-float ERR TypeError memoryview: invalid type for format 'i'
+i-str ERR TypeError memoryview: invalid type for format 'i'
+f-str ERR TypeError memoryview: invalid type for format 'f'
+f-meta f 4 1 [0.0, 0.0]
+d-meta d 8 1 [0.0]
+f-round 0.10000000149011612
+f-to-i ERR TypeError memoryview: cannot cast between two non-byte formats
+md [[-7, 0, 0], [0, 0, 12345]]
+mf [0.0, 2.5, 0.0]
+== exception:
+== stderr:
