@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+kw_bytes OK 258
+kw_both_default_order OK 258
+kw_order_only_pos_bytes OK 513
+kw_signed OK -1
+list_bytes_kw OK 66051
+dup_bytes TypeError argument for from_bytes() given by name ('bytes') and position (1)
+dup_order TypeError argument for from_bytes() given by name ('byteorder') and position (2)
+missing_bytes TypeError from_bytes() missing required argument 'bytes' (pos 1)
+missing_vs_badorder TypeError from_bytes() missing required argument 'bytes' (pos 1)
+badbytes_vs_badorder ValueError byteorder must be either 'little' or 'big'
+unexpected_kw TypeError from_bytes() got an unexpected keyword argument 'nope'
+subclass_kw_bytes MyInt 258
+== exception:
+== stderr:
