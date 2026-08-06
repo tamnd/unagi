@@ -51,8 +51,9 @@ func pickleClassQualname(c *classObject) string {
 // pickleValueBases names the immutable scalar builtins whose value subclasses
 // reduce through NEWOBJ: each payload exposes __getnewargs__, so object.__new__(
 // cls, *args) rebuilds it. tuple is immutable too but its payload has no
-// __getnewargs__ yet, and the mutable containers (list, dict, set) reduce through
-// item iterators, so both stay on the unsupported path until their slices land.
+// __getnewargs__ yet, and the mutable containers (list, dict, set, bytearray)
+// reduce through item iterators or the two-argument callable form, so both stay
+// on the unsupported path until their slices land.
 var pickleValueBases = map[string]bool{
 	"int": true, "float": true, "complex": true, "str": true, "bytes": true,
 }

@@ -441,9 +441,20 @@ func reprCore(o Object, strict bool) (string, error) {
 				}
 				return x.cls.name + "(" + body + ")", nil
 			}
-			// A value subclass with no __repr__ override reprs as its payload, so
-			// an int subclass member prints as its int value.
+			// A bytearray subclass names the type in its repr the way set does,
+			// since bytearray_repr spells Py_TYPE(self)->tp_name, so repr(BA(b"hi"))
+			// is "BA(b'hi')" rather than the plain bytearray form. bytes carries no
+			// type name in its repr, so a bytes subclass still reprs as b'...'.
 			if v, ok := builtinUnwrap(x); ok {
+				if ba, ok := v.(*bytearrayObject); ok {
+					inner, err := reprCore(NewBytes(ba.snapshot()), strict)
+					if err != nil {
+						return "", err
+					}
+					return x.cls.name + "(" + inner + ")", nil
+				}
+				// A value subclass with no __repr__ override reprs as its payload, so
+				// an int subclass member prints as its int value.
 				return reprCore(v, strict)
 			}
 			return instanceRepr(x), nil

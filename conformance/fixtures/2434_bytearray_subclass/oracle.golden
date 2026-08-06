@@ -1,0 +1,36 @@
+== exit: 0
+== stdout:
+from-bytes BA(b'abc') BA
+from-int BA(b'\x00\x00\x00') BA
+from-iterable BA(b'ABC') BA
+from-str BA(b'hello') BA
+empty BA(b'') BA
+str "BA(b'xy')" str
+format-empty "BA(b'xy')" str
+format-spec ERR TypeError unsupported format string passed to BA.__format__
+mutate BA(b'fedcYZ') BA
+pop (100, BA(b'abc')) tuple
+upper bytearray(b'ABC') bytearray
+split [bytearray(b'a'), bytearray(b'b'), bytearray(b'c')] list
+hex '0102' str
+find 2 int
+decode 'hi' str
+add bytearray(b'abcd') bytearray
+mul bytearray(b'abab') bytearray
+iadd BA(b'abcd') BA
+imul BA(b'abab') BA
+eq True bool
+contains True bool
+iter [97, 98, 99] list
+len 3 int
+index 98 int
+slice bytearray(b'bcd') bytearray
+memoryview-write BA(b'zbc') BA
+unhash ERR TypeError unhashable type: 'BA'
+bool-empty False bool
+bool-full True bool
+isinstance-bytearray True bool
+isinstance-ba False bool
+plain bytearray(b'abc') bytearray
+== exception:
+== stderr:

@@ -2429,6 +2429,13 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 		inst.setData = &setObject{newSetCore(0)}
 	case "frozenset":
 		inst.setData = &frozensetObject{newSetCore(0)}
+	case "bytearray":
+		// bytearray is a mutable value base: like list and set, __new__ returns an
+		// empty payload and the fill happens in __init__, so a subclass with a
+		// custom __init__ that calls super().__init__(data) drives the contents.
+		// The payload is a live bytearrayObject the inherited mutators and item
+		// assignment write through.
+		inst.builtinData = NewByteArray(nil)
 	case "int", "float", "complex", "str", "bytes", "tuple", "classmethod", "staticmethod", "property", "ref":
 		// A value subclass builds its immutable payload through the builtin base's
 		// own conversion, the way int.__new__ or str.__new__ sets the value from
@@ -2495,6 +2502,15 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 			// A set or frozenset subclass with no __init__ override inherits
 			// set.__init__, which fills the store from the optional iterable.
 			if err := setInit(inst.setData, pos, kwNames, kwVals); err != nil {
+				return nil, err
+			}
+			return inst, nil
+		}
+		if ba, ok := inst.builtinData.(*bytearrayObject); ok {
+			// A bytearray subclass with no __init__ override inherits
+			// bytearray.__init__, which fills the payload from the optional source
+			// argument, the mutable twin of the list and set fill above.
+			if err := bytearrayInit(ba, pos, kwNames, kwVals); err != nil {
 				return nil, err
 			}
 			return inst, nil

@@ -57,6 +57,17 @@ func NewMemoryView(o Object) (Object, error) {
 		// store through the view lands back in the array. Probed on 3.14:
 		// memoryview(array('i', [1,2,3])).format is 'i' and itemsize 4.
 		return &memoryviewObject{base: b, readonly: false, off: 0, length: len(b.elts), format: string(b.code), itemsize: arrayItemSize(b.code)}, nil
+	case *instanceObject:
+		// A bytes or bytearray subclass exposes the buffer protocol through its
+		// payload, so the view aliases that store: a bytes subclass reads read-only
+		// and a bytearray subclass stays writable, a store through the view landing
+		// back in the shared payload.
+		if v, ok := builtinUnwrap(b); ok {
+			switch v.(type) {
+			case *bytesObject, *bytearrayObject:
+				return NewMemoryView(v)
+			}
+		}
 	}
 	return nil, Raise(TypeError, "memoryview: a bytes-like object is required, not '%s'", o.TypeName())
 }

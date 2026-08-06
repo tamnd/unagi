@@ -125,6 +125,26 @@ func ByteArrayOf(args []Object) (Object, error) {
 	return NewByteArray(b), nil
 }
 
+// bytearrayInit fills a bytearray subclass payload the way bytearray.__init__
+// does: from an optional source and the encoding/errors that come with a string
+// source. It runs for a subclass that inherits bytearray.__init__ and for a
+// super().__init__ call, replacing the payload contents so a second call
+// re-initializes rather than appends. Keyword arguments raise the same message
+// the base bytearray() constructor gives, since neither takes them yet.
+func bytearrayInit(ba *bytearrayObject, pos []Object, kwNames []string, kwVals []Object) error {
+	if len(kwNames) > 0 {
+		return Raise(TypeError, "bytearray() takes no keyword arguments")
+	}
+	b, err := bytesFromArgs(pos, "bytearray")
+	if err != nil {
+		return err
+	}
+	ba.mu.Lock()
+	ba.v = append(ba.v[:0], b...)
+	ba.mu.Unlock()
+	return nil
+}
+
 // bytesFromArgs builds the byte slice shared by the bytes and bytearray
 // constructors. typeName selects the wording that differs between the two:
 // the not-convertible TypeError names the target type, and the iterable

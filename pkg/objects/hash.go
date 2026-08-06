@@ -108,6 +108,12 @@ func PyHash(o Object) (int64, error) {
 			return val, nil
 		}
 		if v, ok := builtinUnwrap(x); ok {
+			if _, mutable := v.(*bytearrayObject); mutable {
+				// A bytearray subclass with no __hash__ override stays unhashable
+				// like its base, but the message names the subclass, so hash(BA(b"x"))
+				// raises unhashable type: 'BA'.
+				return 0, Raise(TypeError, "unhashable type: '%s'", x.TypeName())
+			}
 			// A value subclass with no __hash__ override hashes as its payload, so
 			// hash(MyInt(5)) equals hash(5) and keys the same dict slot.
 			return PyHash(v)

@@ -174,9 +174,15 @@ func Format(o Object, spec string) (Object, error) {
 			return res, nil
 		}
 		// A value subclass with no __format__ override formats as its payload, so
-		// an int subclass member honors an integer format spec.
+		// an int subclass member honors an integer format spec. A bytearray
+		// subclass is the exception: bytearray defines no __format__, so it inherits
+		// object.__format__, which reads an empty spec as str(self) (the subclass
+		// repr) and rejects a non-empty one naming the subclass, rather than
+		// formatting the plain-bytearray payload.
 		if v, ok := builtinUnwrap(inst); ok {
-			return Format(v, spec)
+			if _, isBA := v.(*bytearrayObject); !isBA {
+				return Format(v, spec)
+			}
 		}
 	}
 	// An empty spec is str(o) for every type. Probed on 3.14:
