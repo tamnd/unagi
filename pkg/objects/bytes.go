@@ -193,6 +193,24 @@ func bytesFromSource(o Object, typeName, rangeMsg string) ([]byte, error) {
 	if IsBigInt(o) {
 		return nil, errIndexFit()
 	}
+	// A count argument coerces through __index__ the way CPython's PyIndex_Check
+	// gate does, so an int subclass or any object spelling __index__ builds that
+	// many zero bytes. This precedes the iterable path, matching CPython which
+	// treats an index-able source as a count even when it is also iterable. A bad
+	// __index__ return is not propagated here: CPython clears that TypeError and
+	// falls through to the iterable path, so bytes(obj) with a broken __index__
+	// ends in the cannot-convert error rather than the returned-non-int one.
+	if idx, isIndex, err := IndexOf(o); err == nil && isIndex {
+		if n, ok := AsInt(idx); ok {
+			if n < 0 {
+				return nil, Raise(ValueError, "negative count")
+			}
+			return make([]byte, n), nil
+		}
+		if IsBigInt(idx) {
+			return nil, errRepeatFit(o)
+		}
+	}
 	// Anything else must be an iterable of ints.
 	if _, err := Iter(o); err != nil {
 		return nil, bytesFromArgsErr(typeName, o)
