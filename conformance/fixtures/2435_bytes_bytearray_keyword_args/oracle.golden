@@ -1,0 +1,30 @@
+== exit: 0
+== stdout:
+src-bytes-kw b'x' bytes
+src-str-enc-kw b'hi' bytes
+str-enc-err-kw b'hi' bytes
+src-int-kw b'\x00\x00\x00' bytes
+src-iter-kw b'AB' bytes
+ba-src-kw bytearray(b'x') bytearray
+ba-str-enc-kw bytearray(b'hi') bytearray
+ba-int-kw bytearray(b'\x00\x00\x00') bytearray
+enc-only ERR TypeError encoding without a string argument
+errors-only ERR TypeError errors without a string argument
+src-bytes-errors ERR TypeError errors without a string argument
+src-bytes-enc ERR TypeError encoding without a string argument
+enc-errors-nosrc ERR TypeError encoding without a string argument
+str-no-enc ERR TypeError string argument without an encoding
+src-str-errors-noenc ERR TypeError string argument without an encoding
+src-and-pos ERR TypeError argument for bytes() given by name ('source') and position (1)
+enc-name-pos ERR TypeError argument for bytes() given by name ('encoding') and position (2)
+bad-kw ERR TypeError bytes() got an unexpected keyword argument 'foo'
+ba-bad-kw ERR TypeError bytearray() got an unexpected keyword argument 'baz'
+err-name-pos ERR TypeError bytes() takes at most 3 arguments (4 given)
+too-many-pos ERR TypeError bytes() takes at most 3 arguments (4 given)
+value-ref b'top' bytes
+kwargs-unpack bytearray(b'ab') bytearray
+subclass-src-kw BA(b'x') BA
+subclass-str-enc-kw BA(b'hi') BA
+subclass-bad-kw ERR TypeError bytearray() got an unexpected keyword argument 'nope'
+== exception:
+== stderr:

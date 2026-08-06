@@ -47,6 +47,10 @@ func (f *fnCtx) builtinKwCall(name string, e *frontend.Call) (ast.Expr, error) {
 		return f.complexKw(pos, kws, temps)
 	case "type":
 		return f.typeKw(pos, kws)
+	case "bytes":
+		return f.bytesKw("BytesOfKw", pos, kws)
+	case "bytearray":
+		return f.bytesKw("ByteArrayOfKw", pos, kws)
 	}
 	// Probed across len, abs, range, bool, list, tuple, set, frozenset,
 	// divmod, repr, bin, oct, hex, ord, chr, reversed, format and float:
@@ -69,6 +73,24 @@ func (f *fnCtx) typeKw(pos []ast.Expr, kws []kwVal) (ast.Expr, error) {
 	}
 	tmp := f.tmpVar()
 	f.fallible(tmp, sel("runtime", "TypeCallKw"), f.objSlice(pos), strSliceLit(names), f.objSlice(vals))
+	return ident(tmp), nil
+}
+
+// bytesKw lowers bytes()/bytearray() with keyword arguments. The source,
+// encoding and errors parameters are all position-or-keyword, so the runtime
+// helper takes the positional slice alongside the parallel keyword name/value
+// groups and binds them the way the base constructor does, including the
+// given-by-name-and-position, unexpected-keyword and "without a string
+// argument" errors, all catchable at runtime.
+func (f *fnCtx) bytesKw(fn string, pos []ast.Expr, kws []kwVal) (ast.Expr, error) {
+	names := make([]string, len(kws))
+	vals := make([]ast.Expr, len(kws))
+	for i, kw := range kws {
+		names[i] = kw.name
+		vals[i] = kw.val
+	}
+	tmp := f.tmpVar()
+	f.fallible(tmp, sel("runtime", fn), f.objSlice(pos), strSliceLit(names), f.objSlice(vals))
 	return ident(tmp), nil
 }
 

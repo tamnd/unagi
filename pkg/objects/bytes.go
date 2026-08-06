@@ -107,7 +107,8 @@ func bytesHasSub(v, sub []byte) bool {
 	return strings.Contains(string(v), string(sub))
 }
 
-// BytesOf implements the bytes() constructor.
+// BytesOf implements the bytes() constructor with positional arguments only,
+// the entry other packages call.
 func BytesOf(args []Object) (Object, error) {
 	b, err := bytesFromArgs(args, "bytes")
 	if err != nil {
@@ -116,7 +117,20 @@ func BytesOf(args []Object) (Object, error) {
 	return NewBytes(b), nil
 }
 
-// ByteArrayOf implements the bytearray() constructor.
+// BytesOfKw implements the bytes() builtin, accepting the source, encoding and
+// errors parameters by keyword the way CPython's clinic signature bytes(source,
+// encoding, errors) does, so bytes(source=b'x') and bytes('hi', encoding='utf-8')
+// both work.
+func BytesOfKw(pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	b, err := bytesFromArgsKw("bytes", pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	return NewBytes(b), nil
+}
+
+// ByteArrayOf implements the bytearray() constructor with positional arguments
+// only, the entry other packages call.
 func ByteArrayOf(args []Object) (Object, error) {
 	b, err := bytesFromArgs(args, "bytearray")
 	if err != nil {
@@ -125,17 +139,24 @@ func ByteArrayOf(args []Object) (Object, error) {
 	return NewByteArray(b), nil
 }
 
+// ByteArrayOfKw implements the bytearray() builtin, the mutable twin of
+// BytesOfKw, so bytearray(source='hi', encoding='utf-8') binds the same way.
+func ByteArrayOfKw(pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	b, err := bytesFromArgsKw("bytearray", pos, kwNames, kwVals)
+	if err != nil {
+		return nil, err
+	}
+	return NewByteArray(b), nil
+}
+
 // bytearrayInit fills a bytearray subclass payload the way bytearray.__init__
 // does: from an optional source and the encoding/errors that come with a string
-// source. It runs for a subclass that inherits bytearray.__init__ and for a
+// source, all three accepted by keyword like the base bytearray() constructor.
+// It runs for a subclass that inherits bytearray.__init__ and for a
 // super().__init__ call, replacing the payload contents so a second call
-// re-initializes rather than appends. Keyword arguments raise the same message
-// the base bytearray() constructor gives, since neither takes them yet.
+// re-initializes rather than appends.
 func bytearrayInit(ba *bytearrayObject, pos []Object, kwNames []string, kwVals []Object) error {
-	if len(kwNames) > 0 {
-		return Raise(TypeError, "bytearray() takes no keyword arguments")
-	}
-	b, err := bytesFromArgs(pos, "bytearray")
+	b, err := bytesFromArgsKw("bytearray", pos, kwNames, kwVals)
 	if err != nil {
 		return err
 	}
@@ -146,46 +167,94 @@ func bytearrayInit(ba *bytearrayObject, pos []Object, kwNames []string, kwVals [
 }
 
 // bytesFromArgs builds the byte slice shared by the bytes and bytearray
-// constructors. typeName selects the wording that differs between the two:
-// the not-convertible TypeError names the target type, and the iterable
-// range error reads "bytes must be in range(0, 256)" for bytes but "byte
-// must be ..." for bytearray, matching CPython.
+// constructors from positional arguments, the entry the value-subclass base
+// call and other packages use.
 func bytesFromArgs(args []Object, typeName string) ([]byte, error) {
+	return bytesFromArgsKw(typeName, args, nil, nil)
+}
+
+// bytesFromArgsKw binds the source, encoding and errors parameters of the bytes
+// and bytearray constructors from positional and keyword arguments, then builds
+// the byte slice. All three are positional-or-keyword, matching CPython's clinic
+// signature, so a slot given by both name and position raises "argument for
+// bytes() given by name ('source') and position (1)", an unknown keyword raises
+// the unexpected-keyword TypeError, and more than three arguments in total raises
+// "takes at most 3 arguments". typeName selects the wording that differs between
+// the two constructors.
+func bytesFromArgsKw(typeName string, pos []Object, kwNames []string, kwVals []Object) ([]byte, error) {
+	if len(pos)+len(kwNames) > 3 {
+		return nil, Raise(TypeError, "%s() takes at most 3 arguments (%d given)", typeName, len(pos)+len(kwNames))
+	}
+	// slots are source, encoding, errors in order, filled positionally first.
+	var slots [3]Object
+	var have [3]bool
+	for i := 0; i < len(pos) && i < 3; i++ {
+		slots[i], have[i] = pos[i], true
+	}
+	names := [3]string{"source", "encoding", "errors"}
+	for i, name := range kwNames {
+		var slot int
+		switch name {
+		case "source":
+			slot = 0
+		case "encoding":
+			slot = 1
+		case "errors":
+			slot = 2
+		default:
+			return nil, Raise(TypeError, "%s() got an unexpected keyword argument '%s'", typeName, name)
+		}
+		if have[slot] {
+			return nil, Raise(TypeError, "argument for %s() given by name ('%s') and position (%d)", typeName, names[slot], slot+1)
+		}
+		slots[slot], have[slot] = kwVals[i], true
+	}
+	return bytesBuild(typeName, slots, have)
+}
+
+// bytesBuild turns the resolved source, encoding and errors slots into the byte
+// slice. With no encoding or errors it reads the source alone (an int count, a
+// buffer, or an iterable of ints). With either present the source must be a
+// string to encode, and the two "without a string argument" messages name
+// whichever of encoding or errors was given, matching CPython's bytes_new.
+func bytesBuild(typeName string, slots [3]Object, have [3]bool) ([]byte, error) {
 	rangeMsg := byteRangeMsg
 	if typeName == "bytes" {
 		rangeMsg = "bytes must be in range(0, 256)"
 	}
-	switch len(args) {
-	case 0:
-		return nil, nil
-	case 1:
-		return bytesFromSource(args[0], typeName, rangeMsg)
-	case 2, 3:
-		// (source, encoding[, errors]): the source must be a string, else the
-		// encoding argument has nothing to encode.
-		s, ok := args[0].(*strObject)
-		if !ok {
+	if !have[1] && !have[2] {
+		if !have[0] {
+			return nil, nil
+		}
+		return bytesFromSource(slots[0], typeName, rangeMsg)
+	}
+	// encoding or errors is present, so the source must be a string to encode.
+	s, ok := slots[0].(*strObject)
+	if !have[0] || !ok {
+		if have[1] {
 			return nil, Raise(TypeError, "encoding without a string argument")
 		}
-		enc, ok := args[1].(*strObject)
-		if !ok {
-			return nil, Raise(TypeError, "%s() argument 'encoding' must be str, not %s", typeName, args[1].TypeName())
-		}
-		errh := "strict"
-		if len(args) == 3 {
-			e, ok := args[2].(*strObject)
-			if !ok {
-				return nil, Raise(TypeError, "%s() argument 'errors' must be str, not %s", typeName, args[2].TypeName())
-			}
-			errh = e.v
-		}
-		if err := guardTextCodec(enc.v, "encode"); err != nil {
-			return nil, err
-		}
-		return encodeStr(s.v, enc.v, errh)
-	default:
-		return nil, Raise(TypeError, "%s() takes at most 3 arguments (%d given)", typeName, len(args))
+		return nil, Raise(TypeError, "errors without a string argument")
 	}
+	if !have[1] {
+		return nil, Raise(TypeError, "string argument without an encoding")
+	}
+	enc, ok := slots[1].(*strObject)
+	if !ok {
+		return nil, Raise(TypeError, "%s() argument 'encoding' must be str, not %s", typeName, slots[1].TypeName())
+	}
+	errh := "strict"
+	if have[2] {
+		e, ok := slots[2].(*strObject)
+		if !ok {
+			return nil, Raise(TypeError, "%s() argument 'errors' must be str, not %s", typeName, slots[2].TypeName())
+		}
+		errh = e.v
+	}
+	if err := guardTextCodec(enc.v, "encode"); err != nil {
+		return nil, err
+	}
+	return encodeStr(s.v, enc.v, errh)
 }
 
 // bytesFromSource handles the single-argument constructor forms.
