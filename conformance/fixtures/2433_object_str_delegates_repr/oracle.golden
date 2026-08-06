@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+custom-repr
+d-repr
+5
+[1, 2, 3]
+'hi'
+(1, 2)
+d-str
+True
+== exception:
+== stderr:

@@ -1044,8 +1044,15 @@ func init() {
 			if len(args) != 1 {
 				return nil, Raise(TypeError, "object.__str__() takes no arguments")
 			}
-			// object.__str__ falls back to the object-level repr.
-			return NewStr(objectDefaultRepr(args[0])), nil
+			// object.__str__ delegates to the object's __repr__, so an explicit
+			// object.__str__(x) honors a user __repr__ override and reads an int or
+			// list as its repr rather than the default object address, the way
+			// CPython's object_str calls type(self)->tp_repr.
+			s, err := ReprE(args[0])
+			if err != nil {
+				return nil, err
+			}
+			return NewStr(s), nil
 		}),
 		"__format__": NewFunc("__format__", 2, func(args []Object) (Object, error) {
 			if len(args) != 2 {
