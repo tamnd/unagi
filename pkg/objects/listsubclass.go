@@ -260,15 +260,17 @@ func listInstanceMul(a, b Object) (Object, bool, error) {
 	return nil, false, nil
 }
 
-// listRepeat builds the repeated list for a subclass instance times a count. A
-// non-int count gets its reflected turn and otherwise raises the same message
-// list * non-int spells; a negative count yields the empty list.
+// listRepeat builds the repeated list for a subclass instance times a count. The
+// count coerces through __index__ the way the plain list * n does, so an int
+// subclass or an __index__ object repeats; a non-index count gets its reflected
+// turn and otherwise raises the same message list * non-int spells, and a
+// negative count yields the empty list.
 func listRepeat(orig Object, lst *listObject, count Object) (Object, bool, error) {
-	n, ok := AsInt(count)
-	if !ok {
-		if IsBigInt(count) {
-			return nil, true, Raise(OverflowError, "cannot fit 'int' into an index-sized integer")
-		}
+	n, handled, err := seqRepeatCountOpt(count)
+	if err != nil {
+		return nil, true, err
+	}
+	if !handled {
 		if res, ok, err := reflectedDunder("__rmul__", orig, count); ok || err != nil {
 			return res, true, err
 		}

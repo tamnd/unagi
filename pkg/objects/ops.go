@@ -388,14 +388,53 @@ func repeatSeq(seq Object, n int64) Object {
 	return nil
 }
 
+// seqRepeatCountOpt coerces a sequence-repeat multiplier to an int64 the way
+// CPython's sq_repeat does, honoring __index__ so an int subclass or any object
+// spelling __index__ repeats the sequence. handled is false when the value
+// carries no integer meaning, so the * operator falls through to the reflected
+// operator and its own non-int error rather than raising the way the __mul__
+// slot's seqRepeatCount does. An out-of-range magnitude raises OverflowError the
+// way a plain spilled multiplier already did.
+func seqRepeatCountOpt(o Object) (int64, bool, error) {
+	if n, ok := AsInt(o); ok {
+		return n, true, nil
+	}
+	if IsBigInt(o) {
+		return 0, true, errRepeatFit(o)
+	}
+	idx, ok, err := IndexOf(o)
+	if err != nil {
+		return 0, true, err
+	}
+	if !ok {
+		return 0, false, nil
+	}
+	if n, ok := AsInt(idx); ok {
+		return n, true, nil
+	}
+	if IsBigInt(idx) {
+		return 0, true, errRepeatFit(o)
+	}
+	return 0, false, nil
+}
+
+// errRepeatFit is the OverflowError a repeat count too large to index raises,
+// naming the operand's own type the way CPython does, so a spilled int subclass
+// reads 'MyInt' and a bare __index__ object reads its class rather than 'int'.
+func errRepeatFit(o Object) error {
+	return Raise(OverflowError, "cannot fit '%s' into an index-sized integer", o.TypeName())
+}
+
 // Mul implements the * operator.
 func Mul(a, b Object) (Object, error) {
 	if isSequence(a) {
-		if n, ok := AsInt(b); ok {
+		// seq * x is the forward sq_repeat, which index-coerces the multiplier
+		// before the right operand's reflected __rmul__ ever runs.
+		if n, handled, err := seqRepeatCountOpt(b); handled {
+			if err != nil {
+				return nil, err
+			}
 			return repeatSeq(a, n), nil
-		}
-		if IsBigInt(b) {
-			return nil, Raise(OverflowError, "cannot fit 'int' into an index-sized integer")
 		}
 		if res, ok, err := reflectedDunder("__rmul__", a, b); ok || err != nil {
 			return res, err
@@ -403,16 +442,17 @@ func Mul(a, b Object) (Object, error) {
 		return nil, Raise(TypeError, "can't multiply sequence by non-int of type '%s'", b.TypeName())
 	}
 	if isSequence(b) {
-		if n, ok := AsInt(a); ok {
-			return repeatSeq(b, n), nil
-		}
-		if IsBigInt(a) {
-			return nil, Raise(OverflowError, "cannot fit 'int' into an index-sized integer")
-		}
 		// A user-instance left operand gets its forward __mul__ before the builtin
-		// sequence on the right refuses the non-int multiplier.
+		// sequence on the right index-coerces the multiplier, matching CPython's
+		// forward-then-reflected order for x * seq.
 		if res, ok, err := reflectedDunder("__mul__", b, a); ok || err != nil {
 			return res, err
+		}
+		if n, handled, err := seqRepeatCountOpt(a); handled {
+			if err != nil {
+				return nil, err
+			}
+			return repeatSeq(b, n), nil
 		}
 		return nil, Raise(TypeError, "can't multiply sequence by non-int of type '%s'", a.TypeName())
 	}

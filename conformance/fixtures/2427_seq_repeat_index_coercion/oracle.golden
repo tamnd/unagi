@@ -1,0 +1,24 @@
+== exit: 0
+== stdout:
+ababab ababab
+[1, 2, 1, 2, 1, 2] [1, 2, 1, 2, 1, 2]
+(1, 2, 1, 2, 1, 2) (1, 2, 1, 2, 1, 2)
+b'ababab' b'ababab'
+array('i', [1, 2, 1, 2, 1, 2]) array('i', [1, 2, 1, 2, 1, 2])
+xyxyxy xyxyxy [0, 0, 0] (7, 7, 7) b'zzz'
+'' '' [] b''
+abab [1, 1, 1] array('i', [9, 9])
+[1, 2, 1, 2] [3, 3] [4, 4, 4]
+b'\x00\x00' bytearray(b'\x00\x00') b'\x00\x00\x00' bytearray(b'\x00\x00\x00')
+str*float can't multiply sequence by non-int of type 'float'
+list*str can't multiply sequence by non-int of type 'str'
+tuple*None can't multiply sequence by non-int of type 'NoneType'
+str*bad __index__ returned non-int (type str)
+list*bad __index__ returned non-int (type str)
+bytes(bad) cannot convert 'Bad' object to bytes
+bytearray(bad) cannot convert 'Bad' object to bytearray
+str*big cannot fit 'MyInt' into an index-sized integer
+bytes(big) cannot fit 'MyInt' into an index-sized integer
+list*bigidx cannot fit 'MyInt' into an index-sized integer
+== exception:
+== stderr:
