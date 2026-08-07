@@ -59,6 +59,27 @@ func IsBigInt(o Object) bool {
 	return ok && x.big != nil
 }
 
+// BuiltinIntValue returns the underlying int for an int, a bool, or a subclass
+// of either, and ok false for anything else. Unlike a general __index__ probe it
+// does not fire for an arbitrary object that merely spells __index__, so a caller
+// that must treat only genuine integers as integral (math.trunc, whose argument
+// rule rejects a bare __index__ object) can tell the two apart.
+func BuiltinIntValue(o Object) (Object, bool) {
+	switch o.(type) {
+	case *intObject, *boolObject:
+		bi, _ := AsBigInt(o)
+		return NewIntFromBig(bi), true
+	}
+	if p, ok := builtinUnwrap(o); ok {
+		switch p.(type) {
+		case *intObject, *boolObject:
+			bi, _ := AsBigInt(p)
+			return NewIntFromBig(bi), true
+		}
+	}
+	return nil, false
+}
+
 func isIntish(o Object) bool {
 	switch o.(type) {
 	case *intObject, *boolObject:
