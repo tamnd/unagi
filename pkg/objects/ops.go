@@ -111,6 +111,9 @@ func TruthOf(o Object) (bool, error) {
 	if l, ok := listBacked(x); ok {
 		return len(l.elts) != 0, nil
 	}
+	if a, ok := arrayBacked(x); ok {
+		return len(a.elts) != 0, nil
+	}
 	if v, ok := builtinUnwrap(x); ok {
 		// A value subclass with neither __bool__ nor __len__ is truthy exactly
 		// when its payload is, so an int subclass member of value 0 is falsy.
@@ -328,6 +331,11 @@ func Add(a, b Object) (Object, error) {
 	if res, ok, err := listInstanceAdd(a, b); ok || err != nil {
 		return res, err
 	}
+	// An array subclass instance concatenates as its base array when it does not
+	// override __add__, giving a plain array the way array.__add__ does.
+	if res, ok, err := arrayInstanceAdd(a, b); ok || err != nil {
+		return res, err
+	}
 	return binFallback("+", a, b)
 }
 
@@ -507,6 +515,11 @@ func Mul(a, b Object) (Object, error) {
 	// A list subclass instance repeats as its base list when it does not override
 	// the matching dunder, on either side of the operator.
 	if res, ok, err := listInstanceMul(a, b); ok || err != nil {
+		return res, err
+	}
+	// An array subclass instance repeats as its base array when it does not
+	// override the matching dunder, on either side of the operator.
+	if res, ok, err := arrayInstanceMul(a, b); ok || err != nil {
 		return res, err
 	}
 	return binFallback("*", a, b)
@@ -1122,7 +1135,7 @@ func bufferEqDunder(x, other Object) (bool, bool) {
 		}
 		return false, false
 	case *arrayObject:
-		if oy, ok := other.(*arrayObject); ok {
+		if oy, ok := arrayPayload(other); ok {
 			return arrayEquals(v, oy), true
 		}
 		return false, false
@@ -1235,7 +1248,7 @@ func order(op CmpOp, a, b Object) (bool, error) {
 			return seqOrder(op, x.elts, y.elts)
 		}
 	} else if x, ok := a.(*arrayObject); ok {
-		if y, ok2 := b.(*arrayObject); ok2 {
+		if y, ok2 := arrayPayload(b); ok2 {
 			return seqOrder(op, x.elts, y.elts)
 		}
 	} else if x, ok := a.(*tupleObject); ok {
@@ -1413,6 +1426,9 @@ func Contains(container, item Object) (Object, error) {
 		}
 		if l, ok := listBacked(x); ok {
 			return Contains(l, item)
+		}
+		if a, ok := arrayBacked(x); ok {
+			return Contains(a, item)
 		}
 		if c, ok := setBackedObj(x); ok {
 			return setContains(c, item)
@@ -1724,6 +1740,9 @@ func GetItem(o, key Object) (Object, error) {
 		if l, ok := listBacked(x); ok {
 			return GetItem(l, key)
 		}
+		if a, ok := arrayBacked(x); ok {
+			return GetItem(a, key)
+		}
 		if v, ok := builtinUnwrap(x); ok {
 			return GetItem(v, key)
 		}
@@ -1806,6 +1825,9 @@ func SetItem(o, key, val Object) error {
 		}
 		if l, ok := listBacked(x); ok {
 			return SetItem(l, key, val)
+		}
+		if a, ok := arrayBacked(x); ok {
+			return SetItem(a, key, val)
 		}
 		// A mutable value subclass (a ChainMap subclass) writes through to its
 		// payload, so cm[key] = value reaches the underlying mapping. An immutable
@@ -1893,6 +1915,9 @@ func Len(o Object) (int, error) {
 		}
 		if l, ok := listBacked(x); ok {
 			return len(l.elts), nil
+		}
+		if a, ok := arrayBacked(x); ok {
+			return len(a.elts), nil
 		}
 		if c, ok := setBackedObj(x); ok {
 			return len(c.elts), nil
@@ -2069,6 +2094,9 @@ func Iter(o Object) (Iterator, error) {
 				}
 				if l, backed := listBacked(x); backed {
 					return Iter(l)
+				}
+				if a, backed := arrayBacked(x); backed {
+					return Iter(a)
 				}
 				if c, backed := setBackedObj(x); backed {
 					return &sliceIter{elts: c.elts}, nil

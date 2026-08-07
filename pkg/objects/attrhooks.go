@@ -164,6 +164,12 @@ func genericGetAttr(x *instanceObject, name string) (Object, error) {
 	if v, ok := listSubclassAttr(x, name); ok {
 		return v, nil
 	}
+	// An array subclass inherits array's own methods and data attributes bound to
+	// the instance's payload, so a subclass answers append(), tolist(), typecode
+	// and the rest from its store.
+	if v, ok := arraySubclassAttr(x, name); ok {
+		return v, nil
+	}
 	// A set subclass inherits set's own methods, bound to the instance's payload,
 	// so a subclass answers add(), union() and the rest from its store.
 	if v, ok := setSubclassAttr(x, name); ok {

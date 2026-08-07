@@ -128,6 +128,21 @@ func richSlot(x Object, op CmpOp, other Object) (res Object, ok bool, err error)
 		}
 		return r, true, nil
 	}
+	// An array subclass with no comparison override compares as its payload, so it
+	// equals and orders against arrays and other array subclasses value by value.
+	// The other operand unwraps too when it is an array subclass, leaving two
+	// arrays for the concrete comparison path.
+	if arr, ok := arrayBacked(inst); ok {
+		ov := other
+		if oa, ok := arrayPayload(other); ok {
+			ov = oa
+		}
+		r, err := Compare(op, arr, ov)
+		if err != nil {
+			return nil, false, err
+		}
+		return r, true, nil
+	}
 	// A set subclass with no comparison override compares as a set: equality
 	// against any set or frozenset by elements, and < <= > >= as the subset
 	// relations. An order comparison against a non-set declines, so the caller

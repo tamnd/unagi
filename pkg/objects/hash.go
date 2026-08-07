@@ -118,6 +118,12 @@ func PyHash(o Object) (int64, error) {
 			// hash(MyInt(5)) equals hash(5) and keys the same dict slot.
 			return PyHash(v)
 		}
+		if _, ok := arrayBacked(x); ok {
+			// array.array is unhashable, so a subclass with no __hash__ override
+			// stays unhashable like its base; the message names the subclass, so
+			// hash(A('i', [1])) raises unhashable type: 'A'.
+			return 0, Raise(TypeError, "unhashable type: '%s'", x.TypeName())
+		}
 		return pyHashPointer(o), nil
 	}
 	return 0, Raise(TypeError, "unhashable type: '%s'", o.TypeName())

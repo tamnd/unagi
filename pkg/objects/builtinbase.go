@@ -21,6 +21,13 @@ func builtinBaseName(b Object) (string, bool) {
 		switch f.name {
 		case "dict", "list", "set", "frozenset", "int", "float", "complex", "str", "bytes", "bytearray", "tuple", "classmethod", "staticmethod", "property":
 			return f.name, true
+		case "array.array":
+			// array.array is the array module's typed-sequence type, exposed as a
+			// builtin funcObject named for the module the way its tp_name reads. A
+			// subclass instance is array-backed like a list subclass, its payload a
+			// live arrayObject the inherited sequence protocol and methods route
+			// through. The short key "array" names the layout in instantiateCore.
+			return "array", true
 		case "ref":
 			// weakref.ref is exposed as the builtin `ref`; weakref.py subclasses it
 			// as WeakMethod. A subclass instance wraps a weakref payload built by the
@@ -482,6 +489,9 @@ func builtinBaseCall(self Object, name string, pos []Object, kwNames []string, k
 	if _, backed := listBacked(inst); backed {
 		return listBaseCall(self, name, pos, kwNames, kwVals)
 	}
+	if _, backed := arrayBacked(inst); backed {
+		return arrayBaseCall(self, name, pos)
+	}
 	if _, _, backed := setBacked(inst); backed {
 		return setBaseCall(self, name, pos, kwNames, kwVals)
 	}
@@ -576,6 +586,9 @@ func builtinBaseAttr(self Object, name string) (Object, bool) {
 	}
 	if _, backed := listBacked(inst); backed {
 		return listBaseAttr(self, name)
+	}
+	if _, backed := arrayBacked(inst); backed {
+		return arrayBaseAttr(self, name)
 	}
 	if _, _, backed := setBacked(inst); backed {
 		return setBaseAttr(self, name)

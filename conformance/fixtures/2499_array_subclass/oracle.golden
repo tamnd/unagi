@@ -1,0 +1,57 @@
+== exit: 0
+== stdout:
+A('i', [1, 2, 3]) => A A('i', [1, 2, 3])
+A('d', [1.5, 2.5]) => A A('d', [1.5, 2.5])
+A('i') empty => A A('i')
+U('i', [4, 5]) => U U('i', [4, 5])
+type(a) => type <class '__main__.A'>
+isinstance(a, array.array) => bool True
+isinstance(a, A) => bool True
+isinstance(U('i'), A) => bool True
+issubclass(A, array.array) => bool True
+issubclass(U, array.array) => bool True
+len(a) => int 3
+list(a) => list [10, 20, 30]
+a[1] => int 20
+a[-1] => int 30
+a[1:] => array array('i', [20, 30])
+a[::2] => array array('i', [10, 30])
+20 in a => bool True
+99 in a => bool False
+a.typecode => str 'i'
+a.itemsize => int 4
+a.tolist() => list [10, 20, 30]
+a.count(20) => int 1
+a.index(30) => int 2
+a.tobytes() => bytes b'\n\x00\x00\x00\x14\x00\x00\x00\x1e\x00\x00\x00'
+append => A A('i', [1, 2, 3, 4])
+setitem => A A('i', [99, 2, 3])
+delitem => A A('i', [1, 3])
+extend => A A('i', [1, 2, 3, 4, 5])
+insert => A A('i', [1, 99, 2, 3])
+reverse => A A('i', [3, 2, 1])
+pop => A A('i', [1, 2])
+slice-set => A A('i', [7, 8, 9, 3])
+A + array => array array('i', [1, 2, 3, 4])
+A + A => array array('i', [1, 2, 3, 4])
+A + list => TypeError : can only append array (not "list") to array
+A * 2 => array array('i', [1, 2, 1, 2])
+3 * A => array array('i', [1, 2, 1, 2, 1, 2])
+iadd => A A('i', [1, 2, 3, 4])
+imul => A A('i', [1, 2, 1, 2, 1, 2])
+A == array => bool True
+A == A => bool True
+A == list => bool False
+A < A => bool True
+array == A => bool True
+bool(A('i')) => bool False
+bool(A('i', [1])) => bool True
+Tagged => Tagged Tagged('i', [1, 2, 3])
+Tagged.tag => str 't'
+super().append => TenX TenX('i', [1, 50])
+copy.copy => array array('i', [1, 2])
+copy.deepcopy => array array('i', [1, 2])
+hash(A('i', [1])) => TypeError : unhashable type: 'A'
+array.array('i', A(...)) => array array('i', [5, 6, 7])
+== exception:
+== stderr:

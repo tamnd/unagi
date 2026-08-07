@@ -565,7 +565,7 @@ func arrayEquals(a, b *arrayObject) bool {
 
 // arrayConcat implements a + b, which needs two arrays of the same typecode.
 func arrayConcat(a *arrayObject, b Object) (Object, error) {
-	y, ok := b.(*arrayObject)
+	y, ok := arrayPayload(b)
 	if !ok {
 		return nil, Raise(TypeError, "can only append array (not \"%s\") to array", b.TypeName())
 	}
@@ -604,7 +604,7 @@ func arrayRepeat(a *arrayObject, n int64) Object {
 // array right operand must share the typecode; any other iterable has each item
 // validated against the code.
 func arrayExtend(a *arrayObject, other Object) error {
-	if y, ok := other.(*arrayObject); ok {
+	if y, ok := arrayPayload(other); ok {
 		if y.code != a.code {
 			return Raise(TypeError, "can only extend with array of same kind")
 		}
