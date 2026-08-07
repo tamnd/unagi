@@ -566,6 +566,16 @@ func arrayConcat(a *arrayObject, b Object) (Object, error) {
 	return out, nil
 }
 
+// arrayClone returns a fresh array with the same typecode and a copy of the
+// elements, the shared body of array.__copy__ and array.__deepcopy__. The
+// elements are immutable scalar values, so copying the slice is a full copy for
+// both the shallow and the deep case.
+func arrayClone(a *arrayObject) *arrayObject {
+	out := &arrayObject{code: a.code}
+	out.elts = append(out.elts, a.elts...)
+	return out
+}
+
 // arrayRepeat implements a * n, a fresh array with the elements repeated.
 func arrayRepeat(a *arrayObject, n int64) Object {
 	if n < 0 {
@@ -642,6 +652,7 @@ var arrayMethodNames = map[string]bool{
 	"tolist": true, "fromlist": true, "tobytes": true, "frombytes": true,
 	"tounicode": true, "fromunicode": true, "byteswap": true, "buffer_info": true,
 	"tofile": true, "fromfile": true, "__reduce_ex__": true,
+	"__copy__": true, "__deepcopy__": true,
 	"__add__": true, "__mul__": true, "__rmul__": true,
 	"__iadd__": true, "__imul__": true,
 }
@@ -832,6 +843,19 @@ func arrayMethod(a *arrayObject, name string, args []Object) (Object, error) {
 		return arrayToFile(a, args[0])
 	case "__reduce_ex__":
 		return arrayReduceEx(a, args)
+	case "__copy__":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "array.__copy__() takes no arguments (%d given)", len(args))
+		}
+		return arrayClone(a), nil
+	case "__deepcopy__":
+		// The lone argument is copy.deepcopy's memo dict. Array elements are
+		// immutable machine scalars, so the deep copy is a plain element copy
+		// and the memo is unused, the same as CPython's array_array___deepcopy__.
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "array.__deepcopy__() takes exactly one argument (%d given)", len(args))
+		}
+		return arrayClone(a), nil
 	case "__add__":
 		if len(args) != 1 {
 			return nil, Raise(TypeError, "expected 1 argument, got %d", len(args))
