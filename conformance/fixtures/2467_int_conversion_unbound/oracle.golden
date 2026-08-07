@@ -1,0 +1,39 @@
+== exit: 0
+== stdout:
+int __int__ True
+int __float__ True
+int __index__ True
+int __trunc__ True
+int __round__ True
+int __bool__ True
+int __getnewargs__ True
+int __complex__ False
+int __bytes__ False
+bool __int__ True
+bool __float__ True
+bool __index__ True
+bool __trunc__ True
+bool __round__ True
+bool __bool__ True
+bool __getnewargs__ True
+bool __complex__ False
+bool __bytes__ False
+int.__index__(7) => 7
+int.__int__(9) => 9
+int.__float__(5) => 5.0
+int.__trunc__(4) => 4
+int.__float__(-3) => -3.0
+int.__float__(2 ** 70) => 1.1805916207174113e+21
+int.__index__(True) => 1
+bool.__index__(True) => 1
+bool.__int__(5) => 5
+bool.__float__(False) => 0.0
+int.__index__(MyInt(5)) => 5
+int.__float__(MyInt(5)) => 5.0
+int.__index__() => TypeError : descriptor '__index__' of 'int' object needs an argument
+int.__index__('x') => TypeError : descriptor '__index__' requires a 'int' object but received a 'str'
+int.__index__(1.0) => TypeError : descriptor '__index__' requires a 'int' object but received a 'float'
+int.__index__(7, 8) => TypeError : expected 0 arguments, got 1
+bool.__index__('x') => TypeError : descriptor '__index__' requires a 'int' object but received a 'str'
+== exception:
+== stderr:
