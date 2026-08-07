@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"math"
+	"math/big"
 	"testing"
 
 	"github.com/tamnd/unagi/pkg/objects"
@@ -70,6 +71,28 @@ func TestCmathRoutines(t *testing.T) {
 	// rect(r, 0) round-trips a real modulus.
 	if re, im := callComplex(t, cmathFn(t, "rect"), objects.NewInt(3), objects.NewInt(0)); re != 3 || im != 0 {
 		t.Errorf("rect(3,0) = (%v,%v)", re, im)
+	}
+}
+
+func TestCmathArgumentCoercion(t *testing.T) {
+	sqrt := cmathFn(t, "sqrt")
+	// A plain int coerces to a real complex the way it always did.
+	if re, im := callComplex(t, sqrt, objects.NewInt(4)); re != 2 || im != 0 {
+		t.Errorf("sqrt(4) = (%v,%v), want (2,0)", re, im)
+	}
+	// A bool counts as the int it is.
+	if re, im := callComplex(t, sqrt, objects.NewBool(true)); re != 1 || im != 0 {
+		t.Errorf("sqrt(True) = (%v,%v), want (1,0)", re, im)
+	}
+	// An int too large for a float64 overflows through the shared real coercion,
+	// matching CPython's PyFloat_AsDouble rather than folding to an infinity.
+	huge := objects.NewIntFromBig(new(big.Int).Exp(big.NewInt(10), big.NewInt(1000), nil))
+	if _, err := objects.Call(sqrt, []objects.Object{huge}); !isKindErr(err, objects.OverflowError) {
+		t.Fatalf("sqrt(10**1000) = %v, want OverflowError", err)
+	}
+	// A type that spells no numeric conversion keeps the real-number error.
+	if _, err := objects.Call(sqrt, []objects.Object{objects.NewStr("x")}); !isKindErr(err, objects.TypeError) {
+		t.Fatalf("sqrt('x') = %v, want TypeError", err)
 	}
 }
 
