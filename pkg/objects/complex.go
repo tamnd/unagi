@@ -445,6 +445,12 @@ func complexLoadAttr(c *complexObject, name string) (Object, error) {
 	return nil, Raise(AttributeError, "'complex' object has no attribute '%s'", name)
 }
 
+// ComplexFromDunder exposes complexFromDunder for callers such as cmath, which
+// coerce an argument through CPython's PyComplex_AsCComplex the same way.
+func ComplexFromDunder(o Object) (re, im float64, ok bool, err error) {
+	return complexFromDunder(o)
+}
+
 // complexFromDunder resolves a user instance to complex components the way
 // complex(o) does: __complex__ wins and must return a complex (else
 // "__complex__ returned non-complex (type X)"), otherwise __float__ then

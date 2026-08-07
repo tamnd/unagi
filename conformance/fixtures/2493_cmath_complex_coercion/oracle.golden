@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+sqrt(MyComplex(4)) => (2+0j)
+phase(MyComplex(1j)) => 1.5707963267948966
+sqrt(BadComplex()) => TypeError : __complex__ returned non-complex (type str)
+sqrt(RaiseComplex()) => ValueError : boom
+sqrt(MyFloat()) => (1.4142135623730951+0j)
+sqrt(MyIndex()) => (1.7320508075688772+0j)
+sqrt(Decimal(4)) => (2+0j)
+isclose(D,D) => True
+isclose(F,F) => True
+sqrt('x') => TypeError : must be real number, not str
+sqrt(None) => TypeError : must be real number, not NoneType
+sqrt(10**1000) => OverflowError : int too large to convert to float
+sqrt(2) => (1.4142135623730951+0j)
+sqrt(True) => (1+0j)
+sqrt(-1+0j) => 1j
+== exception:
+== stderr:

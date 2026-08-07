@@ -714,10 +714,22 @@ func cmathToComplex(o objects.Object) (complex128, error) {
 	if re, im, ok := objects.ComplexParts(o); ok {
 		return complex(re, im), nil
 	}
-	if f, ok := objects.AsFloat(o); ok {
-		return complex(f, 0), nil
+	// CPython's PyComplex_AsCComplex honours __complex__ first, and its result must
+	// itself be a complex, so a user object that spells one converts the way it
+	// does under complex().
+	if re, im, ok, err := objects.ComplexFromDunder(o); err != nil {
+		return 0, err
+	} else if ok {
+		return complex(re, im), nil
 	}
-	return 0, objects.Raise(objects.TypeError, "must be real number, not %s", o.TypeName())
+	// Otherwise the argument coerces through the real float path, which honours
+	// __float__ then __index__ so a Decimal or Fraction works, and carries the same
+	// "must be real number, not X" message for a type that spells none of these.
+	f, err := mathToFloat(o)
+	if err != nil {
+		return 0, err
+	}
+	return complex(f, 0), nil
 }
 
 // cmathArg pulls the single argument the one-argument routines take.
