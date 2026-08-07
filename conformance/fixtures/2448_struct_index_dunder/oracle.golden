@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+pack-h b'\x00\x02'
+pack-B b'\x02'
+pack-q b'\x00\x00\x00\x00\x00\x00\x00\x02'
+pack-bool-field b'\x01'
+pack-multi b'\x00\x02\x00\x02'
+pack-bad ERR TypeError __index__ returned non-int (type str)
+pack-float ERR error required argument is not an integer
+pack-str ERR error required argument is not an integer
+pack-range ERR error 'b' format requires -128 <= number <= 127
+unpack-from-idx (5,)
+unpack-from-bad ERR TypeError __index__ returned non-int (type str)
+unpack-from-float ERR TypeError 'float' object cannot be interpreted as an integer
+struct-unpack-from-idx (5,)
+pack-into-idx b'\x00\x00\x00\x07'
+pack-into-bad ERR TypeError __index__ returned non-int (type str)
+pack-into-float ERR TypeError 'float' object cannot be interpreted as an integer
+struct-pack-into-idx b'\x00\x00\x00\x07'
+== exception:
+== stderr:

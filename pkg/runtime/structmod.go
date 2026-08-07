@@ -485,12 +485,21 @@ func structUnpackFromArgs(rest []objects.Object, kwNames []string, kwVals []obje
 	return buffer, offset, nil
 }
 
-// structAsOffset coerces an offset argument to an int, raising CPython's
-// "'X' object cannot be interpreted as an integer" for anything else.
+// structAsOffset coerces an offset argument to an int, honoring __index__ the way
+// CPython feeds the offset through PyNumber_Index: a bad __index__ return
+// propagates its non-int TypeError, and a value with no __index__ raises the
+// "'X' object cannot be interpreted as an integer" TypeError.
 func structAsOffset(o objects.Object) (int, error) {
 	n, ok := objects.AsInt(o)
 	if !ok {
-		return 0, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", o.TypeName())
+		r, isIdx, err := objects.IndexOf(o)
+		if err != nil {
+			return 0, err
+		}
+		if !isIdx {
+			return 0, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", o.TypeName())
+		}
+		n, _ = objects.AsInt(r)
 	}
 	return int(n), nil
 }
@@ -861,7 +870,17 @@ func packFloatOverflow(isInt bool, code byte) error {
 func packInt(f *structFormat, buf []byte, off int, code byte, width int, o objects.Object) error {
 	bi, ok := objects.AsBigInt(o)
 	if !ok {
-		return structErrorf("required argument is not an integer")
+		// An integer field honors __index__ the way CPython packs any index object,
+		// so a bad __index__ return propagates its non-int TypeError while a value
+		// with no __index__ (a float, say) is the struct not-an-integer error.
+		r, isIdx, err := objects.IndexOf(o)
+		if err != nil {
+			return err
+		}
+		if !isIdx {
+			return structErrorf("required argument is not an integer")
+		}
+		bi, _ = objects.AsBigInt(r)
 	}
 	signed := code == 'b' || code == 'h' || code == 'i' || code == 'l' || code == 'q' || code == 'n'
 	bits := uint(width * 8)
@@ -1061,9 +1080,9 @@ func unpackInt(f *structFormat, b []byte, off int, code byte, width int) objects
 // structPackInto writes into a mutable bytearray at an offset, the pack_into
 // path. The buffer must be a bytearray with room for size bytes at offset.
 func structPackInto(f *structFormat, bufObj, offObj objects.Object, values []objects.Object) (objects.Object, error) {
-	off, ok := objects.AsInt(offObj)
-	if !ok {
-		return nil, objects.Raise(objects.TypeError, "an integer is required")
+	off, err := structAsOffset(offObj)
+	if err != nil {
+		return nil, err
 	}
 	need := 0
 	for _, it := range f.items {
