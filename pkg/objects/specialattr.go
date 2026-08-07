@@ -326,7 +326,13 @@ func containerIterName(o Object) string {
 	case *setObject, *frozensetObject:
 		return "set_iterator"
 	case *arrayObject:
-		return "arrayiterator"
+		// array.arrayiterator carries its module the way CPython's tp_name does,
+		// "array.arrayiterator", so the type reprs as <class 'array.arrayiterator'>,
+		// __module__ reads 'array', and the instance repr and a missing-attribute
+		// error name it module-qualified too. The bare tail 'arrayiterator' stays
+		// the type __name__ and __qualname__ through the dotted-name split. This
+		// sits apart from memory_iterator, which lives in builtins and stays bare.
+		return "array.arrayiterator"
 	case *memoryviewObject:
 		return "memory_iterator"
 	case *strObject:
