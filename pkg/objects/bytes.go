@@ -100,6 +100,17 @@ func bytesContainsItem(v []byte, item Object) (Object, error) {
 	if IsBigInt(item) {
 		return nil, Raise(ValueError, "byte must be in range(0, 256)")
 	}
+	// A non-bytes-like object spelling __index__ tests as its byte value the way
+	// CPython feeds the membership operand through PyNumber_Index, with the result
+	// range-checked. Unlike the search methods, a bad __index__ return does not
+	// propagate here: CPython clears it and falls through to the bytes-like path,
+	// so both a non-int return and no __index__ at all reach the same TypeError.
+	if r, isIdx, err := IndexOf(item); err == nil && isIdx {
+		if i, ok := AsInt(r); ok && i >= 0 && i <= 255 {
+			return NewBool(bytesContains(v, byte(i))), nil
+		}
+		return nil, Raise(ValueError, "byte must be in range(0, 256)")
+	}
 	return nil, Raise(TypeError, "a bytes-like object is required, not '%s'", item.TypeName())
 }
 

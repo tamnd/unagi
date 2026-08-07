@@ -1,0 +1,29 @@
+== exit: 0
+== stdout:
+append-idx b'zA'
+append-bool b'z\x01'
+append-huge ERR ValueError byte must be in range(0, 256)
+append-bad ERR TypeError __index__ returned non-int (type str)
+append-float ERR TypeError 'float' object cannot be interpreted as an integer
+insert-idx b'aAc'
+insert-bad ERR TypeError __index__ returned non-int (type str)
+setitem-idx b'aAc'
+setitem-huge ERR ValueError byte must be in range(0, 256)
+setitem-bad ERR TypeError __index__ returned non-int (type str)
+count-idx 3
+count-bad ERR TypeError __index__ returned non-int (type str)
+count-str ERR TypeError argument should be integer or bytes-like object, not 'str'
+find-idx 0
+index-idx 0
+rfind-idx 3
+rindex-idx 3
+ba-count-idx 3
+ba-find-idx 0
+in-idx-true True
+in-idx-false False
+in-bad ERR TypeError a bytes-like object is required, not 'Bad'
+in-huge ERR ValueError byte must be in range(0, 256)
+ba-in-idx True
+ba-in-bad ERR TypeError a bytes-like object is required, not 'Bad'
+== exception:
+== stderr:

@@ -98,6 +98,19 @@ func bytesLikeOrByte(o Object) ([]byte, error) {
 	if IsBigInt(o) {
 		return nil, Raise(ValueError, "byte must be in range(0, 256)")
 	}
+	// A non-bytes-like object spelling __index__ is coerced to its byte value the
+	// way CPython feeds a search argument through PyNumber_Index, its result
+	// range-checked and a bad __index__ return propagating its non-int TypeError.
+	r, isIdx, err := IndexOf(o)
+	if err != nil {
+		return nil, err
+	}
+	if isIdx {
+		if i, ok := AsInt(r); ok && i >= 0 && i <= 255 {
+			return []byte{byte(i)}, nil
+		}
+		return nil, Raise(ValueError, "byte must be in range(0, 256)")
+	}
 	return nil, Raise(TypeError, "argument should be integer or bytes-like object, not '%s'", o.TypeName())
 }
 
