@@ -122,6 +122,33 @@ func valueSubclassClassmethod(cls *classObject, base, name string) (Object, bool
 	return NewFuncKw(name, wrapped), true
 }
 
+// builtinInstanceClassmethod resolves a classmethod or staticmethod read off an
+// instance of a builtin type, e.g. (255).from_bytes, (1.5).fromhex or
+// "abc".maketrans. CPython inherits these onto instances, so the read yields the
+// same callable the type-level read does: a classmethod reports its type through
+// __self__ ((255).from_bytes.__self__ is int, True.from_bytes.__self__ is bool)
+// and a staticmethod reports None, both qualifying __qualname__ to type.name
+// while __name__ stays bare. The owner is the receiver's own type name, so a
+// bool binds bool and a bytearray binds bytearray. ok is false when the type
+// names no such classmethod, leaving the caller's own AttributeError.
+func builtinInstanceClassmethod(typeName, name string) (Object, bool) {
+	v, ok := builtinTypeClassmethod(typeName, name)
+	if !ok {
+		return nil, false
+	}
+	if f, ok := v.(*funcObject); ok {
+		f.qualnameOwner = typeName
+		if builtinTypeStaticmethod[name] {
+			f.boundSelf = None
+		} else if BuiltinTypeResolver != nil {
+			if t, ok := BuiltinTypeResolver(typeName); ok {
+				f.boundSelf = t
+			}
+		}
+	}
+	return v, true
+}
+
 func dictMethod(x *dictObject, name string, args []Object) (Object, error) {
 	switch name {
 	case "get":
