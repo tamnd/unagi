@@ -1327,6 +1327,11 @@ func mathFactorial(args []objects.Object) (objects.Object, error) {
 	if n.Sign() < 0 {
 		return nil, objects.Raise(objects.ValueError, "factorial() not defined for negative values")
 	}
+	// CPython reads the argument into a C long, so a value past its range is an
+	// OverflowError rather than a silent truncation of the multiplication bound.
+	if !n.IsInt64() {
+		return nil, objects.Raise(objects.OverflowError, "factorial() argument should not exceed 9223372036854775807")
+	}
 	return objects.NewIntFromBig(new(big.Int).MulRange(1, n.Int64())), nil
 }
 
