@@ -409,6 +409,12 @@ func mvGetItem(m *memoryviewObject, key Object) (Object, error) {
 		}
 		return mvDecodeObj(m, e)
 	}
+	if sl, ok := key.(*sliceObject); ok {
+		// A slice passed as a subscript object, the way m[sl] or
+		// m.__getitem__(slice(...)) does, takes the same sub-view path the
+		// syntactic m[lo:hi:step] read compiles to.
+		return mvGetSlice(m, sl.start, sl.stop, sl.step)
+	}
 	i, ok := AsInt(key)
 	if !ok {
 		return nil, Raise(TypeError, "memoryview: invalid slice key")
@@ -542,6 +548,12 @@ func mvSetItem(m *memoryviewObject, key, val Object) error {
 			return err
 		}
 		return mvWriteElem(m, e, val)
+	}
+	if sl, ok := key.(*sliceObject); ok {
+		// A slice passed as a subscript object, the way m[sl] = v or
+		// m.__setitem__(slice(...), v) does, takes the same slice-assignment path
+		// the syntactic m[lo:hi:step] = v write compiles to.
+		return mvSetSlice(m, sl.start, sl.stop, sl.step, val)
 	}
 	if _, ok := AsInt(key); !ok {
 		return Raise(TypeError, "memoryview: invalid slice key")
@@ -716,7 +728,7 @@ func mvSetSlice(m *memoryviewObject, lo, hi, step, val Object) error {
 		if bl, ok := mvBytesLike(val); ok {
 			repl = bl
 		} else {
-			return Raise(TypeError, "memoryview: invalid slice key")
+			return Raise(TypeError, "a bytes-like object is required, not '%s'", val.TypeName())
 		}
 	}
 	start, st, n, err := sliceIndices(lo, hi, step, m.length)
@@ -746,7 +758,7 @@ func mvArraySetSlice(m *memoryviewObject, a *arrayObject, lo, hi, step, val Obje
 	}
 	elts, format, ok := mvSliceElems(val)
 	if !ok {
-		return Raise(TypeError, "memoryview: invalid slice key")
+		return Raise(TypeError, "a bytes-like object is required, not '%s'", val.TypeName())
 	}
 	if format != m.format || len(elts) != n {
 		return Raise(ValueError, "memoryview assignment: lvalue and rvalue have different structures")
