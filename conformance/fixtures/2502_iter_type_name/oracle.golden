@@ -1,0 +1,50 @@
+== exit: 0
+== stdout:
+== iter() reports the container's iterator type ==
+list => list_iterator
+tuple => tuple_iterator
+str => str_ascii_iterator
+str_nonascii => str_iterator
+bytes => bytes_iterator
+bytearray => bytearray_iterator
+range => range_iterator
+dict => dict_keyiterator
+dict_keys => dict_keyiterator
+dict_values => dict_valueiterator
+dict_items => dict_itemiterator
+set => set_iterator
+frozenset => set_iterator
+mappingproxy => dict_keyiterator
+array => arrayiterator
+memoryview => memory_iterator
+OrderedDict => odict_iterator
+defaultdict => dict_keyiterator
+Counter => dict_keyiterator
+mappingproxy_odict => odict_iterator
+== iter(seq) agrees with the container's own iterator ==
+list iter==iter(iter) True list_iterator
+bytes iter==iter(iter) True bytes_iterator
+range iter==iter(iter) True range_iterator
+set iter==iter(iter) True set_iterator
+== iter() stays idempotent ==
+iter(it) is it True
+iter(it) type list_iterator
+== the lazy and paired iterators keep their own names ==
+enumerate => enumerate
+zip => zip
+map => map
+filter => filter
+reversed_list => list_reverseiterator
+generator => generator
+== a subclass of a builtin container iterates as the base ==
+list_sub => list_iterator
+dict_sub => dict_keyiterator
+set_sub => set_iterator
+tuple_sub => tuple_iterator
+str_sub => str_iterator
+== two-argument iter is a callable_iterator ==
+callable callable_iterator
+== an old-style __getitem__ sequence gets the generic iterator ==
+getitem iterator
+== exception:
+== stderr:
