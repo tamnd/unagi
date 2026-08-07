@@ -244,10 +244,13 @@ func IntOf(o objects.Object) (objects.Object, error) {
 	if s, ok := objects.AsStr(o); ok {
 		return intFromStr(o, s, 10, 10)
 	}
-	if raw, ok := objects.AsBytesLike(o); ok {
-		// int() with one bytes or bytearray argument parses it as base-10 text,
-		// each byte read as its latin-1 code point, so int(b'10') is 10.
-		return intFromStr(o, bytesLatin1(raw), 10, 10)
+	if raw, ok := objects.AsBufferBytes(o); ok {
+		// int() with a bytes-like or buffer argument (bytes, bytearray, memoryview
+		// or array) parses its bytes as base-10 text, each byte read as its latin-1
+		// code point, so int(b'10') and int(memoryview(b'10')) are both 10. A parse
+		// failure reports the buffer normalized to a bytes literal the way CPython
+		// does, so int(bytearray(b'xy')) names b'xy'.
+		return intFromStr(objects.NewBytes(raw), bytesLatin1(raw), 10, 10)
 	}
 	if o.TypeName() == "int" {
 		// Ints pass through whole, spilled or not.
@@ -305,21 +308,26 @@ func IntOfBase(x, base objects.Object) (objects.Object, error) {
 		return nil, objects.Raise(objects.ValueError, "int() base must be >= 2 and <= 36, or 0")
 	}
 	s, ok := objects.AsStr(x)
+	orig := x
 	if !ok {
-		// int() also parses a bytes-like argument with an explicit base, reading
-		// each byte as its latin-1 code point the way CPython does, so int(b'101',
-		// 2) is 5. The original object stays the error repr, giving b'...'.
+		// int() also parses a bytes or bytearray argument with an explicit base,
+		// reading each byte as its latin-1 code point the way CPython does, so
+		// int(b'101', 2) is 5. Unlike the base-10 form this rejects a memoryview or
+		// array, matching CPython which takes only a genuine bytes or bytearray with
+		// an explicit base. A parse failure reports the source normalized to a bytes
+		// literal, so int(bytearray(b'xy'), 16) names b'xy'.
 		raw, okb := objects.AsBytesLike(x)
 		if !okb {
 			return nil, objects.Raise(objects.TypeError, "int() can't convert non-string with explicit base")
 		}
 		s = bytesLatin1(raw)
+		orig = objects.NewBytes(raw)
 	}
 	digitBase := b
 	if digitBase == 0 {
 		digitBase = 10
 	}
-	return intFromStr(x, s, b, digitBase)
+	return intFromStr(orig, s, b, digitBase)
 }
 
 // FloatOf implements float(o) for str, int, bool and float arguments.
@@ -328,29 +336,14 @@ func FloatOf(o objects.Object) (objects.Object, error) {
 		return FloatOf(v)
 	}
 	if s, ok := objects.AsStr(o); ok {
-		trimmed := strings.TrimFunc(s, unicode.IsSpace)
-		// Python accepts any Unicode decimal digit: float("１２") is 12.0.
-		trimmed = asciiDigits(trimmed)
-		bad := trimmed == ""
-		// strconv accepts hex float syntax that Python rejects.
-		lower := strings.ToLower(strings.TrimLeft(trimmed, "+-"))
-		if strings.HasPrefix(lower, "0x") {
-			bad = true
-		}
-		var v float64
-		if !bad {
-			var err error
-			v, err = strconv.ParseFloat(trimmed, 64)
-			// Out of range parses to an infinity, which Python allows.
-			if err != nil && !strings.Contains(err.Error(), "out of range") {
-				bad = true
-			}
-		}
-		if bad {
-			return nil, objects.Raise(objects.ValueError,
-				"could not convert string to float: %s", objects.Repr(o))
-		}
-		return objects.NewFloat(v), nil
+		return floatFromText(o, s)
+	}
+	if raw, ok := objects.AsBufferBytes(o); ok {
+		// float() also parses a bytes-like or buffer argument (bytes, bytearray,
+		// memoryview or array), reading each byte as its latin-1 code point the way
+		// int() does, so float(b'3.5') and float(memoryview(b'3.5')) are both 3.5. A
+		// parse failure reports the source object the way CPython's float does.
+		return floatFromText(o, bytesLatin1(raw))
 	}
 	if b, ok := objects.AsBigInt(o); ok && objects.IsBigInt(o) {
 		f, _ := new(big.Float).SetInt(b).Float64()
@@ -368,6 +361,38 @@ func FloatOf(o objects.Object) (objects.Object, error) {
 	}
 	return nil, objects.Raise(objects.TypeError,
 		"float() argument must be a string or a real number, not '%s'", o.TypeName())
+}
+
+// floatFromText parses a float() text argument, shared by the str and the
+// bytes-like or buffer sources. It trims whitespace, maps any Unicode decimal
+// digit to ASCII, rejects the hex-float syntax strconv accepts but Python does
+// not, and reads an out-of-range value as an infinity the way Python does. A bad
+// literal is the could-not-convert ValueError naming orig, which the caller
+// passes as the original object so the message spells its repr.
+func floatFromText(orig objects.Object, s string) (objects.Object, error) {
+	trimmed := strings.TrimFunc(s, unicode.IsSpace)
+	// Python accepts any Unicode decimal digit: float("１２") is 12.0.
+	trimmed = asciiDigits(trimmed)
+	bad := trimmed == ""
+	// strconv accepts hex float syntax that Python rejects.
+	lower := strings.ToLower(strings.TrimLeft(trimmed, "+-"))
+	if strings.HasPrefix(lower, "0x") {
+		bad = true
+	}
+	var v float64
+	if !bad {
+		var err error
+		v, err = strconv.ParseFloat(trimmed, 64)
+		// Out of range parses to an infinity, which Python allows.
+		if err != nil && !strings.Contains(err.Error(), "out of range") {
+			bad = true
+		}
+	}
+	if bad {
+		return nil, objects.Raise(objects.ValueError,
+			"could not convert string to float: %s", objects.Repr(orig))
+	}
+	return objects.NewFloat(v), nil
 }
 
 // ComplexOf implements the positional complex() constructor. It checks arity
