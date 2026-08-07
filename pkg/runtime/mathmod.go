@@ -1157,6 +1157,13 @@ func mathModf(args []objects.Object) (objects.Object, error) {
 		return nil, err
 	}
 	i, f := math.Modf(x)
+	// Go's math.Modf(±Inf) gives a nan fractional part, but CPython follows C
+	// modf and returns a zero fraction carrying the sign of the infinity, with
+	// the integer part the infinity itself. A nan input keeps nan for both,
+	// which both libraries already agree on.
+	if math.IsInf(x, 0) {
+		f = math.Copysign(0, x)
+	}
 	return objects.NewTuple([]objects.Object{objects.NewFloat(f), objects.NewFloat(i)}), nil
 }
 
