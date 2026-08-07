@@ -1,0 +1,36 @@
+== exit: 0
+== stdout:
+has-add True
+has-mul True
+has-rmul True
+has-iadd True
+has-imul True
+add array('i', [1, 2, 3])
+add-wrongtype ERR TypeError can only append array (not "int") to array
+add-list ERR TypeError can only append array (not "list") to array
+add-diffcode ERR TypeError bad argument type for built-in operation
+add-arity0 ERR TypeError expected 1 argument, got 0
+add-arity2 ERR TypeError expected 1 argument, got 2
+mul array('i', [1, 2, 1, 2, 1, 2])
+mul-idx array('i', [1, 2, 1, 2])
+mul-bool array('i', [1, 2])
+mul-neg array('i')
+mul-float ERR TypeError 'float' object cannot be interpreted as an integer
+mul-str ERR TypeError 'str' object cannot be interpreted as an integer
+rmul array('i', [1, 2, 1, 2])
+rmul-idx array('i', [1, 2, 1, 2])
+mul-arity0 ERR TypeError expected 1 argument, got 0
+iadd array('i', [1, 2, 3])
+iadd-list ERR TypeError can only extend array with array (not "list")
+iadd-wrong ERR TypeError can only extend array with array (not "int")
+iadd-diffcode ERR TypeError can only extend with array of same kind
+imul array('i', [1, 2, 1, 2])
+imul-idx array('i', [1, 2, 1, 2])
+imul-zero array('i')
+imul-neg array('i')
+imul-float ERR TypeError 'float' object cannot be interpreted as an integer
+add-new True
+iadd-identity True
+imul-identity True
+== exception:
+== stderr:
