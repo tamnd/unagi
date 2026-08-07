@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+copy => array('i', [1, 2, 3])
+copy_type => 'array'
+copy_is_new => False
+orig_after_copy_mutation => [1, 2, 3]
+copy_after_mutation => [1, 2, 3, 9]
+copy_extra_arg => TypeError : array.__copy__() takes no arguments (1 given)
+deepcopy_none => array('i', [1, 2, 3])
+deepcopy_memo => array('i', [1, 2, 3])
+deepcopy_is_new => False
+deepcopy_noarg => TypeError : array.__deepcopy__() takes exactly one argument (0 given)
+deepcopy_two_args => TypeError : array.__deepcopy__() takes exactly one argument (2 given)
+copy_float => array('d', [1.5, -2.25])
+deepcopy_float => array('d', [1.5, -2.25])
+copy_unicode => ['h', 'é', 'l', 'l', 'o']
+copy_empty => array('b')
+bound_copy => [1, 2, 3]
+bound_deepcopy => [1, 2, 3]
+== exception:
+== stderr:
