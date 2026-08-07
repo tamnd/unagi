@@ -35,6 +35,39 @@ func callFloat(t *testing.T, fn objects.Object, args ...objects.Object) float64 
 	return f
 }
 
+func TestMathModfInfinity(t *testing.T) {
+	modf := mathFn(t, "modf")
+	call := func(x float64) (float64, float64) {
+		t.Helper()
+		v, err := objects.Call(modf, []objects.Object{objects.NewFloat(x)})
+		if err != nil {
+			t.Fatalf("modf(%v): %v", x, err)
+		}
+		f0, _ := objects.GetItem(v, objects.NewInt(0))
+		f1, _ := objects.GetItem(v, objects.NewInt(1))
+		frac, _ := objects.AsFloat(f0)
+		whole, _ := objects.AsFloat(f1)
+		return frac, whole
+	}
+
+	// An infinity splits into a signed-zero fraction and the infinity itself,
+	// matching C modf rather than Go's nan fraction.
+	if frac, whole := call(math.Inf(1)); frac != 0 || math.Signbit(frac) || !math.IsInf(whole, 1) {
+		t.Errorf("modf(+inf) = (%v, %v), want (0.0, +inf)", frac, whole)
+	}
+	if frac, whole := call(math.Inf(-1)); frac != 0 || !math.Signbit(frac) || !math.IsInf(whole, -1) {
+		t.Errorf("modf(-inf) = (%v, %v), want (-0.0, -inf)", frac, whole)
+	}
+	// A nan input keeps nan for both parts.
+	if frac, whole := call(math.NaN()); !math.IsNaN(frac) || !math.IsNaN(whole) {
+		t.Errorf("modf(nan) = (%v, %v), want (nan, nan)", frac, whole)
+	}
+	// A finite value still splits into fraction and integer with the input sign.
+	if frac, whole := call(-3.75); frac != -0.75 || whole != -3.0 {
+		t.Errorf("modf(-3.75) = (%v, %v), want (-0.75, -3.0)", frac, whole)
+	}
+}
+
 func TestMathConstantsAndFloats(t *testing.T) {
 	mo, err := ImportModule("math")
 	if err != nil {
