@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+b2a_b2a_base64 => TypeError : a bytes-like object is required, not 'str'
+b2a_b2a_hex => TypeError : a bytes-like object is required, not 'str'
+b2a_b2a_qp => TypeError : a bytes-like object is required, not 'str'
+b2a_b2a_uu => TypeError : a bytes-like object is required, not 'str'
+b2a_hexlify => TypeError : a bytes-like object is required, not 'str'
+b2a_crc32 => TypeError : a bytes-like object is required, not 'str'
+crc_hqx_str => TypeError : a bytes-like object is required, not 'str'
+a2b_hex_ascii => b'AB'
+a2b_qp_ascii => b'caf\xe9'
+a2b_base64_ascii => b'test'
+nonascii_a2b_base64 => ValueError : string argument should contain only ASCII characters
+nonascii_a2b_hex => ValueError : string argument should contain only ASCII characters
+nonascii_a2b_qp => ValueError : string argument should contain only ASCII characters
+nonascii_a2b_uu => ValueError : string argument should contain only ASCII characters
+nonascii_unhexlify => ValueError : string argument should contain only ASCII characters
+== exception:
+== stderr:

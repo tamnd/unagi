@@ -62,7 +62,7 @@ func TestBinasciiBuffer(t *testing.T) {
 		t.Fatalf("import binascii: %v", err)
 	}
 	// A memoryview is a read-only buffer, so the codecs read the bytes behind it
-	// the same as if bytes had been passed. binasciiData used to accept only
+	// the same as if bytes had been passed. The buffer readers used to accept only
 	// bytes and bytearray, so a memoryview raised a bytes-like TypeError.
 	mv, err := objects.NewMemoryView(objects.NewBytes([]byte("abcd")))
 	if err != nil {
@@ -97,6 +97,41 @@ func TestBinasciiBuffer(t *testing.T) {
 	// A non-buffer object is still a bytes-like TypeError.
 	if _, err := binasciiHexlify([]objects.Object{objects.NewInt(42)}); err == nil {
 		t.Fatal("hexlify(int) did not raise")
+	}
+}
+
+func TestBinasciiStrArgs(t *testing.T) {
+	// Importing binascii runs its init so binascii.Error is built for the error paths.
+	if _, err := ImportModule("binascii"); err != nil {
+		t.Fatalf("import binascii: %v", err)
+	}
+	str := func(s string) []objects.Object { return []objects.Object{objects.NewStr(s)} }
+
+	// An encoder takes a bytes-like object only: a str is not one, so it is the
+	// TypeError CPython's Py_buffer conversion raises, not a UTF-8 encode.
+	if _, err := binasciiHexlify(str("test")); err == nil ||
+		!strings.Contains(err.Error(), "a bytes-like object is required, not 'str'") {
+		t.Fatalf("hexlify(str) error = %v, want bytes-like TypeError", err)
+	}
+	if _, err := binasciiCRC32(str("test")); err == nil ||
+		!strings.Contains(err.Error(), "a bytes-like object is required, not 'str'") {
+		t.Fatalf("crc32(str) error = %v, want bytes-like TypeError", err)
+	}
+
+	// A decoder accepts a pure-ASCII str, so a2b_hex reads the hex behind it.
+	dec, err := binasciiUnhexlify(str("4142"))
+	if err != nil || objects.Repr(dec) != "b'AB'" {
+		t.Fatalf("a2b_hex(ascii str) = %s, %v", objects.Repr(dec), err)
+	}
+	// A non-ASCII str is the ValueError the ascii_buffer converter raises, ahead
+	// of any codec-specific decode error.
+	if _, err := binasciiUnhexlify(str("\x80")); err == nil ||
+		!strings.Contains(err.Error(), "string argument should contain only ASCII characters") {
+		t.Fatalf("a2b_hex(non-ascii str) error = %v, want ASCII ValueError", err)
+	}
+	if _, err := binasciiA2bQp(str("\x80"), nil, nil); err == nil ||
+		!strings.Contains(err.Error(), "string argument should contain only ASCII characters") {
+		t.Fatalf("a2b_qp(non-ascii str) error = %v, want ASCII ValueError", err)
 	}
 }
 
