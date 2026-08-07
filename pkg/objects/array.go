@@ -648,7 +648,7 @@ func arrayRepr(a *arrayObject, strict bool) (string, error) {
 // a.append reads back and calls the same as a.append(x).
 var arrayMethodNames = map[string]bool{
 	"append": true, "extend": true, "insert": true, "pop": true,
-	"remove": true, "index": true, "count": true, "reverse": true,
+	"remove": true, "index": true, "count": true, "reverse": true, "clear": true,
 	"tolist": true, "fromlist": true, "tobytes": true, "frombytes": true,
 	"tounicode": true, "fromunicode": true, "byteswap": true, "buffer_info": true,
 	"tofile": true, "fromfile": true, "__reduce_ex__": true,
@@ -715,6 +715,12 @@ func arrayMethod(a *arrayObject, name string, args []Object) (Object, error) {
 			}
 		}
 		return nil, Raise(ValueError, "array.remove(x): x not in array")
+	case "clear":
+		if len(args) != 0 {
+			return nil, Raise(TypeError, "array.clear() takes no arguments (%d given)", len(args))
+		}
+		a.elts = a.elts[:0]
+		return None, nil
 	case "index":
 		return arrayIndexMethod(a, args)
 	case "count":

@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+clear_return => None
+after_clear => []
+len_after => 0
+append_after_clear => [7]
+typecode_kept => 'i'
+clear_empty => []
+clear_float => []
+clear_unicode => []
+clear_extra_arg => TypeError : array.clear() takes no arguments (1 given)
+bound_clear => []
+== exception:
+== stderr:
