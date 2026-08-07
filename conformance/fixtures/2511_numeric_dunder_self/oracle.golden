@@ -1,0 +1,38 @@
+== exit: 0
+== stdout:
+== a bound binary dunder binds its number ==
+(5).__add__.__self__: 5 | is n: True
+(5).__radd__.__self__: 5
+(5).__sub__.__self__: 5
+(5).__mul__.__self__: 5
+(5).__floordiv__.__self__: 5
+(5).__and__.__self__: 5
+(5).__lshift__.__self__: 5
+(5).__pow__.__self__: 5
+(5).__rpow__.__self__: 5
+True.__and__.__self__: True
+True.__or__.__self__: True
+== a bound unary or special dunder binds its number ==
+(5).__neg__.__self__: 5
+(5).__pos__.__self__: 5
+(5).__invert__.__self__: 5
+(5).__abs__.__self__: 5
+(5).__bool__.__self__: 5
+(5).__hash__.__self__: 5
+(5).__divmod__.__self__: 5
+(5).__rdivmod__.__self__: 5
+(5).__round__.__self__: 5
+(5).__floor__.__self__: 5
+(5).__getnewargs__.__self__: 5
+== __name__ stays the bare slot name ==
+(5).__add__.__name__: __add__
+(5).__neg__.__name__: __neg__
+(5).__divmod__.__name__: __divmod__
+== a bound dunder still computes ==
+(5).__add__(3): 8
+(5).__neg__(): -5
+(5).__divmod__(2): (2, 1)
+(5).__pow__(3, 7): 6
+True.__and__(False): False
+== exception:
+== stderr:

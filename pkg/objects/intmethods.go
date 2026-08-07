@@ -146,7 +146,12 @@ func intLoadAttr(o Object, name string) (Object, error) {
 		}), recv), nil
 	}
 	if v := numericBoundDunder(o, name); v != nil {
-		return v, nil
+		// A dunder read off the instance, (5).__add__, is a bound method, so it
+		// carries the receiver through __self__ the way CPython's method-wrapper
+		// does; the unbound form int.__add__ builds its own callable and stays
+		// self-less. The fused-call and unbound paths consume the callable at
+		// once and never read this slot, so only the attribute read binds here.
+		return bindSelf(v, o), nil
 	}
 	if name == "__doc__" {
 		return None, nil
