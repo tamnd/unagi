@@ -425,6 +425,47 @@ func floatFromhex(args []Object) (Object, error) {
 	}
 }
 
+// floatFromNumber implements float.from_number (Python 3.14), the classmethod
+// that builds a float from a number but, unlike the float() constructor, refuses
+// a string. It takes a float, int or bool directly, resolves a Fraction, Decimal
+// or any object carrying __float__ then __index__ through that slot, and rejects
+// a str, bytes, complex or any non-number with "must be real number, not X" the
+// way CPython's float_from_number does. It is positional-only and takes exactly
+// one argument.
+func floatFromNumber(pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	if len(kwNames) > 0 {
+		return nil, Raise(TypeError, "float.from_number() takes no keyword arguments")
+	}
+	if len(pos) != 1 {
+		return nil, Raise(TypeError, "float.from_number() takes exactly one argument (%d given)", len(pos))
+	}
+	f, err := floatFromNumberValue(pos[0])
+	if err != nil {
+		return nil, err
+	}
+	return NewFloat(f), nil
+}
+
+// floatFromNumberValue is the real-number coercion float.from_number performs: a
+// float, int or bool (or a value subclass of one) reads directly, a user object
+// converts through __float__ then __index__, and anything else is not a real
+// number. A str or bytes carries neither slot, so it falls through to the
+// "must be real number" TypeError rather than being parsed the way float(x) would.
+func floatFromNumberValue(o Object) (float64, error) {
+	if f, ok, err := asFloatChecked(o); err != nil {
+		return 0, err
+	} else if ok {
+		return f, nil
+	}
+	if r, defined, err := FloatFromDunder(o); err != nil {
+		return 0, err
+	} else if defined {
+		f, _ := AsFloat(r)
+		return f, nil
+	}
+	return 0, Raise(TypeError, "must be real number, not %s", o.TypeName())
+}
+
 // hexDigitVal returns the value of an ASCII hex digit and whether c is one.
 func hexDigitVal(c byte) (int, bool) {
 	switch {

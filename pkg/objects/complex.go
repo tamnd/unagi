@@ -569,6 +569,45 @@ func ComplexNew(real, imag Object) (Object, error) {
 	return NewComplex(rr-ii, ri+ie), nil
 }
 
+// complexFromNumber implements complex.from_number (Python 3.14), the
+// classmethod that builds a complex from a number but, unlike the complex()
+// constructor, refuses a string. It takes a complex, float, int or bool
+// directly, resolves a Fraction or any object carrying __complex__ then __float__
+// then __index__ through that slot, and rejects a str, bytes or any non-number
+// with "must be real number, not X" the way CPython's complex_from_number does.
+// It is positional-only and takes exactly one argument.
+func complexFromNumber(pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	if len(kwNames) > 0 {
+		return nil, Raise(TypeError, "complex.from_number() takes no keyword arguments")
+	}
+	if len(pos) != 1 {
+		return nil, Raise(TypeError, "complex.from_number() takes exactly one argument (%d given)", len(pos))
+	}
+	re, im, err := complexFromNumberValue(pos[0])
+	if err != nil {
+		return nil, err
+	}
+	return NewComplex(re, im), nil
+}
+
+// complexFromNumberValue is the number coercion complex.from_number performs: a
+// complex, float, int or bool (or a value subclass of one) reads directly, a
+// user object converts through __complex__ then __float__ then __index__, and
+// anything else is not a number. A str or bytes carries none of those slots, so
+// it falls through to the "must be real number" TypeError rather than being
+// parsed the way complex(x) would.
+func complexFromNumberValue(o Object) (re, im float64, err error) {
+	if re, im, ok := asComplex(o); ok {
+		return re, im, nil
+	}
+	if cre, cim, defined, e := complexFromDunder(o); e != nil {
+		return 0, 0, e
+	} else if defined {
+		return cre, cim, nil
+	}
+	return 0, 0, Raise(TypeError, "must be real number, not %s", o.TypeName())
+}
+
 // ParseComplex parses complex()'s string form: an optional parenthesized body,
 // then a real part, an imaginary part, or "real +/- imagj", with j or J marking
 // the imaginary unit. It reports ok=false for any malformed string, which the

@@ -52,6 +52,15 @@ func builtinTypeClassmethod(typeName, name string) (Object, bool) {
 	if typeName == "float" && name == "__getformat__" {
 		return NewFunc("__getformat__", -1, floatGetformat), true
 	}
+	// float.from_number and complex.from_number (Python 3.14) build the number
+	// from another number, rejecting the string the constructor would parse. int
+	// gained no such classmethod, so only these two answer the name.
+	if typeName == "float" && name == "from_number" {
+		return NewFuncKw("from_number", floatFromNumber), true
+	}
+	if typeName == "complex" && name == "from_number" {
+		return NewFuncKw("from_number", complexFromNumber), true
+	}
 	if typeName == "bytes" || typeName == "bytearray" {
 		switch name {
 		case "maketrans":
@@ -74,7 +83,8 @@ func builtinTypeClassmethod(typeName, name string) (Object, bool) {
 var subclassConstructingClassmethod = map[string]map[string]bool{
 	"int":       {"from_bytes": true},
 	"bool":      {"from_bytes": true},
-	"float":     {"fromhex": true},
+	"float":     {"fromhex": true, "from_number": true},
+	"complex":   {"from_number": true},
 	"bytes":     {"fromhex": true},
 	"bytearray": {"fromhex": true},
 }

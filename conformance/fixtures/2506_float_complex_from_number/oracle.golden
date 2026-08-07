@@ -1,0 +1,50 @@
+== exit: 0
+== stdout:
+== float.from_number takes a real number ==
+from int => float 5.0
+from float => float 2.5
+from bool => float 1.0
+from Fraction => float 0.5
+from Decimal => float 1.5
+from __index__ => float 9.0
+from __float__ => float 1.5
+== float.from_number rejects a non-real ==
+from str => TypeError : must be real number, not str
+from bytes => TypeError : must be real number, not bytes
+from bytearray => TypeError : must be real number, not bytearray
+from list => TypeError : must be real number, not list
+from None => TypeError : must be real number, not NoneType
+from complex => TypeError : must be real number, not complex
+bad __float__ return => TypeError : Q.__float__ returned non-float (type str)
+== complex.from_number takes any number ==
+from int => complex (3+0j)
+from float => complex (2.5+0j)
+from complex => complex (1+2j)
+from bool => complex 0j
+from Fraction => complex (0.5+0j)
+from __complex__ => complex (1+1j)
+from __float__ => complex (2+0j)
+from __index__ => complex (5+0j)
+== complex.from_number rejects a non-number ==
+from str => TypeError : must be real number, not str
+from bytes => TypeError : must be real number, not bytes
+from None => TypeError : must be real number, not NoneType
+== the arity and keyword errors ==
+float no arg => TypeError : float.from_number() takes exactly one argument (0 given)
+float two args => TypeError : float.from_number() takes exactly one argument (2 given)
+float keyword => TypeError : float.from_number() takes no keyword arguments
+complex no arg => TypeError : complex.from_number() takes exactly one argument (0 given)
+complex two args => TypeError : complex.from_number() takes exactly one argument (2 given)
+complex keyword => TypeError : complex.from_number() takes no keyword arguments
+== a subclass rebuilds itself ==
+MyFloat.from_number => MyFloat 3.0
+MyComplex.from_number => MyComplex (3+0j)
+== int gained no from_number, the callables introspect as builtins ==
+hasattr int False
+hasattr float True
+hasattr complex True
+float method name from_number
+float method type builtin_function_or_method
+complex method name from_number
+== exception:
+== stderr:
