@@ -446,6 +446,58 @@ func TestStructPascalZeroWidth(t *testing.T) {
 	}
 }
 
+// TestStructPascalLongData checks that a p field wider than 256 bytes keeps up
+// to count-1 data bytes and caps only its recorded length byte at 255, the way
+// CPython's np_p packs: a 1000p field of 1000 bytes stores 999 data bytes behind
+// a length byte of 255, not a 255-byte prefix zero-padded to width. The unpack
+// side then reads back the 255 bytes the length byte names. The expected results
+// were taken from CPython 3.14.6.
+func TestStructPascalLongData(t *testing.T) {
+	m, err := ImportModule("_struct")
+	if err != nil {
+		t.Fatalf("import _struct: %v", err)
+	}
+	pack, err := objects.LoadAttr(m, "pack")
+	if err != nil {
+		t.Fatalf("_struct.pack: %v", err)
+	}
+	unpack, err := objects.LoadAttr(m, "unpack")
+	if err != nil {
+		t.Fatalf("_struct.unpack: %v", err)
+	}
+
+	data := objects.NewBytes([]byte(strings.Repeat("x", 1000)))
+	res, err := objects.Call(pack, []objects.Object{objects.NewStr("1000p"), data})
+	if err != nil {
+		t.Fatalf("pack(1000p): %v", err)
+	}
+	b, _ := objects.AsBytes(res)
+	if len(b) != 1000 {
+		t.Fatalf("pack(1000p) len = %d, want 1000", len(b))
+	}
+	// The length byte is capped at 255 while 999 data bytes survive; nothing after
+	// the data run should be a stray zero from a truncated copy.
+	if b[0] != 255 {
+		t.Fatalf("pack(1000p)[0] = %d, want 255", b[0])
+	}
+	for i := 1; i < 1000; i++ {
+		if b[i] != 'x' {
+			t.Fatalf("pack(1000p)[%d] = %d, want 'x'; data truncated", i, b[i])
+		}
+	}
+
+	// Unpack reads back the 255 bytes the length byte records, so the one-element
+	// tuple reprs as b'x' repeated 255 times.
+	back, err := objects.Call(unpack, []objects.Object{objects.NewStr("1000p"), res})
+	if err != nil {
+		t.Fatalf("unpack(1000p): %v", err)
+	}
+	want := "(b'" + strings.Repeat("x", 255) + "',)"
+	if got := objects.Repr(back); got != want {
+		t.Fatalf("unpack(1000p) = %s, want the 255-byte value", got)
+	}
+}
+
 // TestStructIterUnpack pins the unpack_iterator iter_unpack returns: it yields
 // one record tuple per __next__, reports the remaining count through
 // __length_hint__, raises StopIteration at the end and stays exhausted, and is
