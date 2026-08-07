@@ -108,6 +108,32 @@ func builtinUnwrap(o Object) (Object, bool) {
 	return inst.builtinData, true
 }
 
+// numericBaseResolve reads name as a bound method of a numeric subclass
+// instance's builtin base, off the unwrapped int, float or complex payload the
+// way float.__truediv__ or int.__add__ resolves on a plain scalar. This lets
+// super().__add__ and friends reach the base arithmetic from a subclass that
+// overrides the dunder and delegates upward, so it gets the plain scalar back
+// and conserves the subclass type through its own constructor. ok is false when
+// self is not numeric-backed or the base does not answer name (a pure attribute
+// read raises only AttributeError on a miss), so the caller keeps its own lookup
+// and AttributeError, which leaves __init__ and __new__ to the object defaults.
+func numericBaseResolve(self Object, name string) (Object, bool) {
+	p, backed := builtinUnwrap(self)
+	if !backed {
+		return nil, false
+	}
+	switch p.(type) {
+	case *intObject, *boolObject, *floatObject, *complexObject:
+	default:
+		return nil, false
+	}
+	bound, err := LoadAttr(p, name)
+	if err != nil {
+		return nil, false
+	}
+	return bound, true
+}
+
 // BuiltinValue exposes builtinUnwrap to callers in other packages, so a
 // conversion such as int(x) or an index can read the payload of a value subclass
 // instance. ok is false for every object that is not such an instance.
@@ -444,6 +470,15 @@ func builtinBaseCall(self Object, name string, pos []Object, kwNames []string, k
 	if !ok {
 		return nil, false, nil
 	}
+	// A numeric subclass reaches its base arithmetic through super().__add__ and
+	// friends, the shape statistics' MyFloat uses to conserve its type. The
+	// dunders take no keywords, so a keyword call is left to the ordinary lookup.
+	if len(kwNames) == 0 {
+		if bound, ok := numericBaseResolve(self, name); ok {
+			r, err := Call(bound, pos)
+			return r, true, err
+		}
+	}
 	if _, backed := listBacked(inst); backed {
 		return listBaseCall(self, name, pos, kwNames, kwVals)
 	}
@@ -533,6 +568,11 @@ func builtinBaseAttr(self Object, name string) (Object, bool) {
 	inst, ok := self.(*instanceObject)
 	if !ok {
 		return nil, false
+	}
+	// The `f = super().__truediv__` read form of the numeric base dunders, whose
+	// bound callable already dispatches to the base arithmetic when it runs.
+	if bound, ok := numericBaseResolve(self, name); ok {
+		return bound, true
 	}
 	if _, backed := listBacked(inst); backed {
 		return listBaseAttr(self, name)

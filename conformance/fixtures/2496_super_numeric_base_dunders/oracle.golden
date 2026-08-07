@@ -1,0 +1,31 @@
+== exit: 0
+== stdout:
+MyInt(6) + 2 => MyInt 8
+2 + MyInt(6) => MyInt 8
+MyInt(6) - 2 => MyInt 4
+MyInt(6) * 3 => MyInt 18
+MyInt(7) // 2 => MyInt 3
+MyInt(7) % 3 => MyInt 1
+MyInt(2) ** 5 => MyInt 32
+MyInt(6) & 3 => MyInt 2
+MyInt(6) | 1 => MyInt 7
+MyInt(6) ^ 3 => MyInt 5
+MyInt(1) << 4 => MyInt 16
+MyInt(64) >> 2 => MyInt 16
+MyInt(255).bit_length() => int 8
+MyFloat(6.0) / 2 => MyFloat 3.0
+1 / MyFloat(2.0) => MyFloat 0.5
+MyFloat(1.0) + 2.0 => MyFloat 3.0
+3 * MyFloat(2.0) => MyFloat 6.0
+MyFloat(2.0) ** 3 => MyFloat 8.0
+MyFloat(7.0) // 2 => MyFloat 3.0
+MyFloat(7.5) % 2 => MyFloat 1.5
+MyFloat(2.5).is_integer() => bool False
+MyFloat(4.0).is_integer() => bool True
+MyComplex(1+2j) + 1 => MyComplex (2+2j)
+MyComplex(1+2j) * 2 => MyComplex (2+4j)
+Tagged(3.5) built => tuple ('Tagged', 3.5, 't')
+harmonic_mean keeps subclass => str 'MyFloat'
+mean keeps subclass => str 'MyFloat'
+== exception:
+== stderr:
