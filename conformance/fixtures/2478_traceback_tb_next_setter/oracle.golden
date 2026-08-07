@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+has_tb_next => True
+tb_next_start => None
+set_none => None
+splice => True
+chain_length => 2
+self_loop => ValueError : traceback loop detected
+set_int => TypeError : expected traceback object, got 'int'
+set_str => TypeError : expected traceback object, got 'str'
+set_lineno => AttributeError : attribute 'tb_lineno' of 'traceback' objects is not writable
+set_frame => AttributeError : readonly attribute
+set_lasti => AttributeError : readonly attribute
+del_next => TypeError : can't delete tb_next attribute
+still_spliced => True
+final_length => 2
+== exception:
+== stderr:

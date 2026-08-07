@@ -3428,6 +3428,8 @@ func StoreAttr(o Object, name string, val Object) error {
 		}
 	case *threadObject:
 		return threadStoreAttr(x, name, val)
+	case *tracebackObject:
+		return tracebackStoreAttr(x, name, val)
 	case *namedTupleType:
 		// The class __doc__ is writable: namedtuple sets a default and code such as
 		// selectors replaces it with a fuller description.
@@ -3492,6 +3494,8 @@ func DelAttr(o Object, name string) error {
 		return functionDelAttr(x, name)
 	case *Module:
 		return moduleDelAttr(x, name)
+	case *tracebackObject:
+		return tracebackDelAttr(name)
 	case *classObject:
 		if meta, ok := userMetaclass(x); ok {
 			if handled, err := metaDel(x, meta, name); handled {
