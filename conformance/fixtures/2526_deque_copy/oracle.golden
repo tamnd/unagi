@@ -1,0 +1,13 @@
+== exit: 0
+== stdout:
+hasattr __copy__ True
+d.__copy__() deque([1, 2, 3], maxlen=5)
+copy.copy(d) deque([1, 2, 3], maxlen=5)
+copy.copy unbounded maxlen None
+empty deque copy deque([])
+type(d).__copy__(d) [1, 2, 3]
+original unchanged [1, 2, 3]
+copy has new item [1, 2, 3, 9]
+copy maxlen preserved 5
+== exception:
+== stderr:

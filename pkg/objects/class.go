@@ -3358,6 +3358,16 @@ func LoadAttr(o Object, name string) (Object, error) {
 			if v, ok := containerUnboundSpecial(x.name, name); ok {
 				return v, nil
 			}
+			// collections.deque exposes its methods off the type as unbound methods
+			// too, so type(d).__copy__ resolves and copy.copy(d) reconstructs through
+			// it the way copy.py's getattr(cls, "__copy__") path expects, matching
+			// CPython's deque method table. The copy hooks (__copy__, __reversed__)
+			// resolve here since the generic public-name gate below reserves __-names
+			// for the descriptor tables; a deque method dispatches through the same
+			// dequeMethod the bound d.method read does, so the two agree.
+			if x.name == "collections.deque" && dequeMethodNames[name] {
+				return builtinUnboundMethod(x.name, name), nil
+			}
 			// A plain method read off the type is the unbound method: int.bit_length
 			// then int.bit_length(5) dispatches the same as (5).bit_length(). Dunders
 			// are left to the descriptor handling above, so only the public names
