@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+small => 8.0
+bool_exp => 2.0
+bigint_base => 8e+30
+overflow => OverflowError : math range error
+overflow_neg => OverflowError : math range error
+underflow => 0.0
+underflow_neg => -0.0
+inf => inf
+ninf => -inf
+zero => 0.0
+nzero => -0.0
+nan => nan
+double_overflow => OverflowError : math range error
+float_exp => TypeError : Expected an int as second argument to ldexp.
+str_exp => TypeError : Expected an int as second argument to ldexp.
+== exception:
+== stderr:

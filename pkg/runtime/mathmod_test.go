@@ -171,6 +171,38 @@ func TestMathLogBigInt(t *testing.T) {
 	}
 }
 
+func TestMathLdexpBigInt(t *testing.T) {
+	ldexp := mathFn(t, "ldexp")
+	bigExp := objects.NewIntFromBig(new(big.Int).Exp(big.NewInt(10), big.NewInt(19), nil))
+	negExp := objects.NewIntFromBig(new(big.Int).Neg(new(big.Int).Exp(big.NewInt(10), big.NewInt(19), nil)))
+
+	// A huge positive exponent overflows a finite base to a range error.
+	if _, err := objects.Call(ldexp, []objects.Object{objects.NewFloat(1), bigExp}); !isKindErr(err, objects.OverflowError) {
+		t.Fatalf("ldexp(1.0, 10**19) = %v, want OverflowError", err)
+	}
+	// A huge negative exponent underflows to a signed zero, not an error.
+	if got := callFloat(t, ldexp, objects.NewFloat(1), negExp); got != 0 || math.Signbit(got) {
+		t.Fatalf("ldexp(1.0, -10**19) = %v, want +0.0", got)
+	}
+	if got := callFloat(t, ldexp, objects.NewFloat(-1), negExp); got != 0 || !math.Signbit(got) {
+		t.Fatalf("ldexp(-1.0, -10**19) = %v, want -0.0", got)
+	}
+	// A special base is returned unchanged whatever the exponent.
+	if got := callFloat(t, ldexp, objects.NewFloat(math.Inf(1)), negExp); !math.IsInf(got, 1) {
+		t.Fatalf("ldexp(inf, -10**19) = %v, want inf", got)
+	}
+	if got := callFloat(t, ldexp, objects.NewFloat(0), bigExp); got != 0 {
+		t.Fatalf("ldexp(0.0, 10**19) = %v, want 0.0", got)
+	}
+	// A bool exponent counts as the int it is; a float is the ldexp TypeError.
+	if got := callFloat(t, ldexp, objects.NewFloat(1), objects.NewBool(true)); got != 2 {
+		t.Fatalf("ldexp(1.0, True) = %v, want 2.0", got)
+	}
+	if _, err := objects.Call(ldexp, []objects.Object{objects.NewFloat(1), objects.NewFloat(2)}); !isKindErr(err, objects.TypeError) {
+		t.Fatalf("ldexp(1.0, 2.0) = %v, want TypeError", err)
+	}
+}
+
 func TestMathNextafterSteps(t *testing.T) {
 	na := mathFn(t, "nextafter")
 	// Three steps up equals one step applied three times.

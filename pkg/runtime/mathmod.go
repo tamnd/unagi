@@ -1407,12 +1407,31 @@ func mathLdexp(args []objects.Object) (objects.Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	e, ok := objects.AsInt(args[1])
+	// The exponent is any integer, an arbitrary-precision int or a bool, the way
+	// CPython's PyLong_Check accepts it; a float or other type is the ldexp
+	// TypeError. A huge exponent is not rejected: it clamps to the C int limits so
+	// it overflows or underflows the same as CPython rather than failing to parse.
+	exp, ok := objects.AsBigInt(args[1])
 	if !ok {
 		return nil, objects.Raise(objects.TypeError, "Expected an int as second argument to ldexp.")
 	}
-	r := math.Ldexp(x, int(e))
-	if math.IsInf(r, 0) && !math.IsInf(x, 0) {
+	// A zero, infinity or NaN is returned unchanged whatever the exponent, the
+	// special cases CPython leaves alone before it scales.
+	if x == 0 || math.IsInf(x, 0) || math.IsNaN(x) {
+		return objects.NewFloat(x), nil
+	}
+	var r float64
+	switch {
+	case exp.IsInt64() && exp.Int64() >= math.MinInt32 && exp.Int64() <= math.MaxInt32:
+		r = math.Ldexp(x, int(exp.Int64()))
+	case exp.Sign() > 0:
+		// Too large to represent: the scaled value overflows to infinity.
+		r = math.Copysign(math.Inf(1), x)
+	default:
+		// Too small: the value underflows to a signed zero, which is not an error.
+		return objects.NewFloat(math.Copysign(0, x)), nil
+	}
+	if math.IsInf(r, 0) {
 		return nil, objects.Raise(objects.OverflowError, "math range error")
 	}
 	return objects.NewFloat(r), nil
