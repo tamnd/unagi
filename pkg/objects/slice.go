@@ -247,6 +247,9 @@ func SetSlice(o, lo, hi, step, val Object) error {
 	if ba, ok := o.(*bytearrayObject); ok {
 		return setByteArraySlice(ba, lo, hi, step, val)
 	}
+	if arr, ok := o.(*arrayObject); ok {
+		return arraySetSlice(arr, lo, hi, step, val)
+	}
 	if _, ok := o.(*instanceObject); ok {
 		// A user class routes slice assignment through __setitem__ with the
 		// bracket contents boxed into a slice object.
@@ -335,7 +338,7 @@ func DelItem(o, key Object) error {
 	// A slice key deletes the span, so del xs[slice(0, 2)] matches del xs[0:2].
 	if sl, ok := key.(*sliceObject); ok {
 		switch o.(type) {
-		case *listObject, *tupleObject, *strObject, *bytesObject, *bytearrayObject, *memoryviewObject:
+		case *listObject, *tupleObject, *strObject, *bytesObject, *bytearrayObject, *memoryviewObject, *arrayObject:
 			return DelSlice(o, sl.start, sl.stop, sl.step)
 		}
 	}
@@ -445,6 +448,9 @@ func DelSlice(o, lo, hi, step Object) error {
 	}
 	if ba, ok := o.(*bytearrayObject); ok {
 		return delByteArraySlice(ba, lo, hi, step)
+	}
+	if arr, ok := o.(*arrayObject); ok {
+		return arrayDelSlice(arr, lo, hi, step)
 	}
 	if _, ok := o.(*instanceObject); ok {
 		// A user class routes slice deletion through __delitem__ with the

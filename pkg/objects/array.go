@@ -462,6 +462,77 @@ func arrayDelItem(a *arrayObject, key Object) error {
 	return nil
 }
 
+// arraySetSlice assigns a[lo:hi:step] = val. The slice bounds resolve first, so
+// a zero step is the slice-step error ahead of any type check; the right side
+// must then be an array (any other object the "can only assign array" TypeError)
+// of the same typecode (a mismatch the "bad argument type" TypeError). A
+// contiguous slice splices in any length, resizing the array, while an extended
+// slice needs an exact length match, matching CPython's array_ass_subscr.
+func arraySetSlice(a *arrayObject, lo, hi, step, val Object) error {
+	start, st, n, err := sliceIndices(lo, hi, step, len(a.elts))
+	if err != nil {
+		return err
+	}
+	other, ok := val.(*arrayObject)
+	if !ok {
+		return Raise(TypeError, "can only assign array (not \"%s\") to array slice", val.TypeName())
+	}
+	if other.code != a.code {
+		return Raise(TypeError, "bad argument type for built-in operation")
+	}
+	// Copy the source elements up front so a[:] = a stays correct when the
+	// splice rewrites the backing slice.
+	src := append([]Object(nil), other.elts...)
+	if st == 1 {
+		out := make([]Object, 0, len(a.elts)-n+len(src))
+		out = append(out, a.elts[:start]...)
+		out = append(out, src...)
+		out = append(out, a.elts[start+n:]...)
+		a.elts = out
+		return nil
+	}
+	if len(src) != n {
+		return Raise(ValueError, "attempt to assign array of size %d to extended slice of size %d", len(src), n)
+	}
+	for i, j := 0, start; i < n; i, j = i+1, j+st {
+		a.elts[j] = src[i]
+	}
+	return nil
+}
+
+// arrayDelSlice removes a[lo:hi:step]. A contiguous span drops in one splice; an
+// extended step walks the doomed indices in ascending order, mirroring the list
+// slice-deletion path.
+func arrayDelSlice(a *arrayObject, lo, hi, step Object) error {
+	start, st, n, err := sliceIndices(lo, hi, step, len(a.elts))
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return nil
+	}
+	if st == 1 {
+		a.elts = append(a.elts[:start], a.elts[start+n:]...)
+		return nil
+	}
+	if st < 0 {
+		start += (n - 1) * st
+		st = -st
+	}
+	out := make([]Object, 0, len(a.elts)-n)
+	next, dropped := start, 0
+	for i, e := range a.elts {
+		if dropped < n && i == next {
+			dropped++
+			next += st
+			continue
+		}
+		out = append(out, e)
+	}
+	a.elts = out
+	return nil
+}
+
 // arrayEquals reports whether two arrays hold equal elements in order. Equality
 // is value based and crosses typecodes, so array('i', [1]) equals array('f',
 // [1.0]); an array is never equal to a list with the same contents. Unlike list
