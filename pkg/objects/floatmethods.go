@@ -70,11 +70,11 @@ var floatBinDunders = map[string]binDunderSpec{
 }
 
 // isFloatOperand reports whether o is an operand float's arithmetic slots accept:
-// an int, a bool or a float. A complex, Fraction, Decimal or str is out of
-// domain, so the slot returns NotImplemented and the operand's own reflected
-// method runs.
+// an int, a bool or a float, or a subclass instance of one of those that reads
+// as its stored scalar. A complex, Fraction, Decimal or str is out of domain, so
+// the slot returns NotImplemented and the operand's own reflected method runs.
 func isFloatOperand(o Object) bool {
-	switch o.(type) {
+	switch numericOperand(o).(type) {
 	case *intObject, *boolObject, *floatObject:
 		return true
 	}
@@ -215,9 +215,10 @@ func floatMethod(o Object, name string, args []Object) (Object, error) {
 		if !isFloatOperand(args[0]) {
 			return NotImplemented, nil
 		}
-		a, b := o, args[0]
+		other := numericOperand(args[0])
+		a, b := o, other
 		if spec.reflected {
-			a, b = args[0], o
+			a, b = other, o
 		}
 		return binOp(spec.sym)(a, b)
 	}
@@ -244,9 +245,10 @@ func floatDivmodDunder(o Object, args []Object, reflected bool) (Object, error) 
 	if !isFloatOperand(args[0]) {
 		return NotImplemented, nil
 	}
-	a, b := o, args[0]
+	other := numericOperand(args[0])
+	a, b := o, other
 	if reflected {
-		a, b = args[0], o
+		a, b = other, o
 	}
 	q, err := FloorDiv(a, b)
 	if err != nil {
@@ -272,9 +274,10 @@ func floatPowDunder(o Object, args []Object, reflected bool) (Object, error) {
 	if !isFloatOperand(args[0]) {
 		return NotImplemented, nil
 	}
-	a, b := o, args[0]
+	other := numericOperand(args[0])
+	a, b := o, other
 	if reflected {
-		a, b = args[0], o
+		a, b = other, o
 	}
 	return Pow(a, b)
 }

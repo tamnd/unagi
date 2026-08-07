@@ -52,12 +52,25 @@ func numericUnaryOp(name string) func(Object) (Object, error) {
 	return nil
 }
 
-// isIntOperand reports whether o is an int (bool counts, being a subtype). int's
-// operator slots handle only int operands and return NotImplemented for anything
-// else, a float included: (5).__mul__(2.0) is NotImplemented in CPython, with
-// float.__rmul__ doing the real work through the binary-operator protocol.
+// numericOperand unwraps a numeric value-subclass instance to its stored payload
+// scalar, so a base arithmetic slot computes on the value the way CPython's C
+// slots read the double or the int out of a subclass operand and return a plain
+// result. A plain object, or one that is not a value subclass, is returned as
+// is.
+func numericOperand(o Object) Object {
+	if p, ok := builtinUnwrap(o); ok {
+		return p
+	}
+	return o
+}
+
+// isIntOperand reports whether o is an int (bool counts, being a subtype), or an
+// int subclass instance that reads as its stored int. int's operator slots
+// handle only int operands and return NotImplemented for anything else, a float
+// included: (5).__mul__(2.0) is NotImplemented in CPython, with float.__rmul__
+// doing the real work through the binary-operator protocol.
 func isIntOperand(o Object) bool {
-	switch o.(type) {
+	switch numericOperand(o).(type) {
 	case *intObject, *boolObject:
 		return true
 	}
@@ -83,6 +96,7 @@ func numericBoundDunder(recv Object, name string) Object {
 			if !isIntOperand(other) {
 				return NotImplemented, nil
 			}
+			other = numericOperand(other)
 			a, b := recv, other
 			if spec.reflected {
 				a, b = other, recv
@@ -120,6 +134,7 @@ func numericPowDunder(recv Object, name string) Object {
 		if !isIntOperand(other) {
 			return NotImplemented, nil
 		}
+		other = numericOperand(other)
 		base, exp := recv, other
 		if reflected {
 			base, exp = other, recv
@@ -131,6 +146,7 @@ func numericPowDunder(recv Object, name string) Object {
 		if !isIntOperand(mod) {
 			return NotImplemented, nil
 		}
+		mod = numericOperand(mod)
 		bb, _ := AsBigInt(base)
 		eb, _ := AsBigInt(exp)
 		mb, _ := AsBigInt(mod)

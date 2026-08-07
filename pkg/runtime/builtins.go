@@ -374,15 +374,35 @@ func Pow3(base, exp, mod objects.Object) (objects.Object, error) {
 		} else if ok {
 			return res, nil
 		}
-		// Probed: a float anywhere gives the integers-only message, while
-		// types with no pow slot at all list all three type names.
-		if base.TypeName() == "float" || exp.TypeName() == "float" || mod.TypeName() == "float" {
-			return nil, objects.Raise(objects.TypeError,
-				"pow() 3rd argument not allowed unless all arguments are integers")
+		// A plain int or bool subclass carries no pow override, so it reads as its
+		// stored int and the modular power runs on the payload the way CPython's
+		// long_pow reads the value out of a subclass argument.
+		if !bok {
+			if p, ok := objects.BuiltinValue(base); ok {
+				bb, bok = objects.AsBigInt(p)
+			}
 		}
-		return nil, objects.Raise(objects.TypeError,
-			"unsupported operand type(s) for ** or pow(): '%s', '%s', '%s'",
-			base.TypeName(), exp.TypeName(), mod.TypeName())
+		if !eok {
+			if p, ok := objects.BuiltinValue(exp); ok {
+				eb, eok = objects.AsBigInt(p)
+			}
+		}
+		if !mok {
+			if p, ok := objects.BuiltinValue(mod); ok {
+				mb, mok = objects.AsBigInt(p)
+			}
+		}
+		if !bok || !eok || !mok {
+			// Probed: a float anywhere gives the integers-only message, while
+			// types with no pow slot at all list all three type names.
+			if base.TypeName() == "float" || exp.TypeName() == "float" || mod.TypeName() == "float" {
+				return nil, objects.Raise(objects.TypeError,
+					"pow() 3rd argument not allowed unless all arguments are integers")
+			}
+			return nil, objects.Raise(objects.TypeError,
+				"unsupported operand type(s) for ** or pow(): '%s', '%s', '%s'",
+				base.TypeName(), exp.TypeName(), mod.TypeName())
+		}
 	}
 	if mb.Sign() == 0 {
 		return nil, objects.Raise(objects.ValueError, "pow() 3rd argument cannot be 0")
