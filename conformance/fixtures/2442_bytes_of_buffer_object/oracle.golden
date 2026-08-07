@@ -1,0 +1,20 @@
+== exit: 0
+== stdout:
+bytes-mv-i b'\x07\x00\x00\x00\x08\x00\x00\x00\x03\x00\x00\x00'
+bytes-mv-h b'\x01\x00\x02\x00'
+bytes-mv-f b'\x00\x00\xc0?'
+bytes-mv-B b'abc'
+bytes-mv-cast b'\x01\x00\x02\x00'
+bytes-mv-slice b'\x02\x00\x00\x00\x03\x00\x00\x00'
+bytearray-mv-i bytearray(b'\x07\x00\x00\x00\x08\x00\x00\x00')
+bytes-array-i b'\x07\x00\x00\x00\x08\x00\x00\x00'
+bytes-array-h b'\x01\x00\x02\x00'
+bytearray-array-d bytearray(b'\x00\x00\x00\x00\x00\x00\xf8?')
+matches-tobytes True
+independent True
+bytes-released ERR ValueError operation forbidden on released memoryview object
+bytes-list b'\x01\x02\x03'
+bytes-range b'\x00\x01\x02'
+bytes-count b'\x00\x00\x00'
+== exception:
+== stderr:
