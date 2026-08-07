@@ -370,6 +370,59 @@ func TestMathDistCorrectlyRounded(t *testing.T) {
 	}
 }
 
+func TestMathSumprodCorrectlyRounded(t *testing.T) {
+	sumprod := mathFn(t, "sumprod")
+	lst := func(vs ...objects.Object) objects.Object {
+		return objects.NewList(append([]objects.Object(nil), vs...))
+	}
+	f := func(vs ...float64) objects.Object {
+		elts := make([]objects.Object, len(vs))
+		for i, v := range vs {
+			elts[i] = objects.NewFloat(v)
+		}
+		return objects.NewList(elts)
+	}
+	call := func(p, q objects.Object) objects.Object {
+		v, err := objects.Call(sumprod, []objects.Object{p, q})
+		if err != nil {
+			t.Fatalf("sumprod: %v", err)
+		}
+		return v
+	}
+
+	// The compensated accumulator lands on the correctly rounded double 80.0
+	// where a naive running sum of these products rounds one place off to
+	// 80.00000000000001.
+	got := call(f(0.3, 100, 100), f(0.0, -0.7, 1.5))
+	if d, _ := objects.AsFloat(got); d != 80.0 {
+		t.Errorf("sumprod compensated = %v, want 80", d)
+	}
+
+	// Exact integer inputs stay exact, including values past int64.
+	bigDot := call(lst(objects.NewIntText("1000000000000000000000000000000"), objects.NewInt(2)),
+		lst(objects.NewIntText("1000000000000000000000000000000"), objects.NewInt(3)))
+	wantBig, _ := new(big.Int).SetString("1000000000000000000000000000000000000000000000000000000000006", 10)
+	if gb, ok := objects.AsBigInt(bigDot); !ok || gb.Cmp(wantBig) != 0 {
+		t.Errorf("sumprod big int = %v, want %v", bigDot, wantBig)
+	}
+
+	// Overflow with no infinite input returns +inf, matching the float sum.
+	inf := call(f(1e308, 1e308), f(10.0, 10.0))
+	if d, _ := objects.AsFloat(inf); !math.IsInf(d, 1) {
+		t.Errorf("sumprod overflow = %v, want +inf", d)
+	}
+
+	// Empty inputs give the integer zero.
+	if z := call(f(), f()); z.TypeName() != "int" {
+		t.Errorf("sumprod([],[]) type = %s, want int", z.TypeName())
+	}
+
+	// Unequal lengths raise ValueError.
+	if _, err := objects.Call(sumprod, []objects.Object{f(1, 2), f(1)}); err == nil {
+		t.Errorf("sumprod on unequal lengths did not raise")
+	}
+}
+
 func TestMathDomainErrors(t *testing.T) {
 	cases := []struct {
 		fn   string

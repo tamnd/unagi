@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+0
+32
+1000000000000000000000000000000000000000000000000000000000006
+80.0
+1.7503075000000003
+0.13999999999999999
+30.5
+7.0
+2e+30
+inf
+(1+8j)
+Fraction(6, 1)
+Decimal('12.00')
+ValueError: Inputs are not the same length
+== exception:
+== stderr:

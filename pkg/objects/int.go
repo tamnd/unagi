@@ -59,6 +59,49 @@ func IsBigInt(o Object) bool {
 	return ok && x.big != nil
 }
 
+// IsExactInt reports whether o is exactly the built-in int type, excluding
+// bool and int subclasses, matching CPython's PyLong_CheckExact. math.sumprod
+// reserves its exact-integer accumulator for these so bool operands take the
+// float path the way CPython routes them.
+func IsExactInt(o Object) bool {
+	_, ok := o.(*intObject)
+	return ok
+}
+
+// AsExactFloat reads the double from a value of exactly the built-in float type,
+// excluding int, bool, and float subclasses, matching CPython's
+// PyFloat_CheckExact followed by PyFloat_AS_DOUBLE.
+func AsExactFloat(o Object) (float64, bool) {
+	if x, ok := o.(*floatObject); ok {
+		return x.v, true
+	}
+	return 0, false
+}
+
+// IntAsDoubleChecked converts an int or bool to a double, reporting ok false
+// when the magnitude overflows the double range. It matches CPython's
+// PyLong_AsDouble raising OverflowError, which math.sumprod catches to fall out
+// of its float fast path onto exact object arithmetic.
+func IntAsDoubleChecked(o Object) (float64, bool) {
+	switch x := o.(type) {
+	case *boolObject:
+		if x.v {
+			return 1, true
+		}
+		return 0, true
+	case *intObject:
+		if x.big != nil {
+			f, _ := new(big.Float).SetInt(x.big).Float64()
+			if math.IsInf(f, 0) {
+				return 0, false
+			}
+			return f, true
+		}
+		return float64(x.v), true
+	}
+	return 0, false
+}
+
 // BuiltinIntValue returns the underlying int for an int, a bool, or a subclass
 // of either, and ok false for anything else. Unlike a general __index__ probe it
 // does not fire for an arbitrary object that merely spells __index__, so a caller
