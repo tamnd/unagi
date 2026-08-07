@@ -578,10 +578,14 @@ func NewTuple(elts []Object) Object { return &tupleObject{elts: elts} }
 // bindSelf stamps a builtin method funcObject with the receiver it reports
 // through __self__, so a bound instance method read off a number ((255).to_bytes,
 // (1.5).is_integer) hands back its receiver the way CPython's bound method does.
-// It is a no-op for anything that is not a plain funcObject.
+// It also qualifies __qualname__ to type.name against the receiver's own type, so
+// True.bit_length reads bool.bit_length and (5).__add__ reads int.__add__ the way
+// CPython names a bound method after the type it was read off. It is a no-op for
+// anything that is not a plain funcObject.
 func bindSelf(fn Object, self Object) Object {
 	if f, ok := fn.(*funcObject); ok {
 		f.boundSelf = self
+		_, f.qualnameOwner = splitBuiltinTypeName(self.TypeName())
 	}
 	return fn
 }

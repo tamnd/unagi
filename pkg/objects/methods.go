@@ -252,12 +252,16 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 // CallMethod/CallMethodKw, so items.append(x) and the bound read agree on the
 // arity checks and the keyword handling.
 func builtinMethodValue(recv Object, name string) Object {
+	_, owner := splitBuiltinTypeName(recv.TypeName())
 	return &funcObject{
 		name:  name,
 		arity: -1,
 		// A bound method reports its receiver through __self__, so items.append.__self__
-		// is items the way CPython's bound builtin method does.
-		boundSelf: recv,
+		// is items the way CPython's bound builtin method does, and names __qualname__
+		// after the receiver's own type, so [1].append reads list.append and
+		// Counter().get reads Counter.get.
+		boundSelf:     recv,
+		qualnameOwner: owner,
 		fn: func(args []Object) (Object, error) {
 			return CallMethod(recv, name, args)
 		},
