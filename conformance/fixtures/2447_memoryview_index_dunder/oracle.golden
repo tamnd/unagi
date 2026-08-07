@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+get-idx 99
+get-bool 98
+get-neg 101
+set-idx b'abXde'
+set-bool b'aZcde'
+tuple-get ERR TypeError unsupported operand type(s) for -: 'Idx' and 'int'
+tuple-set ERR TypeError unsupported operand type(s) for -: 'Idx' and 'int'
+get-bad ERR TypeError __index__ returned non-int (type str)
+get-float ERR TypeError memoryview: invalid slice key
+get-str ERR TypeError memoryview: invalid slice key
+get-oob ERR IndexError index out of bounds on dimension 1
+set-bad ERR TypeError __index__ returned non-int (type str)
+set-readonly ERR TypeError cannot modify read-only memory
+== exception:
+== stderr:
