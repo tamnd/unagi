@@ -522,8 +522,16 @@ func qpHexValue(ch byte) byte {
 // the byte, an = before a newline is a soft break that drops the newline, and
 // with header true an underscore decodes to a space.
 func binasciiA2bQp(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
-	if len(pos) < 1 || len(pos) > 2 {
+	if len(pos) > 2 {
 		return nil, objects.Raise(objects.TypeError, "a2b_qp() takes at most 2 arguments (%d given)", len(pos))
+	}
+	// data is the first positional-or-keyword argument (CPython's clinic
+	// signature is a2b_qp(data, header=False)), so it may arrive by name; a Go
+	// nil dataObj marks it still unfilled so the missing/conflict errors read the
+	// way the argument clinic reports them.
+	var dataObj objects.Object
+	if len(pos) >= 1 {
+		dataObj = pos[0]
 	}
 	header := false
 	if len(pos) == 2 {
@@ -531,13 +539,21 @@ func binasciiA2bQp(pos []objects.Object, kwNames []string, kwVals []objects.Obje
 	}
 	for i, k := range kwNames {
 		switch k {
+		case "data":
+			if dataObj != nil {
+				return nil, objects.Raise(objects.TypeError, "argument for a2b_qp() given by name ('data') and position (1)")
+			}
+			dataObj = kwVals[i]
 		case "header":
 			header = objects.Truth(kwVals[i])
 		default:
 			return nil, objects.Raise(objects.TypeError, "a2b_qp() got an unexpected keyword argument '%s'", k)
 		}
 	}
-	data, err := binasciiData(pos[0])
+	if dataObj == nil {
+		return nil, objects.Raise(objects.TypeError, "a2b_qp() missing required argument 'data' (pos 1)")
+	}
+	data, err := binasciiData(dataObj)
 	if err != nil {
 		return nil, err
 	}
@@ -618,8 +634,16 @@ func qpNeedsQuote(data []byte, in, n int, header, istext, quotetabs bool, linele
 // breaks keep lines under 76 columns, and the CRLF form is mirrored when the
 // input already uses it.
 func binasciiB2aQp(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
-	if len(pos) < 1 || len(pos) > 4 {
+	if len(pos) > 4 {
 		return nil, objects.Raise(objects.TypeError, "b2a_qp() takes at most 4 arguments (%d given)", len(pos))
+	}
+	// data is the first positional-or-keyword argument (CPython's clinic
+	// signature is b2a_qp(data, quotetabs=False, istext=True, header=False)), so
+	// it may arrive by name; a Go nil dataObj marks it still unfilled so the
+	// missing/conflict errors read the way the argument clinic reports them.
+	var dataObj objects.Object
+	if len(pos) >= 1 {
+		dataObj = pos[0]
 	}
 	quotetabs, istext, header := false, true, false
 	if len(pos) >= 2 {
@@ -633,6 +657,11 @@ func binasciiB2aQp(pos []objects.Object, kwNames []string, kwVals []objects.Obje
 	}
 	for i, k := range kwNames {
 		switch k {
+		case "data":
+			if dataObj != nil {
+				return nil, objects.Raise(objects.TypeError, "argument for b2a_qp() given by name ('data') and position (1)")
+			}
+			dataObj = kwVals[i]
 		case "quotetabs":
 			quotetabs = objects.Truth(kwVals[i])
 		case "istext":
@@ -643,7 +672,10 @@ func binasciiB2aQp(pos []objects.Object, kwNames []string, kwVals []objects.Obje
 			return nil, objects.Raise(objects.TypeError, "b2a_qp() got an unexpected keyword argument '%s'", k)
 		}
 	}
-	data, err := binasciiData(pos[0])
+	if dataObj == nil {
+		return nil, objects.Raise(objects.TypeError, "b2a_qp() missing required argument 'data' (pos 1)")
+	}
+	data, err := binasciiData(dataObj)
 	if err != nil {
 		return nil, err
 	}
