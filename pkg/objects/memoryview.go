@@ -36,10 +36,14 @@ type memoryviewObject struct {
 	off      int
 	length   int
 	format   string
-	itemsize int
-	released bool
-	shape    []int
-	strides  []int
+	// displayFormat holds the string the .format attribute reports when it differs
+	// from the internal dispatch code, the '@i' spelling a cast('@i') keeps while
+	// format stays the bare 'i' that drives decode, encode and the error wording.
+	displayFormat string
+	itemsize      int
+	released      bool
+	shape         []int
+	strides       []int
 }
 
 // mvShape returns the per-dimension element counts, the implicit one-dimensional
@@ -836,7 +840,7 @@ func mvGetSlice(m *memoryviewObject, lo, hi, step Object) (Object, error) {
 		return nil, err
 	}
 	if st == 1 {
-		return &memoryviewObject{base: m.base, readonly: m.readonly, off: m.off + start*m.itemsize, length: n, format: m.format, itemsize: m.itemsize}, nil
+		return &memoryviewObject{base: m.base, readonly: m.readonly, off: m.off + start*m.itemsize, length: n, format: m.format, displayFormat: m.displayFormat, itemsize: m.itemsize}, nil
 	}
 	full := mvBaseBytes(m)
 	out := make([]byte, 0, n*m.itemsize)
@@ -844,7 +848,7 @@ func mvGetSlice(m *memoryviewObject, lo, hi, step Object) (Object, error) {
 		base := m.off + j*m.itemsize
 		out = append(out, full[base:base+m.itemsize]...)
 	}
-	return &memoryviewObject{base: NewBytes(out), readonly: true, off: 0, length: n, format: m.format, itemsize: m.itemsize}, nil
+	return &memoryviewObject{base: NewBytes(out), readonly: true, off: 0, length: n, format: m.format, displayFormat: m.displayFormat, itemsize: m.itemsize}, nil
 }
 
 // mvGetSliceMulti slices the leading dimension of a multi-dimensional view. The
@@ -865,14 +869,15 @@ func mvGetSliceMulti(m *memoryviewObject, lo, hi, step Object) (Object, error) {
 	newStrides := append([]int(nil), strides...)
 	newStrides[0] = strides[0] * st
 	return &memoryviewObject{
-		base:     m.base,
-		readonly: m.readonly,
-		off:      m.off + start*strides[0],
-		length:   n * intProduct(shape[1:]),
-		format:   m.format,
-		itemsize: m.itemsize,
-		shape:    newShape,
-		strides:  newStrides,
+		base:          m.base,
+		readonly:      m.readonly,
+		off:           m.off + start*strides[0],
+		length:        n * intProduct(shape[1:]),
+		format:        m.format,
+		displayFormat: m.displayFormat,
+		itemsize:      m.itemsize,
+		shape:         newShape,
+		strides:       newStrides,
 	}, nil
 }
 
@@ -1184,7 +1189,7 @@ func memoryviewMethod(m *memoryviewObject, name string, args []Object) (Object, 
 		}
 		// A read-only twin over the same span and root buffer, so it still
 		// aliases a write through the original but rejects one of its own.
-		return &memoryviewObject{base: m.base, readonly: true, off: m.off, length: m.length, format: m.format, itemsize: m.itemsize}, nil
+		return &memoryviewObject{base: m.base, readonly: true, off: m.off, length: m.length, format: m.format, displayFormat: m.displayFormat, itemsize: m.itemsize}, nil
 	}
 	return nil, noAttr(m, name)
 }
@@ -1279,7 +1284,15 @@ func mvCastCore(m *memoryviewObject, format string, shapeObj Object, haveShape b
 			return nil, Raise(TypeError, "shape must be a list or a tuple")
 		}
 	}
-	size, ok := mvFormatSize(format)
+	// The destination may carry the optional '@' native-order prefix, so '@i' is
+	// the native 'i'. The view keeps the '@i' spelling in its .format while the
+	// bare code drives the size, decode, encode and error wording, matching
+	// CPython which stores the prefixed string but dispatches on the code.
+	code, disp := format, ""
+	if len(format) == 2 && format[0] == '@' {
+		code, disp = format[1:], format
+	}
+	size, ok := mvFormatSize(code)
 	if !ok {
 		return nil, Raise(ValueError,
 			"memoryview: destination format must be a native single character format prefixed with an optional '@'")
@@ -1295,7 +1308,7 @@ func mvCastCore(m *memoryviewObject, format string, shapeObj Object, haveShape b
 		if byteLen%size != 0 {
 			return nil, Raise(TypeError, "memoryview: length is not a multiple of itemsize")
 		}
-		return &memoryviewObject{base: m.base, readonly: m.readonly, off: m.off, length: byteLen / size, format: format, itemsize: size}, nil
+		return &memoryviewObject{base: m.base, readonly: m.readonly, off: m.off, length: byteLen / size, format: code, displayFormat: disp, itemsize: size}, nil
 	}
 	dims := make([]int, len(shapeElems))
 	for i, e := range shapeElems {
@@ -1311,7 +1324,7 @@ func mvCastCore(m *memoryviewObject, format string, shapeObj Object, haveShape b
 	if intProduct(dims)*size != byteLen {
 		return nil, Raise(TypeError, "memoryview: product(shape) * itemsize != buffer size")
 	}
-	return &memoryviewObject{base: m.base, readonly: m.readonly, off: m.off, length: intProduct(dims), format: format, itemsize: size, shape: dims}, nil
+	return &memoryviewObject{base: m.base, readonly: m.readonly, off: m.off, length: intProduct(dims), format: code, displayFormat: disp, itemsize: size, shape: dims}, nil
 }
 
 // mvToList renders memoryview.tolist(): a one-dimensional view is a flat list of
@@ -1363,6 +1376,9 @@ func memoryviewLoadAttr(m *memoryviewObject, name string) (Object, error) {
 	}
 	switch name {
 	case "format":
+		if m.displayFormat != "" {
+			return NewStr(m.displayFormat), nil
+		}
 		return NewStr(m.format), nil
 	case "itemsize":
 		return NewInt(int64(m.itemsize)), nil
