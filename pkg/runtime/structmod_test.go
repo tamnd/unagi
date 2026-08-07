@@ -630,6 +630,94 @@ func TestStructUnpackBuffer(t *testing.T) {
 	}
 }
 
+// TestStructComplexCodes checks the C99 complex format codes 'F' (two float32)
+// and 'D' (two float64) that CPython 3.14's _struct grew: the sizes, native
+// alignment, pack of a complex, float, int or bool, the round trip back to a
+// complex, and the type error a non-number raises. Unlike the scalar float
+// codes, a component that overflows the target precision is written as an
+// infinity rather than raised. The expected results were taken from CPython
+// 3.14.6.
+func TestStructComplexCodes(t *testing.T) {
+	m, err := ImportModule("_struct")
+	if err != nil {
+		t.Fatalf("import _struct: %v", err)
+	}
+	load := func(name string) objects.Object {
+		fn, err := objects.LoadAttr(m, name)
+		if err != nil {
+			t.Fatalf("_struct.%s: %v", name, err)
+		}
+		return fn
+	}
+	pack, unpack, calcsize := load("pack"), load("unpack"), load("calcsize")
+
+	// A complex float is 8 bytes and a complex double 16; native alignment pads a
+	// leading byte up to the component width (4 for F, 8 for D).
+	for _, sz := range []struct {
+		fmt  string
+		want string
+	}{
+		{"F", "8"}, {"D", "16"}, {"2F", "16"},
+		{"@bF", "12"}, {"@bD", "24"}, {"<F", "8"}, {">D", "16"},
+	} {
+		res, err := objects.Call(calcsize, []objects.Object{objects.NewStr(sz.fmt)})
+		if err != nil {
+			t.Fatalf("calcsize(%q): %v", sz.fmt, err)
+		}
+		if got := objects.Repr(res); got != sz.want {
+			t.Fatalf("calcsize(%q) = %s, want %s", sz.fmt, got, sz.want)
+		}
+	}
+
+	// pack writes the real component then the imaginary, each in the format's byte
+	// order, and unpack reads them back to a complex.
+	for _, rt := range []struct {
+		fmt string
+		val objects.Object
+		hex string
+	}{
+		{">F", objects.NewComplex(3, 4), "4040000040800000"},
+		{"<F", objects.NewComplex(3, 4), "0000404000008040"},
+		{">D", objects.NewComplex(-1.5, 0.25), "bff8000000000000" + "3fd0000000000000"},
+		{">F", objects.NewFloat(2.5), "4020000000000000"},
+		{">F", objects.NewInt(5), "40a0000000000000"},
+		{">F", objects.True, "3f80000000000000"},
+	} {
+		res, err := objects.Call(pack, []objects.Object{objects.NewStr(rt.fmt), rt.val})
+		if err != nil {
+			t.Fatalf("pack(%q, %s): %v", rt.fmt, objects.Repr(rt.val), err)
+		}
+		b, _ := objects.AsBytes(res)
+		if got := bytesHex(b); got != rt.hex {
+			t.Fatalf("pack(%q, %s) = %s, want %s", rt.fmt, objects.Repr(rt.val), got, rt.hex)
+		}
+		back, err := objects.Call(unpack, []objects.Object{objects.NewStr(rt.fmt), res})
+		if err != nil {
+			t.Fatalf("unpack(%q): %v", rt.fmt, err)
+		}
+		if got := back.TypeName(); got != "tuple" {
+			t.Fatalf("unpack(%q) type = %s", rt.fmt, got)
+		}
+	}
+
+	// A component past the target precision rounds to infinity with no error, the
+	// way _struct converts each part straight to the C float type.
+	res, err := objects.Call(pack, []objects.Object{objects.NewStr(">F"), objects.NewComplex(1e300, 0)})
+	if err != nil {
+		t.Fatalf("pack overflow: %v", err)
+	}
+	b, _ := objects.AsBytes(res)
+	if got := bytesHex(b); got != "7f80000000000000" {
+		t.Fatalf("pack(>F, 1e300) = %s, want 7f80000000000000", got)
+	}
+
+	// A non-number is the struct.error the complex converter raises.
+	if _, err := objects.Call(pack, []objects.Object{objects.NewStr("F"), objects.NewStr("x")}); err == nil ||
+		!strings.Contains(err.Error(), "required argument is not a complex") {
+		t.Fatalf("pack(F, str) error = %v, want required argument is not a complex", err)
+	}
+}
+
 // bytesHex renders raw bytes as lowercase hex, matching bytes.hex() in the oracle.
 func bytesHex(b []byte) string {
 	const digits = "0123456789abcdef"

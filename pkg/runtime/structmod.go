@@ -634,7 +634,7 @@ func isStructSpace(c byte) bool {
 func isStructCode(c byte) bool {
 	switch c {
 	case 'x', 'c', 'b', 'B', '?', 'h', 'H', 'i', 'I', 'l', 'L',
-		'q', 'Q', 'n', 'N', 'e', 'f', 'd', 's', 'p', 'P':
+		'q', 'Q', 'n', 'N', 'e', 'f', 'd', 'F', 'D', 's', 'p', 'P':
 		return true
 	}
 	return false
@@ -657,6 +657,12 @@ func structElemSize(code byte, native bool) int {
 		return 4
 	case 'q', 'Q', 'd', 'n', 'N', 'P':
 		return 8
+	case 'F':
+		// A C99 complex float is two float32 components packed back to back.
+		return 8
+	case 'D':
+		// A C99 complex double is two float64 components.
+		return 16
 	}
 	return 0
 }
@@ -667,9 +673,11 @@ func structNativeAlign(code byte) int {
 	switch code {
 	case 'h', 'H', 'e':
 		return 2
-	case 'i', 'I', 'f':
+	case 'i', 'I', 'f', 'F':
+		// A complex float aligns to its float32 component, like the C _Complex
+		// float type: 4 bytes.
 		return 4
-	case 'l', 'L', 'q', 'Q', 'd', 'n', 'N', 'P':
+	case 'l', 'L', 'q', 'Q', 'd', 'D', 'n', 'N', 'P':
 		return 8
 	}
 	return 1
@@ -810,9 +818,32 @@ func packOne(f *structFormat, buf []byte, off int, code byte, width int, o objec
 		return nil
 	case 'e', 'f', 'd':
 		return packFloat(f, buf, off, code, o)
+	case 'F', 'D':
+		return packComplex(f, buf, off, code, o)
 	default:
 		return packInt(f, buf, off, code, width, o)
 	}
+}
+
+// packComplex writes a C99 complex float ('F', two float32) or complex double
+// ('D', two float64). It coerces a complex, float, int or bool to real and
+// imaginary parts and rejects anything else with struct.error "required argument
+// is not a complex". Unlike the 'e'/'f' scalar float codes, a component that
+// overflows the target precision is written as an infinity rather than raised,
+// matching CPython's _struct which converts each part straight to the C type.
+func packComplex(f *structFormat, buf []byte, off int, code byte, o objects.Object) error {
+	re, im, ok := objects.AsComplexParts(o)
+	if !ok {
+		return structErrorf("required argument is not a complex")
+	}
+	if code == 'F' {
+		f.order.PutUint32(buf[off:], math.Float32bits(float32(re)))
+		f.order.PutUint32(buf[off+4:], math.Float32bits(float32(im)))
+		return nil
+	}
+	f.order.PutUint64(buf[off:], math.Float64bits(re))
+	f.order.PutUint64(buf[off+8:], math.Float64bits(im))
+	return nil
 }
 
 // packFloat writes a half, single or double precision float.
@@ -1046,6 +1077,14 @@ func unpackOne(f *structFormat, b []byte, off int, code byte, width int) objects
 		return objects.NewFloat(float64(math.Float32frombits(f.order.Uint32(b[off:]))))
 	case 'd':
 		return objects.NewFloat(math.Float64frombits(f.order.Uint64(b[off:])))
+	case 'F':
+		re := float64(math.Float32frombits(f.order.Uint32(b[off:])))
+		im := float64(math.Float32frombits(f.order.Uint32(b[off+4:])))
+		return objects.NewComplex(re, im)
+	case 'D':
+		re := math.Float64frombits(f.order.Uint64(b[off:]))
+		im := math.Float64frombits(f.order.Uint64(b[off+8:]))
+		return objects.NewComplex(re, im)
 	}
 	return unpackInt(f, b, off, code, width)
 }

@@ -53,6 +53,14 @@ func asComplex(o Object) (re, im float64, ok bool) {
 	return 0, 0, false
 }
 
+// AsComplexParts coerces a value to complex parts the way struct's 'F' and 'D'
+// codes take their argument: a complex keeps its parts and an int, bool or
+// float becomes a real value with a zero imaginary part. Any other type reports
+// ok=false so the caller raises "required argument is not a complex".
+func AsComplexParts(o Object) (re, im float64, ok bool) {
+	return asComplex(o)
+}
+
 // eitherComplex reports whether a or b is an actual complex, the guard the
 // operators use before trying the complex coercion.
 func eitherComplex(a, b Object) bool {
