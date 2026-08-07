@@ -361,6 +361,73 @@ func mvSpan(m *memoryviewObject) []byte {
 	return out
 }
 
+// mvSpanFortran copies the view's bytes out in Fortran (column-major) order, the
+// traversal memoryview.tobytes('F') asks for: the first axis varies fastest, so a
+// multi-dimensional view reads down its columns rather than along its rows. It
+// coincides with mvSpan for a one-dimensional view, where the two orders are the
+// same, and only diverges once the view carries more than one dimension.
+func mvSpanFortran(m *memoryviewObject) []byte {
+	full := mvBaseBytes(m)
+	shape, strides := mvShape(m), mvStrides(m)
+	ndim := len(shape)
+	out := make([]byte, 0, mvByteLen(m))
+	idx := make([]int, ndim)
+	for f := 0; f < m.length; f++ {
+		rem := f
+		off := m.off
+		for k := 0; k < ndim; k++ {
+			idx[k] = rem % shape[k]
+			rem /= shape[k]
+			off += idx[k] * strides[k]
+		}
+		out = append(out, full[off:off+m.itemsize]...)
+	}
+	return out
+}
+
+// memoryviewTobytes implements memoryview.tobytes(order='C'), copying the view's
+// logical bytes out in the requested traversal order. order is position-or-keyword
+// the way CPython's clinic declares it and must be 'C', 'F', 'A' or None: 'C', 'A'
+// and None read row-major, 'F' column-major, which only differs for a
+// multi-dimensional view. The checks run in CPython's order, the argument count
+// and type first, then the released view, then the order value.
+func memoryviewTobytes(m *memoryviewObject, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+	if len(pos)+len(kwNames) > 1 {
+		return nil, Raise(TypeError, "tobytes() takes at most 1 argument (%d given)", len(pos)+len(kwNames))
+	}
+	orderObj := None
+	if len(pos) == 1 {
+		orderObj = pos[0]
+	}
+	for i, name := range kwNames {
+		if name != "order" {
+			return nil, Raise(TypeError, "tobytes() got an unexpected keyword argument '%s'", name)
+		}
+		orderObj = kwVals[i]
+	}
+	// order accepts a str or None; None reads as the default 'C'. A non-str, non-None
+	// argument is the type error, raised before the released and value checks.
+	order := "C"
+	if orderObj != None {
+		s, ok := AsStr(orderObj)
+		if !ok {
+			return nil, Raise(TypeError, "tobytes() argument 'order' must be str or None, not %s", orderObj.TypeName())
+		}
+		order = s
+	}
+	if m.released {
+		return nil, mvReleased()
+	}
+	switch order {
+	case "C", "A":
+		return NewBytes(mvSpan(m)), nil
+	case "F":
+		return NewBytes(mvSpanFortran(m)), nil
+	default:
+		return nil, Raise(ValueError, "order must be 'C', 'F' or 'A'")
+	}
+}
+
 // mvSetByte writes one byte into the writable base at the flat element index i,
 // mapped through the view's strides so a byte store lands at the right offset
 // even for a multi-dimensional view, under the bytearray lock so it is atomic.
@@ -1167,10 +1234,7 @@ func memoryviewMethod(m *memoryviewObject, name string, args []Object) (Object, 
 		m.released = true
 		return None, nil
 	case "tobytes":
-		if m.released {
-			return nil, mvReleased()
-		}
-		return NewBytes(mvSpan(m)), nil
+		return memoryviewTobytes(m, args, nil, nil)
 	case "tolist":
 		return mvToList(m)
 	case "hex":
@@ -1232,6 +1296,9 @@ func memoryviewMethod(m *memoryviewObject, name string, args []Object) (Object, 
 func memoryviewMethodKw(m *memoryviewObject, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
 	if name == "cast" {
 		return mvCastKw(m, pos, kwNames, kwVals)
+	}
+	if name == "tobytes" {
+		return memoryviewTobytes(m, pos, kwNames, kwVals)
 	}
 	if len(kwNames) == 0 {
 		return memoryviewMethod(m, name, pos)
