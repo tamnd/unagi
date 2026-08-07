@@ -31,6 +31,31 @@ func TestArrayUDeprecationBestEffort(t *testing.T) {
 	}
 }
 
+// TestArrayMutableSequenceBestEffort exercises the best-effort skip path of the
+// collections.abc.MutableSequence registration hook. A bare runtime unit test
+// bundles only native modules, so the collections.abc floor is absent; the hook
+// must then skip silently rather than error, and the array type stays usable.
+// The registration-fires path (isinstance(a, MutableSequence) and the whole
+// Sequence/Iterable/Container chain) is covered end to end by the 2503
+// conformance fixture, which runs through the full pipeline where collections.abc
+// is present.
+func TestArrayMutableSequenceBestEffort(t *testing.T) {
+	if _, err := ImportModule("collections.abc"); err == nil {
+		t.Skip("collections.abc present; best-effort skip path not exercised")
+	}
+	if err := registerArrayMutableSequence(); err != nil {
+		t.Fatalf("registerArrayMutableSequence with no collections.abc: %v", err)
+	}
+	// The array type still constructs through the skipped hook.
+	a, err := objects.Call(arrayType, []objects.Object{objects.NewStr("i"), intList(1, 2, 3)})
+	if err != nil {
+		t.Fatalf("array('i', [1, 2, 3]): %v", err)
+	}
+	if got := objects.Repr(a); got != "array('i', [1, 2, 3])" {
+		t.Fatalf("array('i', [1, 2, 3]) = %s, want array('i', [1, 2, 3])", got)
+	}
+}
+
 // TestArrayFromFileToFile drives array.tofile and array.fromfile against a real
 // _io.BytesIO. tofile writes the array's raw item bytes; fromfile reads back a
 // requested item count via a single read. A short read appends the whole items
