@@ -81,6 +81,26 @@ func NewArray(codeObj, init Object) (Object, error) {
 	if init == nil || init == None {
 		return a, nil
 	}
+	// Another array seeds value by value, not from its raw bytes: a source of the
+	// same typecode copies straight across, while a different typecode iterates the
+	// source elements and coerces each to the target, so array('h', array('i', [1,
+	// 2])) is array('h', [1, 2]) and a source value that does not fit the target
+	// raises the item error (array('i', array('f', [1.0])) is a TypeError). CPython
+	// reserves the raw-bytes reinterpret for a bytes-like buffer, checked next.
+	if src, ok := init.(*arrayObject); ok {
+		if src.code == code {
+			a.elts = append(a.elts, src.elts...)
+			return a, nil
+		}
+		for _, it := range src.elts {
+			cv, err := arrayCoerce(code, it)
+			if err != nil {
+				return nil, err
+			}
+			a.elts = append(a.elts, cv)
+		}
+		return a, nil
+	}
 	// A bytes-like initializer is read as raw machine values, the frombytes
 	// path, so array('i', b'\x01\x00\x00\x00') is array('i', [1]) rather than
 	// the four bytes of the buffer.
