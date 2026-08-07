@@ -1,0 +1,26 @@
+== exit: 0
+== stdout:
+format => '?'
+itemsize => 1
+nbytes => 5
+len => 5
+tolist => [False, True, True, True, False]
+index_0 => False
+index_1 => True
+index_3 => True
+elem_type => 'bool'
+contains_true => True
+contains_false => True
+write_int_nonzero => True
+write_true => True
+write_false => False
+write_float => False
+write_str => True
+write_none => False
+buf_after_writes => b'\x01\x01\x00\x00\x01\x00'
+tobytes => b'\x01\x01\x00\x00\x01\x00'
+tolist_after => [True, True, False, False, True, False]
+eq_bytes_view => True
+three_bytes => [False, True, False]
+== exception:
+== stderr:
