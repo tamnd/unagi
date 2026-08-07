@@ -3104,6 +3104,20 @@ func LoadAttr(o Object, name string) (Object, error) {
 			}
 			return TypeSingleton("builtin_function_or_method"), nil
 		}
+		// Every builtin is callable, so it exposes a __call__ that forwards to it,
+		// the method-wrapper CPython hangs on a builtin_function_or_method and the
+		// slot wrapper it hangs on a type constructor. A plain builtin has no other
+		// path to it, so getattr(len, '__call__') and the assertHasAttr(func,
+		// '__call__') introspection unittest runs would otherwise miss; a type
+		// constructor answers int.__call__(5) == 5 through the same forward. It is
+		// read ahead of the type-specific dunder tables below, which do not carry
+		// __call__, matching how CPython resolves it off the metatype for both.
+		if name == "__call__" {
+			bf := x
+			return NewFuncKwT("__call__", func(t *Thread, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+				return CallKwT(t, bf, pos, kwNames, kwVals)
+			}), nil
+		}
 		// The `type` constructor is the metatype itself, so its dunders come from
 		// the typeClass dict: type.__new__ is the class-construction allocator and
 		// type.__init__ the no-op initializer. typing.py builds NamedTuple with
