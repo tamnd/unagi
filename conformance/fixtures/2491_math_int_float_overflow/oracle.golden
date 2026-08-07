@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+sqrt(big) => OverflowError : int too large to convert to float
+hypot(1,big) => OverflowError : int too large to convert to float
+hypot(big,1) => OverflowError : int too large to convert to float
+dist((1,big),(2,3)) => OverflowError : int too large to convert to float
+dist((2,3),(1,big)) => OverflowError : int too large to convert to float
+fsum([10**1000]) => OverflowError : int too large to convert to float
+fsum([1e308,1e308]) => OverflowError : intermediate overflow in fsum
+sin(big) => OverflowError : int too large to convert to float
+log(big) => 720.7091341071363
+hypot(3,4) => 5.0
+sqrt(4) => 2.0
+hypot(inf,1) => inf
+sqrt(inf) => inf
+fsum([1.0,2.0]) => 3.0
+sqrt(nan) => nan
+== exception:
+== stderr:
