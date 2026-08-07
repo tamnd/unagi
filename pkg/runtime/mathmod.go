@@ -901,7 +901,28 @@ func mathCeil(args []objects.Object) (objects.Object, error) {
 }
 
 func mathTrunc(args []objects.Object) (objects.Object, error) {
-	return mathRound(args, "trunc", math.Trunc)
+	if len(args) != 1 {
+		return nil, objects.Raise(objects.TypeError, "math.trunc() takes exactly one argument (%d given)", len(args))
+	}
+	x := args[0]
+	// A custom __trunc__ wins, whether a user numeric defines it or a subclass
+	// overrides the one it inherits from int or float.
+	if res, defined, err := objects.InstanceDunder(x, "__trunc__"); err != nil {
+		return nil, err
+	} else if defined {
+		return res, nil
+	}
+	// An int, a bool or an int subclass truncates to its own integer value.
+	if v, ok := objects.BuiltinIntValue(x); ok {
+		return v, nil
+	}
+	// A float or a float subclass truncates toward zero. Unlike floor and ceil,
+	// math.trunc never coerces through __float__ or __index__, so any other
+	// object lacks the required slot and raises, matching CPython's math_trunc.
+	if f, ok := objects.AsFloat(x); ok {
+		return mathFloatToInt(math.Trunc(f))
+	}
+	return nil, objects.Raise(objects.TypeError, "type %s doesn't define __trunc__ method", x.TypeName())
 }
 
 // mathRound is the shared body of floor, ceil and trunc: an int argument comes

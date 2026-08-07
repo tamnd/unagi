@@ -68,6 +68,30 @@ func TestMathModfInfinity(t *testing.T) {
 	}
 }
 
+func TestMathTruncRequiresTruncSlot(t *testing.T) {
+	trunc := mathFn(t, "trunc")
+	// A float truncates toward zero and an int comes straight back, both as ints.
+	if v, err := objects.Call(trunc, []objects.Object{objects.NewFloat(-3.9)}); err != nil {
+		t.Fatalf("trunc(-3.9): %v", err)
+	} else if bi, ok := objects.AsBigInt(v); !ok || bi.Int64() != -3 {
+		t.Errorf("trunc(-3.9) = %v, want -3", objects.Repr(v))
+	}
+	if v, err := objects.Call(trunc, []objects.Object{objects.NewInt(7)}); err != nil {
+		t.Fatalf("trunc(7): %v", err)
+	} else if bi, ok := objects.AsBigInt(v); !ok || bi.Int64() != 7 {
+		t.Errorf("trunc(7) = %v, want 7", objects.Repr(v))
+	}
+	// An object that is neither an int nor a float and has no __trunc__ raises,
+	// naming the missing slot; trunc does not fall back to __index__/__float__.
+	_, err := objects.Call(trunc, []objects.Object{objects.NewStr("x")})
+	if err == nil {
+		t.Fatalf("trunc('x') should raise")
+	}
+	if got := err.Error(); !strings.Contains(got, "doesn't define __trunc__ method") {
+		t.Errorf("trunc('x') error = %q, want the missing __trunc__ message", got)
+	}
+}
+
 func TestMathConstantsAndFloats(t *testing.T) {
 	mo, err := ImportModule("math")
 	if err != nil {

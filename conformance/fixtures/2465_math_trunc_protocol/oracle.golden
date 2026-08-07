@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+trunc(3.9) => 3
+trunc(-3.9) => -3
+trunc(0.0) => 0
+trunc(7) => 7
+trunc(True) => 1
+trunc(10**30) => 1000000000000000000000000000000
+trunc(1e30) => 1000000000000000019884624838656
+trunc(inf) => OverflowError : cannot convert float infinity to integer
+trunc(nan) => ValueError : cannot convert float NaN to integer
+trunc(Fraction(7,2)) => 3
+trunc(Fraction(-7,2)) => -3
+trunc(Decimal('3.99')) => 3
+trunc(MyInt(9)) => 9
+trunc(MyFloat(3.9)) => 3
+trunc(OverrideTrunc(3.9)) => 999
+trunc(OnlyIndex()) => TypeError : type OnlyIndex doesn't define __trunc__ method
+trunc(OnlyFloat()) => TypeError : type OnlyFloat doesn't define __trunc__ method
+trunc('x') => TypeError : type str doesn't define __trunc__ method
+trunc(None) => TypeError : type NoneType doesn't define __trunc__ method
+== exception:
+== stderr:
