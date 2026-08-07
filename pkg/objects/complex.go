@@ -216,23 +216,29 @@ func ComplexAbs(re, im float64) (float64, error) {
 	return r, nil
 }
 
-// CorrectlyRoundedHypot returns sqrt(re*re + im*im) correctly rounded to double,
-// for finite re and im. The two squares and their sum are formed in a big.Float
-// wide enough to hold them exactly (a double squared needs 106 bits, and the sum
-// spans at most the full double exponent range), then the square root is taken and
-// rounded once to double, so the result is the nearest double to the exact
-// magnitude, the same value the platform C hypot yields. big.Float carries its own
-// exponent, so a pair whose squares overflow double (1e200, 1e200) still computes,
-// and only a true magnitude past the double range rounds to inf.
-func CorrectlyRoundedHypot(re, im float64) float64 {
-	const prec = 250
-	x := new(big.Float).SetPrec(prec).SetFloat64(re)
-	y := new(big.Float).SetPrec(prec).SetFloat64(im)
-	x.Mul(x, x)
-	y.Mul(y, y)
-	x.Add(x, y)
-	x.Sqrt(x)
-	r, _ := x.Float64()
+// CorrectlyRoundedHypot returns sqrt(sum of the squares of xs) correctly rounded
+// to double, for finite coordinates. Each square is formed in a big.Float wide
+// enough to hold it exactly (a double squared needs 106 bits) and the running sum
+// carries far more precision than the final double needs, then the square root is
+// taken and rounded once to double, so the result is the nearest double to the
+// exact magnitude, the value the platform C hypot and CPython's math.hypot both
+// yield. big.Float carries its own exponent, so squares that overflow or underflow
+// double (1e200 or 1e-200) still contribute, and only a true magnitude past the
+// double range rounds to inf. Callers screen out infinite and nan coordinates
+// first, so this only sees finite input.
+func CorrectlyRoundedHypot(xs ...float64) float64 {
+	const prec = 500
+	sum := new(big.Float).SetPrec(prec)
+	for _, v := range xs {
+		t := new(big.Float).SetPrec(prec).SetFloat64(v)
+		t.Mul(t, t)
+		sum.Add(sum, t)
+	}
+	if sum.Sign() == 0 {
+		return 0
+	}
+	sum.Sqrt(sum)
+	r, _ := sum.Float64()
 	return r
 }
 

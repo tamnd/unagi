@@ -587,16 +587,36 @@ func mathPow(args []objects.Object) (objects.Object, error) {
 	return objects.NewFloat(r), nil
 }
 
+// mathHypot implements math.hypot(*coordinates): the Euclidean norm, the square
+// root of the summed squares. A naive sum of squares overflows to inf whenever a
+// coordinate passes about 1e154 and underflows to zero for tiny ones, and it also
+// carries a last-place rounding error, so this forms the magnitude in extended
+// precision and rounds once to match CPython's correctly-rounded, scaled result.
+// The special cases follow C99 and CPython: an infinite coordinate makes the norm
+// infinite even against a nan, otherwise a nan coordinate makes it nan.
 func mathHypot(args []objects.Object) (objects.Object, error) {
-	sum := 0.0
-	for _, a := range args {
+	xs := make([]float64, len(args))
+	sawInf, sawNaN := false, false
+	for i, a := range args {
 		v, err := mathToFloat(a)
 		if err != nil {
 			return nil, err
 		}
-		sum += v * v
+		xs[i] = v
+		switch {
+		case math.IsInf(v, 0):
+			sawInf = true
+		case math.IsNaN(v):
+			sawNaN = true
+		}
 	}
-	return objects.NewFloat(math.Sqrt(sum)), nil
+	if sawInf {
+		return objects.NewFloat(math.Inf(1)), nil
+	}
+	if sawNaN {
+		return objects.NewFloat(math.NaN()), nil
+	}
+	return objects.NewFloat(objects.CorrectlyRoundedHypot(xs...)), nil
 }
 
 // mathDist implements math.dist(p, q): the Euclidean distance between two points

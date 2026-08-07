@@ -265,6 +265,60 @@ func TestMathAcceptsFloatDunder(t *testing.T) {
 	}
 }
 
+func TestMathHypotCorrectlyRounded(t *testing.T) {
+	hypot := mathFn(t, "hypot")
+	f := func(vs ...float64) float64 {
+		args := make([]objects.Object, len(vs))
+		for i, v := range vs {
+			args[i] = objects.NewFloat(v)
+		}
+		return callFloat(t, hypot, args...)
+	}
+	cases := []struct {
+		args []float64
+		want float64
+	}{
+		{nil, 0},
+		{[]float64{-3}, 3},
+		{[]float64{3, 4}, 5},
+		{[]float64{5, 12}, 13},
+		{[]float64{3, 4, 12, 84}, 85},
+		// Small pairs where a naive libm hypot loses the last place.
+		{[]float64{2, 3}, 3.605551275463989},
+		{[]float64{1, 4}, 4.123105625617661},
+		// Wide magnitudes: a naive sum of squares would overflow or underflow.
+		{[]float64{1e308, 1e308}, 1.4142135623730951e308},
+		{[]float64{1e200, 1e200, 1e200}, 1.7320508075688772e200},
+		{[]float64{1e-200, 1e-200}, 1.414213562373095e-200},
+		{[]float64{5e-324, 5e-324}, 5e-324},
+	}
+	for _, c := range cases {
+		if got := f(c.args...); got != c.want {
+			t.Errorf("hypot(%v) = %v, want %v", c.args, got, c.want)
+		}
+	}
+
+	// An infinite coordinate wins even against a nan; otherwise a nan
+	// coordinate poisons the result.
+	inf, nan := math.Inf(1), math.NaN()
+	if got := f(inf, nan); !math.IsInf(got, 1) {
+		t.Errorf("hypot(inf, nan) = %v, want +inf", got)
+	}
+	if got := f(nan, inf); !math.IsInf(got, 1) {
+		t.Errorf("hypot(nan, inf) = %v, want +inf", got)
+	}
+	if got := f(-inf, 2); !math.IsInf(got, 1) {
+		t.Errorf("hypot(-inf, 2) = %v, want +inf", got)
+	}
+	if got := f(nan, 1); !math.IsNaN(got) {
+		t.Errorf("hypot(nan, 1) = %v, want nan", got)
+	}
+	// Overflow with no infinite input still returns inf and raises nothing.
+	if got := f(1.5e308, 1.5e308); !math.IsInf(got, 1) {
+		t.Errorf("hypot(1.5e308, 1.5e308) = %v, want +inf", got)
+	}
+}
+
 func TestMathDomainErrors(t *testing.T) {
 	cases := []struct {
 		fn   string
