@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+== fromkeys read off a plain dict binds the type ==
+{}.fromkeys.__self__: <class 'dict'>
+{}.fromkeys.__qualname__: dict.fromkeys
+{}.fromkeys.__name__: fromkeys
+populated dict fromkeys.__self__: <class 'dict'>
+== an ordinary dict method read still binds the instance ==
+{'x':1}.get.__self__: {'x': 1}
+e.setdefault.__self__ is e: True
+e.keys.__self__ is e: True
+== the inherited classmethod still builds a fresh dict ==
+{}.fromkeys(['a', 'b']): {'a': None, 'b': None}
+{'z':9}.fromkeys(['a', 'b'], 0): {'a': 0, 'b': 0}
+g = {}.fromkeys; g('xy'): {'x': None, 'y': None}
+== exception:
+== stderr:
