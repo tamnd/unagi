@@ -677,12 +677,124 @@ func mathDist(args []objects.Object) (objects.Object, error) {
 	return objects.NewFloat(objects.CorrectlyRoundedHypot(diffs...)), nil
 }
 
-// mathSumprod implements math.sumprod(p, q): the sum of the products of the
-// corresponding elements of two iterables, the dot product. When every element
-// is an integer the sum is exact big-integer arithmetic. CPython computes a
-// correctly-rounded result once a float appears, so on general floats the last
-// bit can differ from this straightforward accumulation, and the fixture asserts
-// only the exact cases.
+// dlSum is the error-free transformation of a sum: it returns hi = a + b rounded
+// to double along with the exact rounding residual lo, so hi + lo equals a + b
+// with no loss. This is CPython's dl_sum (Rump/Ogita/Oishi Algorithm 3.1).
+func dlSum(a, b float64) (hi, lo float64) {
+	x := a + b
+	z := x - a
+	y := (a - (x - z)) + (b - z)
+	return x, y
+}
+
+// rounded returns x unchanged, but the //go:noinline barrier forces the caller's
+// product to be materialized as a rounded double. Without it Go's compiler
+// contracts the following addition of that product (in dlSum) back into a fused
+// multiply-add, which skips the very rounding the error-free transformation
+// depends on and doubles the residual.
+//
+//go:noinline
+func rounded(x float64) float64 { return x }
+
+// dlMul is the error-free transformation of a product: hi = x*y rounded to
+// double and lo the exact residual from a fused multiply-add, so hi + lo is the
+// exact product. This is CPython's dl_mul, which relies on a correctly rounded
+// fma (Go's math.FMA), matching the platform C fma CPython uses.
+func dlMul(x, y float64) (hi, lo float64) {
+	z := rounded(x * y)
+	return z, math.FMA(x, y, -z)
+}
+
+// tripleLength is a triple-double running total: the value is hi + lo + tiny,
+// each term capturing residuals the coarser terms drop. It is CPython's
+// TripleLength, the accumulator that makes math.sumprod correctly rounded where
+// a naive sum of products rounds each addition on its own.
+type tripleLength struct{ hi, lo, tiny float64 }
+
+// tlFMA folds the product x*y into the running triple-length total without
+// losing precision, CPython's tl_fma (SumKVert for K=3).
+func tlFMA(x, y float64, total tripleLength) tripleLength {
+	prHi, prLo := dlMul(x, y)
+	smHi, smLo := dlSum(total.hi, prHi)
+	r1Hi, r1Lo := dlSum(total.lo, prLo)
+	r2Hi, r2Lo := dlSum(r1Hi, smLo)
+	return tripleLength{smHi, r2Hi, total.tiny + r1Lo + r2Lo}
+}
+
+// tlToD collapses the triple-length total to the nearest double, CPython's
+// tl_to_d.
+func tlToD(total tripleLength) float64 {
+	lHi, lLo := dlSum(total.lo, total.hi)
+	return total.tiny + lLo + lHi
+}
+
+// longAddWouldOverflow and checkLongMultOverflow reproduce CPython's exact int
+// fast-path overflow tests so the control flow, which decides whether an integer
+// term joins the exact accumulator or falls through to the float or object path,
+// matches bit for bit.
+func longAddWouldOverflow(a, b int64) bool {
+	if a > 0 {
+		return b > math.MaxInt64-a
+	}
+	return b < math.MinInt64-a
+}
+
+func checkLongMultOverflow(a, b int64) bool {
+	longprod := int64(uint64(a) * uint64(b))
+	doubleprod := float64(a) * float64(b)
+	doubledLongprod := float64(longprod)
+	if doubledLongprod == doubleprod {
+		return false
+	}
+	diff := doubledLongprod - doubleprod
+	if diff < 0 {
+		diff = -diff
+	}
+	absprod := doubleprod
+	if absprod < 0 {
+		absprod = -absprod
+	}
+	return 32.0*diff > absprod
+}
+
+// sumprodFloatPair matches CPython's float fast-path admission: two exact floats,
+// or an exact float paired with an exact int or bool coerced to double. It
+// returns ok false when the pair is not float-representable that way, or when an
+// int operand overflows the double range, so the caller leaves the float path.
+func sumprodFloatPair(pi, qi objects.Object) (float64, float64, bool) {
+	pf, pFloat := objects.AsExactFloat(pi)
+	qf, qFloat := objects.AsExactFloat(qi)
+	switch {
+	case pFloat && qFloat:
+		return pf, qf, true
+	case pFloat && isExactIntOrBool(qi):
+		d, ok := objects.IntAsDoubleChecked(qi)
+		return pf, d, ok
+	case qFloat && isExactIntOrBool(pi):
+		d, ok := objects.IntAsDoubleChecked(pi)
+		return d, qf, ok
+	}
+	return 0, 0, false
+}
+
+func isExactIntOrBool(o objects.Object) bool {
+	if objects.IsExactInt(o) {
+		return true
+	}
+	_, isBool := objects.AsBool(o)
+	return isBool
+}
+
+// mathSumprod implements math.sumprod(p, q), the dot product of two iterables. It
+// is a faithful port of CPython's math_sumprod: three layered accumulators are
+// tried in order for each pair. A leading run of exact-int pairs sums in int64,
+// spilling to the object total on overflow; a run of float and float/int pairs
+// then feeds a triple-length compensated accumulator; anything else falls to the
+// object arithmetic protocol. Each stage is entered at most once, so the pairing
+// of integer, float, and general terms, and the compensated float summation that
+// a naive sum of products rounds differently, all match CPython bit for bit. The
+// object fallback also carries the general numeric types (Fraction, Decimal,
+// complex) through their own arithmetic, the way CPython's PyNumber protocol does.
 func mathSumprod(args []objects.Object) (objects.Object, error) {
 	if len(args) != 2 {
 		return nil, objects.Raise(objects.TypeError, "sumprod expected 2 arguments, got %d", len(args))
@@ -698,37 +810,86 @@ func mathSumprod(args []objects.Object) (objects.Object, error) {
 	if len(p) != len(q) {
 		return nil, objects.Raise(objects.ValueError, "Inputs are not the same length")
 	}
-	allInt := true
-	for i := range p {
-		_, pok := objects.AsBigInt(p[i])
-		_, qok := objects.AsBigInt(q[i])
-		if !pok || !qok {
-			allInt = false
-			break
+
+	total := objects.NewInt(0)
+	flush := func(term objects.Object) error {
+		nt, err := objects.Add(total, term)
+		if err != nil {
+			return err
 		}
+		total = nt
+		return nil
 	}
-	if allInt {
-		total := new(big.Int)
-		for i := range p {
-			pb, _ := objects.AsBigInt(p[i])
-			qb, _ := objects.AsBigInt(q[i])
-			total.Add(total, new(big.Int).Mul(pb, qb))
+
+	intPathEnabled, intTotalInUse := true, false
+	fltPathEnabled, fltTotalInUse := true, false
+	var intTotal int64
+	var fltTotal tripleLength
+
+	for i := 0; i <= len(p); i++ {
+		finished := i == len(p)
+		var pi, qi objects.Object
+		if !finished {
+			pi, qi = p[i], q[i]
 		}
-		return objects.NewIntFromBig(total), nil
-	}
-	sum := 0.0
-	for i := range p {
-		a, err := mathToFloat(p[i])
+
+		if intPathEnabled {
+			if !finished && objects.IsExactInt(pi) && objects.IsExactInt(qi) {
+				ip, okp := objects.AsInt(pi)
+				iq, okq := objects.AsInt(qi)
+				if okp && okq && !checkLongMultOverflow(ip, iq) {
+					prod := ip * iq
+					if !longAddWouldOverflow(intTotal, prod) {
+						intTotal += prod
+						intTotalInUse = true
+						continue
+					}
+				}
+			}
+			intPathEnabled = false
+			if intTotalInUse {
+				if err := flush(objects.NewInt(intTotal)); err != nil {
+					return nil, err
+				}
+				intTotal = 0
+				intTotalInUse = false
+			}
+		}
+
+		if fltPathEnabled {
+			if !finished {
+				fp, fq, ok := sumprodFloatPair(pi, qi)
+				if ok {
+					next := tlFMA(fp, fq, fltTotal)
+					if !math.IsInf(next.hi, 0) && !math.IsNaN(next.hi) {
+						fltTotal = next
+						fltTotalInUse = true
+						continue
+					}
+				}
+			}
+			fltPathEnabled = false
+			if fltTotalInUse {
+				if err := flush(objects.NewFloat(tlToD(fltTotal))); err != nil {
+					return nil, err
+				}
+				fltTotal = tripleLength{}
+				fltTotalInUse = false
+			}
+		}
+
+		if finished {
+			return total, nil
+		}
+		term, err := objects.Mul(pi, qi)
 		if err != nil {
 			return nil, err
 		}
-		b, err := mathToFloat(q[i])
-		if err != nil {
+		if err := flush(term); err != nil {
 			return nil, err
 		}
-		sum += a * b
 	}
-	return objects.NewFloat(sum), nil
+	return total, nil
 }
 
 // mathFma implements math.fma(x, y, z): x*y + z computed with a single rounding,
