@@ -318,6 +318,18 @@ type funcObject struct {
 	// functions do while __name__ stays the bare name. It is empty for the
 	// builtins-module functions, which CPython leaves unqualified.
 	errName string
+	// boundSelf is the object a bound builtin classmethod reports through
+	// __self__: the type for int.from_bytes and dict.fromkeys (a classmethod is
+	// bound to the type it is read on), the None singleton for the maketrans
+	// staticmethods (which carry __self__ = None). It stays nil for an ordinary
+	// builtin, so __self__ then reports the missing attribute the way an unbound
+	// method_descriptor does. None and nil are distinct here, so a staticmethod's
+	// None __self__ is told apart from an unstamped builtin.
+	boundSelf Object
+	// qualnameOwner is the type a builtin classmethod hangs off, so its
+	// __qualname__ reads type.name (int.from_bytes) while __name__ stays the bare
+	// name. It is empty for an ordinary builtin, whose __qualname__ is bare.
+	qualnameOwner string
 }
 
 // callErrName is the name a builtin uses in its argument-error messages: the

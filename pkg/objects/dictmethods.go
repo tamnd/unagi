@@ -1,5 +1,12 @@
 package objects
 
+// builtinTypeStaticmethod names the builtinTypeClassmethod entries CPython
+// exposes as staticmethods rather than classmethods, so their __self__ reads
+// back None instead of the type. Only str.maketrans and bytes.maketrans are
+// staticmethods; from_bytes, fromhex, from_number, fromkeys and __getformat__
+// are classmethods bound to the type.
+var builtinTypeStaticmethod = map[string]bool{"maketrans": true}
+
 // builtinTypeClassmethod resolves a classmethod read off a builtin type
 // constructor, the form dict.fromkeys(iterable) takes where the method is called
 // on the type rather than an instance. re._parser reaches dict.fromkeys this way

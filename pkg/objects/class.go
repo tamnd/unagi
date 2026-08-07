@@ -3136,6 +3136,21 @@ func LoadAttr(o Object, name string) (Object, error) {
 		}
 		return LoadAttr(x.fn, name)
 	case *funcObject:
+		// A bound builtin classmethod reports the object it is bound to through
+		// __self__: int.from_bytes.__self__ is int, and the maketrans staticmethods
+		// carry __self__ = None. An ordinary builtin leaves boundSelf nil and falls
+		// through to the missing-attribute report, matching an unbound
+		// method_descriptor. None and nil are distinct, so a staticmethod's None is
+		// told apart from an unstamped builtin.
+		if name == "__self__" && x.boundSelf != nil {
+			return x.boundSelf, nil
+		}
+		// A bound builtin classmethod reports a qualified __qualname__, so
+		// int.from_bytes.__qualname__ is 'int.from_bytes' while its __name__ stays
+		// the bare 'from_bytes'.
+		if name == "__qualname__" && x.qualnameOwner != "" {
+			return NewStr(x.qualnameOwner + "." + x.name), nil
+		}
 		// Builtin functions and the constructor-backed type objects carry a
 		// __name__/__qualname__, so type(5).__name__ and len.__name__ read back.
 		if name == "__name__" || name == "__qualname__" {
@@ -3197,6 +3212,20 @@ func LoadAttr(o Object, name string) (Object, error) {
 		// int.__mro__, str.__bases__, bool.__base__.
 		if builtinTypeReprs[x.name] {
 			if v, ok := builtinTypeClassmethod(x.name, name); ok {
+				// A classmethod read off the type carries __self__ and a qualified
+				// __qualname__ the way CPython's does: int.from_bytes.__self__ is int
+				// and its __qualname__ is 'int.from_bytes', while __name__ stays bare.
+				// The maketrans staticmethods report __self__ = None instead of the
+				// type. builtinTypeClassmethod builds a fresh funcObject each call, so
+				// stamping it here is not shared.
+				if f, ok := v.(*funcObject); ok {
+					f.qualnameOwner = x.name
+					if builtinTypeStaticmethod[name] {
+						f.boundSelf = None
+					} else {
+						f.boundSelf = x
+					}
+				}
 				return v, nil
 			}
 			if tbl, ok := builtinTypeDunders[x.name]; ok {
