@@ -379,6 +379,16 @@ func floatFromText(orig objects.Object, s string) (objects.Object, error) {
 	if strings.HasPrefix(lower, "0x") {
 		bad = true
 	}
+	// Python accepts a signed nan (float("-nan"), float("+NaN")) and keeps the
+	// sign bit, while strconv rejects a sign in front of nan. Handle it here so
+	// the sign survives for math.copysign and struct.pack.
+	if !bad && lower == "nan" {
+		nan := objects.FloatNaN()
+		if strings.HasPrefix(trimmed, "-") {
+			nan = math.Copysign(nan, -1)
+		}
+		return objects.NewFloat(nan), nil
+	}
 	var v float64
 	if !bad {
 		var err error

@@ -1,0 +1,35 @@
+== exit: 0
+== stdout:
+float('nan') nan
+float('NaN') nan
+float('NAN') nan
+float('-nan') nan
+float('+nan') nan
+float('-NaN') nan
+float('  -nan  ') nan
+float('nan ') nan
+float('inf') inf
+float('-inf') -inf
+float('+inf') inf
+float('Infinity') inf
+float('-Infinity') -inf
+float('infinity') inf
+float('-nanx') ValueError could not convert string to float: '-nanx'
+float('nana') ValueError could not convert string to float: 'nana'
+float('-') ValueError could not convert string to float: '-'
+float('+') ValueError could not convert string to float: '+'
+abs-neg-nan 7ff8000000000000 1.0 nan
+cmath-nan 7ff8000000000000 1.0 nan
+cmath-nanj-imag 7ff8000000000000 1.0 nan
+complex-nan-real 7ff8000000000000 1.0 nan
+float-nan 7ff8000000000000 1.0 nan
+float-neg-nan fff8000000000000 -1.0 nan
+float-plus-nan 7ff8000000000000 1.0 nan
+fromhex-nan 7ff8000000000000 1.0 nan
+math-nan 7ff8000000000000 1.0 nan
+math-neg-nan fff8000000000000 -1.0 nan
+struct-neg-nan-be fff8000000000000
+struct-neg-nan-le 000000000000f8ff
+isnan-neg True
+== exception:
+== stderr:
