@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+digits-at-limit ok 4300
+neg-at-limit ok 4301
+format-d ok 4300
+percent-d ok 4300
+fstring ok 4300
+repr ok 4300
+over-limit-str err Exceeds the limit (4300 digits) for integer string conversion; use sys.set_int_max_str_digits() to increase the limit
+over-limit-format err Exceeds the limit (4300 digits) for integer string conversion; use sys.set_int_max_str_digits() to increase the limit
+parse-4300 ok 4300
+parse-4301 err Exceeds the limit (4300 digits) for integer string conversion: value has 4301 digits; use sys.set_int_max_str_digits() to increase the limit
+hex-parse ok True
+bin-of-big ok True
+hex-of-big ok False
+== exception:
+== stderr:
