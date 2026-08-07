@@ -1667,7 +1667,7 @@ func SetItem(o, key, val Object) error {
 	// splices exactly like xs[0:2] = ys.
 	if sl, ok := key.(*sliceObject); ok {
 		switch o.(type) {
-		case *listObject, *tupleObject, *strObject, *bytesObject, *bytearrayObject, *memoryviewObject:
+		case *listObject, *tupleObject, *strObject, *bytesObject, *bytearrayObject, *memoryviewObject, *arrayObject:
 			return SetSlice(o, sl.start, sl.stop, sl.step, val)
 		}
 	}

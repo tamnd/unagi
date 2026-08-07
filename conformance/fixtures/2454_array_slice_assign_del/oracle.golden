@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+contig-replace [9, 8, 3]
+contig-grow [1, 7, 8, 9, 3]
+contig-shrink [1, 9, 4]
+contig-insert [1, 9, 2, 3]
+contig-empty-del [3]
+self-assign [1, 2, 3]
+ext-assign [7, 2, 8, 4, 9]
+ext-neg-step [5, 6, 7, 8, 9]
+ext-badlen ERR ValueError attempt to assign array of size 2 to extended slice of size 3
+assign-list ERR TypeError can only assign array (not "list") to array slice
+assign-bytes ERR TypeError can only assign array (not "bytes") to array slice
+assign-int ERR TypeError can only assign array (not "int") to array slice
+assign-codemismatch ERR TypeError bad argument type for built-in operation
+ext-codemismatch ERR TypeError bad argument type for built-in operation
+step0-assign ERR ValueError slice step cannot be zero
+del-contig [1, 4]
+del-ext [2, 4]
+del-ext-neg [2, 4]
+del-full []
+del-step0 ERR ValueError slice step cannot be zero
+syntactic [7, 5]
+== exception:
+== stderr:
