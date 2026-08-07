@@ -222,8 +222,12 @@ func smallPowFits(base, exp int64) bool {
 const maxStrDigits = 4300
 
 // maxStrDigitsBits bounds the bit length of any int with at most 4300
-// decimal digits; values past it fail the limit without rendering.
-const maxStrDigitsBits = 14284
+// decimal digits; values past it fail the limit without rendering. The
+// largest 4300-digit int is 10**4300 - 1 (4300 nines), whose bit length
+// is 14285, so the fast reject only fires from 14286 up where a value is
+// guaranteed to spill past 4300 digits. A tighter bound would wrongly
+// reject 10**4300 - 1, which is exactly at the limit and must render.
+const maxStrDigitsBits = 14285
 
 // intDecimal renders an int in decimal, enforcing the conversion limit
 // with CPython's int-to-str wording.
