@@ -463,6 +463,11 @@ func complexLoadAttr(c *complexObject, name string) (Object, error) {
 			return complexMethod(c, method, args)
 		}), c), nil
 	}
+	// from_number is a classmethod, so reading it off an instance binds complex
+	// through __self__ the way CPython inherits it.
+	if v, ok := builtinInstanceClassmethod("complex", name); ok {
+		return v, nil
+	}
 	return nil, Raise(AttributeError, "'complex' object has no attribute '%s'", name)
 }
 

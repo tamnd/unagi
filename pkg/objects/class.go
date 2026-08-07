@@ -3514,6 +3514,13 @@ func LoadAttr(o Object, name string) (Object, error) {
 	if name == "__doc__" {
 		return None, nil
 	}
+	// A classmethod or staticmethod is inherited onto an instance, so "abc".maketrans
+	// and {}.fromkeys read back the same callable the type-level read hands out,
+	// carrying its __self__ and qualified __qualname__. This is the last resort
+	// before the miss, so it never shadows an instance method of the same name.
+	if v, ok := builtinInstanceClassmethod(o.TypeName(), name); ok {
+		return v, nil
+	}
 	typeName := o.TypeName()
 	if f, ok := o.(*funcObject); ok && !IsBuiltinTypeName(f.name) {
 		// A funcObject models a plain builtin function (len) or a bound builtin

@@ -129,14 +129,17 @@ func intLoadAttr(o Object, name string) (Object, error) {
 	case "imag":
 		return NewInt(0), nil
 	}
-	switch name {
-	case "to_bytes":
+	if name == "to_bytes" {
 		recv := o
 		return bindSelf(NewFuncKw("to_bytes", func(pos []Object, kwNames []string, kwVals []Object) (Object, error) {
 			return intToBytes(recv, pos, kwNames, kwVals)
 		}), recv), nil
-	case "from_bytes":
-		return NewFuncKw("from_bytes", intFromBytes), nil
+	}
+	// from_bytes is a classmethod, so reading it off an instance binds the type
+	// (or bool for a bool receiver) through __self__ the way CPython inherits it,
+	// rather than the instance the way to_bytes above binds.
+	if v, ok := builtinInstanceClassmethod(o.TypeName(), name); ok {
+		return v, nil
 	}
 	if intMethodNames[name] {
 		method := name

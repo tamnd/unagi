@@ -386,6 +386,11 @@ func floatLoadAttr(o Object, name string) (Object, error) {
 			return floatMethod(recv, method, args)
 		}), recv), nil
 	}
+	// fromhex, from_number and __getformat__ are classmethods, so reading one off
+	// an instance binds float through __self__ the way CPython inherits it.
+	if v, ok := builtinInstanceClassmethod("float", name); ok {
+		return v, nil
+	}
 	if name == "__doc__" {
 		return None, nil
 	}

@@ -44,6 +44,14 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 	if res, ok, err := strDunderCall(o, name, args); ok {
 		return res, err
 	}
+	// A classmethod or staticmethod called directly off an instance, (1.5).fromhex(s)
+	// or "ab".maketrans(x, y), lowers here rather than through a read-then-call, so
+	// the inherited class-level method has to answer here too, the same callable the
+	// attribute read binds. Its names never collide with an instance method, so this
+	// only fires for a genuine class-level call and never shadows a bound method.
+	if v, ok := builtinInstanceClassmethod(o.TypeName(), name); ok {
+		return Call(v, args)
+	}
 	switch x := o.(type) {
 	case *intObject, *boolObject:
 		return intMethod(o, name, args)
@@ -277,6 +285,13 @@ func CallMethodKw(o Object, name string, pos []Object, kwNames []string, kwVals 
 func CallMethodKwT(t *Thread, o Object, name string, pos []Object, kwNames []string, kwVals []Object) (Object, error) {
 	if len(kwNames) == 0 {
 		return CallMethodT(t, o, name, pos)
+	}
+	// A class-level method called off an instance with keywords, (255).from_bytes(b,
+	// byteorder='big'), inherits the same callable the type-level read binds, so a
+	// bool binds bool.from_bytes and keeps the True/False result. The names never
+	// collide with an instance method, so this only fires for a class-level call.
+	if v, ok := builtinInstanceClassmethod(o.TypeName(), name); ok {
+		return CallKw(v, pos, kwNames, kwVals)
 	}
 	switch x := o.(type) {
 	case *intObject, *boolObject:
