@@ -120,6 +120,53 @@ func AsMutableBytes(o Object) ([]byte, bool) {
 	return nil, false
 }
 
+// MutableBuffer exposes the writable bytes behind a read-write buffer object for
+// an in-place byte writer like struct.pack_into. It returns the current bytes to
+// write into and a commit callback that pushes them back to the object once the
+// writer is done. commit is a no-op when buf is already the object's live
+// storage (a bytearray or a bytearray-backed memoryview), and it re-decodes the
+// bytes into the elements for an object that does not store a flat byte buffer
+// (an array or an array-backed memoryview). ok is false for a read-only or
+// non-buffer object; a memoryview must be writable and C-contiguous, so a
+// read-only or strided view declines the way CPython's PyObject_GetBuffer with
+// PyBUF_WRITABLE does.
+func MutableBuffer(o Object) (buf []byte, commit func(), ok bool) {
+	noop := func() {}
+	switch x := o.(type) {
+	case *bytearrayObject:
+		return x.v, noop, true
+	case *arrayObject:
+		// An array stores decoded elements rather than a flat buffer, so the
+		// writer works on a byte copy that is decoded back on commit.
+		full := x.tobytes()
+		return full, func() { x.setFromBytes(full) }, true
+	case *memoryviewObject:
+		if x.released || x.readonly || !mvIsCContiguous(x) {
+			return nil, nil, false
+		}
+		n := mvByteLen(x)
+		switch base := x.base.(type) {
+		case *bytearrayObject:
+			// A contiguous view over a bytearray writes straight into the live
+			// backing slice at the view's byte offset.
+			return base.v[x.off : x.off+n], noop, true
+		case *arrayObject:
+			full := base.tobytes()
+			window := full[x.off : x.off+n]
+			return window, func() { base.setFromBytes(full) }, true
+		}
+		return nil, nil, false
+	}
+	// A bytearray subclass instance is writable through its live payload, the same
+	// backing slice a plain bytearray exposes.
+	if v, up := builtinUnwrap(o); up {
+		if x, isba := v.(*bytearrayObject); isba {
+			return x.v, noop, true
+		}
+	}
+	return nil, nil, false
+}
+
 // byteFromObj coerces an object to a single byte, raising rangeMsg when an
 // integer is out of range(0, 256) and the CPython not-an-integer TypeError
 // for a non-integer. rangeMsg differs between the bytes constructor ("bytes
