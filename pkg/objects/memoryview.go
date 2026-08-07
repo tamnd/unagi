@@ -493,6 +493,11 @@ func mvDecodeObj(m *memoryviewObject, e int) (Object, error) {
 		// The bool code decodes to True for any non-zero byte, the way CPython's
 		// struct '?' unpack reads it.
 		return NewBool(mvRawWord(m, e) != 0), nil
+	case "c":
+		// The char code decodes each element to a length-one bytes object, the
+		// way CPython's struct 'c' unpack reads it, not to the integer the 'B'
+		// path would give.
+		return NewBytes([]byte{byte(mvRawWord(m, e))}), nil
 	case "f":
 		return NewFloat(float64(math.Float32frombits(uint32(mvRawWord(m, e))))), nil
 	case "d":
@@ -611,6 +616,21 @@ func mvWriteElem(m *memoryviewObject, e int, val Object) error {
 			b = 1
 		}
 		mvSetByte(m, e, b)
+		return nil
+	}
+	if m.format == "c" {
+		// The char code stores a single byte from a length-one bytes object, the
+		// way CPython's struct 'c' pack requires a genuine bytes of length one:
+		// a bytearray, memoryview, str or int is the invalid-type TypeError and a
+		// bytes of any other length is the invalid-value ValueError.
+		v, ok := AsBytes(val)
+		if !ok {
+			return Raise(TypeError, "memoryview: invalid type for format 'c'")
+		}
+		if len(v) != 1 {
+			return Raise(ValueError, "memoryview: invalid value for format 'c'")
+		}
+		mvSetByte(m, e, v[0])
 		return nil
 	}
 	if !mvEncodableFormat(m.format) {

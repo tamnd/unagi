@@ -1,0 +1,29 @@
+== exit: 0
+== stdout:
+format => 'c'
+itemsize => 1
+nbytes => 4
+len => 4
+tolist => [b'A', b'B', b'\x00', b'\xff']
+index_0 => b'A'
+index_3 => b'\xff'
+elem_type => 'bytes'
+contains_hit => True
+contains_miss => False
+count => 2
+index => 1
+write_bytes => b'Z'
+write_null => b'\x00'
+write_high => b'\xff'
+buf_after => b'Z\x00\xff\x00'
+tobytes => b'Z\x00\xff\x00'
+write_int => TypeError : memoryview: invalid type for format 'c'
+write_two => ValueError : memoryview: invalid value for format 'c'
+write_empty => ValueError : memoryview: invalid value for format 'c'
+write_str => TypeError : memoryview: invalid type for format 'c'
+write_bytearray => TypeError : memoryview: invalid type for format 'c'
+write_memoryview => TypeError : memoryview: invalid type for format 'c'
+write_none => TypeError : memoryview: invalid type for format 'c'
+eq => True
+== exception:
+== stderr:
