@@ -1,0 +1,24 @@
+== exit: 0
+== stdout:
+f-none int 4
+f-noarg int 4
+f-0 float 4.0
+i-none int 5
+i-noarg int 5
+i-2 int 5
+bool-none int 1
+dec-none int 4
+dec-noarg int 4
+dec-1 Decimal Decimal('3.1')
+frac-none int 4
+frac-noarg int 4
+frac-1 Fraction Fraction(31, 10)
+f-nan-none ERR ValueError cannot convert float NaN to integer
+f-nan-noarg ERR ValueError cannot convert float NaN to integer
+f-inf-noarg ERR OverflowError cannot convert float infinity to integer
+f-neg-none int -2
+custom-none tuple ('round', None)
+custom-noarg tuple ('round', None)
+custom-2 tuple ('round', 2)
+== exception:
+== stderr:
