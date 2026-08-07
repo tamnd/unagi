@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+== a different typecode iterates the source values ==
+array('h', array('i', [1, 2])) => array('h', [1, 2])
+array('l', array('b', [1, 2, 3])) => array('l', [1, 2, 3])
+array('i', array('l', [5, 6])) => array('i', [5, 6])
+array('q', array('h', [7])) => array('q', [7])
+array('d', array('i', [1, 2])) => array('d', [1.0, 2.0])
+array('f', array('d', [1.5, 2.5])) => array('f', [1.5, 2.5])
+array('d', array('f', [1.5])) => array('d', [1.5])
+== a same typecode copies the values across ==
+array('i', array('i', [1, 2])) => array('i', [1, 2])
+array('d', array('d', [1.5])) => array('d', [1.5])
+array('w', array('w', 'hi')) => array('w', 'hi')
+empty source array('i', array('h', [])) => array('i')
+== a source value that does not fit the target raises ==
+array('i', array('f', [1.0, 2.0])) => TypeError : 'float' object cannot be interpreted as an integer
+array('i', array('d', [1.5])) => TypeError : 'float' object cannot be interpreted as an integer
+array('B', array('i', [300])) => OverflowError : unsigned byte integer is greater than maximum
+array('b', array('i', [200])) => OverflowError : signed char is greater than maximum
+== a bytes-like initializer still reinterprets the raw bytes ==
+array('i', b'\x01\x00\x00\x00') => array('i', [1])
+array('h', bytearray(b'\x01\x00\x02\x00')) => array('h', [1, 2])
+== exception:
+== stderr:
