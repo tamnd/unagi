@@ -24,7 +24,7 @@ func (f *fnCtx) builtinKwCall(name string, e *frontend.Call) (ast.Expr, error) {
 	case "print":
 		return f.printKw(pos, kws, temps)
 	case "str":
-		return f.strKw(pos, kws, temps, e)
+		return f.strKw(pos, kws, temps)
 	case "int":
 		return f.intKw(pos, kws, temps)
 	case "sum":
@@ -186,13 +186,28 @@ func (f *fnCtx) printKw(pos []ast.Expr, kws []kwVal, temps []ast.Expr) (ast.Expr
 	return f.e.obj("None"), nil
 }
 
-// strKw lowers str(object=...). The encoding form needs bytes, which M1
-// does not have.
-func (f *fnCtx) strKw(pos []ast.Expr, kws []kwVal, temps []ast.Expr, e *frontend.Call) (ast.Expr, error) {
-	if len(pos) > 1 {
-		return nil, f.e.errf(e.Span(), "str() with an encoding is not supported yet")
+// strKw lowers the keyword forms of the str constructor,
+// str(object, encoding, errors), each slot fillable by name or position. When
+// an encoding or errors argument is present the object is decoded through
+// StrDecode the way str(bytes, encoding) does at the top level, otherwise the
+// object goes through the plain StrOf conversion. The count check outranks the
+// name-and-position conflicts (probed: str(b”, 'ascii', 'replace',
+// errors='ignore') is the four-argument count error, not the errors clash), and
+// a missing object defaults to the empty value so str(encoding='utf-8') is ”.
+func (f *fnCtx) strKw(pos []ast.Expr, kws []kwVal, temps []ast.Expr) (ast.Expr, error) {
+	if total := len(pos) + len(kws); total > 3 {
+		return f.raiseBindError(temps, fmt.Sprintf("str() takes at most 3 arguments (%d given)", total)), nil
 	}
-	var objV ast.Expr
+	var objV, encV, errV ast.Expr
+	if len(pos) >= 1 {
+		objV = pos[0]
+	}
+	if len(pos) >= 2 {
+		encV = pos[1]
+	}
+	if len(pos) >= 3 {
+		errV = pos[2]
+	}
 	for _, kw := range kws {
 		switch kw.name {
 		case "object":
@@ -200,18 +215,44 @@ func (f *fnCtx) strKw(pos []ast.Expr, kws []kwVal, temps []ast.Expr, e *frontend
 				return f.raiseBindError(temps, "argument for str() given by name ('object') and position (1)"), nil
 			}
 			objV = kw.val
-		case "encoding", "errors":
-			return nil, f.e.errf(e.Span(), "str() with an encoding is not supported yet")
+		case "encoding":
+			if len(pos) >= 2 {
+				return f.raiseBindError(temps, "argument for str() given by name ('encoding') and position (2)"), nil
+			}
+			encV = kw.val
+		case "errors":
+			if len(pos) >= 3 {
+				return f.raiseBindError(temps, "argument for str() given by name ('errors') and position (3)"), nil
+			}
+			errV = kw.val
 		default:
 			return f.raiseBindError(temps, f.unexpectedKw("str", kw.name, []string{"object", "encoding", "errors"})), nil
 		}
 	}
+	tmp := f.tmpVar()
+	if encV == nil && errV == nil {
+		// No encoding or errors: the plain str() conversion. A missing object is
+		// the empty string, the way str() with only keywords still returns ''.
+		src := objV
+		if src == nil {
+			src = callExpr(f.e.obj("NewStr"), strLit(""))
+		}
+		f.fallible(tmp, sel("runtime", "StrOf"), src)
+		return ident(tmp), nil
+	}
+	// The decoding form: a missing object decodes empty bytes to '', and a nil
+	// encoding or errors lets StrDecode fall back to its utf-8/strict defaults.
 	src := objV
 	if src == nil {
-		src = pos[0]
+		src = callExpr(f.e.obj("NewBytes"), ident("nil"))
 	}
-	tmp := f.tmpVar()
-	f.fallible(tmp, sel("runtime", "StrOf"), src)
+	if encV == nil {
+		encV = ident("nil")
+	}
+	if errV == nil {
+		errV = ident("nil")
+	}
+	f.fallible(tmp, f.e.obj("StrDecode"), src, encV, errV)
 	return ident(tmp), nil
 }
 

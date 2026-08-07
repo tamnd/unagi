@@ -1,0 +1,28 @@
+== exit: 0
+== stdout:
+encoding-kw 'hi'
+object-kw 'hi'
+errors-kw '�'
+errors-only '�'
+encoding-pos-errors-kw '�'
+all-kw 'hi'
+bytearray 'hey'
+utf8-multibyte 'café'
+latin1 'é'
+ignore 'ab'
+encoding-no-object ''
+errors-no-object ''
+encoding-int ERR TypeError str() argument 'encoding' must be str, not int
+errors-int ERR TypeError str() argument 'errors' must be str, not int
+decode-str ERR TypeError decoding str is not supported
+decode-int ERR TypeError decoding to str: need a bytes-like object, int found
+dup-object ERR TypeError argument for str() given by name ('object') and position (1)
+dup-encoding ERR TypeError argument for str() given by name ('encoding') and position (2)
+dup-errors-count ERR TypeError str() takes at most 3 arguments (4 given)
+unknown-kw ERR TypeError str() got an unexpected keyword argument 'foo'
+bad-codec ERR LookupError unknown encoding: not-a-codec
+strict-fail ERR UnicodeDecodeError 'ascii' codec can't decode byte 0xff in position 0: ordinal not in range(128)
+object-only '5'
+object-none 'None'
+== exception:
+== stderr:
