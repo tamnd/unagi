@@ -205,6 +205,40 @@ func TestNumericSubclassSuperBaseDunder(t *testing.T) {
 	}
 }
 
+// A numeric base arithmetic slot reads a numeric-subclass operand as its stored
+// scalar and returns a plain result, so float.__add__ takes a float or int
+// subclass and int.__add__ takes an int subclass, while an out-of-domain operand
+// still declines with NotImplemented.
+func TestNumericSlotAcceptsSubclassOperand(t *testing.T) {
+	ff := buildFloatSubclass(t, "MyFloat")
+	two, err := Instantiate(ff, []Object{NewFloat(2.0)}, nil, nil)
+	if err != nil {
+		t.Fatalf("instantiate MyFloat(2.0): %v", err)
+	}
+	// float.__add__(6.0, MyFloat(2.0)) reads the subclass as 2.0 and returns 8.0.
+	r, err := CallMethod(NewFloat(6.0), "__add__", []Object{two})
+	if err != nil || Str(r) != "8.0" || r.TypeName() != "float" {
+		t.Fatalf("float.__add__(6.0, MyFloat(2.0)) = %v (%s), %v; want plain float 8.0", r, r.TypeName(), err)
+	}
+
+	// A complex operand is out of float's domain, so the slot declines.
+	ni, err := CallMethod(NewFloat(6.0), "__add__", []Object{NewComplex(0, 1)})
+	if err != nil || ni != NotImplemented {
+		t.Fatalf("float.__add__(6.0, 1j) = %v, %v; want NotImplemented", ni, err)
+	}
+
+	fi := buildFloatSubclass(t, "AlsoFloat")
+	// A float subclass is out of int's domain: int.__add__(6, MyFloat(2.0)) declines.
+	twoF, err := Instantiate(fi, []Object{NewFloat(2.0)}, nil, nil)
+	if err != nil {
+		t.Fatalf("instantiate AlsoFloat(2.0): %v", err)
+	}
+	nf, err := CallMethod(NewInt(6), "__add__", []Object{twoF})
+	if err != nil || nf != NotImplemented {
+		t.Fatalf("int.__add__(6, MyFloat(2.0)) = %v, %v; want NotImplemented", nf, err)
+	}
+}
+
 func TestFloatSubclassInheritsMethods(t *testing.T) {
 	c := buildFloatSubclass(t, "MyFloat")
 	a, err := Instantiate(c, []Object{NewFloat(4.0)}, nil, nil)

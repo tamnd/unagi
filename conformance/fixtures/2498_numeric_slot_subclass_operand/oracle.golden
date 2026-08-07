@@ -1,0 +1,31 @@
+== exit: 0
+== stdout:
+float.__add__(6.0, MyFloat(2.0)) => float 8.0
+float.__sub__(6.0, MyInt(2)) => float 4.0
+float.__mul__(1.5, MyInt(4)) => float 6.0
+(6.0).__radd__(MyFloat(2.0)) => float 8.0
+float.__floordiv__(7.0, MyInt(2)) => float 3.0
+float.__mod__(7.5, MyFloat(2.0)) => float 1.5
+float.__divmod__(7.0, MyInt(2)) => tuple (3.0, 1.0)
+float.__pow__(2.0, MyInt(3)) => float 8.0
+int.__add__(6, MyInt(2)) => int 8
+int.__mul__(6, MyInt(2)) => int 12
+int.__and__(6, MyInt(3)) => int 2
+int.__lshift__(1, MyInt(4)) => int 16
+(6).__rsub__(MyInt(2)) => int -4
+int.__pow__(2, MyInt(5)) => int 32
+pow(2, MyInt(5), MyInt(3)) => int 2
+pow(MyInt(3), -1, MyInt(7)) => int 5
+complex.__add__(1j, MyComplex(1, 1)) => complex (1+2j)
+complex.__mul__(1j, MyInt(2)) => complex 2j
+complex.__sub__(3j, MyFloat(2.0)) => complex (-2+3j)
+complex.__truediv__(4j, MyInt(2)) => complex 2j
+MyFloat(1.0) + MyFloat(2.0) => float 3.0
+MyFloat(6.0) // MyInt(2) => float 3.0
+MyInt(6) + MyInt(2) => int 8
+float.__add__(6.0, 1j) => NotImplementedType NotImplemented
+int.__add__(6, 1.5) => NotImplementedType NotImplemented
+int.__add__(6, MyFloat(2.0)) => NotImplementedType NotImplemented
+pow(PowInt(2), 5, 3) => str 'PowInt.pow'
+== exception:
+== stderr:

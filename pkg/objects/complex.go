@@ -50,6 +50,13 @@ func asComplex(o Object) (re, im float64, ok bool) {
 	if f, isF := AsFloat(o); isF {
 		return f, 0, true
 	}
+	// A value subclass of int or bool reads as its stored int, the way an int
+	// operand coerces to a real value with a zero imaginary part.
+	if p, ok := builtinUnwrap(o); ok {
+		if f, isF := AsFloat(p); isF {
+			return f, 0, true
+		}
+	}
 	return 0, 0, false
 }
 
