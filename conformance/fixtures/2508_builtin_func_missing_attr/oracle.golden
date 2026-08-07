@@ -1,0 +1,35 @@
+== exit: 0
+== stdout:
+== a builtin function types as builtin_function_or_method ==
+type(len).__name__: builtin_function_or_method
+type(math.sqrt).__name__: builtin_function_or_method
+type([].append).__name__: builtin_function_or_method
+type((5).bit_length).__name__: builtin_function_or_method
+== a missing attribute names builtin_function_or_method ==
+len.nope => 'builtin_function_or_method' object has no attribute 'nope'
+print.nope => 'builtin_function_or_method' object has no attribute 'nope'
+abs.nope => 'builtin_function_or_method' object has no attribute 'nope'
+iter.nope => 'builtin_function_or_method' object has no attribute 'nope'
+repr.nope => 'builtin_function_or_method' object has no attribute 'nope'
+sorted.nope => 'builtin_function_or_method' object has no attribute 'nope'
+math.sqrt.nope => 'builtin_function_or_method' object has no attribute 'nope'
+os.getpid.nope => 'builtin_function_or_method' object has no attribute 'nope'
+== a bound builtin method names builtin_function_or_method ==
+[].append.nope => 'builtin_function_or_method' object has no attribute 'nope'
+'a'.upper.nope => 'builtin_function_or_method' object has no attribute 'nope'
+{}.get.nope => 'builtin_function_or_method' object has no attribute 'nope'
+(5).bit_length.nope => 'builtin_function_or_method' object has no attribute 'nope'
+dict.fromkeys.nope => 'builtin_function_or_method' object has no attribute 'nope'
+== a type constructor stays a type object ==
+int.nope => type object 'int' has no attribute 'nope'
+str.nope => type object 'str' has no attribute 'nope'
+== a real Python function keeps function ==
+type(myfunc).__name__: function
+myfunc.nope => 'function' object has no attribute 'nope'
+== a resolving read on a builtin function is unaffected ==
+len.__name__: len
+math.sqrt.__name__: sqrt
+[].append.__name__: append
+callable(len): True
+== exception:
+== stderr:
