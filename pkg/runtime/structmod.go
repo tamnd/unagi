@@ -819,7 +819,14 @@ func packBytesField(buf []byte, off, count int, o objects.Object, pascal bool) e
 func packOne(f *structFormat, buf []byte, off int, code byte, width int, o objects.Object) error {
 	switch code {
 	case '?':
-		if objects.Truth(o) {
+		// The bool code stores the object's truth the way CPython's np_bool runs
+		// PyObject_IsTrue, so a user __bool__ or __len__ decides the byte and its
+		// exception propagates rather than the value defaulting to true.
+		t, err := objects.TruthOf(o)
+		if err != nil {
+			return err
+		}
+		if t {
 			buf[off] = 1
 		} else {
 			buf[off] = 0
