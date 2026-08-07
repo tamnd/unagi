@@ -566,9 +566,36 @@ func FloorDiv(a, b Object) (Object, error) {
 		if bf == 0 {
 			return nil, Raise(ZeroDivisionError, "division by zero")
 		}
-		return NewFloat(math.Floor(af / bf)), nil
+		return NewFloat(floatFloorDiv(af, bf)), nil
 	}
 	return binFallback("//", a, b)
+}
+
+// floatFloorDiv reproduces CPython's float_divmod quotient. The naive
+// math.Floor(a/b) disagrees for infinities and signed zeros: an infinite
+// dividend gives a nan quotient because fmod(inf, b) is nan, a finite dividend
+// over an opposite-signed infinity floors to -1.0, and a zero quotient keeps
+// the sign of a/b. Computing the quotient from the fmod remainder the way C
+// modf-based division does is what makes those cases match the interpreter.
+func floatFloorDiv(vx, wx float64) float64 {
+	mod := math.Mod(vx, wx)
+	div := (vx - mod) / wx
+	// Nudge the quotient down when the remainder had to flip sign to match the
+	// divisor, the same correction Mod applies to the remainder itself.
+	if mod != 0 {
+		if (wx < 0) != (mod < 0) {
+			div -= 1.0
+		}
+	}
+	if div != 0 {
+		floordiv := math.Floor(div)
+		if div-floordiv > 0.5 {
+			floordiv += 1.0
+		}
+		return floordiv
+	}
+	// A zero quotient carries the sign of the true quotient vx/wx.
+	return math.Copysign(0, vx/wx)
 }
 
 // Mod implements the % operator with floor semantics. A str left
