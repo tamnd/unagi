@@ -1,0 +1,26 @@
+== exit: 0
+== stdout:
+== the iterator type names itself module-qualified ==
+type name => 'arrayiterator'
+type qualname => 'arrayiterator'
+type module => 'array'
+type str => "<class 'array.arrayiterator'>"
+type repr => "<class 'array.arrayiterator'>"
+== the instance repr and errors carry the module too ==
+instance repr head => True
+missing attribute => AttributeError : 'array.arrayiterator' object has no attribute 'nope'
+length_hint absent => AttributeError : 'array.arrayiterator' object has no attribute '__length_hint__'
+== the same name comes from iter() and from a for-loop's __iter__ ==
+iter() result module => 'array'
+iter() result str => "<class 'array.arrayiterator'>"
+== a subclass iterates through the same arrayiterator type ==
+subclass iter module => 'array'
+subclass iter str => "<class 'array.arrayiterator'>"
+== memoryview's iterator stays bare in builtins ==
+mv iter module => 'builtins'
+mv iter str => "<class 'memory_iterator'>"
+mv instance repr head => True
+== iterating still yields the elements ==
+drain [1, 2, 3]
+== exception:
+== stderr:

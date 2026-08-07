@@ -115,7 +115,7 @@ func TestIterBuiltinTypeName(t *testing.T) {
 		{"range", objects.NewRange(0, 3, 1), "range_iterator"},
 		{"dict", d, "dict_keyiterator"},
 		{"set", st, "set_iterator"},
-		{"array", arr, "arrayiterator"},
+		{"array", arr, "array.arrayiterator"},
 		{"memoryview", mv, "memory_iterator"},
 	}
 	for _, tt := range tests {
