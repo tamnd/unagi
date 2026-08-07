@@ -428,6 +428,12 @@ func reprCore(o Object, strict bool) (string, error) {
 			if l, ok := listBacked(x); ok {
 				return reprCore(l, strict)
 			}
+			// An array subclass inherits array.__repr__, which names the subclass
+			// type rather than "array": array_repr spells _PyType_Name(Py_TYPE(a)),
+			// so repr(S('i', [1])) is "S('i', [1])".
+			if a, ok := arrayBacked(x); ok {
+				return arraySubclassRepr(x.cls.name, a, strict)
+			}
 			// A set subclass inherits set.__repr__, which unlike list and dict does
 			// name the type: probed, repr(S()) is "S()" and repr(S({1, 2})) is
 			// "S({1, 2})", since set_repr spells Py_TYPE(so)->tp_name.

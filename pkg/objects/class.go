@@ -184,6 +184,12 @@ type instanceObject struct {
 	// once at construction. It is nil for an instance whose class has no such
 	// base. The operators unwrap to it after an override lookup misses.
 	builtinData Object
+	// arrayData is the payload of an array.array subclass instance, the live
+	// arrayObject the inherited array methods and the sequence protocol read and
+	// write. It is nil for an instance whose class has no array base. Array keeps
+	// its own typed field like list rather than the generic builtinData, so the
+	// sequence sites unwrap to a concrete *arrayObject without a type assertion.
+	arrayData *arrayObject
 	// localData holds the per-thread attribute stores of a threading.local
 	// subclass instance, the layout a class whose builtinBase is "local" takes.
 	// It is nil for every ordinary instance; when set, the attribute protocol
@@ -1246,6 +1252,30 @@ func init() {
 		// `__hash__ = ref.__hash__` at class-body time, the one ref attribute
 		// weakref.py reads at import. __new__ builds a ref subclass instance from
 		// the referent and optional callback, the allocator a ref subclass inherits.
+		// array.array carries __new__ so array.array.__new__(cls, typecode, init)
+		// resolves off the type object and allocates the array-backed subclass
+		// instance, the allocator a subclass reaches through super().__new__ or the
+		// explicit array.array.__new__ form. __init__ is the object no-op, since the
+		// payload is built at __new__ time; a subclass whose __init__ calls
+		// array.array.__init__(self) reaches it. The key is the module-qualified
+		// tp_name, the way the array funcObject reads back.
+		"array.array": {
+			"__new__": builtinTypeNew("array.array"),
+			"__init__": NewFunc("__init__", -1, func(args []Object) (Object, error) {
+				// array.__init__ is a no-op: the typecode and initializer were consumed
+				// by array.__new__, so a super().__init__() or array.array.__init__(self)
+				// call succeeds and changes nothing, matching object.__init__.
+				return None, nil
+			}),
+			// The sequence dunders read off the type object operate on the unwrapped
+			// payload, so a subclass that overrides __getitem__ can call
+			// array.array.__getitem__(self, i) to reach the base indexing.
+			"__getitem__":  NewFunc("__getitem__", -1, arrayTypeGetItem),
+			"__setitem__":  NewFunc("__setitem__", -1, arrayTypeSetItem),
+			"__delitem__":  NewFunc("__delitem__", -1, arrayTypeDelItem),
+			"__len__":      NewFunc("__len__", -1, arrayTypeLen),
+			"__contains__": NewFunc("__contains__", -1, arrayTypeContains),
+		},
 		"ref": {
 			"__new__": builtinTypeNew("ref"),
 			"__hash__": NewFunc("__hash__", 1, func(args []Object) (Object, error) {
@@ -1857,6 +1887,11 @@ func builtinBaseMatches(base, name string) bool {
 	switch base {
 	case "defaultdict":
 		return name == "collections.defaultdict" || name == "dict"
+	case "array":
+		// The recorded layout key is the short "array", but the arg-2 type reprs
+		// under its module-qualified tp_name, so isinstance(x, array.array) and
+		// issubclass(S, array.array) match against "array.array".
+		return name == "array.array"
 	}
 	return false
 }
@@ -2436,6 +2471,29 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 		// The payload is a live bytearrayObject the inherited mutators and item
 		// assignment write through.
 		inst.builtinData = NewByteArray(nil)
+	case "array":
+		// array.array builds its payload from the constructor arguments through
+		// the base array(typecode, [initializer]) call, since the contents come
+		// from the arguments rather than a later __init__ fill. array.__new__ takes
+		// no keywords, but a subclass with a custom __init__ may take them
+		// (ArraySubclassWithKwargs('b', newarg=1)); those keywords belong to
+		// __init__, so they are held back from the base call the way CPython's
+		// array_new ignores keywords for a subclass and lets __init__ consume them.
+		// A subclass with no __init__ passes the keywords through, so the base call
+		// raises the same "takes no keyword arguments" a stray keyword earns.
+		baseKwNames, baseKwVals := kwNames, kwVals
+		if _, hasInit := c.lookup("__init__"); hasInit {
+			baseKwNames, baseKwVals = nil, nil
+		}
+		v, err := CallKw(c.builtinBaseFn, pos, baseKwNames, baseKwVals)
+		if err != nil {
+			return nil, err
+		}
+		ao, ok := v.(*arrayObject)
+		if !ok {
+			return nil, Raise(TypeError, "array.array() did not return an array")
+		}
+		inst.arrayData = ao
 	case "bytes", "float", "tuple", "int", "complex", "str":
 		// A value subclass builds its immutable payload through the builtin base's
 		// own conversion, the way bytes.__new__ sets the value from the constructor
@@ -2516,6 +2574,12 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 			if err := setInit(inst.setData, pos, kwNames, kwVals); err != nil {
 				return nil, err
 			}
+			return inst, nil
+		}
+		if inst.arrayData != nil {
+			// An array subclass with no __init__ override: the payload was built from
+			// the typecode and initializer arguments in the switch above, and the
+			// inherited array.__init__ is the object no-op, so it ignores them.
 			return inst, nil
 		}
 		if ba, ok := inst.builtinData.(*bytearrayObject); ok {

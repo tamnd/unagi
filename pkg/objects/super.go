@@ -371,6 +371,20 @@ func objectDefaultCall(self Object, name string, args []Object) (Object, bool, e
 					// the payload empty for the inherited __init__ to populate, the
 					// mutable twin of the list and set cases above.
 					inst.builtinData = NewByteArray(nil)
+				case "array":
+					// array.__new__(cls, typecode, [initializer]) reached through a
+					// user __new__ chain builds the payload from the arguments the way
+					// the builtin does, so a subclass that customizes __new__ still ends
+					// up array-backed.
+					v, err := Call(cls.builtinBaseFn, args[1:])
+					if err != nil {
+						return nil, true, err
+					}
+					ao, ok := v.(*arrayObject)
+					if !ok {
+						return nil, true, Raise(TypeError, "array.array() did not return an array")
+					}
+					inst.arrayData = ao
 				case "int", "float", "complex", "str", "bytes", "tuple", "classmethod", "staticmethod", "property", "ref":
 					// A namedtuple subclass reaches super().__new__(cls, *fields)
 					// with the fields spelled out, the signature the generated

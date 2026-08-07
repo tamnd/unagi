@@ -436,6 +436,9 @@ func DelItem(o, key Object) error {
 		if l, ok := listBacked(x); ok {
 			return DelItem(l, key)
 		}
+		if a, ok := arrayBacked(x); ok {
+			return DelItem(a, key)
+		}
 		// A mutable value subclass (a ChainMap subclass) deletes through to its
 		// payload, so del cm[key] reaches the underlying mapping.
 		if v, ok := builtinUnwrap(x); ok {

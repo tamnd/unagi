@@ -98,14 +98,23 @@ func inplaceConcat(a, b Object) (Object, bool, error) {
 	// array += extends in place with another array of the same typecode, and a
 	// non-array right operand raises the extend-with-array TypeError rather than
 	// falling back to binary concatenation.
-	if arr, ok := a.(*arrayObject); ok {
-		if _, ok := b.(*arrayObject); !ok {
+	// An array subclass instance extends its payload in place and returns the same
+	// instance, keeping the subclass type, so array subclass += array works too.
+	arr, ok := a.(*arrayObject)
+	arrSelf := a
+	if !ok {
+		if p, backed := arrayBackedObj(a); backed {
+			arr, ok = p, true
+		}
+	}
+	if ok {
+		if _, ok := arrayPayload(b); !ok {
 			return nil, true, Raise(TypeError, "can only extend array with array (not \"%s\")", b.TypeName())
 		}
 		if err := arrayExtend(arr, b); err != nil {
 			return nil, true, err
 		}
-		return arr, true, nil
+		return arrSelf, true, nil
 	}
 	// A list subclass instance extends its payload in place and returns the same
 	// instance, so l += iterable keeps the subclass type and aliases see it grow.
@@ -152,20 +161,29 @@ func inplaceRepeat(a, b Object) (Object, bool, error) {
 	}
 	// array *= n repeats in place; a non-int count declines so the binary Mul
 	// raises the same non-int message array * n would.
-	if arr, ok := a.(*arrayObject); ok {
+	// An array subclass instance repeats its payload in place and returns the same
+	// instance, keeping the subclass type, the mutable twin of the concat case.
+	arr, ok := a.(*arrayObject)
+	arrSelf := a
+	if !ok {
+		if p, backed := arrayBackedObj(a); backed {
+			arr, ok = p, true
+		}
+	}
+	if ok {
 		n, ok := AsInt(b)
 		if !ok {
 			return nil, false, nil
 		}
 		if n <= 0 {
 			arr.elts = arr.elts[:0]
-			return arr, true, nil
+			return arrSelf, true, nil
 		}
 		base := append([]Object(nil), arr.elts...)
 		for i := int64(1); i < n; i++ {
 			arr.elts = append(arr.elts, base...)
 		}
-		return arr, true, nil
+		return arrSelf, true, nil
 	}
 	// A list subclass instance repeats its payload in place and returns the same
 	// instance, so l *= n keeps the subclass type and aliases see the change.
