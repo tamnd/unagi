@@ -90,6 +90,13 @@ func binasciiErrorf(format string, a ...any) error {
 // str through binasciiAscii.
 func binasciiBytes(o objects.Object) ([]byte, error) {
 	if b, ok := objects.AsBufferBytes(o); ok {
+		// The encoders and the crc functions read a flat span, so a
+		// non-C-contiguous buffer such as a strided memoryview slice is the
+		// BufferError CPython's PyBUF_C_CONTIGUOUS request raises rather than a
+		// silent read of the underlying memory in storage order.
+		if !objects.IsCContiguousBuffer(o) {
+			return nil, objects.Raise(objects.BufferError, "memoryview: underlying buffer is not C-contiguous")
+		}
 		return b, nil
 	}
 	return nil, objects.Raise(objects.TypeError, "a bytes-like object is required, not '%s'", o.TypeName())
@@ -103,6 +110,12 @@ func binasciiBytes(o objects.Object) ([]byte, error) {
 // scanning the bytes catches it without decoding to runes.
 func binasciiAscii(o objects.Object) ([]byte, error) {
 	if b, ok := objects.AsBufferBytes(o); ok {
+		// CPython's ascii_buffer converter takes a simple, contiguous buffer, so a
+		// strided memoryview slice never reaches the decoder: the failed buffer
+		// request falls through to the same argument TypeError a non-buffer gives.
+		if !objects.IsCContiguousBuffer(o) {
+			return nil, objects.Raise(objects.TypeError, "argument should be bytes, buffer or ASCII string, not '%s'", o.TypeName())
+		}
 		return b, nil
 	}
 	if s, ok := objects.AsStr(o); ok {
@@ -113,7 +126,7 @@ func binasciiAscii(o objects.Object) ([]byte, error) {
 		}
 		return []byte(s), nil
 	}
-	return nil, objects.Raise(objects.TypeError, "a bytes-like object is required, not '%s'", o.TypeName())
+	return nil, objects.Raise(objects.TypeError, "argument should be bytes, buffer or ASCII string, not '%s'", o.TypeName())
 }
 
 const hexDigits = "0123456789abcdef"

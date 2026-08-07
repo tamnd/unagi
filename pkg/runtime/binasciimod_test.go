@@ -100,6 +100,39 @@ func TestBinasciiBuffer(t *testing.T) {
 	}
 }
 
+func TestBinasciiNonContiguous(t *testing.T) {
+	if _, err := ImportModule("binascii"); err != nil {
+		t.Fatalf("import binascii: %v", err)
+	}
+	// A strided memoryview slice is not a flat span, so the encoders and crc
+	// reject it with BufferError rather than reading the memory out of order.
+	base, err := objects.NewMemoryView(objects.NewBytes([]byte("6162636465")))
+	if err != nil {
+		t.Fatalf("NewMemoryView: %v", err)
+	}
+	strided, err := objects.GetSlice(base, objects.None, objects.None, objects.NewInt(2))
+	if err != nil {
+		t.Fatalf("GetSlice step 2: %v", err)
+	}
+	if _, err := binasciiHexlify([]objects.Object{strided}); !isKindErr(err, "BufferError") {
+		t.Fatalf("hexlify(strided) = %v, want BufferError", err)
+	}
+	if _, err := binasciiCRC32([]objects.Object{strided}); !isKindErr(err, "BufferError") {
+		t.Fatalf("crc32(strided) = %v, want BufferError", err)
+	}
+	// The a2b decoders take a simple contiguous buffer, so a strided view fails
+	// the buffer request as the argument TypeError, not a BufferError.
+	if _, err := binasciiUnhexlify([]objects.Object{strided}); !isKindErr(err, objects.TypeError) {
+		t.Fatalf("a2b_hex(strided) = %v, want TypeError", err)
+	}
+}
+
+// isKindErr reports whether err is an unagi exception of the given class.
+func isKindErr(err error, kind string) bool {
+	e, ok := err.(*objects.Exception)
+	return ok && e.Kind == kind
+}
+
 func TestBinasciiStrArgs(t *testing.T) {
 	// Importing binascii runs its init so binascii.Error is built for the error paths.
 	if _, err := ImportModule("binascii"); err != nil {

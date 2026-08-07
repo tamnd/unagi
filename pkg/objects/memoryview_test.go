@@ -341,6 +341,60 @@ func TestMemoryViewToReadonly(t *testing.T) {
 	}
 }
 
+func TestMemoryViewStridedSlice(t *testing.T) {
+	buf := NewByteArray([]byte("abcdefghi")).(*bytearrayObject)
+	m := mvOf(t, buf)
+	// A step-two slice is a strided view over the same buffer, not a copy.
+	sObj, err := GetSlice(m, None, None, NewInt(2))
+	if err != nil {
+		t.Fatalf("GetSlice step 2: %v", err)
+	}
+	s := sObj.(*memoryviewObject)
+	if mvIsCContiguous(s) {
+		t.Fatal("stepped slice reports C-contiguous, want strided")
+	}
+	if s.strides == nil || s.strides[0] != 2 {
+		t.Fatalf("strides = %v, want [2]", s.strides)
+	}
+	if !IsCContiguousBuffer(m) || IsCContiguousBuffer(s) {
+		t.Fatalf("IsCContiguousBuffer: parent=%v slice=%v, want true, false",
+			IsCContiguousBuffer(m), IsCContiguousBuffer(s))
+	}
+	// The strided span reads the picked elements a, c, e, g, i.
+	if got, _ := AsBufferBytes(s); string(got) != "acegi" {
+		t.Fatalf("strided span = %q, want %q", got, "acegi")
+	}
+	// A write through the strided view aliases the root buffer.
+	if err := SetItem(s, NewInt(0), NewInt('Z')); err != nil {
+		t.Fatalf("SetItem strided: %v", err)
+	}
+	if string(buf.snapshot()) != "Zbcdefghi" {
+		t.Fatalf("after strided write = %q, want %q", buf.snapshot(), "Zbcdefghi")
+	}
+	// Slicing the strided view composes over its stride: s[1:3] picks c, e.
+	subObj, err := GetSlice(s, NewInt(1), NewInt(3), None)
+	if err != nil {
+		t.Fatalf("GetSlice of strided: %v", err)
+	}
+	if got, _ := AsBufferBytes(subObj); string(got) != "ce" {
+		t.Fatalf("strided sub-slice = %q, want %q", got, "ce")
+	}
+	// A negative step reverses the stride and walks backwards, read off a fresh
+	// buffer so the earlier strided write does not colour the result.
+	fresh := mvOf(t, NewByteArray([]byte("abcdefghi")))
+	rObj, err := GetSlice(fresh, None, None, NewInt(-2))
+	if err != nil {
+		t.Fatalf("GetSlice step -2: %v", err)
+	}
+	r := rObj.(*memoryviewObject)
+	if r.strides[0] != -2 {
+		t.Fatalf("negative strides = %v, want [-2]", r.strides)
+	}
+	if got, _ := AsBufferBytes(r); string(got) != "igeca" {
+		t.Fatalf("reverse strided span = %q, want %q", got, "igeca")
+	}
+}
+
 func TestMemoryViewContextManager(t *testing.T) {
 	m := mvOf(t, NewBytes([]byte("ab")))
 	entered, err := memoryviewMethod(m, "__enter__", nil)

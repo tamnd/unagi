@@ -1,0 +1,31 @@
+== exit: 0
+== stdout:
+c_contiguous => False
+contiguous => False
+strides => (-2,)
+shape => (5,)
+ndim => 1
+len => 5
+tobytes => b'gtonn'
+tolist => [103, 116, 111, 110, 110]
+hex => '67746f6e6e'
+first => 103
+last => 110
+iterate => [103, 116, 111, 110, 110]
+readonly => False
+reslice => b'to'
+reslice_strides => (-2,)
+toreadonly_strides => (-2,)
+toreadonly_bytes => b'gtonn'
+review_strides => (-2,)
+pos_strides => (2,)
+pos_bytes => b'nnotg'
+one_contig => True
+write_alias => b'Zbcdefghi'
+write_slice => b'0b1d2f3h4'
+b2a_hex => BufferError : memoryview: underlying buffer is not C-contiguous
+hexlify => BufferError : memoryview: underlying buffer is not C-contiguous
+crc32 => BufferError : memoryview: underlying buffer is not C-contiguous
+a2b_hex => TypeError : argument should be bytes, buffer or ASCII string, not 'memoryview'
+== exception:
+== stderr:

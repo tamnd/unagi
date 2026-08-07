@@ -28,6 +28,7 @@ const (
 	RuntimeError      = "RuntimeError"
 	OverflowError     = "OverflowError"
 	RecursionError    = "RecursionError"
+	BufferError       = "BufferError"
 
 	ImportError         = "ImportError"
 	ModuleNotFoundError = "ModuleNotFoundError"
