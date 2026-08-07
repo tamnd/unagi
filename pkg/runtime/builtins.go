@@ -138,6 +138,14 @@ func Sum(args []objects.Object) (objects.Object, error) {
 			// raised even when the elements are not strings.
 			return nil, objects.Raise(objects.TypeError, "sum() can't sum strings [use ''.join(seq) instead]")
 		}
+		// bytes and bytearray start values are refused the same way (a memoryview
+		// or other buffer is still fine), raised even for an empty iterable.
+		if objects.IsBytesInstance(args[1]) {
+			return nil, objects.Raise(objects.TypeError, "sum() can't sum bytes [use b''.join(seq) instead]")
+		}
+		if objects.IsByteArrayInstance(args[1]) {
+			return nil, objects.Raise(objects.TypeError, "sum() can't sum bytearray [use b''.join(seq) instead]")
+		}
 		acc = args[1]
 	}
 	items, err := materialize(args[0])

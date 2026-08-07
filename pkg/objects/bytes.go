@@ -25,6 +25,21 @@ func AsBytes(o Object) ([]byte, bool) {
 	return nil, false
 }
 
+// IsBytesInstance reports whether o is a bytes value, a subclass instance
+// included, the way CPython's PyBytes_Check does. It is stricter than
+// AsBytesLike, which also accepts bytearray and memoryview, so sum() can refuse
+// a bytes start value while still allowing a memoryview one.
+func IsBytesInstance(o Object) bool {
+	if _, ok := o.(*bytesObject); ok {
+		return true
+	}
+	if v, ok := builtinUnwrap(o); ok {
+		_, ok := v.(*bytesObject)
+		return ok
+	}
+	return false
+}
+
 // bytesRepr renders bytes the way CPython repr does: a b prefix, single
 // quotes unless the value has a single quote but no double quote, and the
 // same escape catalog as str except every byte outside the printable
