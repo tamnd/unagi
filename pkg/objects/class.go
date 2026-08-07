@@ -2926,15 +2926,28 @@ func LoadAttr(o Object, name string) (Object, error) {
 		if x.kind == defaultDict && name == "default_factory" {
 			return dictDefaultFactory(x), nil
 		}
-		// fromkeys is a classmethod, so a read off a plain dict reports the dict type
-		// through __self__ ({}.fromkeys.__self__ is dict) and qualifies __qualname__
-		// the way CPython inherits it, rather than binding the instance the way an
-		// ordinary method read does. The collections dict kinds report a class name
-		// that does not line up with the classmethod key yet, so they keep the
-		// instance-bound read for now.
-		if name == "fromkeys" && x.kind == plainDict {
-			if v, ok := builtinInstanceClassmethod("dict", name); ok {
-				return v, nil
+		// fromkeys is a classmethod, so a read off an instance reports the type
+		// through __self__ ({}.fromkeys.__self__ is dict, OrderedDict().fromkeys.__self__
+		// is collections.OrderedDict) and qualifies __qualname__ the way CPython
+		// inherits it, rather than binding the instance the way an ordinary method
+		// read does. The classmethod key is the module-qualified name for the
+		// collections kinds, so it lines up with both the resolver and the fill that
+		// stamps the result with the kind. Counter keeps its own read, which already
+		// binds the type.
+		if name == "fromkeys" {
+			key := ""
+			switch x.kind {
+			case plainDict:
+				key = "dict"
+			case orderedDict:
+				key = "collections.OrderedDict"
+			case defaultDict:
+				key = "collections.defaultdict"
+			}
+			if key != "" {
+				if v, ok := builtinInstanceClassmethod(key, name); ok {
+					return v, nil
+				}
 			}
 		}
 		// A dict method read binds as a callable, so d.get reads back and calls

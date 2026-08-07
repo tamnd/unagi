@@ -137,7 +137,10 @@ func builtinInstanceClassmethod(typeName, name string) (Object, bool) {
 		return nil, false
 	}
 	if f, ok := v.(*funcObject); ok {
-		f.qualnameOwner = typeName
+		// __qualname__ names the short type, so a module-qualified key like
+		// collections.OrderedDict qualifies to OrderedDict.fromkeys the way CPython
+		// names it, while a bare builtin key (dict, int) is unchanged.
+		_, f.qualnameOwner = splitBuiltinTypeName(typeName)
 		if builtinTypeStaticmethod[name] {
 			f.boundSelf = None
 		} else if BuiltinTypeResolver != nil {
