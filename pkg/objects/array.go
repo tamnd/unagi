@@ -391,8 +391,31 @@ func (a *arrayObject) tobytes() []byte {
 // arrayIndex normalizes an integer subscript into a valid offset, wrapping a
 // negative index and spelling the array subscript errors CPython gives. oob is
 // the out-of-range wording, which differs between a read and an assignment.
+// arrayCoerceIndex reads an array index or index-taking method argument, honoring
+// __index__ the way CPython feeds a subscript through PyNumber_Index: a plain int
+// (bool included) passes through, an object spelling __index__ counts as its
+// value, a bad __index__ return propagates its non-int TypeError, and anything
+// else reports ok false with no error so the caller supplies its own type message.
+func arrayCoerceIndex(o Object) (i int64, ok bool, err error) {
+	if v, isInt := AsInt(o); isInt {
+		return v, true, nil
+	}
+	r, isIdx, err := IndexOf(o)
+	if err != nil {
+		return 0, false, err
+	}
+	if isIdx {
+		v, _ := AsInt(r)
+		return v, true, nil
+	}
+	return 0, false, nil
+}
+
 func arrayIndex(a *arrayObject, key Object, oob string) (int, error) {
-	i, ok := AsInt(key)
+	i, ok, err := arrayCoerceIndex(key)
+	if err != nil {
+		return 0, err
+	}
 	if !ok {
 		return 0, Raise(TypeError, "array indices must be integers")
 	}
@@ -888,7 +911,10 @@ func arrayToFile(a *arrayObject, f Object) (Object, error) {
 // list.insert does. The index resolves before x is validated, so a bad index
 // carries the integer-required error rather than the item error.
 func arrayInsert(a *arrayObject, iObj, x Object) (Object, error) {
-	i, ok := AsInt(iObj)
+	i, ok, err := arrayCoerceIndex(iObj)
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
 		return nil, Raise(TypeError, "'%s' object cannot be interpreted as an integer", iObj.TypeName())
 	}
@@ -923,7 +949,10 @@ func arrayPop(a *arrayObject, args []Object) (Object, error) {
 	}
 	idx := int64(len(a.elts) - 1)
 	if len(args) == 1 {
-		i, ok := AsInt(args[0])
+		i, ok, err := arrayCoerceIndex(args[0])
+		if err != nil {
+			return nil, err
+		}
 		if !ok {
 			return nil, Raise(TypeError, "'%s' object cannot be interpreted as an integer", args[0].TypeName())
 		}
