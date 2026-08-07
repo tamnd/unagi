@@ -1431,7 +1431,23 @@ func seqContains(elts []Object, item Object) Object {
 // falls back to ==, so this differs from plain equality only for that self-unequal
 // case, matching how CPython's list and tuple search their elements.
 func equalsIdentity(a, b Object) bool {
-	return a == b || equals(a, b)
+	if a == b {
+		return true
+	}
+	// CPython's PyObject_RichCompareBool, which drives element equality for list,
+	// tuple, deque, and array, runs the full rich-compare protocol per element. A
+	// user instance therefore compares by its own __eq__ against a builtin, so a
+	// Fraction sitting in a tuple equals the int it represents the way a direct ==
+	// does. The native fast path stays for two builtins.
+	if isInstance(a) || isInstance(b) {
+		res, err := richCompare(OpEq, a, b)
+		if err != nil {
+			return false
+		}
+		t, _ := TruthOf(res)
+		return t
+	}
+	return equals(a, b)
 }
 
 // Is implements the `is` operator by object identity.

@@ -26,6 +26,41 @@ func setEq(t *testing.T, c *classObject) {
 	}))
 }
 
+// A user instance sitting in a tuple compares against the builtin it represents
+// through its own __eq__, the way PyObject_RichCompareBool drives per-element
+// equality, so it matches a direct == rather than a native type test.
+func TestSeqEqualsInstanceElement(t *testing.T) {
+	c := mkclass(t, "N")
+	// __eq__ equals the plain int it stores, the way a Fraction equals its value.
+	c.setAttr("__eq__", mkfn("N.__eq__", 2, func(args []Object) (Object, error) {
+		self := args[0].(*instanceObject)
+		sv, _ := self.attrGet("v")
+		iv, ok := AsInt(args[1])
+		if !ok {
+			return NotImplemented, nil
+		}
+		s, _ := AsInt(sv)
+		return NewBool(s == iv), nil
+	}))
+	mk := func(n int64) *instanceObject {
+		o := inst(c)
+		o.attrSet("v", NewInt(n))
+		return o
+	}
+	rhs := NewTuple([]Object{NewInt(1), NewInt(2)})
+	// The instance element equals the int in both operand orders.
+	if got, _ := Compare(OpEq, NewTuple([]Object{mk(1), NewInt(2)}), rhs); got != True {
+		t.Fatalf("(N(1),2) == (1,2) = %v, want True", got)
+	}
+	if got, _ := Compare(OpEq, rhs, NewTuple([]Object{mk(1), NewInt(2)})); got != True {
+		t.Fatalf("(1,2) == (N(1),2) = %v, want True", got)
+	}
+	// A mismatching element keeps the tuples unequal.
+	if got, _ := Compare(OpEq, NewTuple([]Object{mk(3), NewInt(2)}), rhs); got != False {
+		t.Fatalf("(N(3),2) == (1,2) = %v, want False", got)
+	}
+}
+
 // Two instances with matching v compare equal through __eq__, and != derives
 // from it without an explicit __ne__.
 func TestRichEqAndDerivedNe(t *testing.T) {

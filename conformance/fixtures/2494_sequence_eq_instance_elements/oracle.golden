@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+tuple: True
+list: True
+divmod: True
+reversed: True
+nested: True
+decimal: True
+in: True
+frac in list: True
+index: 0
+count: 3
+nan same: True
+nan distinct: False
+unequal: False
+== exception:
+== stderr:
