@@ -1,0 +1,18 @@
+== exit: 0
+== stdout:
+== a collections dict names its type through fromkeys ==
+OrderedDict().fromkeys.__self__ => <class 'collections.OrderedDict'>
+OrderedDict().fromkeys.__qualname__ => 'OrderedDict.fromkeys'
+OrderedDict().fromkeys.__name__ => 'fromkeys'
+defaultdict(int).fromkeys.__self__ => <class 'collections.defaultdict'>
+defaultdict(int).fromkeys.__qualname__ => 'defaultdict.fromkeys'
+defaultdict(int).fromkeys.__name__ => 'fromkeys'
+== an ordinary method still binds the instance ==
+OrderedDict().get.__self__ is the instance => True
+defaultdict().get.__self__ is the instance => True
+== the classmethod still builds its kind ==
+OrderedDict().fromkeys(['a', 'b'], 0) => OrderedDict({'a': 0, 'b': 0})
+defaultdict(int).fromkeys(['x'], 1) => defaultdict(None, {'x': 1})
+bound read then call => OrderedDict({'p': 9, 'q': 9})
+== exception:
+== stderr:
