@@ -319,6 +319,57 @@ func TestMathHypotCorrectlyRounded(t *testing.T) {
 	}
 }
 
+func TestMathDistCorrectlyRounded(t *testing.T) {
+	dist := mathFn(t, "dist")
+	pt := func(vs ...float64) objects.Object {
+		elts := make([]objects.Object, len(vs))
+		for i, v := range vs {
+			elts[i] = objects.NewFloat(v)
+		}
+		return objects.NewTuple(elts)
+	}
+	d := func(p, q objects.Object) float64 { return callFloat(t, dist, p, q) }
+	cases := []struct {
+		p, q objects.Object
+		want float64
+	}{
+		{pt(), pt(), 0},
+		{pt(3), pt(0), 3},
+		{pt(0, 0), pt(3, 4), 5},
+		{pt(1, 2, 3), pt(4, 6, 3), 5},
+		{pt(0, 0, 0, 0), pt(3, 4, 12, 84), 85},
+		// Wide magnitudes where a naive sum of squared differences overflows or
+		// underflows.
+		{pt(0, 0), pt(1e308, 1e308), 1.4142135623730951e308},
+		{pt(0, 0, 0), pt(1e200, 1e200, 1e200), 1.7320508075688772e200},
+		{pt(0, 0), pt(1e-200, 1e-200), 1.414213562373095e-200},
+		{pt(0, 0), pt(5e-324, 5e-324), 5e-324},
+	}
+	for _, c := range cases {
+		if got := d(c.p, c.q); got != c.want {
+			t.Errorf("dist(%v, %v) = %v, want %v", c.p, c.q, got, c.want)
+		}
+	}
+
+	// The C99 special cases screen on the coordinate differences: an infinite
+	// difference wins even against a nan, otherwise a nan makes it nan.
+	inf, nan := math.Inf(1), math.NaN()
+	if got := d(pt(inf, 0), pt(0, nan)); !math.IsInf(got, 1) {
+		t.Errorf("dist((inf,0),(0,nan)) = %v, want +inf", got)
+	}
+	if got := d(pt(nan, 0), pt(0, 0)); !math.IsNaN(got) {
+		t.Errorf("dist((nan,0),(0,0)) = %v, want nan", got)
+	}
+	// inf - inf is a nan difference, so the whole distance is nan.
+	if got := d(pt(inf, 0), pt(inf, 0)); !math.IsNaN(got) {
+		t.Errorf("dist((inf,0),(inf,0)) = %v, want nan", got)
+	}
+	// Overflow with no infinite coordinate still returns inf and raises nothing.
+	if got := d(pt(0, 0), pt(-1.5e308, 1.5e308)); !math.IsInf(got, 1) {
+		t.Errorf("dist((0,0),(-1.5e308,1.5e308)) = %v, want +inf", got)
+	}
+}
+
 func TestMathDomainErrors(t *testing.T) {
 	cases := []struct {
 		fn   string

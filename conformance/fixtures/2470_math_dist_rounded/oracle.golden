@@ -1,0 +1,23 @@
+== exit: 0
+== stdout:
+0.0
+3.0
+3.0
+5.0
+13.0
+5.0
+85.0
+0.5
+4.55521678957215
+0.423310825130748
+1.4142135623730951e+308
+1.7320508075688773e+200
+1.414213562373095e-200
+5e-324
+inf
+inf
+nan
+nan
+ValueError: both points must have the same number of dimensions
+== exception:
+== stderr:
