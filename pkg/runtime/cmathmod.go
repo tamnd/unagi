@@ -697,7 +697,10 @@ func cmAbs(z complex128) (float64, int) {
 		}
 		return math.NaN(), cmOK
 	}
-	result := math.Hypot(x, y)
+	// The correctly-rounded magnitude, so cmath.polar's r agrees with abs(z) and
+	// the platform C hypot CPython uses, rather than Go's math.Hypot which lands a
+	// unit in the last place off on many pairs. See objects.ComplexAbs.
+	result := objects.CorrectlyRoundedHypot(x, y)
 	if math.IsInf(result, 0) {
 		return result, cmERANGE
 	}

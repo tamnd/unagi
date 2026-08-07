@@ -2,6 +2,7 @@ package objects
 
 import (
 	"math"
+	"math/big"
 	"strconv"
 	"strings"
 	"unicode"
@@ -195,12 +196,44 @@ func cPow(ar, ai, br, bi float64) Object {
 // pair produces an infinite result, the way CPython's _Py_c_abs signals ERANGE.
 // An infinite part yields inf without error and a nan part yields nan, so abs()
 // and complex.__abs__ agree on the whole domain.
+//
+// CPython's _Py_c_abs calls the platform C hypot, which is correctly rounded on
+// glibc and macOS, so the result is the nearest double to the true magnitude.
+// Go's math.Hypot is not correctly rounded and lands a unit in the last place off
+// on around a quarter of small integer pairs (hypot(2, 3) is the first), so the
+// finite case here rounds the true magnitude once through extended precision to
+// match CPython byte for byte. The non-finite cases follow C99's hypot rules
+// (an infinite part wins over a nan, otherwise a nan yields nan), which Go's
+// math.Hypot already implements, so they defer to it.
 func ComplexAbs(re, im float64) (float64, error) {
-	r := math.Hypot(re, im)
-	if math.IsInf(r, 0) && !math.IsInf(re, 0) && !math.IsInf(im, 0) {
+	if math.IsInf(re, 0) || math.IsInf(im, 0) || math.IsNaN(re) || math.IsNaN(im) {
+		return math.Hypot(re, im), nil
+	}
+	r := CorrectlyRoundedHypot(re, im)
+	if math.IsInf(r, 0) {
 		return 0, Raise(OverflowError, "absolute value too large")
 	}
 	return r, nil
+}
+
+// CorrectlyRoundedHypot returns sqrt(re*re + im*im) correctly rounded to double,
+// for finite re and im. The two squares and their sum are formed in a big.Float
+// wide enough to hold them exactly (a double squared needs 106 bits, and the sum
+// spans at most the full double exponent range), then the square root is taken and
+// rounded once to double, so the result is the nearest double to the exact
+// magnitude, the same value the platform C hypot yields. big.Float carries its own
+// exponent, so a pair whose squares overflow double (1e200, 1e200) still computes,
+// and only a true magnitude past the double range rounds to inf.
+func CorrectlyRoundedHypot(re, im float64) float64 {
+	const prec = 250
+	x := new(big.Float).SetPrec(prec).SetFloat64(re)
+	y := new(big.Float).SetPrec(prec).SetFloat64(im)
+	x.Mul(x, x)
+	y.Mul(y, y)
+	x.Add(x, y)
+	x.Sqrt(x)
+	r, _ := x.Float64()
+	return r
 }
 
 // complexMethodNames is the method and operator-dunder surface a complex answers,
