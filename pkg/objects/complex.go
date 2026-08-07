@@ -120,6 +120,20 @@ func complexArith(op byte, a, b Object) (Object, bool, error) {
 	return nil, false, nil
 }
 
+// complexArithOp is complexArith guarded by the subclass-override check, the
+// complex counterpart of floatArith. When either operand is a complex subclass
+// instance that overrides the operator's forward or reflected slot, it declines
+// so the caller falls through to the dunder protocol rather than coercing the
+// payload and computing natively, which would drop the subclass's method and its
+// return type. A plain complex, or a subclass that inherits the base arithmetic,
+// keeps the native fast path.
+func complexArithOp(op byte, a, b Object, forward, reflected string) (Object, bool, error) {
+	if numericInstOverrides(a, forward, reflected) || numericInstOverrides(b, forward, reflected) {
+		return nil, false, nil
+	}
+	return complexArith(op, a, b)
+}
+
 // complexQuot divides (ar+ai j) by (br+bi j) with Smith's method, scaling by
 // the smaller denominator part to limit overflow the way CPython's
 // _Py_c_quot does. A zero divisor raises the probed "division by zero".
