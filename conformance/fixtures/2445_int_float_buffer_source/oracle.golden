@@ -1,0 +1,36 @@
+== exit: 0
+== stdout:
+int-bytes 42
+int-bytearray 99
+int-mv 42
+int-array 42
+int-mv-ws 10
+int-bytes-sign -7
+float-bytes 3.14
+float-bytearray 2.5
+float-mv 3.5
+float-array 3.5
+float-mv-inf inf
+float-bytes-sci 1000.0
+float-bytes-underscore 1000.0
+float-bytes-sign -2.5
+int-bytes-bad ERR ValueError invalid literal for int() with base 10: b'xy'
+int-bytearray-bad ERR ValueError invalid literal for int() with base 10: b'xy'
+int-mv-bad ERR ValueError invalid literal for int() with base 10: b'xy'
+int-array-bad ERR ValueError invalid literal for int() with base 10: b'xy'
+int-mv-typed-bad ERR ValueError invalid literal for int() with base 10: b'\x01\x00\x00\x00'
+int-bytes-empty ERR ValueError invalid literal for int() with base 10: b''
+float-bytes-bad ERR ValueError could not convert string to float: b'abc'
+float-bytearray-bad ERR ValueError could not convert string to float: bytearray(b'xy')
+float-bytes-empty ERR ValueError could not convert string to float: b''
+float-bytes-nul ERR ValueError could not convert string to float: b'1\x002'
+int-bytes-base 5
+int-bytearray-base 255
+int-mv-base ERR TypeError int() can't convert non-string with explicit base
+int-array-base ERR TypeError int() can't convert non-string with explicit base
+int-bytearray-base-bad ERR ValueError invalid literal for int() with base 16: b'xy'
+int-bytes-base-bad ERR ValueError invalid literal for int() with base 16: b'zz'
+int-released ERR TypeError int() argument must be a string, a bytes-like object or a real number, not 'memoryview'
+float-released ERR TypeError float() argument must be a string or a real number, not 'memoryview'
+== exception:
+== stderr:
