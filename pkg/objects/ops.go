@@ -209,6 +209,33 @@ func bothFloat(a, b Object) (float64, float64, bool, error) {
 	return af, bf, true, err
 }
 
+// numericInstOverrides reports whether o is a value-subclass instance that
+// carries its own definition of one of the named operator dunders. lookup walks
+// only the class-node MRO, so a plain float subclass that inherits float's
+// arithmetic returns false and keeps the native fast path; only a user override
+// diverts to the dunder protocol, the way CPython dispatches to the subclass
+// method rather than the base type's arithmetic.
+func numericInstOverrides(o Object, names ...string) bool {
+	for _, n := range names {
+		if _, raw := instDunderRaw(o, n); raw != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// floatArith is bothFloat guarded by the subclass-override check. When either
+// operand is a float subclass instance that overrides the operator's forward or
+// reflected slot, it declines so the caller falls through to the dunder protocol
+// rather than unwrapping the payload and computing natively, which would drop
+// the subclass's method and its return type.
+func floatArith(a, b Object, forward, reflected string) (float64, float64, bool, error) {
+	if numericInstOverrides(a, forward, reflected) || numericInstOverrides(b, forward, reflected) {
+		return 0, 0, false, nil
+	}
+	return bothFloat(a, b)
+}
+
 // Add implements the + operator.
 func Add(a, b Object) (Object, error) {
 	switch x := a.(type) {
@@ -285,7 +312,7 @@ func Add(a, b Object) (Object, error) {
 	if x, y, ok := bothBig(a, b); ok {
 		return NewIntFromBig(new(big.Int).Add(x, y)), nil
 	}
-	if af, bf, ok, err := bothFloat(a, b); ok {
+	if af, bf, ok, err := floatArith(a, b, "__add__", "__radd__"); ok {
 		if err != nil {
 			return nil, err
 		}
@@ -330,7 +357,7 @@ func Sub(a, b Object) (Object, error) {
 	if x, y, ok := bothBig(a, b); ok {
 		return NewIntFromBig(new(big.Int).Sub(x, y)), nil
 	}
-	if af, bf, ok, err := bothFloat(a, b); ok {
+	if af, bf, ok, err := floatArith(a, b, "__sub__", "__rsub__"); ok {
 		if err != nil {
 			return nil, err
 		}
@@ -466,7 +493,7 @@ func Mul(a, b Object) (Object, error) {
 	if x, y, ok := bothBig(a, b); ok {
 		return NewIntFromBig(new(big.Int).Mul(x, y)), nil
 	}
-	if af, bf, ok, err := bothFloat(a, b); ok {
+	if af, bf, ok, err := floatArith(a, b, "__mul__", "__rmul__"); ok {
 		if err != nil {
 			return nil, err
 		}
@@ -507,7 +534,7 @@ func TrueDiv(a, b Object) (Object, error) {
 		}
 		return NewFloat(f), nil
 	}
-	af, bf, ok, err := bothFloat(a, b)
+	af, bf, ok, err := floatArith(a, b, "__truediv__", "__rtruediv__")
 	if !ok {
 		if eitherComplex(a, b) {
 			if r, cok, cerr := complexArith('/', a, b); cok || cerr != nil {
@@ -559,7 +586,7 @@ func FloorDiv(a, b Object) (Object, error) {
 		q, _ := bigFloorDivMod(x, y)
 		return NewIntFromBig(q), nil
 	}
-	if af, bf, ok, err := bothFloat(a, b); ok {
+	if af, bf, ok, err := floatArith(a, b, "__floordiv__", "__rfloordiv__"); ok {
 		if err != nil {
 			return nil, err
 		}
@@ -631,7 +658,7 @@ func Mod(a, b Object) (Object, error) {
 		_, r := bigFloorDivMod(x, y)
 		return NewIntFromBig(r), nil
 	}
-	if af, bf, ok, err := bothFloat(a, b); ok {
+	if af, bf, ok, err := floatArith(a, b, "__mod__", "__rmod__"); ok {
 		if err != nil {
 			return nil, err
 		}
@@ -686,7 +713,7 @@ func Pow(a, b Object) (Object, error) {
 			return nil, Raise(ZeroDivisionError, "zero to a negative power")
 		}
 	}
-	if af, bf, ok, err := bothFloat(a, b); ok {
+	if af, bf, ok, err := floatArith(a, b, "__pow__", "__rpow__"); ok {
 		if err != nil {
 			return nil, err
 		}
