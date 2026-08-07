@@ -229,8 +229,11 @@ func Round(args []objects.Object) (objects.Object, error) {
 		return nil, objects.Raise(objects.TypeError, "round() takes at most 2 arguments (%d given)", len(args))
 	}
 	x := args[0]
+	// round(x, None) is the single-argument round: it returns an int, so a
+	// built-in number treats an explicit None ndigits the same as no ndigits.
+	noDigits := len(args) == 1 || args[1] == objects.None
 	if bx, ok := objects.AsBigInt(x); ok {
-		if len(args) == 1 {
+		if noDigits {
 			// round(True) is 1, an int, so always rebox; a plain int
 			// comes back unchanged whatever its size.
 			return objects.NewIntFromBig(bx), nil
@@ -245,7 +248,7 @@ func Round(args []objects.Object) (objects.Object, error) {
 		return objects.NewIntFromBig(roundIntNeg(bx, -nd)), nil
 	}
 	if f, ok := objects.AsFloat(x); ok {
-		if len(args) == 1 {
+		if noDigits {
 			return objects.RoundFloatToInt(f)
 		}
 		nd, err := roundDigits(args[1])

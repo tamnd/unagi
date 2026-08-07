@@ -225,6 +225,33 @@ func TestRound(t *testing.T) {
 		t.Errorf("round(True) = %v, %v", got, err)
 	}
 
+	// round(x, None) is the single-argument round for a built-in number: it
+	// returns an int just like round(x) with no ndigits.
+	noneRows := []struct {
+		name string
+		x    objects.Object
+		want string
+	}{
+		{"float", f(3.7), "4"},
+		{"float-neg-half", f(-2.5), "-2"},
+		{"int", i(5), "5"},
+		{"bool", objects.True, "1"},
+	}
+	for _, tt := range noneRows {
+		got, err := Round(objs(tt.x, objects.None))
+		if err != nil {
+			t.Errorf("round(%s, None): unexpected error %v", tt.name, err)
+			continue
+		}
+		if objects.Repr(got) != tt.want || got.TypeName() != "int" {
+			t.Errorf("round(%s, None) = %s (%s), want %s (int)",
+				tt.name, objects.Repr(got), got.TypeName(), tt.want)
+		}
+	}
+	// round(nan, None) raises like round(nan) rather than treating None as ndigits.
+	_, err := Round(objs(f(math.NaN()), objects.None))
+	checkErr(t, "nan-none", err, "ValueError: cannot convert float NaN to integer")
+
 	errRows := []struct {
 		name    string
 		args    []objects.Object
