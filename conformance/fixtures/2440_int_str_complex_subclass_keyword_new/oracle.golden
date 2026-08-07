@@ -1,0 +1,33 @@
+== exit: 0
+== stdout:
+int-base-kw 2
+int-value-and-base-kw 255
+int-base-positional 2
+int-one-positional 12
+int-empty 0
+str-object-kw '5'
+str-encoding-kw 'hi'
+str-encoding-errors-kw '�'
+str-object-only '42'
+str-empty ''
+complex-real-imag-kw (1+2j)
+complex-imag-only 3j
+complex-from-string (1+2j)
+int-value True MI True 2
+str-value True MS True 'hi'
+complex-value True MC True (1+2j)
+int-value-kw ERR TypeError int() got an unexpected keyword argument 'x'
+int-unknown-kw ERR TypeError int() got an unexpected keyword argument 'foo'
+int-base-only ERR TypeError int() missing string argument
+int-non-string-base ERR TypeError int() can't convert non-string with explicit base
+int-count ERR TypeError int() takes at most 2 arguments (3 given)
+str-dup-object ERR TypeError argument for str() given by name ('object') and position (1)
+str-unknown-kw ERR TypeError str() got an unexpected keyword argument 'foo'
+str-count ERR TypeError str() takes at most 3 arguments (4 given)
+complex-unknown-kw ERR TypeError complex() got an unexpected keyword argument 'x'
+complex-dup-real ERR TypeError argument for complex() given by name ('real') and position (1)
+complex-count ERR TypeError complex() takes at most 2 arguments (3 given)
+init-extra-kw ERR TypeError int() takes at most 2 arguments (3 given)
+init-base-kw 2
+== exception:
+== stderr:

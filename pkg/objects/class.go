@@ -2436,29 +2436,26 @@ func instantiateCore(c *classObject, pos []Object, kwNames []string, kwVals []Ob
 		// The payload is a live bytearrayObject the inherited mutators and item
 		// assignment write through.
 		inst.builtinData = NewByteArray(nil)
-	case "bytes", "float", "tuple":
+	case "bytes", "float", "tuple", "int", "complex", "str":
 		// A value subclass builds its immutable payload through the builtin base's
 		// own conversion, the way bytes.__new__ sets the value from the constructor
 		// arguments before __init__ runs. With no user __new__ the base __new__
 		// takes the keyword arguments too, so a keyword call reaches the base's own
-		// binder: bytes(source=b'x') and bytes('hi', encoding='utf-8') build the
-		// payload, while float and tuple reject a keyword the way they do at the top
-		// level (float() takes no keyword arguments). The base validates the
-		// keywords itself, so a subclass with a custom __init__ that names an extra
-		// keyword still fails at the base __new__ the way CPython's does
-		// (bytes() got an unexpected keyword argument 'foo').
+		// keyword-aware binder: bytes(source=b'x'), str(object=5, encoding='utf-8'),
+		// int('10', base=2) and complex(real=1, imag=2) all build the payload, while
+		// float and tuple reject a keyword the way they do at the top level (float()
+		// takes no keyword arguments). The base validates the keywords itself, so a
+		// subclass with a custom __init__ that names an extra keyword still fails at
+		// the base __new__ the way CPython's does (bytes() got an unexpected keyword
+		// argument 'foo').
 		v, err := CallKw(c.builtinBaseFn, pos, kwNames, kwVals)
 		if err != nil {
 			return nil, err
 		}
 		inst.builtinData = v
-	case "int", "complex", "str", "classmethod", "staticmethod", "property", "ref":
-		// These bases build their payload from the positional arguments only. int,
-		// str and complex accept keyword forms at the top level through the compiler
-		// lowering rather than the runtime constructor this path calls, so their
-		// value-subclass keyword construction (MI('10', base=2), MS(object=5),
-		// MC(real=1, imag=2)) is a separate follow-up; classmethod, staticmethod,
-		// property and ref keep their keywords for a user __init__.
+	case "classmethod", "staticmethod", "property", "ref":
+		// These bases build their payload from the positional arguments only,
+		// keeping any keywords for a user __init__.
 		v, err := Call(c.builtinBaseFn, pos)
 		if err != nil {
 			return nil, err
