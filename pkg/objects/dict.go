@@ -234,6 +234,18 @@ func hashKey(o Object) (string, error) {
 				return hashKey(bv)
 			}
 		}
+		if !hasVal {
+			// A subclass of an unhashable builtin base (array.array, list, dict or
+			// set) that overrides neither __hash__ nor __eq__ stays unhashable, so
+			// it cannot key a dict slot or set element; the dictKey and setKey
+			// wrappers name the subclass in the boundary message.
+			if _, ok := arrayBacked(x); ok {
+				return "", Raise(TypeError, "unhashable type: '%s'", x.TypeName())
+			}
+			if unhashableBacked(x) {
+				return "", Raise(TypeError, "unhashable type: '%s'", x.TypeName())
+			}
+		}
 		return fmt.Sprintf("p%p", x), nil
 	}
 	return "", Raise(TypeError, "unhashable type: '%s'", o.TypeName())

@@ -124,9 +124,37 @@ func PyHash(o Object) (int64, error) {
 			// hash(A('i', [1])) raises unhashable type: 'A'.
 			return 0, Raise(TypeError, "unhashable type: '%s'", x.TypeName())
 		}
+		if unhashableBacked(x) {
+			// list, dict and set are unhashable because the base type sets
+			// __hash__ to None, so a subclass that overrides neither __hash__ nor
+			// __eq__ stays unhashable rather than falling back to an identity hash;
+			// the message names the subclass, so hash(L([1])) raises
+			// unhashable type: 'L'.
+			return 0, Raise(TypeError, "unhashable type: '%s'", x.TypeName())
+		}
 		return pyHashPointer(o), nil
 	}
 	return 0, Raise(TypeError, "unhashable type: '%s'", o.TypeName())
+}
+
+// unhashableBacked reports whether an instance is backed by a list, dict or set
+// payload, the three mutable builtin bases that set __hash__ to None. A subclass
+// of one of them that overrides neither __hash__ nor __eq__ reaches here after
+// instanceHashInfo finds no user hash, and stays unhashable like its base
+// instead of falling through to an identity hash. frozenset is hashable, so a
+// frozenset subclass is deliberately excluded even though it shares the set
+// payload; only the mutable "set" base counts.
+func unhashableBacked(x *instanceObject) bool {
+	if _, ok := listBacked(x); ok {
+		return true
+	}
+	if _, ok := dictBacked(x); ok {
+		return true
+	}
+	if _, _, ok := setBacked(x); ok && x.cls.builtinBase == "set" {
+		return true
+	}
+	return false
 }
 
 // pyHashGenericAlias folds the origin hash with the argument-tuple hash, the way
