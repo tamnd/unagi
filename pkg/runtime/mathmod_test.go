@@ -277,6 +277,36 @@ func TestMathIntTooLargeForFloat(t *testing.T) {
 	}
 }
 
+func TestMathLog2NearOne(t *testing.T) {
+	log2 := mathFn(t, "log2")
+	// Values just above 1 where Go's frexp-based log2 cancels to a few good bits.
+	// CPython's platform log2 stays correctly rounded, so the results must land
+	// within a couple of ulps of the expected tiny quotients rather than being off
+	// by many orders of magnitude the way the old computation was.
+	cases := []struct {
+		x, want float64
+	}{
+		{1.0000000000000002, 3.203426503814917e-16},
+		{1.0000000001, 1.4426951601859516e-10},
+		{1.00001, 1.4426878274712997e-05},
+	}
+	for _, c := range cases {
+		got := callFloat(t, log2, objects.NewFloat(c.x))
+		if math.Abs(got-c.want) > 2*ulp(c.want) {
+			t.Fatalf("log2(%v) = %v, want within 2 ulps of %v", c.x, got, c.want)
+		}
+	}
+	// Exact powers of two keep their exact integer log2.
+	for e := -20; e <= 20; e++ {
+		x := math.Ldexp(1, e)
+		if got := callFloat(t, log2, objects.NewFloat(x)); got != float64(e) {
+			t.Fatalf("log2(2**%d) = %v, want %d", e, got, e)
+		}
+	}
+}
+
+func ulp(x float64) float64 { return math.Nextafter(x, math.Inf(1)) - x }
+
 func TestMathNextafterSteps(t *testing.T) {
 	na := mathFn(t, "nextafter")
 	// Three steps up equals one step applied three times.

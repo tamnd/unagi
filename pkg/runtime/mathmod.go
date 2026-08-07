@@ -92,7 +92,7 @@ func initMath(m *objects.Module) error {
 		name string
 		fn   func(float64) float64
 	}{
-		{"log2", math.Log2},
+		{"log2", mathLog2},
 		{"log10", math.Log10},
 	}
 	for _, lg := range logs {
@@ -363,6 +363,19 @@ func mathLog(args []objects.Object) (objects.Object, error) {
 // does not quote the value, matching CPython, since the argument can be huge.
 // Anything else goes through the float path, where a non-positive input is a
 // domain error that quotes the argument through its repr.
+// mathLog2 matches CPython's platform log2, which stays correctly rounded near
+// x == 1 where Go's math.Log2 cancels catastrophically. Go splits x into a
+// fraction and a power of two and adds the exponent to the log of the fraction,
+// so when the true result sits near zero that sum keeps only a few good bits.
+// Working from log1p over the small band around 1 recovers the accuracy, while
+// the exact powers of two and every value away from 1 stay identical to Go's.
+func mathLog2(x float64) float64 {
+	if x > 0 && !math.IsInf(x, 0) && math.Abs(x-1) < 0.5 {
+		return math.Log1p(x-1) / math.Ln2
+	}
+	return math.Log2(x)
+}
+
 func mathLogHelper(o objects.Object, fn func(float64) float64) (float64, error) {
 	if bi, ok := objects.AsBigInt(o); ok {
 		if bi.Sign() <= 0 {
