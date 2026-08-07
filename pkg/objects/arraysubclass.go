@@ -80,7 +80,7 @@ func arraySubclassAttr(x *instanceObject, name string) (Object, bool) {
 		return nil, false
 	}
 	fn := func(args []Object) (Object, error) { return arrayMethod(a, name, args) }
-	return NewFunc(name, -1, fn), true
+	return subclassMethodValue(x, name, fn), true
 }
 
 // arrayDunderAttr returns an array sequence dunder bound to the subclass

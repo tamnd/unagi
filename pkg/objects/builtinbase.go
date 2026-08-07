@@ -371,7 +371,7 @@ func valueSubclassAttr(x *instanceObject, name string) (Object, bool) {
 		return nil, false
 	}
 	fn := func(args []Object) (Object, error) { return CallMethod(v, name, args) }
-	return NewFunc(name, -1, fn), true
+	return subclassMethodValue(x, name, fn), true
 }
 
 // InstanceOverride runs a special method a user class defines on an instance,
@@ -637,7 +637,7 @@ func dictSubclassAttr(x *instanceObject, name string) (Object, bool) {
 		return nil, false
 	}
 	fn := func(args []Object) (Object, error) { return dictMethod(d, name, args) }
-	return NewFunc(name, -1, fn), true
+	return subclassMethodValue(x, name, fn), true
 }
 
 // dictDunderAttr returns a dict mapping dunder bound to the subclass instance,
