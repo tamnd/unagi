@@ -1249,6 +1249,12 @@ func memoryviewLoadAttr(m *memoryviewObject, name string) (Object, error) {
 		return NewBool(mvIsFContiguous(m)), nil
 	case "contiguous":
 		return NewBool(mvIsCContiguous(m) || mvIsFContiguous(m)), nil
+	case "suboffsets":
+		// Suboffsets describe an indirect buffer, one whose dimensions are
+		// reached through a pointer table (the PIL-style layout). Every view
+		// unagi builds is a direct buffer over a contiguous byte store, so the
+		// tuple is always empty the way CPython reports it for a C array.
+		return intTuple(nil), nil
 	case "obj":
 		return m.base, nil
 	}

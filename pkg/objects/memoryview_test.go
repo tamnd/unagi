@@ -257,6 +257,44 @@ func TestMemoryViewRelease(t *testing.T) {
 	}
 }
 
+func TestMemoryViewSuboffsets(t *testing.T) {
+	// Every view unagi builds is a direct buffer, so suboffsets is the empty
+	// tuple whatever the shape: a flat byte view, a reshaped cast view and a
+	// released view (which raises like the other metadata attributes).
+	flat := mvOf(t, NewBytes([]byte("abc")))
+	got, err := memoryviewLoadAttr(flat, "suboffsets")
+	if err != nil {
+		t.Fatalf("suboffsets on flat view: %v", err)
+	}
+	if n, _ := Len(got); n != 0 {
+		t.Fatalf("flat suboffsets len = %d, want 0", n)
+	}
+	if got.TypeName() != "tuple" {
+		t.Fatalf("suboffsets type = %s, want tuple", got.TypeName())
+	}
+
+	reshaped, err := memoryviewMethod(mvOf(t, NewByteArray(make([]byte, 12))),
+		"cast", []Object{NewStr("B"), intTuple([]int{3, 4})})
+	if err != nil {
+		t.Fatalf("cast to 2d: %v", err)
+	}
+	sub, err := memoryviewLoadAttr(reshaped.(*memoryviewObject), "suboffsets")
+	if err != nil {
+		t.Fatalf("suboffsets on 2d view: %v", err)
+	}
+	if n, _ := Len(sub); n != 0 {
+		t.Fatalf("2d suboffsets len = %d, want 0", n)
+	}
+
+	released := mvOf(t, NewByteArray([]byte("x")))
+	if _, err := memoryviewMethod(released, "release", nil); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	if _, err := memoryviewLoadAttr(released, "suboffsets"); !isKind(err, ValueError) {
+		t.Fatalf("suboffsets after release = %v, want ValueError", err)
+	}
+}
+
 func TestMemoryViewToReadonly(t *testing.T) {
 	buf := NewByteArray([]byte("abcd")).(*bytearrayObject)
 	m := mvOf(t, buf)

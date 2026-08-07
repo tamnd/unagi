@@ -1,0 +1,14 @@
+== exit: 0
+== stdout:
+bytes ()
+bytearray ()
+array-i ()
+cast-i ()
+cast-2d ()
+slice-step ()
+readonly ()
+type tuple
+hasattr True
+released ERR ValueError operation forbidden on released memoryview object
+== exception:
+== stderr:
