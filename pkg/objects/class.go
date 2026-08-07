@@ -3805,6 +3805,13 @@ func DirNames(o Object) ([]string, bool, error) {
 		sort.Strings(names)
 		return names, true, nil
 	}
+	// A plain numbers or binary-data builtin value reports its type's fixed
+	// attribute set. A subclass instance is an *instanceObject and flows through
+	// the instance path below instead.
+	if names, ok := builtinValueDirNames(o); ok {
+		sort.Strings(names)
+		return names, true, nil
+	}
 	inst, isInst := o.(*instanceObject)
 	if !isInst {
 		return nil, false, nil

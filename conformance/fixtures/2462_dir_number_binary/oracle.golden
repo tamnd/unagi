@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+int 74 sorted
+bigint 74 sorted
+float 60 sorted
+complex 44 sorted
+bool 74 sorted
+bytes 78 sorted
+bytearray 91 sorted
+memoryview 55 sorted
+bool-eq-int True
+bigint-eq-int True
+int-attrs True True True
+float-attrs True True True
+complex-attrs True True True
+bytes-attrs True True True
+bytearray-attrs True True
+mv-attrs True True
+no-dict-int False
+== exception:
+== stderr:
