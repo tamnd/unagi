@@ -12,12 +12,16 @@ import (
 
 // iterWrap is the one-argument iter(o) result: a thin handle over the
 // iterator Iter already builds for o, so next() and a for loop both drive
-// the same shared cursor.
+// the same shared cursor. It carries the iterator type name CPython gives the
+// source, so iter(seq) reports the same type as seq.__iter__() (list_iterator,
+// dict_keyiterator, memory_iterator and the rest); a plain iterable that is not
+// a builtin container keeps the generic "iterator" name.
 type iterWrap struct {
-	it objects.Iterator
+	name string
+	it   objects.Iterator
 }
 
-func (w *iterWrap) TypeName() string                    { return "iterator" }
+func (w *iterWrap) TypeName() string                    { return w.name }
 func (w *iterWrap) Iterate() (objects.Iterator, error)  { return w, nil }
 func (w *iterWrap) Next() (objects.Object, bool, error) { return w.it.Next() }
 
@@ -98,7 +102,7 @@ func Iter(args []objects.Object) (objects.Object, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &iterWrap{it: it}, nil
+		return &iterWrap{name: objects.ContainerIterName(args[0]), it: it}, nil
 	case 2:
 		if !objects.Callable(args[0]) {
 			return nil, objects.Raise(objects.TypeError, "iter(v, w): v must be callable")

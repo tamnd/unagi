@@ -283,6 +283,12 @@ type LengthHinter interface {
 	LengthHint() (int, bool)
 }
 
+// ContainerIterName exposes containerIterName to package runtime, so the iter()
+// builtin names its handle the same iterator type a container's own __iter__
+// reports. For a plain iterable that is not one of the builtin containers it
+// returns "iterator", the generic name iter() has always used.
+func ContainerIterName(o Object) string { return containerIterName(o) }
+
 // containerIterName is the iterator type name CPython 3.14 reports for each
 // builtin container's __iter__. A dict iterates its keys, so it is a
 // dict_keyiterator; a frozenset shares the plain set's iterator; a str with
@@ -295,7 +301,22 @@ func containerIterName(o Object) string {
 	case *tupleObject:
 		return "tuple_iterator"
 	case *dictObject:
+		// An OrderedDict keeps its own iterator type; the other dict flavours
+		// (plain, defaultdict, Counter) all share the base dict iterator.
+		if x.kind == orderedDict {
+			return "odict_iterator"
+		}
 		return "dict_keyiterator"
+	case *dictKeysObject:
+		return "dict_keyiterator"
+	case *dictValuesObject:
+		return "dict_valueiterator"
+	case *dictItemsObject:
+		return "dict_itemiterator"
+	case *mappingProxyObject:
+		// A proxy iterates its wrapped mapping, so it reports that mapping's
+		// iterator (dict_keyiterator, or odict_iterator over an OrderedDict).
+		return containerIterName(x.d)
 	case *bytearrayObject:
 		return "bytearray_iterator"
 	case *bytesObject:
@@ -306,11 +327,39 @@ func containerIterName(o Object) string {
 		return "set_iterator"
 	case *arrayObject:
 		return "arrayiterator"
+	case *memoryviewObject:
+		return "memory_iterator"
 	case *strObject:
 		if isASCII(x.v) {
 			return "str_ascii_iterator"
 		}
 		return "str_iterator"
+	case *instanceObject:
+		// A subclass of a builtin container (a user class, or Counter) has no
+		// iterator type of its own, so it iterates through the base and reports
+		// the base container's iterator name. Unwrap to the backing builtin and
+		// resolve the name off it.
+		if lb, ok := listBacked(x); ok {
+			return containerIterName(lb)
+		}
+		if db, ok := dictBacked(x); ok {
+			return containerIterName(db)
+		}
+		if _, _, ok := setBacked(x); ok {
+			return "set_iterator"
+		}
+		if ab, ok := arrayBacked(x); ok {
+			return containerIterName(ab)
+		}
+		if p, ok := builtinUnwrap(x); ok {
+			// The compact str_ascii_iterator is reserved for an exact str; a str
+			// subclass always iterates through the general str_iterator whatever
+			// its content, so it never takes the ascii name recursion would give.
+			if _, isStr := p.(*strObject); isStr {
+				return "str_iterator"
+			}
+			return containerIterName(p)
+		}
 	}
 	return "iterator"
 }

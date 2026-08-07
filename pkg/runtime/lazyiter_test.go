@@ -81,6 +81,64 @@ func TestIterBuiltinNonIterator(t *testing.T) {
 	}
 }
 
+// TestIterBuiltinTypeName checks that iter() over a builtin container reports
+// the same iterator type CPython names, rather than a generic "iterator", so
+// type(iter(seq)).__name__ is faithful and matches seq.__iter__().
+func TestIterBuiltinTypeName(t *testing.T) {
+	d, err := objects.NewDict(objs(i(1)), objs(i(10)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	arr, err := objects.NewArray(s("i"), newList(i(1), i(2)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mv, err := objects.NewMemoryView(objects.NewBytes([]byte("ab")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := SetOf(objs(newList(i(1), i(2))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name string
+		in   objects.Object
+		want string
+	}{
+		{"list", newList(i(1), i(2)), "list_iterator"},
+		{"tuple", objects.NewTuple(objs(i(1), i(2))), "tuple_iterator"},
+		{"str-ascii", s("ab"), "str_ascii_iterator"},
+		{"str-wide", s("éè"), "str_iterator"},
+		{"bytes", objects.NewBytes([]byte("ab")), "bytes_iterator"},
+		{"bytearray", objects.NewByteArray([]byte("ab")), "bytearray_iterator"},
+		{"range", objects.NewRange(0, 3, 1), "range_iterator"},
+		{"dict", d, "dict_keyiterator"},
+		{"set", st, "set_iterator"},
+		{"array", arr, "arrayiterator"},
+		{"memoryview", mv, "memory_iterator"},
+	}
+	for _, tt := range tests {
+		got, err := Iter([]objects.Object{tt.in})
+		if err != nil {
+			t.Errorf("%s: Iter: %v", tt.name, err)
+			continue
+		}
+		if got.TypeName() != tt.want {
+			t.Errorf("%s: iter type = %s, want %s", tt.name, got.TypeName(), tt.want)
+		}
+		// iter() stays idempotent and keeps the name through a second iter().
+		again, err := Iter([]objects.Object{got})
+		if err != nil {
+			t.Errorf("%s: iter(iter): %v", tt.name, err)
+			continue
+		}
+		if again != got {
+			t.Errorf("%s: iter(iter(x)) is not iter(x)", tt.name)
+		}
+	}
+}
+
 func TestIterOneArg(t *testing.T) {
 	o, err := Iter([]objects.Object{intList(1, 2, 3)})
 	if err != nil {
