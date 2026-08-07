@@ -1,0 +1,38 @@
+== exit: 0
+== stdout:
+== an instance method names its receiver's type ==
+[1, 2].append.__qualname__ => 'list.append'
+[1, 2].append.__name__ => 'append'
+'ab'.upper.__qualname__ => 'str.upper'
+(255).to_bytes.__qualname__ => 'int.to_bytes'
+(255).bit_length.__qualname__ => 'int.bit_length'
+True.bit_length.__qualname__ => 'bool.bit_length'
+True.conjugate.__qualname__ => 'bool.conjugate'
+(1.5).is_integer.__qualname__ => 'float.is_integer'
+(1.5).hex.__qualname__ => 'float.hex'
+(3 + 4j).conjugate.__qualname__ => 'complex.conjugate'
+b'x'.hex.__qualname__ => 'bytes.hex'
+bytearray(b'x').hex.__qualname__ => 'bytearray.hex'
+{'a': 1}.get.__qualname__ => 'dict.get'
+{1, 2}.add.__qualname__ => 'set.add'
+frozenset().union.__qualname__ => 'frozenset.union'
+(1, 2, 1).count.__qualname__ => 'tuple.count'
+memoryview(b'x').hex.__qualname__ => 'memoryview.hex'
+OrderedDict().move_to_end.__qualname__ => 'OrderedDict.move_to_end'
+defaultdict(int).get.__qualname__ => 'defaultdict.get'
+== a numeric operator dunder names its receiver's type ==
+(5).__add__.__qualname__ => 'int.__add__'
+(5).__neg__.__qualname__ => 'int.__neg__'
+(5).__divmod__.__qualname__ => 'int.__divmod__'
+(5).__hash__.__qualname__ => 'int.__hash__'
+True.__and__.__qualname__ => 'bool.__and__'
+(1.5).__add__.__qualname__ => 'float.__add__'
+(3 + 4j).__add__.__qualname__ => 'complex.__add__'
+== __name__ stays bare and the method still calls ==
+(255).to_bytes.__name__ => 'to_bytes'
+(5).__add__.__name__ => '__add__'
+[1].append(2) result => [1, 2]
+'ab'.upper() => 'AB'
+(5).__add__(3) => 8
+== exception:
+== stderr:
