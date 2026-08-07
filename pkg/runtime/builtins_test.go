@@ -360,6 +360,35 @@ func TestPow3(t *testing.T) {
 	}
 }
 
+// TestPow3NoneModulus checks that a None modulus turns Pow3 into two-argument
+// pow for every type, returning the same value and type as pow(base, exp).
+func TestPow3NoneModulus(t *testing.T) {
+	tests := []struct {
+		name      string
+		base, exp objects.Object
+		want      string
+		wantType  string
+	}{
+		{"int-int", i(2), i(3), "8", "int"},
+		{"int-float", i(2), f(3), "8.0", "float"},
+		{"float-float", f(2), f(3), "8.0", "float"},
+		{"neg-exp", i(2), i(-1), "0.5", "float"},
+		{"bool-bool", objects.True, objects.True, "1", "int"},
+		{"complex", objects.NewComplex(1, 1), i(2), "2j", "complex"},
+	}
+	for _, tt := range tests {
+		got, err := Pow3(tt.base, tt.exp, objects.None)
+		if err != nil {
+			t.Errorf("%s: unexpected error %v", tt.name, err)
+			continue
+		}
+		if objects.Repr(got) != tt.want || got.TypeName() != tt.wantType {
+			t.Errorf("%s: Pow3(_, _, None) = %s (%s), want %s (%s)",
+				tt.name, objects.Repr(got), got.TypeName(), tt.want, tt.wantType)
+		}
+	}
+}
+
 func TestBinOctHex(t *testing.T) {
 	tests := []struct {
 		name    string

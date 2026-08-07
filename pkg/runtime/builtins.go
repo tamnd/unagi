@@ -350,6 +350,11 @@ func divmodUnsupported(a, b objects.Object) error {
 // is 4, and pow(2, 3, -5) is -2 because the result follows the sign of
 // the modulus, floor style.
 func Pow3(base, exp, mod objects.Object) (objects.Object, error) {
+	// pow(base, exp, None) is two-argument pow: an explicit None modulus means
+	// no modulus, so it matches pow(base, exp) for every type.
+	if mod == objects.None {
+		return objects.Pow(base, exp)
+	}
 	bb, bok := objects.AsBigInt(base)
 	eb, eok := objects.AsBigInt(exp)
 	mb, mok := objects.AsBigInt(mod)
