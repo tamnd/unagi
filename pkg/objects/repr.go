@@ -143,6 +143,21 @@ func dictBodyRepr(d *dictObject, strict bool) (string, error) {
 	return b.String(), nil
 }
 
+// boundReprType names the receiver type a bound builtin method's repr shows,
+// the tp_name of its m_self the way CPython reads it. A builtin type
+// constructor (int, dict) and any type value report "type", so a classmethod
+// bound to a type reads "of type object", while every other receiver reports
+// its own type name.
+func boundReprType(recv Object) string {
+	if name, ok := BuiltinFuncName(recv); ok && IsBuiltinTypeName(name) {
+		return "type"
+	}
+	if IsTypeValue(recv) {
+		return "type"
+	}
+	return recv.TypeName()
+}
+
 // Repr returns the Python repr of an object. This infallible form serves
 // error messages and internal rendering; it ignores the 4300-digit int
 // conversion limit, which only the user-visible boundaries enforce.
@@ -353,6 +368,17 @@ func reprCore(o Object, strict bool) (string, error) {
 		}
 		return "slice(" + start + ", " + stop + ", " + step + ")", nil
 	case *funcObject:
+		// A bound builtin method reprs the way CPython's method-wrapper does: the
+		// method name, the receiver's type and the receiver's address, so [].append
+		// reads "<built-in method append of list object at 0x...>". A classmethod
+		// carries its type as the receiver, whose type is "type", so int.from_bytes
+		// names "of type object" the way CPython's does. This comes first so a
+		// method whose name collides with a builtin function (bytes.hex against the
+		// hex() builtin) still reads as a bound method. A staticmethod whose
+		// receiver is None keeps the generic form below.
+		if x.boundSelf != nil && x.boundSelf != Object(None) {
+			return fmt.Sprintf("<built-in method %s of %s object at %p>", x.name, boundReprType(x.boundSelf), x.boundSelf), nil
+		}
 		// A builtin passed around as a value reprs the way CPython does: the
 		// type constructors as classes, the plain builtins as built-in
 		// functions. Internal helper funcObjects keep the generic form.

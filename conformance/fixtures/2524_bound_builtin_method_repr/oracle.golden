@@ -1,0 +1,20 @@
+== exit: 0
+== stdout:
+list.append <built-in method append of list object at 0xADDR>
+int.bit_length <built-in method bit_length of int object at 0xADDR>
+str.upper <built-in method upper of str object at 0xADDR>
+dict.get <built-in method get of dict object at 0xADDR>
+bytes.hex <built-in method hex of bytes object at 0xADDR>
+bytearray.append <built-in method append of bytearray object at 0xADDR>
+set.add <built-in method add of set object at 0xADDR>
+tuple.count <built-in method count of tuple object at 0xADDR>
+complex.conjugate <built-in method conjugate of complex object at 0xADDR>
+float.hex <built-in method hex of float object at 0xADDR>
+int.from_bytes classmethod <built-in method from_bytes of type object at 0xADDR>
+dict.fromkeys classmethod <built-in method fromkeys of type object at 0xADDR>
+deque.append <built-in method append of collections.deque object at 0xADDR>
+dict subclass D.get <built-in method get of D object at 0xADDR>
+int subclass MyInt.bit_length <built-in method bit_length of MyInt object at 0xADDR>
+plain builtin len <built-in function len>
+== exception:
+== stderr:
