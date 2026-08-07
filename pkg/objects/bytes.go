@@ -300,6 +300,21 @@ func bytesFromSource(o Object, typeName, rangeMsg string) ([]byte, error) {
 			return nil, errRepeatFit(o)
 		}
 	}
+	// A memoryview or array exposes the buffer protocol, so bytes() and
+	// bytearray() copy its raw bytes the way CPython does rather than iterating
+	// its elements: bytes(memoryview(array('i', [7]))) is the four-byte element,
+	// not b'\x07'. This precedes the iterable path because a memoryview and an
+	// array are both iterable, but the buffer takes priority.
+	switch o.(type) {
+	case *memoryviewObject, *arrayObject:
+		b, ok := mvBytesLike(o)
+		if !ok {
+			// The only bytes-like object mvBytesLike declines here is a released
+			// memoryview, which forbids the buffer access.
+			return nil, mvReleased()
+		}
+		return append([]byte(nil), b...), nil
+	}
 	// Anything else must be an iterable of ints.
 	if _, err := Iter(o); err != nil {
 		return nil, bytesFromArgsErr(typeName, o)
