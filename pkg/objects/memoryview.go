@@ -489,6 +489,10 @@ func mvDecodeObj(m *memoryviewObject, e int) (Object, error) {
 	switch m.format {
 	case "u", "w":
 		return nil, Raise("NotImplementedError", "memoryview: format %s not supported", m.format)
+	case "?":
+		// The bool code decodes to True for any non-zero byte, the way CPython's
+		// struct '?' unpack reads it.
+		return NewBool(mvRawWord(m, e) != 0), nil
 	case "f":
 		return NewFloat(float64(math.Float32frombits(uint32(mvRawWord(m, e))))), nil
 	case "d":
@@ -525,7 +529,7 @@ func mvSigned(format string) bool {
 // cast and read back like their array counterparts.
 func mvFormatSize(format string) (int, bool) {
 	switch format {
-	case "b", "B", "c":
+	case "b", "B", "c", "?":
 		return 1, true
 	case "h", "H":
 		return 2, true
@@ -592,6 +596,21 @@ func mvWriteElem(m *memoryviewObject, e int, val Object) error {
 			return err
 		}
 		a.elts[mvElemByteOff(m, e)/m.itemsize] = cv
+		return nil
+	}
+	if m.format == "?" {
+		// The bool code stores the truthiness of any object as a single 0 or 1
+		// byte, the way CPython's struct '?' pack runs the value through
+		// PyObject_IsTrue rather than an integer range check.
+		t, err := TruthOf(val)
+		if err != nil {
+			return err
+		}
+		var b byte
+		if t {
+			b = 1
+		}
+		mvSetByte(m, e, b)
 		return nil
 	}
 	if !mvEncodableFormat(m.format) {
