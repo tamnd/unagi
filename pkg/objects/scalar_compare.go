@@ -56,6 +56,58 @@ func scalarCompareCall(recv Object, name string, args []Object) (Object, bool, e
 	return res, true, err
 }
 
+// scalarCompareReceiverType returns the type name a scalar or binary type's rich
+// comparison descriptor reports, and ok false for a type this file does not own.
+// int and bool share int's inherited comparison slot, so both name 'int' and
+// accept any int, matching builtinNumericUnboundDunder for the arithmetic slots.
+func scalarCompareReceiverType(typeName string) (string, bool) {
+	switch typeName {
+	case "int", "bool":
+		return "int", true
+	case "float", "complex", "str", "bytes", "bytearray":
+		return typeName, true
+	}
+	return "", false
+}
+
+// scalarUnboundCompareDunder resolves a rich-comparison dunder read off a scalar
+// or binary type, int.__lt__ or str.__eq__, into an unbound descriptor that runs
+// the type's own comparison with the receiver passed first. Read off the type the
+// six comparison names would otherwise fall through to object's slot, which
+// answers NotImplemented, so int.__lt__(1, 2) would not order where CPython's
+// wrapper_descriptor returns True. ok is false for a non-comparison name or a
+// type this file does not own, so LoadAttr keeps its normal resolution.
+func scalarUnboundCompareDunder(typeName, name string) (Object, bool) {
+	op, isCmp := scalarCmpOps[name]
+	if !isCmp {
+		return nil, false
+	}
+	recvType, owned := scalarCompareReceiverType(typeName)
+	if !owned {
+		return nil, false
+	}
+	return NewFunc(name, -1, func(args []Object) (Object, error) {
+		if len(args) == 0 {
+			return nil, Raise(TypeError, "descriptor '%s' of '%s' object needs an argument", name, recvType)
+		}
+		if !instanceOfBuiltin(args[0], recvType) {
+			return nil, Raise(TypeError,
+				"descriptor '%s' requires a '%s' object but received a '%s'", name, recvType, args[0].TypeName())
+		}
+		if len(args) != 2 {
+			return nil, Raise(TypeError, "expected 1 argument, got %d", len(args)-1)
+		}
+		// A value subclass receiver runs the builtin's own comparison off its
+		// payload, ignoring any subclass override, the way a type-level descriptor
+		// does.
+		recv := args[0]
+		if payload, ok := builtinUnwrap(recv); ok {
+			recv = payload
+		}
+		return scalarCompareResult(recv, op, args[1])
+	}), true
+}
+
 // scalarCompareResult applies recv.<op>(other) within recv's comparison domain,
 // or returns NotImplemented when other is out of domain, exactly as the C slot
 // does rather than the operator's post-fallback False or TypeError. The

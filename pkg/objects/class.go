@@ -3157,6 +3157,14 @@ func LoadAttr(o Object, name string) (Object, error) {
 			if v, ok := builtinScalarUnboundDunder(x.name, name); ok {
 				return v, nil
 			}
+			// The six rich-comparison dunders read off a scalar or binary type run
+			// that type's own comparison, so int.__lt__(1, 2) orders and str.__eq__
+			// answers, rather than falling through to object's slot which only ever
+			// returns NotImplemented off the type. Handled here, ahead of the
+			// __-prefix guard and the object-inherited tail.
+			if v, ok := scalarUnboundCompareDunder(x.name, name); ok {
+				return v, nil
+			}
 			// A container type exposes its subscript protocol dunders off the type as
 			// unbound method-wrappers, so dict.__setitem__(d, k, v) and the read-only
 			// tuple.__getitem__(t, i) resolve the way CPython's wrapper_descriptors
