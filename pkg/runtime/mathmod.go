@@ -641,7 +641,15 @@ func mathDist(args []objects.Object) (objects.Object, error) {
 	if len(p) != len(q) {
 		return nil, objects.Raise(objects.ValueError, "both points must have the same number of dimensions")
 	}
-	sum := 0.0
+	// CPython forms each coordinate difference in float64, then takes the
+	// correctly-rounded Euclidean norm of those differences, so the naive sum of
+	// squares here shared math.hypot's overflow, underflow, and rounding bugs.
+	// Build the float differences and reuse the extended-precision norm helper.
+	// The C99 special cases screen on the differences: an infinite difference
+	// makes the result infinite even against a nan (as when one axis subtracts to
+	// inf and another to nan), otherwise a nan difference makes it nan.
+	diffs := make([]float64, len(p))
+	sawInf, sawNaN := false, false
 	for i := range p {
 		a, err := mathToFloat(p[i])
 		if err != nil {
@@ -652,9 +660,21 @@ func mathDist(args []objects.Object) (objects.Object, error) {
 			return nil, err
 		}
 		d := a - b
-		sum += d * d
+		diffs[i] = d
+		switch {
+		case math.IsInf(d, 0):
+			sawInf = true
+		case math.IsNaN(d):
+			sawNaN = true
+		}
 	}
-	return objects.NewFloat(math.Sqrt(sum)), nil
+	if sawInf {
+		return objects.NewFloat(math.Inf(1)), nil
+	}
+	if sawNaN {
+		return objects.NewFloat(math.NaN()), nil
+	}
+	return objects.NewFloat(objects.CorrectlyRoundedHypot(diffs...)), nil
 }
 
 // mathSumprod implements math.sumprod(p, q): the sum of the products of the
