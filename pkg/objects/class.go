@@ -3485,7 +3485,17 @@ func LoadAttr(o Object, name string) (Object, error) {
 	if name == "__doc__" {
 		return None, nil
 	}
-	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", o.TypeName(), name)
+	typeName := o.TypeName()
+	if f, ok := o.(*funcObject); ok && !IsBuiltinTypeName(f.name) {
+		// A funcObject models a plain builtin function (len) or a bound builtin
+		// method ([].append), both of which Python types as
+		// builtin_function_or_method, matching type(len).__name__ and TypeOf. Its
+		// TypeName is the internal "function", so the miss would otherwise read
+		// "'function' object". A type constructor never reaches here, it reports
+		// as a type object in the funcObject case above.
+		typeName = "builtin_function_or_method"
+	}
+	return nil, Raise(AttributeError, "'%s' object has no attribute '%s'", typeName, name)
 }
 
 // StoreAttr writes o.name = val. Instances and classes take new attributes;
