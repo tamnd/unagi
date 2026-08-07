@@ -294,7 +294,7 @@ func startsEndsPrefixes(name string, o Object) ([][]byte, error) {
 // negative from the left, matching CPython.
 func byteHex(v []byte, args []Object) (Object, error) {
 	if len(args) > 2 {
-		return nil, Raise(TypeError, "hex expected at most 2 arguments, got %d", len(args))
+		return nil, Raise(TypeError, "hex() takes at most 2 arguments (%d given)", len(args))
 	}
 	if len(args) == 0 {
 		return NewStr(plainHex(v)), nil
