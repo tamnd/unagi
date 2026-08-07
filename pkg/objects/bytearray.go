@@ -183,6 +183,15 @@ func bytearrayMethod(x *bytearrayObject, name string, args []Object) (Object, er
 		if len(args) != 1 {
 			return nil, Raise(TypeError, "extend() takes exactly one argument (%d given)", len(args))
 		}
+		// A str is not an iterable of ints: a non-empty one is rejected with the
+		// dedicated wording (CPython names the type 'str' even for a subclass),
+		// while an empty str extends by nothing.
+		if s, ok := AsStr(args[0]); ok {
+			if s == "" {
+				return None, nil
+			}
+			return nil, Raise(TypeError, "expected iterable of integers; got: 'str'")
+		}
 		add, err := bytesFromIter(args[0], byteRangeMsg)
 		if err != nil {
 			// A non-iterable argument gets the dedicated bytearray wording.

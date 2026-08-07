@@ -124,6 +124,45 @@ func TestByteArrayMutation(t *testing.T) {
 	checkErr(t, "append(300)", err, "ValueError: byte must be in range(0, 256)")
 }
 
+// TestByteArrayStrSource checks that a str source is rejected for both slice
+// assignment and extend with CPython's exact wording, while a str element
+// inside another iterable still hits the per-item integer check.
+func TestByteArrayStrSource(t *testing.T) {
+	assignMsg := "TypeError: can assign only bytes, buffers, or iterables of ints in range(0, 256)"
+	// Slice assignment: str, empty str, and extended slice all rejected upfront.
+	err := SetItem(ba("abcde"), NewSlice(NewInt(0), NewInt(2), None), NewStr("xy"))
+	checkErr(t, "sa-str", err, assignMsg)
+	err = SetItem(ba("abcde"), NewSlice(NewInt(0), NewInt(2), None), NewStr(""))
+	checkErr(t, "sa-str-empty", err, assignMsg)
+	err = SetItem(ba("abcde"), NewSlice(NewInt(0), NewInt(4), NewInt(2)), NewStr("xy"))
+	checkErr(t, "sa-str-extended", err, assignMsg)
+	// A str element inside a list keeps the per-item message.
+	err = SetItem(ba("abcde"), NewSlice(NewInt(0), NewInt(1), None), NewList([]Object{NewStr("x")}))
+	checkErr(t, "sa-list-strelem", err, "TypeError: 'str' object cannot be interpreted as an integer")
+	// A list of ints still assigns.
+	b := ba("abcde")
+	if err := SetItem(b, NewSlice(NewInt(0), NewInt(2), None), NewList([]Object{NewInt(65), NewInt(66)})); err != nil {
+		t.Fatalf("sa-list-ints: %v", err)
+	}
+	if got := Repr(b); got != `bytearray(b'ABcde')` {
+		t.Errorf("after sa-list-ints: %s", got)
+	}
+
+	// extend: a non-empty str is rejected, an empty str extends by nothing.
+	_, err = CallMethod(ba("ab"), "extend", []Object{NewStr("x")})
+	checkErr(t, "ext-str", err, "TypeError: expected iterable of integers; got: 'str'")
+	e := ba("ab")
+	if _, err := CallMethod(e, "extend", []Object{NewStr("")}); err != nil {
+		t.Fatalf("ext-str-empty: %v", err)
+	}
+	if got := Repr(e); got != `bytearray(b'ab')` {
+		t.Errorf("after ext-str-empty: %s", got)
+	}
+	// A str element inside a list keeps the per-item message.
+	_, err = CallMethod(ba("ab"), "extend", []Object{NewList([]Object{NewStr("x")})})
+	checkErr(t, "ext-list-strelem", err, "TypeError: 'str' object cannot be interpreted as an integer")
+}
+
 func TestByteArrayCrossType(t *testing.T) {
 	// bytearray == bytes both directions.
 	eq, err := Compare(OpEq, ba("abc"), NewBytes([]byte("abc")))

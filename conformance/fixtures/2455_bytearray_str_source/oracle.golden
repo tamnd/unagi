@@ -1,0 +1,22 @@
+== exit: 0
+== stdout:
+sa-str TypeError can assign only bytes, buffers, or iterables of ints in range(0, 256)
+sa-str-empty TypeError can assign only bytes, buffers, or iterables of ints in range(0, 256)
+sa-str-subclass TypeError can assign only bytes, buffers, or iterables of ints in range(0, 256)
+sa-str-extended TypeError can assign only bytes, buffers, or iterables of ints in range(0, 256)
+sa-list-strelem TypeError 'str' object cannot be interpreted as an integer
+sa-list-ints b'ABcde'
+sa-bytes b'XYcde'
+sa-range b'BCcde'
+sa-int TypeError can assign only bytes, buffers, or iterables of ints in range(0, 256)
+ext-str TypeError expected iterable of integers; got: 'str'
+ext-str-empty b'ab'
+ext-str-subclass TypeError expected iterable of integers; got: 'str'
+ext-list-strelem TypeError 'str' object cannot be interpreted as an integer
+ext-gen-str TypeError 'str' object cannot be interpreted as an integer
+ext-bytes b'abCD'
+ext-range b'abCD'
+ext-int TypeError can't extend bytearray with int
+ext-dict b'abCD'
+== exception:
+== stderr:
