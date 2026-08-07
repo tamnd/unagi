@@ -379,6 +379,16 @@ func reprCore(o Object, strict bool) (string, error) {
 		if x.boundSelf != nil && x.boundSelf != Object(None) {
 			return fmt.Sprintf("<built-in method %s of %s object at %p>", x.name, boundReprType(x.boundSelf), x.boundSelf), nil
 		}
+		// A staticmethod bound to a type carries a None receiver but names its
+		// owning type, so str.maketrans reads "<built-in method maketrans of type
+		// object at 0x...>" the way CPython's does, its address that of the owning
+		// type. boundSelf holds the None singleton (not nil) as the staticmethod
+		// marker, and qualnameOwner names the type to resolve.
+		if x.boundSelf == Object(None) && x.qualnameOwner != "" && BuiltinTypeResolver != nil {
+			if owner, ok := BuiltinTypeResolver(x.qualnameOwner); ok {
+				return fmt.Sprintf("<built-in method %s of type object at %p>", x.name, owner), nil
+			}
+		}
 		// A builtin passed around as a value reprs the way CPython does: the
 		// type constructors as classes, the plain builtins as built-in
 		// functions. Internal helper funcObjects keep the generic form.
