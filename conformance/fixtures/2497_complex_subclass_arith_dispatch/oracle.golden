@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+MyComplex(1+2j) + 1 => MyComplex (2+2j)
+MyComplex(1+2j) * 2 => MyComplex (2+4j)
+MyComplex(1+2j) - 1j => MyComplex (1+1j)
+MyComplex(1+2j) + 2j => MyComplex (1+4j)
+MyComplex(1+2j) * 1j => MyComplex (-2+1j)
+MyComplex(1+2j) / 2j => MyComplex (1-0.5j)
+MyComplex(1+2j) ** 2 => MyComplex (-3+4j)
+1j + MyComplex(1+2j) => MyComplex (1+3j)
+3 * MyComplex(1+2j) => MyComplex (3+6j)
+Tagged * 4j => str 'tagged-mul'
+Tagged - 1j => str 'tagged-sub'
+Plain(1+2j) - 1j => complex (1+1j)
+Plain(1+2j) * 2j => complex (-4+2j)
+== exception:
+== stderr:

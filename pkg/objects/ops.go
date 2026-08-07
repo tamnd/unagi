@@ -319,7 +319,7 @@ func Add(a, b Object) (Object, error) {
 		return NewFloat(af + bf), nil
 	}
 	if eitherComplex(a, b) {
-		if r, ok, err := complexArith('+', a, b); ok || err != nil {
+		if r, ok, err := complexArithOp('+', a, b, "__add__", "__radd__"); ok || err != nil {
 			return r, err
 		}
 	}
@@ -364,7 +364,7 @@ func Sub(a, b Object) (Object, error) {
 		return NewFloat(af - bf), nil
 	}
 	if eitherComplex(a, b) {
-		if r, ok, err := complexArith('-', a, b); ok || err != nil {
+		if r, ok, err := complexArithOp('-', a, b, "__sub__", "__rsub__"); ok || err != nil {
 			return r, err
 		}
 	}
@@ -500,7 +500,7 @@ func Mul(a, b Object) (Object, error) {
 		return NewFloat(af * bf), nil
 	}
 	if eitherComplex(a, b) {
-		if r, ok, err := complexArith('*', a, b); ok || err != nil {
+		if r, ok, err := complexArithOp('*', a, b, "__mul__", "__rmul__"); ok || err != nil {
 			return r, err
 		}
 	}
@@ -537,7 +537,7 @@ func TrueDiv(a, b Object) (Object, error) {
 	af, bf, ok, err := floatArith(a, b, "__truediv__", "__rtruediv__")
 	if !ok {
 		if eitherComplex(a, b) {
-			if r, cok, cerr := complexArith('/', a, b); cok || cerr != nil {
+			if r, cok, cerr := complexArithOp('/', a, b, "__truediv__", "__rtruediv__"); cok || cerr != nil {
 				return r, cerr
 			}
 		}
@@ -693,7 +693,7 @@ func ipow(base, exp int64) int64 {
 // 0 ** -1 and 0.0 ** -1 both say "zero to a negative power", and a
 // float result past the double range is errno-flavored OverflowError.
 func Pow(a, b Object) (Object, error) {
-	if eitherComplex(a, b) {
+	if eitherComplex(a, b) && !numericInstOverrides(a, "__pow__", "__rpow__") && !numericInstOverrides(b, "__pow__", "__rpow__") {
 		if ar, ai, ok1 := asComplex(a); ok1 {
 			if br, bi, ok2 := asComplex(b); ok2 {
 				return complexPow(ar, ai, br, bi)

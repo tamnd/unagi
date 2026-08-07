@@ -120,6 +120,53 @@ func TestFloatSubclassOverrideDispatches(t *testing.T) {
 	}
 }
 
+// A complex subclass that overrides an arithmetic dunder dispatches its own
+// method instead of the native complex fast path, even when the other operand is
+// itself complex, the case the fast path used to steal before it could reach the
+// dunder protocol. The reflected slot answers when the subclass sits on the
+// right of a plain complex, and a subclass that inherits the base arithmetic
+// keeps returning a plain complex.
+func TestComplexSubclassOverrideDispatches(t *testing.T) {
+	c := buildComplexSubclass(t, "MyComplex")
+	c.setAttr("__mul__", mkfn("MyComplex.__mul__", 2, func(args []Object) (Object, error) {
+		return NewStr("mul"), nil
+	}))
+	c.setAttr("__rmul__", mkfn("MyComplex.__rmul__", 2, func(args []Object) (Object, error) {
+		return NewStr("rmul"), nil
+	}))
+	c.setAttr("__sub__", mkfn("MyComplex.__sub__", 2, func(args []Object) (Object, error) {
+		return NewStr("sub"), nil
+	}))
+	z, err := Instantiate(c, []Object{NewFloat(1), NewFloat(2)}, nil, nil)
+	if err != nil {
+		t.Fatalf("instantiate MyComplex(1, 2): %v", err)
+	}
+
+	// Forward slot with a complex operand: the subclass runs its own __sub__ and
+	// __mul__ rather than the native complex arithmetic.
+	if r, err := Sub(z, NewComplex(0, 1)); err != nil || Str(r) != "sub" {
+		t.Fatalf("MyComplex(1+2j) - 1j = %v, %v; want 'sub'", r, err)
+	}
+	if r, err := Mul(z, NewComplex(0, 1)); err != nil || Str(r) != "mul" {
+		t.Fatalf("MyComplex(1+2j) * 1j = %v, %v; want 'mul'", r, err)
+	}
+	// Reflected slot: a plain complex on the left defers to the subclass __rmul__.
+	if r, err := Mul(NewComplex(0, 1), z); err != nil || Str(r) != "rmul" {
+		t.Fatalf("1j * MyComplex(1+2j) = %v, %v; want 'rmul'", r, err)
+	}
+
+	// A subclass that inherits the base arithmetic keeps the native fast path and
+	// returns a plain complex.
+	plain := buildComplexSubclass(t, "Plain")
+	p, err := Instantiate(plain, []Object{NewFloat(1), NewFloat(2)}, nil, nil)
+	if err != nil {
+		t.Fatalf("instantiate Plain(1, 2): %v", err)
+	}
+	if r, err := Sub(p, NewComplex(0, 1)); err != nil || r.TypeName() != "complex" {
+		t.Fatalf("Plain(1+2j) - 1j = %v (%s), %v; want a plain complex", r, r.TypeName(), err)
+	}
+}
+
 // A numeric subclass reaches its base arithmetic through super(): the dunder
 // resolves off the unwrapped payload and returns the plain scalar, the way
 // float.__truediv__ or complex.__mul__ answers on a bare value. A name the base
