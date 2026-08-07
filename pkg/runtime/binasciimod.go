@@ -400,12 +400,14 @@ func binasciiA2bUu(args []objects.Object) (objects.Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	binLen := 0
-	p := 0
-	if len(data) > 0 {
-		binLen = int(data[0]-' ') & 0x3f
-		p = 1
+	// The first byte is the line's binary length, so an empty input has no length
+	// byte to read: CPython raises binascii.Error before decoding, distinct from a
+	// zero-length line (b' \n', whose length byte is a space) which decodes to b''.
+	if len(data) == 0 {
+		return nil, binasciiErrorf("Missing length byte")
 	}
+	binLen := int(data[0]-' ') & 0x3f
+	p := 1
 	out := make([]byte, 0, binLen)
 	leftchar := 0
 	leftbits := 0
