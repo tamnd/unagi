@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+tb-idx-pos b'\x00\x00\x05'
+tb-idx-kw b'\x00\x00\x05'
+tb-bool-len b'\x01'
+tb-bad-idx ERR TypeError __index__ returned non-int (type str)
+tb-float-len ERR TypeError 'float' object cannot be interpreted as an integer
+tb-order-idx ERR TypeError to_bytes() argument 'byteorder' must be str, not Idx
+tb-order-int ERR TypeError to_bytes() argument 'byteorder' must be str, not int
+fb-order-int ERR TypeError from_bytes() argument 'byteorder' must be str, not int
+fb-mv-i 16777216
+fb-array-i 16777216
+fb-mv-h 258
+fb-mv-B 258
+fb-released ERR ValueError operation forbidden on released memoryview object
+fb-str ERR TypeError cannot convert 'str' object to bytes
+fb-list 258
+fb-bytes 258
+fb-int ERR TypeError cannot convert 'int' object to bytes
+fb-float ERR TypeError cannot convert 'float' object to bytes
+fb-list-oob ERR ValueError bytes must be in range(0, 256)
+rt-unsigned 258
+rt-signed -1
+== exception:
+== stderr:
