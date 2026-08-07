@@ -278,7 +278,12 @@ func mathFloatArg(args []objects.Object, name string) (float64, error) {
 }
 
 func mathToFloat(o objects.Object) (float64, error) {
-	if x, ok := objects.AsFloat(o); ok {
+	// CPython coerces through PyFloat_AsDouble, so an int too large for a float64
+	// is an OverflowError rather than a silent infinity. AsFloatChecked raises that
+	// for a spilled int and otherwise reads a float or bool as AsFloat would.
+	if x, ok, err := objects.AsFloatChecked(o); err != nil {
+		return 0, err
+	} else if ok {
 		return x, nil
 	}
 	// CPython's math functions coerce through PyFloat_AsDouble, which honours an

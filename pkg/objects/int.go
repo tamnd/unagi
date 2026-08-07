@@ -177,6 +177,12 @@ func mulChk(a, b int64) (int64, bool) {
 	return r, r/b == a
 }
 
+// AsFloatChecked is the overflow-checked counterpart to AsFloat: it rejects an
+// int too large for a float64 with CPython's OverflowError instead of returning
+// an infinity, for callers such as the math functions that coerce through
+// CPython's PyFloat_AsDouble rather than a silent widening.
+func AsFloatChecked(o Object) (float64, bool, error) { return asFloatChecked(o) }
+
 // asFloatChecked converts a numeric operand for a mixed float operation.
 // A spilled int outside the float64 range raises the OverflowError the
 // int-to-float conversion raises in CPython.

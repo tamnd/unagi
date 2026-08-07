@@ -255,6 +255,28 @@ func TestMathPermCombBigInt(t *testing.T) {
 	}
 }
 
+func TestMathIntTooLargeForFloat(t *testing.T) {
+	huge := objects.NewIntFromBig(new(big.Int).Exp(big.NewInt(10), big.NewInt(1000), nil))
+	sqrt := mathFn(t, "sqrt")
+	hypot := mathFn(t, "hypot")
+	fsum := mathFn(t, "fsum")
+
+	// A math coercion of an int past the float64 range is an overflow, not inf.
+	if _, err := objects.Call(sqrt, []objects.Object{huge}); !isKindErr(err, objects.OverflowError) {
+		t.Fatalf("sqrt(10**1000) = %v, want OverflowError", err)
+	}
+	if _, err := objects.Call(hypot, []objects.Object{objects.NewInt(1), huge}); !isKindErr(err, objects.OverflowError) {
+		t.Fatalf("hypot(1, 10**1000) = %v, want OverflowError", err)
+	}
+	if _, err := objects.Call(fsum, []objects.Object{objects.NewList([]objects.Object{huge})}); !isKindErr(err, objects.OverflowError) {
+		t.Fatalf("fsum([10**1000]) = %v, want OverflowError", err)
+	}
+	// A genuine float infinity argument still flows through unchanged.
+	if got := callFloat(t, sqrt, objects.NewFloat(math.Inf(1))); !math.IsInf(got, 1) {
+		t.Fatalf("sqrt(inf) = %v, want inf", got)
+	}
+}
+
 func TestMathNextafterSteps(t *testing.T) {
 	na := mathFn(t, "nextafter")
 	// Three steps up equals one step applied three times.
