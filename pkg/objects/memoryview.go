@@ -512,16 +512,17 @@ func mvDecodeObj(m *memoryviewObject, e int) (Object, error) {
 // case letters in the set memoryview.cast and the array typecodes cover.
 func mvSigned(format string) bool {
 	switch format {
-	case "b", "h", "i", "l", "q":
+	case "b", "h", "i", "l", "q", "n":
 		return true
 	}
 	return false
 }
 
-// mvFormatSize maps a struct format code to its byte width, the standard-size
-// subset of codes memoryview.cast accepts. A code outside the set reports not
-// ok, leaving out only the platform-width l/L this tier does not model. The
-// float codes f and d cast and read back like their array counterparts.
+// mvFormatSize maps a struct format code to its byte width, the codes
+// memoryview.cast accepts. Alongside the standard-size codes it covers the
+// native-width integer codes n, N, l, L and P, all eight bytes on this
+// 64-bit target the way CPython's cast reports them. The float codes f and d
+// cast and read back like their array counterparts.
 func mvFormatSize(format string) (int, bool) {
 	switch format {
 	case "b", "B", "c":
@@ -530,7 +531,7 @@ func mvFormatSize(format string) (int, bool) {
 		return 2, true
 	case "i", "I", "f":
 		return 4, true
-	case "q", "Q", "d":
+	case "q", "Q", "d", "n", "N", "l", "L", "P":
 		return 8, true
 	}
 	return 0, false
@@ -605,7 +606,7 @@ func mvWriteElem(m *memoryviewObject, e int, val Object) error {
 	if err != nil {
 		return err
 	}
-	mvWriteBytes(m, e, arrayPackOne([]rune(m.format)[0], cv))
+	mvWriteBytes(m, e, arrayPackOne(mvCodecCode(m.format, val), cv))
 	return nil
 }
 
@@ -614,10 +615,34 @@ func mvWriteElem(m *memoryviewObject, e int, val Object) error {
 // anything else route through the format-'B' byte coercion instead.
 func mvEncodableFormat(format string) bool {
 	switch format {
-	case "b", "B", "h", "H", "i", "I", "q", "Q", "f", "d":
+	case "b", "B", "h", "H", "i", "I", "q", "Q", "f", "d",
+		"n", "N", "l", "L", "P":
 		return true
 	}
 	return false
+}
+
+// mvCodecCode maps a view's display format code to the array typecode used to
+// pack and range-check a stored element. The native-width integer codes all
+// encode as an eight-byte little-endian value on this target, so n and l reuse
+// the signed 'q' codec and N and L the unsigned 'Q' codec while the view keeps
+// reporting its own format. The pointer code P accepts either the signed or the
+// unsigned 64-bit range, so a negative value packs through 'q' and a
+// non-negative one through 'Q', matching CPython which lets a pointer take a
+// value anywhere in [-2**63, 2**64).
+func mvCodecCode(format string, val Object) rune {
+	switch format {
+	case "n", "l":
+		return 'q'
+	case "N", "L":
+		return 'Q'
+	case "P":
+		if bi, ok := AsBigInt(val); ok && bi.Sign() < 0 {
+			return 'q'
+		}
+		return 'Q'
+	}
+	return []rune(format)[0]
 }
 
 // mvCoerceForFormat validates and normalises val for a store under the view's
@@ -643,7 +668,7 @@ func mvCoerceForFormat(format string, val Object) (Object, error) {
 			return nil, Raise(TypeError, "memoryview: invalid type for format '%s'", format)
 		}
 	}
-	cv, err := arrayCoerce(code, val)
+	cv, err := arrayCoerce(mvCodecCode(format, val), val)
 	if err != nil {
 		return nil, Raise(ValueError, "memoryview: invalid value for format '%s'", format)
 	}
