@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+bytes-start ERR TypeError sum() can't sum bytes [use b''.join(seq) instead]
+bytearray-start ERR TypeError sum() can't sum bytearray [use b''.join(seq) instead]
+str-start ERR TypeError sum() can't sum strings [use ''.join(seq) instead]
+empty-bytes-start ERR TypeError sum() can't sum bytes [use b''.join(seq) instead]
+empty-bytearray-start ERR TypeError sum() can't sum bytearray [use b''.join(seq) instead]
+bytes-subclass-start ERR TypeError sum() can't sum bytes [use b''.join(seq) instead]
+bytearray-subclass-start ERR TypeError sum() can't sum bytearray [use b''.join(seq) instead]
+memoryview-start str 'memoryview'
+list-start list [1, 2]
+tuple-start tuple (1, 2)
+dict-start ERR TypeError unsupported operand type(s) for +: 'dict' and 'dict'
+int-normal int 6
+float-normal float 4.0
+bytes-no-start ERR TypeError unsupported operand type(s) for +: 'int' and 'bytes'
+empty-int int 0
+== exception:
+== stderr:

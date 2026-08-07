@@ -68,6 +68,20 @@ func asBytesLike(o Object) ([]byte, bool) {
 // callers outside this package like the io.BytesIO constructor.
 func AsBytesLike(o Object) ([]byte, bool) { return asBytesLike(o) }
 
+// IsByteArrayInstance reports whether o is a bytearray value, a subclass
+// instance included, the way CPython's PyByteArray_Check does, so sum() can
+// refuse a bytearray start value with its own wording.
+func IsByteArrayInstance(o Object) bool {
+	if _, ok := o.(*bytearrayObject); ok {
+		return true
+	}
+	if v, ok := builtinUnwrap(o); ok {
+		_, ok := v.(*bytearrayObject)
+		return ok
+	}
+	return false
+}
+
 // bytearrayInplaceTarget returns the live bytearray payload behind an in-place
 // operand together with the object to rebind to the target, so bytearray += y
 // and *= n mutate the same store whether the operand is a plain bytearray or a
