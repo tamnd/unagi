@@ -565,7 +565,7 @@ func scanComplexFloat(s string, i int) (val float64, next int, sawNumber bool) {
 	case strings.HasPrefix(lower, "inf"):
 		return sign * math.Inf(1), i + 3, true
 	case strings.HasPrefix(lower, "nan"):
-		return math.NaN(), i + 3, true
+		return FloatNaN(), i + 3, true
 	}
 	hasDigits := false
 	for i < len(s) && isDecDigit(s[i]) {

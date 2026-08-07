@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"bytes"
+	"math"
 	"strings"
 	"testing"
 
@@ -170,6 +171,45 @@ func TestFloatOf(t *testing.T) {
 		if objects.Repr(got) != tt.want {
 			t.Errorf("%s: FloatOf = %s, want %s", tt.name, objects.Repr(got), tt.want)
 		}
+	}
+}
+
+// TestFloatOfSignedNaN checks that float() accepts a signed nan string, keeps
+// the sign bit, and builds CPython's canonical quiet-nan payload so struct.pack
+// and float.hex stay byte-identical. Bit patterns probed on CPython 3.14.6.
+func TestFloatOfSignedNaN(t *testing.T) {
+	cases := []struct {
+		in   string
+		bits uint64
+	}{
+		{"nan", 0x7FF8000000000000},
+		{"NaN", 0x7FF8000000000000},
+		{"+nan", 0x7FF8000000000000},
+		{"-nan", 0xFFF8000000000000},
+		{"-NaN", 0xFFF8000000000000},
+		{"  -nan  ", 0xFFF8000000000000},
+	}
+	for _, c := range cases {
+		got, err := FloatOf(objects.NewStr(c.in))
+		if err != nil {
+			t.Errorf("float(%q): unexpected error %v", c.in, err)
+			continue
+		}
+		f, ok := objects.AsFloat(got)
+		if !ok {
+			t.Errorf("float(%q): not a float", c.in)
+			continue
+		}
+		if !math.IsNaN(f) {
+			t.Errorf("float(%q) = %v, want nan", c.in, f)
+		}
+		if b := math.Float64bits(f); b != c.bits {
+			t.Errorf("float(%q) bits = %#016x, want %#016x", c.in, b, c.bits)
+		}
+	}
+	// objects.FloatNaN builds the same canonical payload the constructor uses.
+	if b := math.Float64bits(objects.FloatNaN()); b != 0x7FF8000000000000 {
+		t.Errorf("FloatNaN bits = %#016x, want 0x7ff8000000000000", b)
 	}
 }
 

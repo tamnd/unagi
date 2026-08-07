@@ -63,7 +63,7 @@ func initCmath(m *objects.Module) error {
 		{"e", math.E},
 		{"tau", 2 * math.Pi},
 		{"inf", math.Inf(1)},
-		{"nan", math.NaN()},
+		{"nan", objects.FloatNaN()},
 	}
 	for _, c := range floats {
 		if err := set(c.name, objects.NewFloat(c.v)); err != nil {
@@ -73,7 +73,7 @@ func initCmath(m *objects.Module) error {
 	if err := set("infj", objects.NewComplex(0, math.Inf(1))); err != nil {
 		return err
 	}
-	if err := set("nanj", objects.NewComplex(0, math.NaN())); err != nil {
+	if err := set("nanj", objects.NewComplex(0, objects.FloatNaN())); err != nil {
 		return err
 	}
 

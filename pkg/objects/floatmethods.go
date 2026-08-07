@@ -19,8 +19,13 @@ func FloatInf(sign int) float64 { return math.Inf(sign) }
 // FloatNaN returns an IEEE-754 quiet NaN as a float64, the value a folded
 // non-finite float literal that is not an infinity carries. The lowering emits
 // a call to this for the same reason it uses FloatInf: NaN has no Go literal
-// spelling.
-func FloatNaN() float64 { return math.NaN() }
+// spelling. The bit pattern is CPython's canonical quiet NaN 0x7ff8...0000, not
+// Go's math.NaN() which sets the low payload bit (0x7ff8...0001); the canonical
+// form keeps struct.pack, float.hex and float.fromhex byte-identical with
+// CPython for every constructor and constant NaN source. A NaN produced by
+// arithmetic (float("inf") - float("inf")) still carries whatever sign the host
+// FPU picks, which is platform-dependent and outside this value.
+func FloatNaN() float64 { return math.Float64frombits(0x7FF8000000000000) }
 
 // This file holds the float methods and the two number attributes every float
 // carries. Each method takes no arguments the way CPython's float methods do,
@@ -449,7 +454,7 @@ func parseHexFloat(s string) (float64, int) {
 		}
 		return math.Inf(1), hexFloatOK
 	case "nan":
-		return math.NaN(), hexFloatOK
+		return FloatNaN(), hexFloatOK
 	}
 	if i+1 < n && t[i] == '0' && (t[i+1] == 'x' || t[i+1] == 'X') {
 		i += 2

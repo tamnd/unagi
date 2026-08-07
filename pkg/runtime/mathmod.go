@@ -35,7 +35,7 @@ func initMath(m *objects.Module) error {
 		{"e", math.E},
 		{"tau", 2 * math.Pi},
 		{"inf", math.Inf(1)},
-		{"nan", math.NaN()},
+		{"nan", objects.FloatNaN()},
 	}
 	for _, c := range consts {
 		if err := set(c.name, objects.NewFloat(c.val)); err != nil {
