@@ -1,0 +1,35 @@
+== exit: 0
+== stdout:
+== hash() on a mutable-container subclass ==
+hash L => TypeError : unhashable type: 'L'
+hash D => TypeError : unhashable type: 'D'
+hash S => TypeError : unhashable type: 'S'
+== keying a dict with such a subclass ==
+{L: 1} => TypeError : cannot use 'L' as a dict key (unhashable type: 'L')
+{D: 1} => TypeError : cannot use 'D' as a dict key (unhashable type: 'D')
+{S: 1} => TypeError : cannot use 'S' as a dict key (unhashable type: 'S')
+== using such a subclass as a set element ==
+{L} => TypeError : cannot use 'L' as a set element (unhashable type: 'L')
+{D} => TypeError : cannot use 'D' as a set element (unhashable type: 'D')
+{S} => TypeError : cannot use 'S' as a set element (unhashable type: 'S')
+== membership takes the same hash path ==
+L in dict => TypeError : cannot use 'L' as a dict key (unhashable type: 'L')
+D in dict => TypeError : cannot use 'D' as a dict key (unhashable type: 'D')
+== the report names the outermost key, the innermost unhashable ==
+tuple(L) key => TypeError : cannot use 'tuple' as a dict key (unhashable type: 'L')
+tuple(1, D) key => TypeError : cannot use 'tuple' as a dict key (unhashable type: 'D')
+== a subclass that defines __hash__ stays hashable ==
+hash LH => int 7
+{LH: 1} => str '{[9]: 1}'
+hash DH => int 11
+== a subclass that defines only __eq__ stays unhashable ==
+hash LE => TypeError : unhashable type: 'LE'
+== immutable-container subclasses stay hashable ==
+hash T => int -3550055125485641917
+T keys by value => str "{(1, 2): 'b'}"
+hash FS is int => str 'int'
+== scalar value subclasses keep hashing by their payload ==
+hash MyInt => int 5
+MyInt shares 5's slot => str "{5: 'b'}"
+== exception:
+== stderr:
