@@ -571,6 +571,8 @@ var arrayMethodNames = map[string]bool{
 	"tolist": true, "fromlist": true, "tobytes": true, "frombytes": true,
 	"tounicode": true, "fromunicode": true, "byteswap": true, "buffer_info": true,
 	"tofile": true, "fromfile": true, "__reduce_ex__": true,
+	"__add__": true, "__mul__": true, "__rmul__": true,
+	"__iadd__": true, "__imul__": true,
 }
 
 // arrayLoadAttr reads an attribute off an array: the typecode and itemsize data
@@ -759,8 +761,64 @@ func arrayMethod(a *arrayObject, name string, args []Object) (Object, error) {
 		return arrayToFile(a, args[0])
 	case "__reduce_ex__":
 		return arrayReduceEx(a, args)
+	case "__add__":
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "expected 1 argument, got %d", len(args))
+		}
+		return arrayConcat(a, args[0])
+	case "__mul__", "__rmul__":
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "expected 1 argument, got %d", len(args))
+		}
+		n, err := arrayRepeatCount(args[0])
+		if err != nil {
+			return nil, err
+		}
+		return arrayRepeat(a, n), nil
+	case "__iadd__":
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "expected 1 argument, got %d", len(args))
+		}
+		if _, ok := args[0].(*arrayObject); !ok {
+			return nil, Raise(TypeError, "can only extend array with array (not \"%s\")", args[0].TypeName())
+		}
+		if err := arrayExtend(a, args[0]); err != nil {
+			return nil, err
+		}
+		return a, nil
+	case "__imul__":
+		if len(args) != 1 {
+			return nil, Raise(TypeError, "expected 1 argument, got %d", len(args))
+		}
+		n, err := arrayRepeatCount(args[0])
+		if err != nil {
+			return nil, err
+		}
+		if n <= 0 {
+			a.elts = a.elts[:0]
+			return a, nil
+		}
+		base := append([]Object(nil), a.elts...)
+		for i := int64(1); i < n; i++ {
+			a.elts = append(a.elts, base...)
+		}
+		return a, nil
 	}
 	return nil, noAttr(a, name)
+}
+
+// arrayRepeatCount coerces the count for __mul__, __rmul__ and __imul__, honoring
+// __index__ the way the * operator does and reporting the cannot-be-interpreted
+// TypeError for a value with no integer meaning.
+func arrayRepeatCount(o Object) (int64, error) {
+	n, ok, err := arrayCoerceIndex(o)
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		return 0, Raise(TypeError, "'%s' object cannot be interpreted as an integer", o.TypeName())
+	}
+	return n, nil
 }
 
 // ArrayReconstructor is array._array_reconstructor, the pickling hook that
