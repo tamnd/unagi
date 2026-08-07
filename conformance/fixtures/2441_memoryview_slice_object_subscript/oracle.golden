@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+read-dunder b'bcd'
+read-step b'ace'
+read-slice-var b'bcd'
+read-full b'abcde'
+write-dunder b'XYc'
+write-step b'XbYd'
+write-slice-var b'aYZ'
+write-from-mv b'XYc'
+write-neg-step b'ZYXW'
+typed-read [20, 30]
+typed-write [1, 20, 30, 4]
+typed-format-mismatch ERR ValueError memoryview assignment: lvalue and rvalue have different structures
+len-mismatch ERR ValueError memoryview assignment: lvalue and rvalue have different structures
+wrong-type-str ERR TypeError a bytes-like object is required, not 'str'
+wrong-type-int ERR TypeError a bytes-like object is required, not 'int'
+wrong-type-arr ERR TypeError a bytes-like object is required, not 'str'
+readonly-write ERR TypeError cannot modify read-only memory
+== exception:
+== stderr:
