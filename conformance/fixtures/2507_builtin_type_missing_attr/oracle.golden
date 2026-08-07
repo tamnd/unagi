@@ -1,0 +1,34 @@
+== exit: 0
+== stdout:
+== a missing attribute on a builtin type names the type ==
+int => type object 'int' has no attribute 'nope'
+float => type object 'float' has no attribute 'nope'
+complex => type object 'complex' has no attribute 'nope'
+bool => type object 'bool' has no attribute 'nope'
+str => type object 'str' has no attribute 'nope'
+bytes => type object 'bytes' has no attribute 'nope'
+bytearray => type object 'bytearray' has no attribute 'nope'
+list => type object 'list' has no attribute 'nope'
+tuple => type object 'tuple' has no attribute 'nope'
+dict => type object 'dict' has no attribute 'nope'
+set => type object 'set' has no attribute 'nope'
+frozenset => type object 'frozenset' has no attribute 'nope'
+range => type object 'range' has no attribute 'nope'
+type => type object 'type' has no attribute 'nope'
+object => type object 'object' has no attribute 'nope'
+== a module-qualified type reports its bare name ==
+deque => type object 'collections.deque' has no attribute 'nope'
+OrderedDict => type object 'collections.OrderedDict' has no attribute 'nope'
+== a resolving read on a builtin type is unaffected ==
+int.from_bytes 258
+float.fromhex 16.0
+str.upper unbound AB
+int.bit_length unbound 8
+dict.fromkeys {'a': None, 'b': None}
+list.append name append
+== an instance still reports as its own type ==
+(5).nope => 'int' object has no attribute 'nope'
+'x'.nope => 'str' object has no attribute 'nope'
+[].nope => 'list' object has no attribute 'nope'
+== exception:
+== stderr:

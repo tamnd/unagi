@@ -3278,6 +3278,15 @@ func LoadAttr(o Object, name string) (Object, error) {
 			if v, ok := objectInheritedSlot(name); ok {
 				return v, nil
 			}
+			// A builtin type that answers none of the above reports the miss as a
+			// type object, the way CPython's type getattro does (int.nope raises
+			// "type object 'int' has no attribute 'nope'"), rather than the generic
+			// "'function' object" message the funcObject fallback below would give
+			// since the constructor is modeled as a funcObject. CPython names the
+			// type by its tp_name, so a module-qualified type keeps the module
+			// (collections.deque reports "type object 'collections.deque'"). A plain
+			// builtin function keeps the fallback.
+			return nil, Raise(AttributeError, "type object '%s' has no attribute '%s'", x.name, name)
 		}
 	case *typeObject:
 		if name == "__name__" || name == "__qualname__" {
