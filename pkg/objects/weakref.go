@@ -33,7 +33,8 @@ func weakrefTarget(w *weakrefObject) Object { return w.referent }
 
 // weakrefable reports whether an object of this type can be weakly referenced,
 // matching CPython's rule for the types unagi models: user instances, classes,
-// functions, methods, modules, exceptions and the set types carry weak support,
+// functions, methods, modules, exceptions, the set types, and array.array and
+// memoryview carry weak support (their C types declare a __weakref__ slot),
 // while the immutable scalars and the built-in containers with no __weakref__
 // slot (int, str, bytes, tuple, list, dict and the rest) do not.
 func weakrefable(o Object) bool {
@@ -45,7 +46,8 @@ func weakrefable(o Object) bool {
 		// the !hasSlots / slotsWeakref / base cases.
 		return x.cls == nil || x.cls.instWeakref
 	case *classObject, *typeObject, *functionObject, *funcObject,
-		*boundMethod, *Module, *Exception, *setObject, *frozensetObject:
+		*boundMethod, *Module, *Exception, *setObject, *frozensetObject,
+		*arrayObject, *memoryviewObject:
 		return true
 	}
 	return false
