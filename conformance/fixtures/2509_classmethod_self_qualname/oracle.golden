@@ -1,0 +1,29 @@
+== exit: 0
+== stdout:
+== a builtin classmethod is bound to its type ==
+int.from_bytes | __self__: <class 'int'> | is owner: True | __name__: from_bytes | __qualname__: int.from_bytes
+bool.from_bytes | __self__: <class 'bool'> | is owner: True | __name__: from_bytes | __qualname__: bool.from_bytes
+float.fromhex | __self__: <class 'float'> | is owner: True | __name__: fromhex | __qualname__: float.fromhex
+float.from_number | __self__: <class 'float'> | is owner: True | __name__: from_number | __qualname__: float.from_number
+complex.from_number | __self__: <class 'complex'> | is owner: True | __name__: from_number | __qualname__: complex.from_number
+bytes.fromhex | __self__: <class 'bytes'> | is owner: True | __name__: fromhex | __qualname__: bytes.fromhex
+bytearray.fromhex | __self__: <class 'bytearray'> | is owner: True | __name__: fromhex | __qualname__: bytearray.fromhex
+dict.fromkeys | __self__: <class 'dict'> | is owner: True | __name__: fromkeys | __qualname__: dict.fromkeys
+== a maketrans staticmethod reports __self__ = None ==
+str.maketrans | __self__: None | __name__: maketrans | __qualname__: str.maketrans
+bytes.maketrans | __self__: None | __name__: maketrans | __qualname__: bytes.maketrans
+== a classmethod still calls ==
+int.from_bytes(b'\x01\x02', 'big'): 258
+bool.from_bytes(b'\x00', 'big'): False
+float.fromhex('0x1p4'): 16.0
+float.from_number(3): 3.0
+complex.from_number(2): (2+0j)
+bytes.fromhex('dead'): b'\xde\xad'
+dict.fromkeys(['a', 'b']): {'a': None, 'b': None}
+str.maketrans('a', 'b'): {97: 98}
+== the type itself is unstamped ==
+int.__name__: int | int.__qualname__: int
+len.__name__: len | len.__qualname__: len
+int.__self__ => AttributeError : type object 'int' has no attribute '__self__'
+== exception:
+== stderr:
