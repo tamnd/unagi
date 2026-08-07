@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+str.maketrans <built-in method maketrans of type object at 0xADDR>
+str.maketrans __self__ None
+str.maketrans __qualname__ str.maketrans
+str.maketrans __name__ maketrans
+bytes.maketrans <built-in method maketrans of type object at 0xADDR>
+bytes.maketrans __self__ None
+bytes.maketrans __qualname__ bytes.maketrans
+bytes.maketrans __name__ maketrans
+bytearray.maketrans <built-in method maketrans of type object at 0xADDR>
+bytearray.maketrans __self__ None
+bytearray.maketrans __qualname__ bytearray.maketrans
+bytearray.maketrans __name__ maketrans
+== exception:
+== stderr:
