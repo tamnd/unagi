@@ -897,24 +897,90 @@ func memoryviewIndex(m *memoryviewObject, args []Object) (Object, error) {
 	if len(args) > 3 {
 		return nil, Raise(TypeError, "index expected at most 3 arguments, got %d", len(args))
 	}
+	// CPython's argument clinic converts start and stop before touching the
+	// buffer, so a non-integer bound is the slice-index TypeError even on a
+	// released or multi-dimensional view and outranks both of those checks.
+	rawStart, rawStop := int64(0), int64(1<<62)
+	if len(args) >= 2 {
+		s, err := mvSliceIndex(args[1])
+		if err != nil {
+			return nil, err
+		}
+		rawStart = s
+	}
+	if len(args) == 3 {
+		s, err := mvSliceIndex(args[2])
+		if err != nil {
+			return nil, err
+		}
+		rawStop = s
+	}
+	if m.released {
+		return nil, mvReleased()
+	}
+	// index walks the flat element run the same way count does, so a
+	// multi-dimensional view is a lookup CPython has not implemented.
+	if mvNdim(m) > 1 {
+		return nil, Raise("NotImplementedError", "multi-dimensional lookup is not implemented")
+	}
 	elts, err := mvElements(m)
 	if err != nil {
 		return nil, err
 	}
 	n := len(elts)
-	start, stop := 0, n
-	if len(args) >= 2 {
-		start = clampIndex(args[1], n)
-	}
-	if len(args) == 3 {
-		stop = clampIndex(args[2], n)
-	}
+	start := clampSliceBound(rawStart, n)
+	stop := clampSliceBound(rawStop, n)
 	for i := start; i < stop && i < n; i++ {
 		if equals(elts[i], args[0]) {
 			return NewInt(int64(i)), nil
 		}
 	}
 	return nil, Raise(ValueError, "memoryview.index(x): x not found")
+}
+
+// mvSliceIndex reads a start or stop bound of memoryview.index the way CPython's
+// slice-index converter does: an int, a bool or an object spelling __index__
+// supplies the bound (a magnitude past int64 clamps by sign the way slicePart
+// does), while None or any other type is the slice-index TypeError, which unlike
+// sequence slicing does not accept None.
+func mvSliceIndex(o Object) (int64, error) {
+	if i, ok := AsInt(o); ok {
+		return i, nil
+	}
+	if b, ok := o.(*intObject); ok && b.big != nil {
+		if b.big.Sign() > 0 {
+			return 1 << 62, nil
+		}
+		return -(1 << 62), nil
+	}
+	if r, ok, err := IndexOf(o); err != nil {
+		return 0, err
+	} else if ok {
+		if i, ok := AsInt(r); ok {
+			return i, nil
+		}
+		if b, ok := r.(*intObject); ok && b.big != nil && b.big.Sign() > 0 {
+			return 1 << 62, nil
+		}
+		return -(1 << 62), nil
+	}
+	return 0, Raise(TypeError, "slice indices must be integers or have an __index__ method")
+}
+
+// clampSliceBound normalises a parsed index bound against the element count: a
+// negative counts from the end and clamps up to 0, and a value past the end
+// clamps down to the length so the search window stays empty.
+func clampSliceBound(i int64, n int) int {
+	if i < 0 {
+		i += int64(n)
+		if i < 0 {
+			return 0
+		}
+	}
+	if i > int64(n) {
+		return n
+	}
+	return int(i)
 }
 
 // memoryviewMethod dispatches the memoryview method surface: tobytes, tolist,
@@ -953,6 +1019,15 @@ func memoryviewMethod(m *memoryviewObject, name string, args []Object) (Object, 
 	case "count":
 		if len(args) != 1 {
 			return nil, Raise(TypeError, "memoryview.count() takes exactly one argument (%d given)", len(args))
+		}
+		if m.released {
+			return nil, mvReleased()
+		}
+		// count walks the flat element run, so a multi-dimensional view would be
+		// counting sub-views, which CPython declines the way it does for an
+		// integer subscript of such a view.
+		if mvNdim(m) > 1 {
+			return nil, Raise("NotImplementedError", "multi-dimensional sub-views are not implemented")
 		}
 		elts, err := mvElements(m)
 		if err != nil {
