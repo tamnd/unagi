@@ -120,6 +120,44 @@ func TestFloatSubclassOverrideDispatches(t *testing.T) {
 	}
 }
 
+// A numeric subclass reaches its base arithmetic through super(): the dunder
+// resolves off the unwrapped payload and returns the plain scalar, the way
+// float.__truediv__ or complex.__mul__ answers on a bare value. A name the base
+// does not carry stays unhandled so super() keeps its own miss and the object
+// defaults still run for __init__.
+func TestNumericSubclassSuperBaseDunder(t *testing.T) {
+	fc := buildFloatSubclass(t, "MyFloat")
+	f, err := Instantiate(fc, []Object{NewFloat(6.0)}, nil, nil)
+	if err != nil {
+		t.Fatalf("instantiate MyFloat(6.0): %v", err)
+	}
+	r, handled, err := builtinBaseCall(f, "__truediv__", []Object{NewFloat(2.0)}, nil, nil)
+	if !handled || err != nil || Str(r) != "3.0" || r.TypeName() != "float" {
+		t.Fatalf("super().__truediv__ = %v (%s), handled=%v, %v; want plain float 3.0", r, r.TypeName(), handled, err)
+	}
+	rr, handled, err := builtinBaseCall(f, "__rtruediv__", []Object{NewFloat(3.0)}, nil, nil)
+	if !handled || err != nil || Str(rr) != "0.5" {
+		t.Fatalf("super().__rtruediv__ = %v, handled=%v, %v; want 0.5", rr, handled, err)
+	}
+
+	cc := buildComplexSubclass(t, "MyComplex")
+	z, err := Instantiate(cc, []Object{NewFloat(1), NewFloat(2)}, nil, nil)
+	if err != nil {
+		t.Fatalf("instantiate MyComplex(1, 2): %v", err)
+	}
+	cz, handled, err := builtinBaseCall(z, "__mul__", []Object{NewInt(2)}, nil, nil)
+	if !handled || err != nil || cz.TypeName() != "complex" {
+		t.Fatalf("super().__mul__ = %v (%s), handled=%v, %v; want a plain complex", cz, cz.TypeName(), handled, err)
+	}
+
+	// __init__ is not a base method the numeric payload answers, so builtinBaseCall
+	// declines and leaves it to objectDefaultCall, keeping super().__init__() a
+	// no-op rather than hijacking it with a numeric slot.
+	if _, handled, _ := builtinBaseCall(f, "__init__", nil, nil, nil); handled {
+		t.Fatal("super().__init__ on a float subclass was hijacked by the numeric resolver")
+	}
+}
+
 func TestFloatSubclassInheritsMethods(t *testing.T) {
 	c := buildFloatSubclass(t, "MyFloat")
 	a, err := Instantiate(c, []Object{NewFloat(4.0)}, nil, nil)
