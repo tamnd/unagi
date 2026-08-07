@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+fact(0) => 1
+fact(1) => 1
+fact(5) => 120
+fact(20) => 2432902008176640000
+fact(-1) => ValueError : factorial() not defined for negative values
+fact(10**19) => OverflowError : factorial() argument should not exceed 9223372036854775807
+fact(10**100) => OverflowError : factorial() argument should not exceed 9223372036854775807
+fact(5.0) => TypeError : 'float' object cannot be interpreted as an integer
+fact(5.2) => TypeError : 'float' object cannot be interpreted as an integer
+fact(1e100) => TypeError : 'float' object cannot be interpreted as an integer
+fact(True) => 1
+fact(9223372036854775808) => OverflowError : factorial() argument should not exceed 9223372036854775807
+== exception:
+== stderr:

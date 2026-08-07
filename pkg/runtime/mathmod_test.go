@@ -203,6 +203,28 @@ func TestMathLdexpBigInt(t *testing.T) {
 	}
 }
 
+func TestMathFactorialBigInt(t *testing.T) {
+	factorial := mathFn(t, "factorial")
+	huge := objects.NewIntFromBig(new(big.Int).Exp(big.NewInt(10), big.NewInt(19), nil))
+
+	// An argument past the C long range is an overflow, not a wrapped product.
+	if _, err := objects.Call(factorial, []objects.Object{huge}); !isKindErr(err, objects.OverflowError) {
+		t.Fatalf("factorial(10**19) = %v, want OverflowError", err)
+	}
+	// A negative value keeps its own ValueError.
+	if _, err := objects.Call(factorial, []objects.Object{objects.NewInt(-1)}); !isKindErr(err, objects.ValueError) {
+		t.Fatalf("factorial(-1) = %v, want ValueError", err)
+	}
+	// A small argument still returns the exact product.
+	got, err := objects.Call(factorial, []objects.Object{objects.NewInt(5)})
+	if err != nil {
+		t.Fatalf("factorial(5) error: %v", err)
+	}
+	if b, ok := objects.AsBigInt(got); !ok || b.Int64() != 120 {
+		t.Fatalf("factorial(5) = %v, want 120", got)
+	}
+}
+
 func TestMathNextafterSteps(t *testing.T) {
 	na := mathFn(t, "nextafter")
 	// Three steps up equals one step applied three times.
