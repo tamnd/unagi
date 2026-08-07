@@ -53,6 +53,52 @@ func TestFloatDunderAttrs(t *testing.T) {
 	}
 }
 
+// TestFloatFloorDivSpecials pins the C fmod-based quotient that a naive
+// math.Floor(a/b) gets wrong: an infinite dividend gives a nan quotient, a
+// finite dividend over an opposite-signed infinity floors to -1.0, and a zero
+// quotient carries the sign of the true quotient.
+func TestFloatFloorDivSpecials(t *testing.T) {
+	inf := math.Inf(1)
+	nan := math.NaN()
+	cases := []struct {
+		a, b, want float64
+		// wantNaN distinguishes a required nan result from a value compare,
+		// since nan != nan makes a direct == check useless.
+		wantNaN bool
+	}{
+		{inf, 2.0, 0, true},
+		{-inf, 2.0, 0, true},
+		{inf, -2.0, 0, true},
+		{-inf, -2.0, 0, true},
+		{2.0, inf, 0, false},
+		{-2.0, inf, -1.0, false},
+		{2.0, -inf, -1.0, false},
+		{-2.0, -inf, 0, false},
+		{inf, inf, 0, true},
+		{nan, 3.0, 0, true},
+		{3.0, nan, 0, true},
+		{7.0, 3.0, 2.0, false},
+		{-7.0, 3.0, -3.0, false},
+		{7.0, -3.0, -3.0, false},
+	}
+	for _, c := range cases {
+		got := floatFloorDiv(c.a, c.b)
+		if c.wantNaN {
+			if !math.IsNaN(got) {
+				t.Errorf("floatFloorDiv(%v, %v) = %v, want nan", c.a, c.b, got)
+			}
+			continue
+		}
+		if got != c.want {
+			t.Errorf("floatFloorDiv(%v, %v) = %v, want %v", c.a, c.b, got, c.want)
+		}
+		// A zero quotient must keep the sign of the true quotient.
+		if c.want == 0 && math.Signbit(got) != math.Signbit(c.a/c.b) {
+			t.Errorf("floatFloorDiv(%v, %v) zero sign = %v, want sign of %v", c.a, c.b, got, c.a/c.b)
+		}
+	}
+}
+
 // TestFloatDunderDomainAndSpecials checks the NotImplemented domain, the divmod
 // pair, truth, hash and the argument-count and modulo errors.
 func TestFloatDunderDomainAndSpecials(t *testing.T) {
