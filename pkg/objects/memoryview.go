@@ -498,6 +498,10 @@ func mvDecodeObj(m *memoryviewObject, e int) (Object, error) {
 		// way CPython's struct 'c' unpack reads it, not to the integer the 'B'
 		// path would give.
 		return NewBytes([]byte{byte(mvRawWord(m, e))}), nil
+	case "e":
+		// The half-float code decodes a two-byte IEEE 754 half to a float, the
+		// way CPython's struct 'e' unpack reads it.
+		return NewFloat(mvHalfToFloat(uint16(mvRawWord(m, e)))), nil
 	case "f":
 		return NewFloat(float64(math.Float32frombits(uint32(mvRawWord(m, e))))), nil
 	case "d":
@@ -536,7 +540,7 @@ func mvFormatSize(format string) (int, bool) {
 	switch format {
 	case "b", "B", "c", "?":
 		return 1, true
-	case "h", "H":
+	case "h", "H", "e":
 		return 2, true
 	case "i", "I", "f":
 		return 4, true
@@ -544,6 +548,77 @@ func mvFormatSize(format string) (int, bool) {
 		return 8, true
 	}
 	return 0, false
+}
+
+// mvHalfBits encodes a float64 as an IEEE 754 half in round-half-to-even, the
+// way the struct 'e' code packs a value. A finite value too large for the half
+// range returns the infinity pattern (0x7c00) so the caller can raise the
+// invalid-value error CPython gives.
+func mvHalfBits(f float64) uint16 {
+	b := math.Float32bits(float32(f))
+	sign := uint16((b >> 16) & 0x8000)
+	exp := int((b>>23)&0xff) - 127 + 15
+	mant := b & 0x7fffff
+	if (b>>23)&0xff == 0xff {
+		if mant != 0 {
+			return sign | 0x7e00
+		}
+		return sign | 0x7c00
+	}
+	if exp >= 0x1f {
+		return sign | 0x7c00
+	}
+	if exp <= 0 {
+		if exp < -10 {
+			return sign
+		}
+		mant |= 0x800000
+		shift := uint(14 - exp)
+		half := mant >> shift
+		if mant&(1<<(shift-1)) != 0 {
+			rest := mant & ((1 << (shift - 1)) - 1)
+			if rest != 0 || half&1 != 0 {
+				half++
+			}
+		}
+		return sign | uint16(half)
+	}
+	half := sign | uint16(exp<<10) | uint16(mant>>13)
+	if mant&0x1000 != 0 {
+		rest := mant & 0xfff
+		if rest != 0 || half&1 != 0 {
+			half++
+		}
+	}
+	return half
+}
+
+// mvHalfToFloat decodes an IEEE 754 half to a float64, the struct 'e' unpack
+// path, widening a subnormal or a normal half through single precision.
+func mvHalfToFloat(h uint16) float64 {
+	sign := uint32(h&0x8000) << 16
+	exp := (h >> 10) & 0x1f
+	mant := uint32(h & 0x3ff)
+	var bits uint32
+	switch exp {
+	case 0:
+		if mant == 0 {
+			bits = sign
+			break
+		}
+		e := -1
+		for mant&0x400 == 0 {
+			mant <<= 1
+			e++
+		}
+		mant &= 0x3ff
+		bits = sign | (uint32(127-15-e) << 23) | (mant << 13)
+	case 0x1f:
+		bits = sign | 0x7f800000 | (mant << 13)
+	default:
+		bits = sign | (uint32(int(exp)-15+127) << 23) | (mant << 13)
+	}
+	return float64(math.Float32frombits(bits))
 }
 
 // mvSetItem writes mv[key] = val. A read-only view rejects every write; a
@@ -631,6 +706,25 @@ func mvWriteElem(m *memoryviewObject, e int, val Object) error {
 			return Raise(ValueError, "memoryview: invalid value for format 'c'")
 		}
 		mvSetByte(m, e, v[0])
+		return nil
+	}
+	if m.format == "e" {
+		// The half-float code encodes a float to a two-byte IEEE 754 half the way
+		// CPython's struct 'e' pack does: a non-number is the invalid-type
+		// TypeError and a finite value too large for the half range (it would round
+		// to infinity) is the invalid-value ValueError, while a real infinity or
+		// nan passes through.
+		switch val.(type) {
+		case *intObject, *boolObject, *floatObject:
+		default:
+			return Raise(TypeError, "memoryview: invalid type for format 'e'")
+		}
+		f, _ := AsFloat(val)
+		bits := mvHalfBits(f)
+		if bits&0x7fff == 0x7c00 && !math.IsInf(f, 0) {
+			return Raise(ValueError, "memoryview: invalid value for format 'e'")
+		}
+		mvWriteBytes(m, e, []byte{byte(bits), byte(bits >> 8)})
 		return nil
 	}
 	if !mvEncodableFormat(m.format) {
