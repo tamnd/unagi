@@ -248,9 +248,13 @@ func operatorSameOrEqual(i, b objects.Object) (bool, error) {
 // operatorLengthHint implements operator.length_hint(obj, default=0): len(obj)
 // when sized, else __length_hint__, else default.
 func operatorLengthHint(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
-	if len(pos) < 1 || len(pos) > 2 {
+	if len(pos) < 1 {
 		return nil, objects.Raise(objects.TypeError,
-			"length_hint() takes at most 2 arguments (%d given)", len(pos))
+			"length_hint expected at least 1 argument, got %d", len(pos))
+	}
+	if len(pos) > 2 {
+		return nil, objects.Raise(objects.TypeError,
+			"length_hint expected at most 2 arguments, got %d", len(pos))
 	}
 	def := objects.NewInt(0)
 	if len(pos) == 2 {

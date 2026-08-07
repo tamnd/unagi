@@ -21,6 +21,16 @@ func (w *iterWrap) TypeName() string                    { return "iterator" }
 func (w *iterWrap) Iterate() (objects.Iterator, error)  { return w, nil }
 func (w *iterWrap) Next() (objects.Object, bool, error) { return w.it.Next() }
 
+// LengthHint delegates to the wrapped iterator so iter(seq) reports
+// __length_hint__ whenever the underlying cursor can, matching a container's
+// own __iter__ handle.
+func (w *iterWrap) LengthHint() (int, bool) {
+	if lh, ok := w.it.(objects.LengthHinter); ok {
+		return lh.LengthHint()
+	}
+	return 0, false
+}
+
 // callIter is the two-argument iter(callable, sentinel) result: it calls
 // callable with no arguments each step and stops the first time the result
 // equals the sentinel, which is never yielded.

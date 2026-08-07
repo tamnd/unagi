@@ -1,0 +1,90 @@
+== exit: 0
+== stdout:
+== iterators that expose __length_hint__ ==
+list full => int 4
+list after 2 => int 2
+list operator => int 2
+tuple full => int 4
+tuple after 2 => int 2
+tuple operator => int 2
+str full => int 4
+str after 2 => int 2
+str operator => int 2
+bytes full => int 4
+bytes after 2 => int 2
+bytes operator => int 2
+bytearray full => int 4
+bytearray after 2 => int 2
+bytearray operator => int 2
+range full => int 4
+range after 2 => int 2
+range operator => int 2
+dict full => int 3
+dict after 2 => int 1
+dict operator => int 1
+dict_keys full => int 3
+dict_keys after 2 => int 1
+dict_keys operator => int 1
+dict_values full => int 3
+dict_values after 2 => int 1
+dict_values operator => int 1
+dict_items full => int 3
+dict_items after 2 => int 1
+dict_items operator => int 1
+set full => int 4
+set after 2 => int 2
+set operator => int 2
+frozenset full => int 4
+frozenset after 2 => int 2
+frozenset operator => int 2
+mappingproxy full => int 3
+mappingproxy after 2 => int 1
+mappingproxy operator => int 1
+reversed_list full => int 4
+reversed_list after 2 => int 2
+reversed_list operator => int 2
+reversed_tuple full => int 4
+reversed_tuple after 2 => int 2
+reversed_tuple operator => int 2
+reversed_str full => int 4
+reversed_str after 2 => int 2
+reversed_str operator => int 2
+reversed_range full => int 4
+reversed_range after 2 => int 2
+reversed_range operator => int 2
+reversed_dict full => int 4
+reversed_dict after 2 => int 2
+reversed_dict operator => int 2
+reversed_bytes full => int 4
+reversed_bytes after 2 => int 2
+reversed_bytes operator => int 2
+reversed_bytearray full => int 4
+reversed_bytearray after 2 => int 2
+reversed_bytearray operator => int 2
+reversed_array full => int 4
+reversed_array after 2 => int 2
+reversed_array operator => int 2
+== a drained iterator hints zero ==
+drained hint => int 0
+drained operator => int 0
+== the __iter__ handle hints the same as iter() ==
+list __iter__ hint => int 3
+== the buffer iterators carry no __length_hint__ ==
+array hasattr => bool False
+array operator falls back => int 0
+array operator default => int 99
+memoryview hasattr => bool False
+memoryview operator falls back => int 0
+memoryview operator default => int 99
+== lazy and paired iterators carry no __length_hint__ ==
+generator hasattr => bool False
+map hasattr => bool False
+filter hasattr => bool False
+zip hasattr => bool False
+enumerate hasattr => bool False
+== operator.length_hint argument handling ==
+no __length_hint__ default 0 => int 0
+bad default type => TypeError : 'str' object cannot be interpreted as an integer
+too many args => TypeError : length_hint expected at most 2 arguments, got 3
+== exception:
+== stderr:

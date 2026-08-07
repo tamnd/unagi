@@ -1943,8 +1943,9 @@ type Iterator interface {
 }
 
 type sliceIter struct {
-	elts []Object
-	i    int
+	elts   []Object
+	i      int
+	noHint bool // the buffer iterators (array, memoryview) report no __length_hint__
 }
 
 func (it *sliceIter) Next() (Object, bool, error) {
@@ -1954,6 +1955,22 @@ func (it *sliceIter) Next() (Object, bool, error) {
 	v := it.elts[it.i]
 	it.i++
 	return v, true, nil
+}
+
+// LengthHint reports the elements still to yield, the way CPython's
+// list_iterator, tuple_iterator, dict_keyiterator, set_iterator and
+// str_iterator answer __length_hint__: the fixed length minus the cursor. The
+// buffer iterators (array.arrayiterator and memory_iterator) carry no
+// __length_hint__ in CPython, so a noHint cursor reports none.
+func (it *sliceIter) LengthHint() (int, bool) {
+	if it.noHint {
+		return 0, false
+	}
+	n := len(it.elts) - it.i
+	if n < 0 {
+		n = 0
+	}
+	return n, true
 }
 
 type rangeIter struct {
@@ -1969,6 +1986,16 @@ func (it *rangeIter) Next() (Object, bool, error) {
 	v := it.r.start + it.i*it.r.step
 	it.i++
 	return NewInt(v), true, nil
+}
+
+// LengthHint reports the steps still to take, matching CPython's
+// range_iterator.__length_hint__.
+func (it *rangeIter) LengthHint() (int, bool) {
+	n := it.n - it.i
+	if n < 0 {
+		n = 0
+	}
+	return int(n), true
 }
 
 // bigRangeContains tests membership in a range whose bounds overflow int64,
@@ -2032,7 +2059,7 @@ func Iter(o Object) (Iterator, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &sliceIter{elts: elts}, nil
+		return &sliceIter{elts: elts, noHint: true}, nil
 	case *strObject:
 		runes := decodeStrRunes(x.v)
 		elts := make([]Object, 0, len(runes))

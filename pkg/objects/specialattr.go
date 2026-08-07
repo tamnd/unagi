@@ -177,6 +177,28 @@ func iteratorSpecialAttr(o Object, name string) (Object, bool) {
 				return o, nil
 			},
 		}, true
+	case "__length_hint__":
+		// Only an iterator over a fixed-size sequence answers __length_hint__; a
+		// generator or a lazy map/filter has no length hint, so leaving those
+		// without the attribute matches CPython, which raises AttributeError.
+		lh, ok := o.(LengthHinter)
+		if !ok {
+			return nil, false
+		}
+		if _, has := lh.LengthHint(); !has {
+			return nil, false
+		}
+		return &funcObject{
+			name:  "__length_hint__",
+			arity: -1,
+			fn: func(args []Object) (Object, error) {
+				if len(args) != 0 {
+					return nil, Raise(TypeError, "expected 0 arguments, got %d", len(args))
+				}
+				n, _ := lh.LengthHint()
+				return NewInt(int64(n)), nil
+			},
+		}, true
 	}
 	return nil, false
 }
@@ -242,6 +264,24 @@ type builtinIterObject struct {
 func (b *builtinIterObject) TypeName() string            { return b.name }
 func (b *builtinIterObject) Iterate() (Iterator, error)  { return b, nil }
 func (b *builtinIterObject) Next() (Object, bool, error) { return b.it.Next() }
+
+// LengthHint delegates to the wrapped iterator, so a container's __iter__ handle
+// reports __length_hint__ exactly when the underlying cursor can, and stays
+// silent (no attribute) for a source that cannot, like a generator.
+func (b *builtinIterObject) LengthHint() (int, bool) {
+	if lh, ok := b.it.(LengthHinter); ok {
+		return lh.LengthHint()
+	}
+	return 0, false
+}
+
+// LengthHinter is implemented by an iterator that knows how many elements remain,
+// which is what backs __length_hint__ and operator.length_hint. A cursor over a
+// fixed-size sequence answers it; an open-ended source (a generator, map, filter)
+// does not, so those iterators report no __length_hint__ the way CPython's do.
+type LengthHinter interface {
+	LengthHint() (int, bool)
+}
 
 // containerIterName is the iterator type name CPython 3.14 reports for each
 // builtin container's __iter__. A dict iterates its keys, so it is a
