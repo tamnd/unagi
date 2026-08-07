@@ -1408,6 +1408,14 @@ func mvCastCore(m *memoryviewObject, format string, shapeObj Object, haveShape b
 		}
 		return &memoryviewObject{base: m.base, readonly: m.readonly, off: m.off, length: byteLen / size, format: code, displayFormat: disp, itemsize: size}, nil
 	}
+	// A reshape needs a source with no zero dimension, since a zero-length view
+	// carries no elements to lay out under the new shape. CPython rejects it here,
+	// ahead of the per-element checks, so even a shape with a bad element still
+	// reports the zero-view TypeError first. The source is a 1D C-contiguous view
+	// at this point, so a zero shows up only as a zero byte length.
+	if byteLen == 0 {
+		return nil, Raise(TypeError, "memoryview: cannot cast view with zeros in shape or strides")
+	}
 	dims := make([]int, len(shapeElems))
 	for i, e := range shapeElems {
 		d, ok := AsInt(e)

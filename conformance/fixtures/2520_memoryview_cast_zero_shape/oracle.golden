@@ -1,0 +1,24 @@
+== exit: 0
+== stdout:
+== reshaping an empty view is the zero-view TypeError ==
+empty shape[0] => TypeError : memoryview: cannot cast view with zeros in shape or strides
+empty shape[1] => TypeError : memoryview: cannot cast view with zeros in shape or strides
+empty shape[0,1] => TypeError : memoryview: cannot cast view with zeros in shape or strides
+empty shape[1,0] => TypeError : memoryview: cannot cast view with zeros in shape or strides
+empty shape[] => TypeError : memoryview: cannot cast view with zeros in shape or strides
+empty shape['x'] => TypeError : memoryview: cannot cast view with zeros in shape or strides
+empty shape[-1] => TypeError : memoryview: cannot cast view with zeros in shape or strides
+empty shape[2.0] => TypeError : memoryview: cannot cast view with zeros in shape or strides
+== a sized view keeps the per-element wording ==
+6 shape[0,3] => ValueError : memoryview.cast(): elements of shape must be integers > 0
+6 shape[2,0] => ValueError : memoryview.cast(): elements of shape must be integers > 0
+6 shape[-1,3] => ValueError : memoryview.cast(): elements of shape must be integers > 0
+6 shape[2,'x'] => TypeError : memoryview.cast(): elements of shape must be integers
+6 shape[2.0,3] => TypeError : memoryview.cast(): elements of shape must be integers
+6 shape[2,2] => TypeError : memoryview: product(shape) * itemsize != buffer size
+6 shape[2,3] => [[0, 0, 0], [0, 0, 0]]
+== casting an empty view without a shape still works ==
+empty cast B => []
+empty cast I => []
+== exception:
+== stderr:
