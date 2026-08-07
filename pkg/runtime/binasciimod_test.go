@@ -44,6 +44,16 @@ func TestBinasciiUu(t *testing.T) {
 	if _, err := binasciiA2bUu([]objects.Object{objects.NewBytes([]byte("#0V%T!!x"))}); err == nil {
 		t.Fatal("a2b_uu trailing garbage did not raise")
 	}
+	// An empty input has no length byte, so it raises rather than returning b'';
+	// a zero-length line whose length byte is a space still decodes to b''.
+	if _, err := binasciiA2bUu([]objects.Object{objects.NewBytes(nil)}); err == nil ||
+		!strings.Contains(err.Error(), "Missing length byte") {
+		t.Fatalf("a2b_uu empty error = %v, want Missing length byte", err)
+	}
+	zero, err := binasciiA2bUu([]objects.Object{objects.NewBytes([]byte(" \n"))})
+	if err != nil || objects.Repr(zero) != "b''" {
+		t.Fatalf("a2b_uu zero-length line = %s, %v", objects.Repr(zero), err)
+	}
 }
 
 func TestBinasciiBuffer(t *testing.T) {
