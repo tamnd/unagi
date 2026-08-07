@@ -132,18 +132,18 @@ func intLoadAttr(o Object, name string) (Object, error) {
 	switch name {
 	case "to_bytes":
 		recv := o
-		return NewFuncKw("to_bytes", func(pos []Object, kwNames []string, kwVals []Object) (Object, error) {
+		return bindSelf(NewFuncKw("to_bytes", func(pos []Object, kwNames []string, kwVals []Object) (Object, error) {
 			return intToBytes(recv, pos, kwNames, kwVals)
-		}), nil
+		}), recv), nil
 	case "from_bytes":
 		return NewFuncKw("from_bytes", intFromBytes), nil
 	}
 	if intMethodNames[name] {
 		method := name
 		recv := o
-		return NewFunc(name, -1, func(args []Object) (Object, error) {
+		return bindSelf(NewFunc(name, -1, func(args []Object) (Object, error) {
 			return intMethod(recv, method, args)
-		}), nil
+		}), recv), nil
 	}
 	if v := numericBoundDunder(o, name); v != nil {
 		return v, nil

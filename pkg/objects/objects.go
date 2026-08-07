@@ -575,6 +575,17 @@ func NewList(elts []Object) Object { return &listObject{elts: elts} }
 // NewTuple builds a tuple that owns the given slice.
 func NewTuple(elts []Object) Object { return &tupleObject{elts: elts} }
 
+// bindSelf stamps a builtin method funcObject with the receiver it reports
+// through __self__, so a bound instance method read off a number ((255).to_bytes,
+// (1.5).is_integer) hands back its receiver the way CPython's bound method does.
+// It is a no-op for anything that is not a plain funcObject.
+func bindSelf(fn Object, self Object) Object {
+	if f, ok := fn.(*funcObject); ok {
+		f.boundSelf = self
+	}
+	return fn
+}
+
 // NewFunc wraps a Go function as a callable object. A negative arity
 // disables the positional argument count check; builtins use that.
 func NewFunc(name string, arity int, fn func(args []Object) (Object, error)) Object {
