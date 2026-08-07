@@ -71,6 +71,9 @@ func isIntOperand(o Object) bool {
 // hands off to the operand's own reflected method instead of pretending int
 // handles it.
 func numericBoundDunder(recv Object, name string) Object {
+	if name == "__pow__" || name == "__rpow__" {
+		return numericPowDunder(recv, name)
+	}
 	if spec, ok := numericBinDunders[name]; ok {
 		return NewFunc(name, -1, func(args []Object) (Object, error) {
 			if len(args) != 1 {
@@ -99,6 +102,60 @@ func numericBoundDunder(recv Object, name string) Object {
 		return v
 	}
 	return nil
+}
+
+// numericPowDunder returns int's __pow__/__rpow__ slot, which unlike the other
+// binary dunders takes an optional second modulus argument the way CPython's
+// three-argument pow protocol routes through the slot: (3).__pow__(4, 5) is
+// 3**4 % 5. A None modulus (or none at all) is the plain power, a non-int
+// exponent or a non-int modulus declines with NotImplemented so a mixed pair
+// hands off, and a modulus of zero is the pow() 3rd-argument ValueError.
+func numericPowDunder(recv Object, name string) Object {
+	reflected := name == "__rpow__"
+	return NewFunc(name, -1, func(args []Object) (Object, error) {
+		if len(args) < 1 || len(args) > 2 {
+			return nil, Raise(TypeError, "expected 1 or 2 arguments, got %d", len(args))
+		}
+		other := args[0]
+		if !isIntOperand(other) {
+			return NotImplemented, nil
+		}
+		base, exp := recv, other
+		if reflected {
+			base, exp = other, recv
+		}
+		if len(args) == 1 || args[1] == None {
+			return binOp("**")(base, exp)
+		}
+		mod := args[1]
+		if !isIntOperand(mod) {
+			return NotImplemented, nil
+		}
+		bb, _ := AsBigInt(base)
+		eb, _ := AsBigInt(exp)
+		mb, _ := AsBigInt(mod)
+		return intModPow(bb, eb, mb)
+	})
+}
+
+// intModPow computes base**exp % mod for the three-argument pow slot, mirroring
+// the builtin pow(base, exp, mod): a zero modulus is the pow() 3rd-argument
+// ValueError, a negative exponent goes through the modular inverse and reports a
+// missing one, and a negative modulus shifts the result into that sign the way
+// CPython's modulo does.
+func intModPow(bb, eb, mb *big.Int) (Object, error) {
+	if mb.Sign() == 0 {
+		return nil, Raise(ValueError, "pow() 3rd argument cannot be 0")
+	}
+	am := new(big.Int).Abs(mb)
+	r := new(big.Int).Exp(bb, eb, am)
+	if r == nil {
+		return nil, Raise(ValueError, "base is not invertible for the given modulus")
+	}
+	if mb.Sign() < 0 && r.Sign() != 0 {
+		r.Sub(r, am)
+	}
+	return NewIntFromBig(r), nil
 }
 
 // numericSpecialNames is the set of argument-light special dunders int and bool
