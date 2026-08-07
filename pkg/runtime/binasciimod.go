@@ -83,14 +83,34 @@ func binasciiErrorf(format string, a ...any) error {
 	return objects.Raise("Error", "%s", format)
 }
 
-// binasciiData reads a buffer or ASCII str argument, the way the C codecs
-// accept any read-only buffer (bytes, bytearray, memoryview, array) or, for the
-// a2b functions, an ASCII string.
-func binasciiData(o objects.Object) ([]byte, error) {
+// binasciiBytes reads the bytes-like source the b2a_* encoders and the crc
+// functions take: any read-only buffer (bytes, bytearray, memoryview, array). A
+// str is not a bytes-like object, so it is rejected with the TypeError CPython's
+// Py_buffer conversion raises, unlike the a2b_* decoders which accept an ASCII
+// str through binasciiAscii.
+func binasciiBytes(o objects.Object) ([]byte, error) {
+	if b, ok := objects.AsBufferBytes(o); ok {
+		return b, nil
+	}
+	return nil, objects.Raise(objects.TypeError, "a bytes-like object is required, not '%s'", o.TypeName())
+}
+
+// binasciiAscii reads the ascii-buffer source the a2b_* decoders take: any
+// read-only buffer, or a str that must be pure ASCII. A non-ASCII str is the
+// ValueError CPython's ascii_buffer converter raises ("string argument should
+// contain only ASCII characters"), and any other type is the bytes-like
+// TypeError. A non-ASCII rune always encodes to a byte above 127 in UTF-8, so
+// scanning the bytes catches it without decoding to runes.
+func binasciiAscii(o objects.Object) ([]byte, error) {
 	if b, ok := objects.AsBufferBytes(o); ok {
 		return b, nil
 	}
 	if s, ok := objects.AsStr(o); ok {
+		for i := 0; i < len(s); i++ {
+			if s[i] > 127 {
+				return nil, objects.Raise(objects.ValueError, "string argument should contain only ASCII characters")
+			}
+		}
 		return []byte(s), nil
 	}
 	return nil, objects.Raise(objects.TypeError, "a bytes-like object is required, not '%s'", o.TypeName())
@@ -105,7 +125,7 @@ func binasciiHexlify(args []objects.Object) (objects.Object, error) {
 	if len(args) < 1 {
 		return nil, objects.Raise(objects.TypeError, "hexlify() takes at least 1 argument (0 given)")
 	}
-	data, err := binasciiData(args[0])
+	data, err := binasciiBytes(args[0])
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +192,7 @@ func hexWithSep(data []byte, sep byte, bps int) []byte {
 // binasciiUnhexlify implements unhexlify/a2b_hex: the bytes of a hex string,
 // raising Error on an odd length or a non-hex digit.
 func binasciiUnhexlify(args []objects.Object) (objects.Object, error) {
-	data, err := binasciiData(args[0])
+	data, err := binasciiAscii(args[0])
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +251,7 @@ func binasciiB2aBase64(pos []objects.Object, kwNames []string, kwVals []objects.
 		}
 		newline = objects.Truth(kwVals[i])
 	}
-	data, err := binasciiData(pos[0])
+	data, err := binasciiBytes(pos[0])
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +294,7 @@ func binasciiA2bBase64(pos []objects.Object, kwNames []string, kwVals []objects.
 		}
 		strict = objects.Truth(kwVals[i])
 	}
-	data, err := binasciiData(pos[0])
+	data, err := binasciiAscii(pos[0])
 	if err != nil {
 		return nil, err
 	}
@@ -356,7 +376,7 @@ func binasciiB2aUu(pos []objects.Object, kwNames []string, kwVals []objects.Obje
 		}
 		backtick = objects.Truth(kwVals[i])
 	}
-	data, err := binasciiData(pos[0])
+	data, err := binasciiBytes(pos[0])
 	if err != nil {
 		return nil, err
 	}
@@ -396,7 +416,7 @@ func binasciiB2aUu(pos []objects.Object, kwNames []string, kwVals []objects.Obje
 // character gives the byte length, the rest are 6-bit groups (space or backtick
 // meaning zero), and any characters past the length must be whitespace-only.
 func binasciiA2bUu(args []objects.Object) (objects.Object, error) {
-	data, err := binasciiData(args[0])
+	data, err := binasciiAscii(args[0])
 	if err != nil {
 		return nil, err
 	}
@@ -449,7 +469,7 @@ func binasciiCRC32(args []objects.Object) (objects.Object, error) {
 	if len(args) < 1 {
 		return nil, objects.Raise(objects.TypeError, "crc32() takes at least 1 argument (0 given)")
 	}
-	data, err := binasciiData(args[0])
+	data, err := binasciiBytes(args[0])
 	if err != nil {
 		return nil, err
 	}
@@ -467,7 +487,7 @@ func binasciiCRC32(args []objects.Object) (objects.Object, error) {
 // binasciiCRCHqx implements crc_hqx(data, value): the CRC-CCITT (XModem) 16-bit
 // checksum, MSB first with polynomial 0x1021.
 func binasciiCRCHqx(args []objects.Object) (objects.Object, error) {
-	data, err := binasciiData(args[0])
+	data, err := binasciiBytes(args[0])
 	if err != nil {
 		return nil, err
 	}
@@ -555,7 +575,7 @@ func binasciiA2bQp(pos []objects.Object, kwNames []string, kwVals []objects.Obje
 	if dataObj == nil {
 		return nil, objects.Raise(objects.TypeError, "a2b_qp() missing required argument 'data' (pos 1)")
 	}
-	data, err := binasciiData(dataObj)
+	data, err := binasciiAscii(dataObj)
 	if err != nil {
 		return nil, err
 	}
@@ -677,7 +697,7 @@ func binasciiB2aQp(pos []objects.Object, kwNames []string, kwVals []objects.Obje
 	if dataObj == nil {
 		return nil, objects.Raise(objects.TypeError, "b2a_qp() missing required argument 'data' (pos 1)")
 	}
-	data, err := binasciiData(dataObj)
+	data, err := binasciiBytes(dataObj)
 	if err != nil {
 		return nil, err
 	}
