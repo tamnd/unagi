@@ -9,11 +9,12 @@ import "math/big"
 // and signed by keyword only, matching CPython 3.14.
 
 // intByteorder resolves the byteorder argument to a big-endian flag, raising the
-// CPython ValueError for anything but 'little' or 'big'.
-func intByteorder(o Object) (bigEndian bool, err error) {
+// CPython ValueError for anything but 'little' or 'big'. method names the calling
+// method so the type error reads to_bytes() or from_bytes() to match CPython.
+func intByteorder(o Object, method string) (bigEndian bool, err error) {
 	s, ok := AsStr(o)
 	if !ok {
-		return false, Raise(TypeError, "from_bytes() argument 'byteorder' must be str, not %s", o.TypeName())
+		return false, Raise(TypeError, "%s() argument 'byteorder' must be str, not %s", method, o.TypeName())
 	}
 	switch s {
 	case "big":
@@ -69,7 +70,7 @@ func intFromBytes(pos []Object, kwNames []string, kwVals []Object) (Object, erro
 	bigEndian := true
 	if haveOrder {
 		var err error
-		if bigEndian, err = intByteorder(orderArg); err != nil {
+		if bigEndian, err = intByteorder(orderArg, "from_bytes"); err != nil {
 			return nil, err
 		}
 	}
@@ -101,7 +102,23 @@ func intBytesFromIterable(o Object) ([]byte, error) {
 	if b, ok := asBytesLike(o); ok {
 		return append([]byte(nil), b...), nil
 	}
+	// A memoryview or array exposes the buffer protocol, so from_bytes reads its
+	// raw itemsize bytes the way CPython does rather than iterating its elements;
+	// a released view forbids the access with the released-memoryview ValueError.
+	switch o.(type) {
+	case *memoryviewObject, *arrayObject:
+		b, ok := mvBytesLike(o)
+		if !ok {
+			return nil, mvReleased()
+		}
+		return append([]byte(nil), b...), nil
+	}
 	if _, ok := AsInt(o); ok {
+		return nil, Raise(TypeError, "cannot convert '%s' object to bytes", o.TypeName())
+	}
+	// A str is iterable but CPython's buffer conversion special-cases it, so it is
+	// the cannot-convert TypeError rather than an iteration over its characters.
+	if _, ok := o.(*strObject); ok {
 		return nil, Raise(TypeError, "cannot convert '%s' object to bytes", o.TypeName())
 	}
 	it, err := Iter(o)
@@ -128,6 +145,24 @@ func intBytesFromIterable(o Object) ([]byte, error) {
 	}
 }
 
+// intLengthArg coerces a to_bytes length argument to an int through __index__,
+// so an object spelling __index__ counts as its integer value the way CPython
+// runs the length through PyNumber_Index. A plain int passes straight through, a
+// bad __index__ return keeps its "__index__ returned non-int" error, and anything
+// else is the not-an-integer TypeError.
+func intLengthArg(o Object) (int, error) {
+	if l, ok := AsInt(o); ok {
+		return int(l), nil
+	}
+	if r, isIdx, err := IndexOf(o); err != nil {
+		return 0, err
+	} else if isIdx {
+		l, _ := AsInt(r)
+		return int(l), nil
+	}
+	return 0, Raise(TypeError, "'%s' object cannot be interpreted as an integer", o.TypeName())
+}
+
 // intToBytes implements n.to_bytes(length=1, byteorder='big', *, signed=False),
 // packing the receiver into a fixed-width bytes value and raising OverflowError
 // when it does not fit.
@@ -138,18 +173,18 @@ func intToBytes(recv Object, pos []Object, kwNames []string, kwVals []Object) (O
 	length := 1
 	haveLen := false
 	if len(pos) >= 1 {
-		l, ok := AsInt(pos[0])
-		if !ok {
-			return nil, Raise(TypeError, "'%s' object cannot be interpreted as an integer", pos[0].TypeName())
+		l, err := intLengthArg(pos[0])
+		if err != nil {
+			return nil, err
 		}
-		length = int(l)
+		length = l
 		haveLen = true
 	}
 	bigEndian := true
 	haveOrder := false
 	var err error
 	if len(pos) == 2 {
-		bigEndian, err = intByteorder(pos[1])
+		bigEndian, err = intByteorder(pos[1], "to_bytes")
 		if err != nil {
 			return nil, err
 		}
@@ -162,16 +197,16 @@ func intToBytes(recv Object, pos []Object, kwNames []string, kwVals []Object) (O
 			if haveLen {
 				return nil, Raise(TypeError, "argument for to_bytes() given by name ('length') and position (1)")
 			}
-			l, ok := AsInt(kwVals[i])
-			if !ok {
-				return nil, Raise(TypeError, "'%s' object cannot be interpreted as an integer", kwVals[i].TypeName())
+			l, err := intLengthArg(kwVals[i])
+			if err != nil {
+				return nil, err
 			}
-			length = int(l)
+			length = l
 		case "byteorder":
 			if haveOrder {
 				return nil, Raise(TypeError, "argument for to_bytes() given by name ('byteorder') and position (2)")
 			}
-			bigEndian, err = intByteorder(kwVals[i])
+			bigEndian, err = intByteorder(kwVals[i], "to_bytes")
 			if err != nil {
 				return nil, err
 			}
