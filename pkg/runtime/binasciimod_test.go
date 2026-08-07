@@ -133,6 +133,31 @@ func isKindErr(err error, kind string) bool {
 	return ok && e.Kind == kind
 }
 
+func TestBinasciiHexSepLength(t *testing.T) {
+	if _, err := ImportModule("binascii"); err != nil {
+		t.Fatalf("import binascii: %v", err)
+	}
+	// hexlify's separator must be a single character. A longer, empty or str
+	// separator all raise the same ValueError, whose message ends with a period
+	// the way CPython spells it (and the way bytes.hex already did).
+	data := objects.NewBytes([]byte("ab"))
+	for _, sep := range []objects.Object{
+		objects.NewBytes([]byte("::")),
+		objects.NewBytes(nil),
+		objects.NewStr("::"),
+	} {
+		_, err := binasciiHexlify([]objects.Object{data, sep})
+		if err == nil || err.Error() != "ValueError: sep must be length 1." {
+			t.Fatalf("hexlify sep=%s error = %v; want ValueError: sep must be length 1.", objects.Repr(sep), err)
+		}
+	}
+	// A one-character separator is accepted and grouped into the output.
+	out, err := binasciiHexlify([]objects.Object{objects.NewBytes([]byte("abcd")), objects.NewBytes([]byte(":"))})
+	if err != nil || objects.Repr(out) != "b'61:62:63:64'" {
+		t.Fatalf("hexlify sep=b':' = %s, %v", objects.Repr(out), err)
+	}
+}
+
 func TestBinasciiStrArgs(t *testing.T) {
 	// Importing binascii runs its init so binascii.Error is built for the error paths.
 	if _, err := ImportModule("binascii"); err != nil {

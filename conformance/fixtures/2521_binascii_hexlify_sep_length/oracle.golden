@@ -1,0 +1,17 @@
+== exit: 0
+== stdout:
+== a separator that is not one character raises with a period ==
+hexlify sep b'::' => ValueError : sep must be length 1.
+hexlify sep b'' => ValueError : sep must be length 1.
+hexlify sep '::' => ValueError : sep must be length 1.
+b2a_hex sep b'::' => ValueError : sep must be length 1.
+bytes.hex sep '::' => ValueError : sep must be length 1.
+bytearray.hex sep '::' => ValueError : sep must be length 1.
+== a single-character separator is accepted ==
+hexlify sep b':' => b'61:62:63:64'
+hexlify sep b':' bytes 2 => b'6162:6364'
+b2a_hex sep 'x' => b'61x62'
+hexlify sep b'\xff' => b'61\xff62'
+bytes.hex sep ':' bytes 2 => '6162:6364'
+== exception:
+== stderr:

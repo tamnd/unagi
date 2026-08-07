@@ -158,7 +158,7 @@ func binasciiHexlify(args []objects.Object) (objects.Object, error) {
 		}
 	}
 	if len(sep) != 1 {
-		return nil, objects.Raise(objects.ValueError, "sep must be length 1")
+		return nil, objects.Raise(objects.ValueError, "sep must be length 1.")
 	}
 	bps := 1
 	if len(args) >= 3 {
