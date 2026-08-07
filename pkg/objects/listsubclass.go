@@ -104,7 +104,7 @@ func listSubclassAttr(x *instanceObject, name string) (Object, bool) {
 		return nil, false
 	}
 	fn := func(args []Object) (Object, error) { return listMethod(l, name, args) }
-	return NewFunc(name, -1, fn), true
+	return subclassMethodValue(x, name, fn), true
 }
 
 // listDunderAttr returns a list sequence dunder bound to the subclass instance,

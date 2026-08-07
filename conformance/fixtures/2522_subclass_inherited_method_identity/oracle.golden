@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+D.get.__self__ is d True
+D.get.__qualname__ 'D.get'
+D.get.__name__ 'get'
+D.items.__qualname__ 'D.items'
+L.append.__self__ is l True
+L.append.__qualname__ 'L.append'
+L.append.__name__ 'append'
+S.add.__self__ is s True
+S.add.__qualname__ 'S.add'
+T.upper.__self__ is t True
+T.upper.__qualname__ 'T.upper'
+A.append.__self__ is a True
+A.append.__qualname__ 'A.append'
+Counter.get.__self__ is c True
+Counter.get.__qualname__ 'Counter.get'
+d.get('a') 1
+l after append [1, 2, 3, 4]
+== exception:
+== stderr:

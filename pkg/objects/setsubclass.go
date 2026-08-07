@@ -121,7 +121,7 @@ func setSubclassAttr(x *instanceObject, name string) (Object, bool) {
 		return nil, false
 	}
 	fn := func(args []Object) (Object, error) { return setSubclassMethod(payload, name, args) }
-	return NewFunc(name, -1, fn), true
+	return subclassMethodValue(x, name, fn), true
 }
 
 // setDunderAttr returns a set membership dunder bound to the subclass instance,

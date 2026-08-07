@@ -885,6 +885,34 @@ func blockedNames(seqs [][]*classObject) string {
 	return out
 }
 
+// classQualname is the class's __qualname__: the stored qual path with the
+// module prefix trimmed, so a top-level class reads its bare name and a nested
+// one reads Outer.Inner. The module comes from the class dict, where the class
+// statement and type.__new__ both record it.
+func classQualname(c *classObject) string {
+	mod := "__main__"
+	if m, ok := c.dict["__module__"].(*strObject); ok {
+		mod = m.v
+	}
+	return strings.TrimPrefix(c.qual, mod+".")
+}
+
+// subclassMethodValue binds one inherited builtin method as a first-class
+// callable off a subclass instance, the value inst.method reads back before the
+// call. Like CPython's bound builtin method it reports the instance through
+// __self__ and names __qualname__ after the instance's own class, so D().get
+// where class D(dict) reads D.get, while __name__ stays the bare method name. The
+// call dispatches through fn, which the caller has already bound to the payload.
+func subclassMethodValue(inst *instanceObject, name string, fn func(args []Object) (Object, error)) Object {
+	return &funcObject{
+		name:          name,
+		arity:         -1,
+		boundSelf:     inst,
+		qualnameOwner: classQualname(inst.cls),
+		fn:            fn,
+	}
+}
+
 // classIntrospect answers the type object's own read-only attributes. Each
 // value is computed from the class rather than stored, and the implicit object
 // root is materialized here so __bases__ and __mro__ spell it the way CPython
@@ -899,11 +927,7 @@ func classIntrospect(c *classObject, name string) (Object, bool) {
 		// that path without the module, which is the bare name for a top-level
 		// class and Outer.Inner for a nested one. The module comes from the
 		// class dict, where the class statement and type.__new__ both put it.
-		mod := "__main__"
-		if m, ok := c.dict["__module__"].(*strObject); ok {
-			mod = m.v
-		}
-		return NewStr(strings.TrimPrefix(c.qual, mod+".")), true
+		return NewStr(classQualname(c)), true
 	case "__bases__":
 		return classBases(c), true
 	case "__mro__":
