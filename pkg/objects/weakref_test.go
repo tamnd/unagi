@@ -138,3 +138,37 @@ func TestWeakrefRejectsUnreferenceable(t *testing.T) {
 		t.Fatalf("NewWeakref(str) did not raise, want TypeError")
 	}
 }
+
+// TestWeakrefArrayAndMemoryview checks that array.array and memoryview accept a
+// weak reference the way CPython's C types do (they declare a __weakref__ slot),
+// while the built-in containers with no slot still reject one.
+func TestWeakrefArrayAndMemoryview(t *testing.T) {
+	arr, err := NewArray(NewStr("i"), NewList([]Object{NewInt(1), NewInt(2)}))
+	if err != nil {
+		t.Fatalf("NewArray: %v", err)
+	}
+	mv, err := NewMemoryView(NewBytes([]byte("ab")))
+	if err != nil {
+		t.Fatalf("NewMemoryView: %v", err)
+	}
+	for _, tt := range []struct {
+		name string
+		obj  Object
+	}{{"array", arr}, {"memoryview", mv}} {
+		r, err := NewWeakref(tt.obj, nil)
+		if err != nil {
+			t.Fatalf("NewWeakref(%s): %v", tt.name, err)
+		}
+		if got := weakrefTarget(r.(*weakrefObject)); got != tt.obj {
+			t.Errorf("%s: deref did not return the referent", tt.name)
+		}
+	}
+	// A list and a dict carry no __weakref__ slot, so they still reject a ref.
+	if _, err := NewWeakref(NewList(nil), nil); err == nil {
+		t.Fatal("NewWeakref(list) did not raise, want TypeError")
+	}
+	d, _ := NewDict(nil, nil)
+	if _, err := NewWeakref(d, nil); err == nil {
+		t.Fatal("NewWeakref(dict) did not raise, want TypeError")
+	}
+}
