@@ -1,0 +1,29 @@
+== exit: 0
+== stdout:
+at_i_format => '@i'
+at_i_itemsize => 4
+at_i_tolist => [7, -3]
+at_B_format => '@B'
+at_d_tolist => [1.5]
+at_bool_tolist => [False, True]
+at_c_tolist => [b'A', b'B']
+at_e_tolist => [1.5]
+slice_format => '@i'
+slice_tolist => [2, 3]
+toreadonly_format => '@i'
+eq_at_plain => True
+eq_at_at => True
+contains => True
+hash_c_eq_bytes => True
+hash_i => ValueError : memoryview: hashing is restricted to formats 'B', 'b' or 'c'
+write_i_ok => 42
+write_i_str => TypeError : memoryview: invalid type for format 'i'
+write_i_over => ValueError : memoryview: invalid value for format 'i'
+write_c_int => TypeError : memoryview: invalid type for format 'c'
+write_e_over => ValueError : memoryview: invalid value for format 'e'
+plain_at => ValueError : memoryview: destination format must be a native single character format prefixed with an optional '@'
+at_two => ValueError : memoryview: destination format must be a native single character format prefixed with an optional '@'
+empty => ValueError : memoryview: destination format must be a native single character format prefixed with an optional '@'
+bad_prefix => ValueError : memoryview: destination format must be a native single character format prefixed with an optional '@'
+== exception:
+== stderr:
