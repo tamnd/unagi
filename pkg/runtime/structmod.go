@@ -800,9 +800,15 @@ func packBytesField(buf []byte, off, count int, o objects.Object, pascal bool) e
 		if count == 0 {
 			return nil
 		}
-		nlen := min(len(b), count-1, 255)
-		buf[off] = byte(nlen)
-		copy(buf[off+1:off+count], b[:nlen])
+		// CPython copies up to count-1 data bytes, then caps only the recorded
+		// length byte at 255, so a 1000p field of 1000 bytes keeps 999 data bytes
+		// behind a length byte of 255 rather than truncating the data to 255.
+		n := min(len(b), count-1)
+		copy(buf[off+1:off+count], b[:n])
+		if n > 255 {
+			n = 255
+		}
+		buf[off] = byte(n)
 		return nil
 	}
 	copy(buf[off:off+count], b)
