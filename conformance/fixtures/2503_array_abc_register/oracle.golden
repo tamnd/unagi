@@ -1,0 +1,30 @@
+== exit: 0
+== stdout:
+== an array is a MutableSequence and everything it implies ==
+MutableSequence True
+Sequence True
+Reversible True
+Collection True
+Iterable True
+Container True
+Sized True
+== but not a mapping or a set ==
+MutableMapping False
+Mapping False
+MutableSet False
+Set False
+== the registration is on the type, so issubclass agrees ==
+MutableSequence True
+Sequence True
+MutableMapping False
+== an empty array of another typecode registers the same ==
+float array True
+byte array True
+== the sequence surface the ABC promises still works ==
+list [0, 1, 2, 3, 4]
+index 3
+count 1
+reversed [4, 3, 2, 1, 0]
+after del [1, 2, 3, 4]
+== exception:
+== stderr:

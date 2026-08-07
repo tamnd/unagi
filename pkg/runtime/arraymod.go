@@ -77,7 +77,38 @@ func initArray(m *objects.Module) error {
 	// the rebuild hook. Registering here means an imported array module is picklable.
 	objects.RegisterPickleBuiltin("array", "array", arrayType)
 	objects.RegisterPickleBuiltin("array", "_array_reconstructor", reconstructor)
-	return objects.StoreAttr(m, "typecodes", objects.NewStr("bBuwhHiIlLqQfd"))
+	if err := objects.StoreAttr(m, "typecodes", objects.NewStr("bBuwhHiIlLqQfd")); err != nil {
+		return err
+	}
+	return registerArrayMutableSequence()
+}
+
+// registerArrayMutableSequence mirrors CPython's array module init, which
+// registers array.array as a collections.abc.MutableSequence, so
+// isinstance(a, MutableSequence) is true and the Sequence, Iterable, Container
+// and Reversible chain answers true through it. It is best-effort like the 'u'
+// deprecation warning: a program that never pulls in collections.abc cannot
+// observe the registration, so a missing module is skipped while the array type
+// still works, and any program that checks the ABC has imported collections.abc
+// and finds the registration already in place.
+func registerArrayMutableSequence() error {
+	m, err := ImportModule("collections.abc")
+	if err != nil {
+		if isModuleNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	ms, err := objects.LoadAttr(m, "MutableSequence")
+	if err != nil {
+		return err
+	}
+	register, err := objects.LoadAttr(ms, "register")
+	if err != nil {
+		return err
+	}
+	_, err = objects.Call(register, []objects.Object{arrayType})
+	return err
 }
 
 // arrayUDeprecationMsg is verbatim from CPython 3.14 so a caller filtering or
