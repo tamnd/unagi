@@ -120,6 +120,19 @@ func byteFromObj(o Object, rangeMsg string) (byte, error) {
 	if IsBigInt(o) {
 		return 0, Raise(ValueError, "%s", rangeMsg)
 	}
+	// A non-int object spelling __index__ is fed through PyNumber_Index the way
+	// CPython coerces a byte value, its result range-checked and a bad __index__
+	// return propagating its non-int TypeError.
+	r, isIdx, err := IndexOf(o)
+	if err != nil {
+		return 0, err
+	}
+	if isIdx {
+		if i, ok := AsInt(r); ok && i >= 0 && i <= 255 {
+			return byte(i), nil
+		}
+		return 0, Raise(ValueError, "%s", rangeMsg)
+	}
 	return 0, Raise(TypeError, "'%s' object cannot be interpreted as an integer", o.TypeName())
 }
 
