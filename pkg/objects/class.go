@@ -1463,6 +1463,16 @@ func objectDefaultRepr(o Object) string {
 // object tail resolves, which is enough for the common (T, object) chain.
 var BuiltinTypeResolver func(name string) (Object, bool)
 
+// BuiltinFuncSelf returns the module a plain builtin function reports through
+// __self__, so len.__self__ is the builtins module the way CPython binds a
+// builtin_function_or_method to the module it lives in. The runtime installs it
+// because the builtins namespace and the module object both live there; it
+// answers ok only for a genuine builtins-namespace function, identified by
+// object identity, so a native-module function such as math.sqrt (whose __self__
+// is its own module) and a type constructor both fall through. A nil resolver
+// leaves the read an AttributeError, the prior behavior.
+var BuiltinFuncSelf func(fn Object) (Object, bool)
+
 // ClassOfResolver returns the type object a value reports through __class__, the
 // same object type(x) yields. The runtime installs it in its init from TypeOf,
 // where the builtin constructors live; LoadAttr uses it to answer __class__ for
@@ -3168,6 +3178,17 @@ func LoadAttr(o Object, name string) (Object, error) {
 		// told apart from an unstamped builtin.
 		if name == "__self__" && x.boundSelf != nil {
 			return x.boundSelf, nil
+		}
+		// A plain builtin function reports the builtins module through __self__, the
+		// way CPython binds a builtin_function_or_method to the module it lives in
+		// (len.__self__ is builtins). A type constructor has no __self__ and a bound
+		// classmethod already answered above, so this is scoped to a plain function
+		// and confirmed by the runtime's identity check, which leaves a native-module
+		// function such as math.sqrt to fall through.
+		if name == "__self__" && !builtinTypeReprs[x.name] && BuiltinFuncSelf != nil {
+			if self, ok := BuiltinFuncSelf(x); ok {
+				return self, nil
+			}
 		}
 		// A bound builtin classmethod reports a qualified __qualname__, so
 		// int.from_bytes.__qualname__ is 'int.from_bytes' while its __name__ stays

@@ -701,6 +701,34 @@ func init() {
 	// __class__ on a value reports type(x), so LoadAttr answers it for the scalar
 	// and container builtins through the same TypeOf the type() builtin uses.
 	objects.ClassOfResolver = TypeOf
+	// A plain builtin function reports the builtins module through __self__, so
+	// len.__self__ is builtins. Only a genuine builtins-namespace function
+	// qualifies, matched by object identity so a native-module function reaching
+	// the same funcObject path falls through, and open is left out because CPython
+	// binds it to _io rather than builtins. The module is imported lazily so the
+	// read works before an explicit `import builtins`, the way the name is always
+	// available under CPython.
+	objects.BuiltinFuncSelf = func(fn objects.Object) (objects.Object, bool) {
+		found := false
+		for name, v := range builtins {
+			if v == fn {
+				if name == "open" {
+					return nil, false
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, false
+		}
+		if builtinsModule == nil {
+			if _, err := ImportModule("builtins"); err != nil {
+				return nil, false
+			}
+		}
+		return builtinsModule, true
+	}
 	register(map[string]objects.Object{
 		"__import__": objects.NewFuncKw("__import__", dunderImport),
 		// print resolves to a keyword-aware object so the value path (passing

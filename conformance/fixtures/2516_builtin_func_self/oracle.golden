@@ -1,0 +1,39 @@
+== exit: 0
+== stdout:
+== a builtin function binds the builtins module ==
+len.__self__ is builtins => True
+print.__self__ is builtins => True
+abs.__self__ is builtins => True
+sorted.__self__ is builtins => True
+iter.__self__ is builtins => True
+min.__self__ is builtins => True
+max.__self__ is builtins => True
+repr.__self__ is builtins => True
+id.__self__ is builtins => True
+hash.__self__ is builtins => True
+chr.__self__ is builtins => True
+ord.__self__ is builtins => True
+isinstance.__self__ is builtins => True
+issubclass.__self__ is builtins => True
+getattr.__self__ is builtins => True
+setattr.__self__ is builtins => True
+hasattr.__self__ is builtins => True
+callable.__self__ is builtins => True
+next.__self__ is builtins => True
+vars.__self__ is builtins => True
+divmod.__self__ is builtins => True
+pow.__self__ is builtins => True
+round.__self__ is builtins => True
+type(len.__self__).__name__ => 'module'
+len.__self__.__name__ => 'builtins'
+len.__name__ => 'len'
+len.__qualname__ => 'len'
+== a type constructor still has no __self__ ==
+int.__self__ => AttributeError : type object 'int' has no attribute '__self__'
+str.__self__ => AttributeError : type object 'str' has no attribute '__self__'
+list.__self__ => AttributeError : type object 'list' has no attribute '__self__'
+== the read works before an explicit import too ==
+chr.__self__.__name__ => 'builtins'
+hash.__name__ => 'hash'
+== exception:
+== stderr:
