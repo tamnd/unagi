@@ -378,6 +378,18 @@ func (a *arrayObject) frombytes(b []byte) error {
 	return nil
 }
 
+// setFromBytes replaces every element by decoding b, which an in-place byte
+// writer like struct.pack_into hands back after mutating the buffer this array
+// produced with tobytes. The length is already a multiple of the item size
+// because it came from tobytes, so this rebuilds the same element count.
+func (a *arrayObject) setFromBytes(b []byte) {
+	size := arrayItemSize(a.code)
+	a.elts = a.elts[:0]
+	for off := 0; off+size <= len(b); off += size {
+		a.elts = append(a.elts, arrayUnpackOne(a.code, b[off:off+size]))
+	}
+}
+
 // tobytes packs every element into one contiguous buffer.
 func (a *arrayObject) tobytes() []byte {
 	size := arrayItemSize(a.code)

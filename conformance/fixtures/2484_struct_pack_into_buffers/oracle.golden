@@ -1,0 +1,22 @@
+== exit: 0
+== stdout:
+bytearray => b'  abcd    '
+array => b'abcd      '
+mv over bytearray => b'   abcd   '
+mv over array => b' abcd     '
+negative offset => b'              abcd  '
+bad b'          ' => TypeError : argument must be read-write bytes-like object, not bytes
+bad '          ' => TypeError : argument must be read-write bytes-like object, not str
+bad [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] => TypeError : argument must be read-write bytes-like object, not list
+bad None => TypeError : argument must be read-write bytes-like object, not None
+bad 5 => TypeError : argument must be read-write bytes-like object, not int
+bad (1, 2) => TypeError : argument must be read-write bytes-like object, not tuple
+mv strided => TypeError : argument must be read-write bytes-like object, not memoryview
+mv reversed => TypeError : argument must be read-write bytes-like object, not memoryview
+mv readonly => TypeError : argument must be read-write bytes-like object, not memoryview
+offset 2**1000 => IndexError : cannot fit 'int' into an index-sized integer
+offset -2**1000 => IndexError : cannot fit 'int' into an index-sized integer
+offset float => TypeError : 'float' object cannot be interpreted as an integer
+offset None => TypeError : 'NoneType' object cannot be interpreted as an integer
+== exception:
+== stderr:

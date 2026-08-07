@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"math"
+	"math/big"
 	"strings"
 	"testing"
 
@@ -715,6 +716,93 @@ func TestStructComplexCodes(t *testing.T) {
 	if _, err := objects.Call(pack, []objects.Object{objects.NewStr("F"), objects.NewStr("x")}); err == nil ||
 		!strings.Contains(err.Error(), "required argument is not a complex") {
 		t.Fatalf("pack(F, str) error = %v, want required argument is not a complex", err)
+	}
+}
+
+// TestStructPackIntoWritable checks that pack_into writes into every read-write
+// buffer CPython accepts, not just a bytearray: an array.array and a writable,
+// C-contiguous memoryview over either a bytearray or an array. A read-only or
+// non-buffer destination is the TypeError naming its type, and an offset too
+// large for a machine int is an IndexError. The expected results were taken from
+// CPython 3.14.6.
+func TestStructPackIntoWritable(t *testing.T) {
+	m, err := ImportModule("_struct")
+	if err != nil {
+		t.Fatalf("import _struct: %v", err)
+	}
+	packInto, err := objects.LoadAttr(m, "pack_into")
+	if err != nil {
+		t.Fatalf("_struct.pack_into: %v", err)
+	}
+	call := func(dst, off objects.Object) error {
+		_, err := objects.Call(packInto, []objects.Object{objects.NewStr("4s"), dst, off, objects.NewBytes([]byte("abcd"))})
+		return err
+	}
+
+	// A signed-char array is written in place, so its bytes read back the packed
+	// string.
+	arr, err := objects.NewArray(objects.NewStr("b"), objects.NewBytes([]byte("          ")))
+	if err != nil {
+		t.Fatalf("NewArray: %v", err)
+	}
+	if err := call(arr, objects.NewInt(0)); err != nil {
+		t.Fatalf("pack_into(array): %v", err)
+	}
+	if got := objects.Repr(arr); !strings.Contains(got, "97, 98, 99, 100") {
+		t.Fatalf("pack_into(array) = %s, want the bytes of 'abcd'", got)
+	}
+
+	// A writable memoryview over a bytearray writes straight into the live buffer.
+	ba := objects.NewByteArray([]byte("          "))
+	mv, err := objects.NewMemoryView(ba)
+	if err != nil {
+		t.Fatalf("NewMemoryView(bytearray): %v", err)
+	}
+	if err := call(mv, objects.NewInt(2)); err != nil {
+		t.Fatalf("pack_into(memoryview over bytearray): %v", err)
+	}
+	if got := objects.Repr(ba); got != "bytearray(b'  abcd    ')" {
+		t.Fatalf("pack_into(memoryview) = %s, want bytearray(b'  abcd    ')", got)
+	}
+
+	// A writable memoryview over an array re-decodes the bytes into the array.
+	arr2, err := objects.NewArray(objects.NewStr("b"), objects.NewBytes([]byte("          ")))
+	if err != nil {
+		t.Fatalf("NewArray 2: %v", err)
+	}
+	mv2, err := objects.NewMemoryView(arr2)
+	if err != nil {
+		t.Fatalf("NewMemoryView(array): %v", err)
+	}
+	if err := call(mv2, objects.NewInt(0)); err != nil {
+		t.Fatalf("pack_into(memoryview over array): %v", err)
+	}
+	if got := objects.Repr(arr2); !strings.Contains(got, "97, 98, 99, 100") {
+		t.Fatalf("pack_into(memoryview over array) = %s, want the bytes of 'abcd'", got)
+	}
+
+	// A read-only bytes and a None are the TypeError naming the type, with None
+	// spelled "None" rather than its NoneType.
+	for _, bad := range []struct {
+		dst  objects.Object
+		name string
+	}{
+		{objects.NewBytes([]byte("          ")), "bytes"},
+		{objects.None, "None"},
+		{objects.NewInt(5), "int"},
+	} {
+		err := call(bad.dst, objects.NewInt(0))
+		if err == nil || !strings.Contains(err.Error(), "argument must be read-write bytes-like object, not "+bad.name) {
+			t.Fatalf("pack_into(%s) error = %v, want read-write bytes-like TypeError", bad.name, err)
+		}
+	}
+
+	// An offset past the machine range is an IndexError, not a silent wrap.
+	bigVal, _ := new(big.Int).SetString("100000000000000000000", 10)
+	big := objects.NewIntFromBig(bigVal)
+	if err := call(objects.NewByteArray([]byte("          ")), big); err == nil ||
+		!strings.Contains(err.Error(), "cannot fit 'int' into an index-sized integer") {
+		t.Fatalf("pack_into(huge offset) error = %v, want index-sized IndexError", err)
 	}
 }
 

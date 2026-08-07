@@ -490,16 +490,26 @@ func structUnpackFromArgs(rest []objects.Object, kwNames []string, kwVals []obje
 // propagates its non-int TypeError, and a value with no __index__ raises the
 // "'X' object cannot be interpreted as an integer" TypeError.
 func structAsOffset(o objects.Object) (int, error) {
-	n, ok := objects.AsInt(o)
+	if n, ok := objects.AsInt(o); ok {
+		return int(n), nil
+	}
+	// A Python int too large for a machine int is not an index-sized offset, the
+	// IndexError CPython's offset converter raises rather than silently wrapping.
+	if objects.IsBigInt(o) {
+		return 0, objects.Raise(objects.IndexError, "cannot fit 'int' into an index-sized integer")
+	}
+	r, isIdx, err := objects.IndexOf(o)
+	if err != nil {
+		return 0, err
+	}
+	if !isIdx {
+		return 0, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", o.TypeName())
+	}
+	n, ok := objects.AsInt(r)
 	if !ok {
-		r, isIdx, err := objects.IndexOf(o)
-		if err != nil {
-			return 0, err
-		}
-		if !isIdx {
-			return 0, objects.Raise(objects.TypeError, "'%s' object cannot be interpreted as an integer", o.TypeName())
-		}
-		n, _ = objects.AsInt(r)
+		// An __index__ that returns an int past the machine range hits the same
+		// index-sized-integer error as a large offset given directly.
+		return 0, objects.Raise(objects.IndexError, "cannot fit 'int' into an index-sized integer")
 	}
 	return int(n), nil
 }
@@ -1130,9 +1140,15 @@ func structPackInto(f *structFormat, bufObj, offObj objects.Object, values []obj
 	if len(values) != need {
 		return nil, structErrorf("pack expected %d items for packing (got %d)", need, len(values))
 	}
-	dst, ok := objects.AsMutableBytes(bufObj)
+	dst, commit, ok := objects.MutableBuffer(bufObj)
 	if !ok {
-		return nil, objects.Raise(objects.TypeError, "argument must be read-write bytes-like object")
+		// The type name follows CPython's _PyArg_BadArgument, which names None as
+		// "None" rather than its NoneType.
+		name := bufObj.TypeName()
+		if bufObj == objects.None {
+			name = "None"
+		}
+		return nil, objects.Raise(objects.TypeError, "argument must be read-write bytes-like object, not %s", name)
 	}
 	o := int(off)
 	if o < 0 {
@@ -1160,6 +1176,9 @@ func structPackInto(f *structFormat, bufObj, offObj objects.Object, values []obj
 	if err := structPackInto2(f, dst[o:o+f.size], values); err != nil {
 		return nil, err
 	}
+	// Push the written bytes back to the destination; a bytearray was mutated in
+	// place, an array is re-decoded from the buffer.
+	commit()
 	return objects.None, nil
 }
 
