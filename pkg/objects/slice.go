@@ -327,6 +327,13 @@ func byteArrayAssignBytes(val Object) ([]byte, error) {
 	if bl, ok := asBytesLike(val); ok {
 		return append([]byte(nil), bl...), nil
 	}
+	// A str is iterable but never a valid source here: CPython rejects it (even
+	// an empty str or a str subclass) with the same wording as a non-iterable,
+	// while a str *element* inside another iterable still hits the per-item
+	// "cannot be interpreted as an integer" check below.
+	if _, ok := AsStr(val); ok {
+		return nil, Raise(TypeError, "can assign only bytes, buffers, or iterables of ints in range(0, 256)")
+	}
 	if _, err := Iter(val); err != nil {
 		return nil, Raise(TypeError, "can assign only bytes, buffers, or iterables of ints in range(0, 256)")
 	}
