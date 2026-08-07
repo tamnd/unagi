@@ -1,0 +1,16 @@
+== exit: 0
+== stdout:
+len_has_call => True
+len_call_invoke => 3
+callable_len_call => True
+b2a_has_call => True
+b2a_call_invoke => b'4142'
+int_has_call => True
+int_call_invoke => 5
+str_call_invoke => '42'
+upper_call => 'ABC'
+append_has_call => True
+chained_call => 2
+len_call_no_args => TypeError : len() takes exactly one argument (0 given)
+== exception:
+== stderr:
