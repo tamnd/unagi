@@ -1,0 +1,22 @@
+import math
+def show(label, fn):
+    try: print(label, "=>", repr(fn())[:40])
+    except Exception as e: print(label, "=>", type(e).__name__, ":", e)
+n=2**1000
+show("perm(n)", lambda: math.perm(n))
+show("perm(n,None)", lambda: math.perm(n,None))
+show("perm(n,n)", lambda: math.perm(n,n))
+show("perm(n,n-1)", lambda: math.perm(n,n-1))
+show("perm(n,2)", lambda: math.perm(n,2))
+show("perm(n,0)", lambda: math.perm(n,0))
+show("perm(n,1)", lambda: math.perm(n,1))
+show("comb(n,n//2)", lambda: math.comb(n,n//2))
+show("comb(n,1)", lambda: math.comb(n,1))
+show("comb(n,n-1)", lambda: math.comb(n,n-1))
+show("comb(n,n)", lambda: math.comb(n,n))
+show("comb(n,2)", lambda: math.comb(n,2))
+show("perm(5,2)", lambda: math.perm(5,2))
+show("comb(5,2)", lambda: math.comb(5,2))
+show("perm(-1)", lambda: math.perm(-1))
+show("comb(5,-1)", lambda: math.comb(5,-1))
+show("perm(5,-1)", lambda: math.perm(5,-1))
