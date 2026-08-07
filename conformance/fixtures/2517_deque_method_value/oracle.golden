@@ -1,0 +1,22 @@
+== exit: 0
+== stdout:
+== a deque method reads back as a bound method ==
+hasattr(d, 'append') => True
+d.append.__name__ => 'append'
+d.append.__qualname__ => 'deque.append'
+d.append.__self__ is d => True
+d.appendleft.__qualname__ => 'deque.appendleft'
+d.rotate.__qualname__ => 'deque.rotate'
+d.popleft.__self__ is d => True
+d.__reversed__.__qualname__ => 'deque.__reversed__'
+type(d.append).__name__ => 'builtin_function_or_method'
+== the read binds and calls the same as a fused call ==
+read append then call => [1, 2, 3, 4]
+read appendleft then call => [0, 1, 2, 3, 4]
+read count then call => 2
+read index then call => 1
+== a missing method still reports the deque attribute error ==
+d.nope => AttributeError : 'collections.deque' object has no attribute 'nope'
+hasattr(d, 'sort') => False
+== exception:
+== stderr:

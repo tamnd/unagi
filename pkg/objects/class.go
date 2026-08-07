@@ -2984,6 +2984,12 @@ func LoadAttr(o Object, name string) (Object, error) {
 			}
 			return None, nil
 		}
+		// A deque method read binds as a callable so d.append reads back and calls
+		// the same as d.append(x), reporting the deque through __self__ and naming
+		// __qualname__ deque.append the way CPython's bound built-in method does.
+		if dequeMethodNames[name] {
+			return builtinMethodValue(x, name), nil
+		}
 		return nil, noAttr(x, name)
 	case *chainMapObject:
 		// maps is the live list of underlying mappings, the one mutable data

@@ -52,6 +52,17 @@ func (d *dequeObject) trimRight() {
 	}
 }
 
+// dequeMethodNames is the set of methods dequeMethod handles, so a read like
+// d.append binds the same callable the fused call d.append(x) dispatches to,
+// the way CPython's deque exposes a bound built-in method for each. __copy__ is
+// left out because dequeMethod does not implement it yet.
+var dequeMethodNames = map[string]bool{
+	"append": true, "appendleft": true, "pop": true, "popleft": true,
+	"extend": true, "extendleft": true, "insert": true, "remove": true,
+	"count": true, "index": true, "rotate": true, "reverse": true,
+	"clear": true, "copy": true, "__reversed__": true,
+}
+
 func dequeMethod(d *dequeObject, name string, args []Object) (Object, error) {
 	switch name {
 	case "append":
