@@ -393,6 +393,133 @@ func ComplexKw(real, imag objects.Object) (objects.Object, error) {
 	return objects.ComplexNew(real, imag)
 }
 
+// StrCtor is the keyword-aware str() constructor. It binds object, encoding and
+// errors from either position or name and routes the decode forms through
+// StrDecode the same way the compiler lowering does, so a str subclass inherits
+// the keyword form (MS(object=b'hi', encoding='utf-8')) and a first-class str
+// reference takes keywords too. It mirrors strKw exactly, so the positional-only
+// fast path reproduces the plain str(...) conversion: the count check outranks a
+// name-and-position clash and a missing object decodes to the empty string.
+func StrCtor(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if total := len(pos) + len(kwNames); total > 3 {
+		return nil, objects.Raise(objects.TypeError, "str() takes at most 3 arguments (%d given)", total)
+	}
+	var objV, encV, errV objects.Object
+	if len(pos) >= 1 {
+		objV = pos[0]
+	}
+	if len(pos) >= 2 {
+		encV = pos[1]
+	}
+	if len(pos) >= 3 {
+		errV = pos[2]
+	}
+	for i, name := range kwNames {
+		switch name {
+		case "object":
+			if len(pos) >= 1 {
+				return nil, objects.Raise(objects.TypeError, "argument for str() given by name ('object') and position (1)")
+			}
+			objV = kwVals[i]
+		case "encoding":
+			if len(pos) >= 2 {
+				return nil, objects.Raise(objects.TypeError, "argument for str() given by name ('encoding') and position (2)")
+			}
+			encV = kwVals[i]
+		case "errors":
+			if len(pos) >= 3 {
+				return nil, objects.Raise(objects.TypeError, "argument for str() given by name ('errors') and position (3)")
+			}
+			errV = kwVals[i]
+		default:
+			return nil, objects.Raise(objects.TypeError, "%s", objects.UnexpectedKwMsg("str", name, []string{"object", "encoding", "errors"}))
+		}
+	}
+	if encV == nil && errV == nil {
+		if objV == nil {
+			return objects.NewStr(""), nil
+		}
+		return StrOf(objV)
+	}
+	src := objV
+	if src == nil {
+		src = objects.NewBytes(nil)
+	}
+	return objects.StrDecode(src, encV, errV)
+}
+
+// IntCtor is the keyword-aware int() constructor. base is the only keyword, the
+// value being positional-only, so int(x=5) is the unexpected-keyword answer and
+// int(base=2) with no value is the missing-string-argument error; this mirrors
+// intKw and lets an int subclass inherit the base keyword (MI('10', base=2)). A
+// second positional means base came by position, and the empty call is 0.
+func IntCtor(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if total := len(pos) + len(kwNames); total > 2 {
+		return nil, objects.Raise(objects.TypeError, "int() takes at most 2 arguments (%d given)", total)
+	}
+	var base objects.Object
+	hasBase := false
+	for i, name := range kwNames {
+		if name != "base" {
+			return nil, objects.Raise(objects.TypeError, "%s", objects.UnexpectedKwMsg("int", name, []string{"base"}))
+		}
+		base = kwVals[i]
+		hasBase = true
+	}
+	if len(pos) == 2 {
+		base = pos[1]
+		hasBase = true
+	}
+	if len(pos) == 0 {
+		if hasBase {
+			return nil, objects.Raise(objects.TypeError, "int() missing string argument")
+		}
+		return objects.NewInt(0), nil
+	}
+	if hasBase {
+		return IntOfBase(pos[0], base)
+	}
+	return IntOf(pos[0])
+}
+
+// ComplexCtor is the keyword-aware complex() constructor. real and imag are both
+// position-or-keyword, so a complex subclass inherits the keyword form
+// (MC(real=1, imag=2)) and a slot filled by both name and position names its
+// one-based position. It mirrors complexKw, the positional-only path reproducing
+// complex(...) including the string-parse form complex('1+2j').
+func ComplexCtor(pos []objects.Object, kwNames []string, kwVals []objects.Object) (objects.Object, error) {
+	if total := len(pos) + len(kwNames); total > 2 {
+		return nil, objects.Raise(objects.TypeError, "complex() takes at most 2 arguments (%d given)", total)
+	}
+	names := []string{"real", "imag"}
+	slots := make([]objects.Object, 2)
+	copy(slots, pos)
+	conflict := -1
+	for i, name := range kwNames {
+		idx := -1
+		for j, n := range names {
+			if n == name {
+				idx = j
+				break
+			}
+		}
+		if idx < 0 {
+			return nil, objects.Raise(objects.TypeError, "%s", objects.UnexpectedKwMsg("complex", name, names))
+		}
+		if idx < len(pos) {
+			if conflict < 0 {
+				conflict = idx
+			}
+			continue
+		}
+		slots[idx] = kwVals[i]
+	}
+	if conflict >= 0 {
+		return nil, objects.Raise(objects.TypeError, "argument for complex() given by name ('%s') and position (%d)", names[conflict], conflict+1)
+	}
+	return objects.ComplexNew(slots[0], slots[1])
+}
+
 // BoolOf implements bool(o), consulting a user __bool__/__len__ through the
 // fallible truth protocol.
 func BoolOf(o objects.Object) (objects.Object, error) {
@@ -573,31 +700,9 @@ func init() {
 		}),
 		"slice":      objects.NewFunc("slice", -1, objects.SliceOf),
 		"memoryview": objects.NewFunc("memoryview", -1, objects.MemoryViewOf),
-		"str": objects.NewFunc("str", -1, func(args []objects.Object) (objects.Object, error) {
-			switch len(args) {
-			case 0:
-				return objects.NewStr(""), nil
-			case 1:
-				return StrOf(args[0])
-			case 2:
-				return objects.StrDecode(args[0], args[1], nil)
-			case 3:
-				return objects.StrDecode(args[0], args[1], args[2])
-			}
-			return nil, objects.Raise(objects.TypeError, "str() takes at most 3 arguments (%d given)", len(args))
-		}),
-		"repr": exactlyOne("repr", ReprOf),
-		"int": objects.NewFunc("int", -1, func(args []objects.Object) (objects.Object, error) {
-			switch len(args) {
-			case 0:
-				return objects.NewInt(0), nil
-			case 1:
-				return IntOf(args[0])
-			case 2:
-				return IntOfBase(args[0], args[1])
-			}
-			return nil, objects.Raise(objects.TypeError, "int() takes at most 2 arguments (%d given)", len(args))
-		}),
+		"str":        objects.NewFuncKw("str", StrCtor),
+		"repr":       exactlyOne("repr", ReprOf),
+		"int":        objects.NewFuncKw("int", IntCtor),
 		"float": objects.NewFunc("float", -1, func(args []objects.Object) (objects.Object, error) {
 			switch len(args) {
 			case 0:
@@ -616,10 +721,8 @@ func init() {
 			}
 			return nil, objects.Raise(objects.TypeError, "bool expected at most 1 argument, got %d", len(args))
 		}),
-		"abs": exactlyOne("abs", Abs),
-		"complex": objects.NewFunc("complex", -1, func(args []objects.Object) (objects.Object, error) {
-			return ComplexOf(args)
-		}),
+		"abs":     exactlyOne("abs", Abs),
+		"complex": objects.NewFuncKw("complex", ComplexCtor),
 		"isinstance": objects.NewFunc("isinstance", 2, func(args []objects.Object) (objects.Object, error) {
 			return IsInstance(args[0], args[1])
 		}),
