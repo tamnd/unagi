@@ -267,6 +267,36 @@ func TestComplexAbsOverflow(t *testing.T) {
 	}
 }
 
+// TestComplexAbsCorrectlyRounded pins the magnitudes where Go's math.Hypot rounds
+// a unit in the last place off the correctly-rounded value CPython's C hypot
+// returns, so abs(2 + 3j) reads back the nearest double rather than the high
+// neighbour. A pair whose squares overflow double still computes through the wider
+// magnitude, and a true magnitude past the double range overflows.
+func TestComplexAbsCorrectlyRounded(t *testing.T) {
+	cases := []struct {
+		re, im, want float64
+	}{
+		{2, 3, 3.605551275463989},
+		{3, 5, 5.830951894845301},
+		{1, 4, 4.123105625617661},
+		{5, 12, 13},
+		{1e200, 1e200, 1.414213562373095e200},
+		{3e-200, 4e-200, 5e-200},
+	}
+	for _, c := range cases {
+		if got := CorrectlyRoundedHypot(c.re, c.im); got != c.want {
+			t.Errorf("CorrectlyRoundedHypot(%g, %g) = %.17g, want %.17g", c.re, c.im, got, c.want)
+		}
+		if r, err := ComplexAbs(c.re, c.im); err != nil || r != c.want {
+			t.Errorf("ComplexAbs(%g, %g) = %.17g, %v, want %.17g", c.re, c.im, r, err, c.want)
+		}
+	}
+	// Go's math.Hypot(2, 3) is the high neighbour, the value the old code returned.
+	if math.Hypot(2, 3) == 3.605551275463989 {
+		t.Error("expected math.Hypot(2, 3) to differ from the correctly-rounded value")
+	}
+}
+
 func TestComplexConjugateAndAttrs(t *testing.T) {
 	c := NewComplex(1, 2)
 	conj, err := CallMethod(c, "conjugate", nil)
