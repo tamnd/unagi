@@ -1,0 +1,19 @@
+== exit: 0
+== stdout:
+true => '01'
+false => '00'
+int0 => '00'
+int7 => '01'
+none => '00'
+emptystr => '00'
+str => '01'
+len0 => '00'
+len3 => '01'
+bool_true => '01'
+bool_false => '00'
+explode => ValueError : boom
+explode_native => ValueError : boom
+plain_obj => '01'
+roundtrip => (False,)
+== exception:
+== stderr:

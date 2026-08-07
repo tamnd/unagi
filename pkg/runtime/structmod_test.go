@@ -446,6 +446,93 @@ func TestStructPascalZeroWidth(t *testing.T) {
 	}
 }
 
+// TestStructBoolTruth checks that the '?' code stores an object's truth the way
+// CPython's np_bool runs PyObject_IsTrue: a plain value is truthy by its own
+// rule, and a user object drives its __bool__ so a raising __bool__ propagates
+// rather than the value defaulting to a true byte. The expected results were
+// taken from CPython 3.14.6.
+func TestStructBoolTruth(t *testing.T) {
+	m, err := ImportModule("_struct")
+	if err != nil {
+		t.Fatalf("import _struct: %v", err)
+	}
+	pack, err := objects.LoadAttr(m, "pack")
+	if err != nil {
+		t.Fatalf("_struct.pack: %v", err)
+	}
+
+	// A plain value packs to one byte by its own truth: zero and empty are false.
+	for _, tc := range []struct {
+		val objects.Object
+		hex string
+	}{
+		{objects.NewInt(0), "00"},
+		{objects.NewInt(5), "01"},
+		{objects.NewStr(""), "00"},
+		{objects.NewStr("x"), "01"},
+		{objects.NewBytes(nil), "00"},
+		{objects.NewList(nil), "00"},
+	} {
+		res, err := objects.Call(pack, []objects.Object{objects.NewStr("?"), tc.val})
+		if err != nil {
+			t.Fatalf("pack(?, %s): %v", objects.Repr(tc.val), err)
+		}
+		b, _ := objects.AsBytes(res)
+		if got := bytesHex(b); got != tc.hex {
+			t.Fatalf("pack(?, %s) = %s, want %s", objects.Repr(tc.val), got, tc.hex)
+		}
+	}
+
+	// A user object drives its own truth protocol: a __len__ of zero is a false
+	// byte, so the '?' code no longer treats every instance as true. Two classes
+	// with a constant __len__ pin both sides.
+	lenClass := func(n int64) objects.Object {
+		lenFn := objects.NewFunc("__len__", -1, func(args []objects.Object) (objects.Object, error) {
+			return objects.NewInt(n), nil
+		})
+		cls, err := objects.NewClass("Sized", "Sized", nil, []string{"__len__"}, []objects.Object{lenFn}, nil, nil)
+		if err != nil {
+			t.Fatalf("NewClass Sized: %v", err)
+		}
+		obj, err := objects.Call(cls, nil)
+		if err != nil {
+			t.Fatalf("Sized(): %v", err)
+		}
+		return obj
+	}
+	for _, tc := range []struct {
+		n   int64
+		hex string
+	}{{0, "00"}, {3, "01"}} {
+		res, err := objects.Call(pack, []objects.Object{objects.NewStr("?"), lenClass(tc.n)})
+		if err != nil {
+			t.Fatalf("pack(?, Sized len %d): %v", tc.n, err)
+		}
+		b, _ := objects.AsBytes(res)
+		if got := bytesHex(b); got != tc.hex {
+			t.Fatalf("pack(?, Sized len %d) = %s, want %s", tc.n, got, tc.hex)
+		}
+	}
+
+	// A user object whose __bool__ raises propagates that error out of pack rather
+	// than swallowing it and writing a true byte.
+	boolFn := objects.NewFunc("__bool__", -1, func(args []objects.Object) (objects.Object, error) {
+		return nil, objects.Raise(objects.ValueError, "boom")
+	})
+	boomCls, err := objects.NewClass("Boom", "Boom", nil, []string{"__bool__"}, []objects.Object{boolFn}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewClass Boom: %v", err)
+	}
+	boom, err := objects.Call(boomCls, nil)
+	if err != nil {
+		t.Fatalf("Boom(): %v", err)
+	}
+	if _, err := objects.Call(pack, []objects.Object{objects.NewStr("?"), boom}); err == nil ||
+		!strings.Contains(err.Error(), "boom") {
+		t.Fatalf("pack(?, Boom()) error = %v, want the raising __bool__ to propagate", err)
+	}
+}
+
 // TestStructPascalLongData checks that a p field wider than 256 bytes keeps up
 // to count-1 data bytes and caps only its recorded length byte at 255, the way
 // CPython's np_p packs: a 1000p field of 1000 bytes stores 999 data bytes behind
