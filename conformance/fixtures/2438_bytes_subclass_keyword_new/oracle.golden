@@ -1,0 +1,22 @@
+== exit: 0
+== stdout:
+source-kw b'hi'
+str-encoding b'hi'
+str-encoding-errors b'caf?'
+encoding-kw-only ERR TypeError bytes() got an unexpected keyword argument 'string'
+count-positional b'\x00\x00\x00'
+empty b''
+value True MB True b'hi'
+unknown-kw ERR TypeError bytes() got an unexpected keyword argument 'foo'
+str-without-encoding ERR TypeError string argument without an encoding
+encoding-without-str ERR TypeError encoding without a string argument
+bad-count ERR ValueError negative count
+init-extra-kw ERR TypeError bytes() got an unexpected keyword argument 'tag'
+init-source-kw b'hi'
+shared-kw b'hi' b'hi'
+float-pos 1.5
+float-kw ERR TypeError float() takes no keyword arguments
+tuple-pos (1, 2, 3)
+tuple-kw ERR TypeError tuple() takes no keyword arguments
+== exception:
+== stderr:
