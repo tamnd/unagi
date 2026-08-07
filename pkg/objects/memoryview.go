@@ -175,7 +175,10 @@ func NewMemoryView(o Object) (Object, error) {
 	case *bytearrayObject:
 		return &memoryviewObject{base: b, readonly: false, off: 0, length: len(b.snapshot()), format: "B", itemsize: 1}, nil
 	case *memoryviewObject:
-		return &memoryviewObject{base: b.base, readonly: b.readonly, off: b.off, length: b.length, format: b.format, itemsize: b.itemsize}, nil
+		// Re-viewing keeps the same root buffer, span and layout, so a strided or
+		// multi-dimensional source hands its shape and strides through rather than
+		// collapsing to a flat contiguous window.
+		return &memoryviewObject{base: b.base, readonly: b.readonly, off: b.off, length: b.length, format: b.format, displayFormat: b.displayFormat, itemsize: b.itemsize, shape: b.shape, strides: b.strides}, nil
 	case *arrayObject:
 		// An array exposes the buffer protocol: the view aliases the array's
 		// storage, carries the typecode as its format and stays writable, so a
@@ -824,10 +827,11 @@ func mvWriteBytes(m *memoryviewObject, e int, buf []byte) {
 	copy(ba.v[base:base+len(buf)], buf)
 }
 
-// mvGetSlice reads mv[lo:hi:step]. A contiguous slice shares the root buffer as
-// a sub-view so writes still alias, matching CPython. An extended step has no
-// contiguous window to share; this tier returns a read-only copy of the picked
-// bytes, a documented divergence from CPython's strided writable view.
+// mvGetSlice reads mv[lo:hi:step]. Every slice shares the root buffer as a
+// sub-view so writes still alias, matching CPython. A contiguous step-one slice
+// of a contiguous view is a plain window; any other case is a strided view whose
+// element reads walk the recorded stride, an extended or negative step spacing
+// them out or reversing them the way CPython returns a view rather than a copy.
 func mvGetSlice(m *memoryviewObject, lo, hi, step Object) (Object, error) {
 	if m.released {
 		return nil, mvReleased()
@@ -839,16 +843,27 @@ func mvGetSlice(m *memoryviewObject, lo, hi, step Object) (Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	if st == 1 {
-		return &memoryviewObject{base: m.base, readonly: m.readonly, off: m.off + start*m.itemsize, length: n, format: m.format, displayFormat: m.displayFormat, itemsize: m.itemsize}, nil
+	// Offsets and the new stride compose over the parent's own stride, which is
+	// the itemsize for a contiguous parent but an arbitrary, possibly negative
+	// value for a strided one, so slicing a strided slice stays correct.
+	parentStride := m.itemsize
+	if m.strides != nil {
+		parentStride = m.strides[0]
 	}
-	full := mvBaseBytes(m)
-	out := make([]byte, 0, n*m.itemsize)
-	for i, j := 0, start; i < n; i, j = i+1, j+st {
-		base := m.off + j*m.itemsize
-		out = append(out, full[base:base+m.itemsize]...)
+	startByte := m.off + start*parentStride
+	if st == 1 && m.strides == nil {
+		return &memoryviewObject{base: m.base, readonly: m.readonly, off: startByte, length: n, format: m.format, displayFormat: m.displayFormat, itemsize: m.itemsize}, nil
 	}
-	return &memoryviewObject{base: NewBytes(out), readonly: true, off: 0, length: n, format: m.format, displayFormat: m.displayFormat, itemsize: m.itemsize}, nil
+	return &memoryviewObject{
+		base:          m.base,
+		readonly:      m.readonly,
+		off:           startByte,
+		length:        n,
+		format:        m.format,
+		displayFormat: m.displayFormat,
+		itemsize:      m.itemsize,
+		strides:       []int{st * parentStride},
+	}, nil
 }
 
 // mvGetSliceMulti slices the leading dimension of a multi-dimensional view. The
@@ -1000,6 +1015,20 @@ func mvBytesLike(o Object) ([]byte, bool) {
 // bytearray, memoryview or array, for callers outside the package that consume
 // the buffer protocol such as the _hashlib constructors.
 func AsBufferBytes(o Object) ([]byte, bool) { return mvBytesLike(o) }
+
+// IsCContiguousBuffer reports whether the bytes-like object o exposes a
+// C-contiguous buffer. Only a memoryview can be non-contiguous, a strided slice
+// such as m[::2] or m[::-1]; bytes, bytearray and array always are. A codec that
+// needs a flat span, such as binascii, consults this to raise the BufferError
+// CPython's PyBUF_C_CONTIGUOUS buffer request raises rather than reading the
+// underlying memory out of order. A released view is reported non-contiguous, but
+// AsBufferBytes already rejects one as not bytes-like before this is reached.
+func IsCContiguousBuffer(o Object) bool {
+	if m, ok := o.(*memoryviewObject); ok {
+		return !m.released && mvIsCContiguous(m)
+	}
+	return true
+}
 
 // mvDelItem rejects element deletion: a read-only view reports read-only memory,
 // a writable one reports that memoryview does not support deletion, both probed.
@@ -1188,8 +1217,10 @@ func memoryviewMethod(m *memoryviewObject, name string, args []Object) (Object, 
 			return nil, mvReleased()
 		}
 		// A read-only twin over the same span and root buffer, so it still
-		// aliases a write through the original but rejects one of its own.
-		return &memoryviewObject{base: m.base, readonly: true, off: m.off, length: m.length, format: m.format, displayFormat: m.displayFormat, itemsize: m.itemsize}, nil
+		// aliases a write through the original but rejects one of its own. The
+		// shape and strides carry over so a strided or multi-dimensional view stays
+		// laid out the same, only losing writability.
+		return &memoryviewObject{base: m.base, readonly: true, off: m.off, length: m.length, format: m.format, displayFormat: m.displayFormat, itemsize: m.itemsize, shape: m.shape, strides: m.strides}, nil
 	}
 	return nil, noAttr(m, name)
 }
