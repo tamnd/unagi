@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+s + 3 => tuple ('add', 3)
+3 + s => tuple ('radd', 3)
+3.0 + s => tuple ('radd', 3.0)
+s - 1 => tuple ('sub', 1)
+s * 4 => tuple ('mul', 4)
+4 * s => tuple ('rmul', 4)
+4.0 * s => tuple ('rmul', 4.0)
+s / 2 => tuple ('truediv', 2)
+2 / s => tuple ('rtruediv', 2)
+s // 2 => tuple ('floordiv', 2)
+s % 2 => tuple ('mod', 2)
+s ** 3 => tuple ('pow', 3)
+Typed(6)/2 => Typed 3.0
+1/Typed(6) => Typed 0.16666666666666666
+Typed(6)+Typed(4) => Typed 10.0
+2*Typed(6) => Typed 12.0
+sum([Typed]) => Typed 6.0
+Plain(2.5)+1 => float 3.5
+Plain(2.5)*Plain(2) => float 5.0
+1+Plain(2.5) => float 3.5
+Plain(2.5)/2 => float 1.25
+== exception:
+== stderr:

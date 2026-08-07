@@ -84,6 +84,42 @@ func TestFloatSubclassArithmeticReturnsPlainFloat(t *testing.T) {
 	}
 }
 
+// A float subclass that overrides an arithmetic dunder dispatches its own
+// method instead of the native float fast path, on both operand orders, the way
+// CPython calls the subclass slot rather than float's arithmetic. The reflected
+// slot answers when the subclass sits on the right of a plain float.
+func TestFloatSubclassOverrideDispatches(t *testing.T) {
+	c := buildFloatSubclass(t, "MyFloat")
+	c.setAttr("__mul__", mkfn("MyFloat.__mul__", 2, func(args []Object) (Object, error) {
+		return NewStr("mul"), nil
+	}))
+	c.setAttr("__rmul__", mkfn("MyFloat.__rmul__", 2, func(args []Object) (Object, error) {
+		return NewStr("rmul"), nil
+	}))
+	c.setAttr("__add__", mkfn("MyFloat.__add__", 2, func(args []Object) (Object, error) {
+		return NewStr("add"), nil
+	}))
+	a, err := Instantiate(c, []Object{NewFloat(2.0)}, nil, nil)
+	if err != nil {
+		t.Fatalf("instantiate MyFloat(2.0): %v", err)
+	}
+
+	// Forward slot: the subclass on the left runs its own __mul__ and __add__.
+	if r, err := Mul(a, NewInt(3)); err != nil || Str(r) != "mul" {
+		t.Fatalf("MyFloat(2.0) * 3 = %v, %v; want 'mul'", r, err)
+	}
+	if r, err := Add(a, NewFloat(3.0)); err != nil || Str(r) != "add" {
+		t.Fatalf("MyFloat(2.0) + 3.0 = %v, %v; want 'add'", r, err)
+	}
+	// Reflected slot: a plain float on the left defers to the subclass __rmul__.
+	if r, err := Mul(NewFloat(3.0), a); err != nil || Str(r) != "rmul" {
+		t.Fatalf("3.0 * MyFloat(2.0) = %v, %v; want 'rmul'", r, err)
+	}
+	if r, err := Mul(NewInt(3), a); err != nil || Str(r) != "rmul" {
+		t.Fatalf("3 * MyFloat(2.0) = %v, %v; want 'rmul'", r, err)
+	}
+}
+
 func TestFloatSubclassInheritsMethods(t *testing.T) {
 	c := buildFloatSubclass(t, "MyFloat")
 	a, err := Instantiate(c, []Object{NewFloat(4.0)}, nil, nil)
