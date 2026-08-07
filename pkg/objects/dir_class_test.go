@@ -1,6 +1,7 @@
 package objects
 
 import (
+	bigInt "math/big"
 	"sort"
 	"testing"
 )
@@ -50,6 +51,45 @@ func TestDirNamesOfClass(t *testing.T) {
 	for i := 1; i < len(names); i++ {
 		if names[i] == names[i-1] {
 			t.Errorf("dir(Sub) has duplicate %q", names[i])
+		}
+	}
+}
+
+// TestDirNamesOfBuiltinValues checks dir() of a numbers or binary-data builtin
+// value returns the exact per-type list, sorted and de-duplicated, and that
+// bool reuses int's list while a big int reports the same names as a small one.
+func TestDirNamesOfBuiltinValues(t *testing.T) {
+	big := NewIntFromBig(new(bigInt.Int).Exp(bigInt.NewInt(10), bigInt.NewInt(80), nil))
+	cases := []struct {
+		name string
+		val  Object
+		want []string
+	}{
+		{"int", NewInt(7), intDirNames},
+		{"bigint", big, intDirNames},
+		{"bool", True, intDirNames},
+		{"float", NewFloat(1.5), floatDirNames},
+		{"complex", NewComplex(1, 2), complexDirNames},
+		{"bytes", NewBytes([]byte("abc")), bytesDirNames},
+		{"bytearray", NewByteArray([]byte("abc")), bytearrayDirNames},
+	}
+	for _, c := range cases {
+		names, ok, err := DirNames(c.val)
+		if err != nil || !ok {
+			t.Fatalf("DirNames(%s) = _, %v, %v; want ok", c.name, ok, err)
+		}
+		want := append([]string(nil), c.want...)
+		sort.Strings(want)
+		if len(names) != len(want) {
+			t.Fatalf("dir(%s) has %d names, want %d", c.name, len(names), len(want))
+		}
+		for i := range want {
+			if names[i] != want[i] {
+				t.Fatalf("dir(%s)[%d] = %q, want %q", c.name, i, names[i], want[i])
+			}
+		}
+		if !sort.StringsAreSorted(names) {
+			t.Errorf("dir(%s) not sorted", c.name)
 		}
 	}
 }
