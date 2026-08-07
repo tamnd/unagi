@@ -32,13 +32,29 @@ var scalarUnboundDunderNames = map[string]bool{
 	"__getnewargs__": true, "__bytes__": true,
 }
 
+// intConversionUnboundNames is the set of conversion dunders int and bool expose
+// off the type through this file. Their operator, __round__, __bool__ and
+// __getnewargs__ slots come from builtinNumericUnboundDunder instead, and int
+// carries neither __complex__ nor __bytes__, so those stay absent.
+var intConversionUnboundNames = map[string]bool{
+	"__int__": true, "__float__": true, "__index__": true, "__trunc__": true,
+}
+
 // scalarUnboundCanonical returns a zero-valued instance of a scalar or binary
 // builtin type, or nil when the name is not one this file owns. The canonical
 // instance is only a probe: reading a dunder off it reports whether the type
 // carries that slot, and the wrapper this file returns reads the real bound
-// dunder off the argument it is called with.
+// dunder off the argument it is called with. int and bool are included for their
+// conversion slots (__int__, __float__, __index__, __trunc__) only; their
+// operator, __round__, __bool__ and __getnewargs__ dunders are answered by
+// builtinNumericUnboundDunder, which runs ahead of this file, so those never
+// reach here and the probe self-limits to the four conversion names int carries
+// but the numeric resolver does not, while __complex__ and __bytes__ stay absent
+// because an int instance does not carry them.
 func scalarUnboundCanonical(typeName string) Object {
 	switch typeName {
+	case "int", "bool":
+		return NewInt(0)
 	case "float":
 		return NewFloat(0)
 	case "complex":
@@ -53,6 +69,17 @@ func scalarUnboundCanonical(typeName string) Object {
 	return nil
 }
 
+// scalarUnboundReceiverType returns the type name the descriptor requires and
+// reports in its errors. bool inherits int's conversion slots unchanged, so
+// bool.__index__ is int.__index__ and names 'int', accepting any int the way
+// CPython's inherited wrapper does; every other type names itself.
+func scalarUnboundReceiverType(typeName string) string {
+	if typeName == "bool" {
+		return "int"
+	}
+	return typeName
+}
+
 // builtinScalarUnboundDunder resolves a scalar or binary type's operator, unary,
 // conversion or pickle-support dunder read off the type, float.__add__ or
 // bytes.__mul__, into an unbound descriptor. ok is false when the name is not one
@@ -63,6 +90,16 @@ func builtinScalarUnboundDunder(typeName, name string) (Object, bool) {
 	if !scalarUnboundDunderNames[name] {
 		return nil, false
 	}
+	// int and bool read their operator, __round__, __bool__ and __getnewargs__
+	// slots off builtinNumericUnboundDunder, which runs ahead of this file, so this
+	// file owns only the four conversion slots the numeric resolver leaves out. The
+	// guard keeps that split explicit rather than relying on resolution order, so a
+	// direct call for int.__add__ still declines here.
+	if typeName == "int" || typeName == "bool" {
+		if !intConversionUnboundNames[name] {
+			return nil, false
+		}
+	}
 	canon := scalarUnboundCanonical(typeName)
 	if canon == nil {
 		return nil, false
@@ -72,13 +109,14 @@ func builtinScalarUnboundDunder(typeName, name string) (Object, bool) {
 	if _, err := LoadAttr(canon, name); err != nil {
 		return nil, false
 	}
+	recvType := scalarUnboundReceiverType(typeName)
 	return NewFunc(name, -1, func(args []Object) (Object, error) {
 		if len(args) == 0 {
-			return nil, Raise(TypeError, "descriptor '%s' of '%s' object needs an argument", name, typeName)
+			return nil, Raise(TypeError, "descriptor '%s' of '%s' object needs an argument", name, recvType)
 		}
-		if !instanceOfBuiltin(args[0], typeName) {
+		if !instanceOfBuiltin(args[0], recvType) {
 			return nil, Raise(TypeError,
-				"descriptor '%s' requires a '%s' object but received a '%s'", name, typeName, args[0].TypeName())
+				"descriptor '%s' requires a '%s' object but received a '%s'", name, recvType, args[0].TypeName())
 		}
 		// The bound dunder off the real first argument runs the operator and owns
 		// the remaining-argument arity error, so float.__add__(1.0) reports the
