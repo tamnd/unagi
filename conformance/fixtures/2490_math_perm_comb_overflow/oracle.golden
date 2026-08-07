@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+perm(n) => OverflowError : factorial() argument should not exceed 9223372036854775807
+perm(n,None) => OverflowError : factorial() argument should not exceed 9223372036854775807
+perm(n,n) => OverflowError : k must not exceed 9223372036854775807
+perm(n,n-1) => OverflowError : k must not exceed 9223372036854775807
+perm(n,2) => 1148130695274254524232833201177681984022
+perm(n,0) => 1
+perm(n,1) => 1071508607186267320948425049060001810561
+comb(n,n//2) => OverflowError : min(n - k, k) must not exceed 9223372036854775807
+comb(n,1) => 1071508607186267320948425049060001810561
+comb(n,n-1) => 1071508607186267320948425049060001810561
+comb(n,n) => 1
+comb(n,2) => 5740653476371272621164166005888409920111
+perm(5,2) => 20
+comb(5,2) => 10
+perm(-1) => ValueError : factorial() not defined for negative values
+comb(5,-1) => ValueError : k must be a non-negative integer
+perm(5,-1) => ValueError : k must be a non-negative integer
+== exception:
+== stderr:

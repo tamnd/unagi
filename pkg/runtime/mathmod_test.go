@@ -225,6 +225,36 @@ func TestMathFactorialBigInt(t *testing.T) {
 	}
 }
 
+func TestMathPermCombBigInt(t *testing.T) {
+	perm := mathFn(t, "perm")
+	comb := mathFn(t, "comb")
+	n := objects.NewIntFromBig(new(big.Int).Exp(big.NewInt(2), big.NewInt(1000), nil))
+
+	// A count run past the C ssize_t range overflows rather than wrapping to 1.
+	if _, err := objects.Call(perm, []objects.Object{n, n}); !isKindErr(err, objects.OverflowError) {
+		t.Fatalf("perm(2**1000, 2**1000) = %v, want OverflowError", err)
+	}
+	if _, err := objects.Call(comb, []objects.Object{n, n}); err != nil {
+		t.Fatalf("comb(2**1000, 2**1000) error: %v", err) // n-k is zero, a fine run
+	}
+	half := objects.NewIntFromBig(new(big.Int).Exp(big.NewInt(2), big.NewInt(999), nil))
+	if _, err := objects.Call(comb, []objects.Object{n, half}); !isKindErr(err, objects.OverflowError) {
+		t.Fatalf("comb(2**1000, 2**999) = %v, want OverflowError", err)
+	}
+	// The single-argument perm is n!, so a huge n takes the factorial overflow.
+	if _, err := objects.Call(perm, []objects.Object{n}); !isKindErr(err, objects.OverflowError) {
+		t.Fatalf("perm(2**1000) = %v, want OverflowError", err)
+	}
+	// Ordinary small arguments still return the exact count.
+	got, err := objects.Call(perm, []objects.Object{objects.NewInt(5), objects.NewInt(2)})
+	if err != nil {
+		t.Fatalf("perm(5, 2) error: %v", err)
+	}
+	if b, ok := objects.AsBigInt(got); !ok || b.Int64() != 20 {
+		t.Fatalf("perm(5, 2) = %v, want 20", got)
+	}
+}
+
 func TestMathNextafterSteps(t *testing.T) {
 	na := mathFn(t, "nextafter")
 	// Three steps up equals one step applied three times.

@@ -1262,6 +1262,11 @@ func mathComb(args []objects.Object) (objects.Object, error) {
 	if nMinusK.Cmp(k) < 0 {
 		k = nMinusK
 	}
+	// CPython walks the factors with a C loop counter, so a run past its range is
+	// an overflow rather than a value truncated down to a bogus step count.
+	if !k.IsInt64() {
+		return nil, objects.Raise(objects.OverflowError, "min(n - k, k) must not exceed 9223372036854775807")
+	}
 	steps := k.Int64()
 	result := big.NewInt(1)
 	for i := int64(0); i < steps; i++ {
@@ -1290,6 +1295,9 @@ func mathPerm(args []objects.Object) (objects.Object, error) {
 		if n.Sign() < 0 {
 			return nil, objects.Raise(objects.ValueError, "factorial() not defined for negative values")
 		}
+		if !n.IsInt64() {
+			return nil, objects.Raise(objects.OverflowError, "factorial() argument should not exceed 9223372036854775807")
+		}
 		return objects.NewIntFromBig(new(big.Int).MulRange(1, n.Int64())), nil
 	}
 	k, err := mathIndexArg(args[1])
@@ -1304,6 +1312,11 @@ func mathPerm(args []objects.Object) (objects.Object, error) {
 	}
 	if k.Cmp(n) > 0 {
 		return objects.NewInt(0), nil
+	}
+	// The arrangement count multiplies k descending factors, and CPython indexes
+	// them with a C loop counter, so a k past its range overflows here too.
+	if !k.IsInt64() {
+		return nil, objects.Raise(objects.OverflowError, "k must not exceed 9223372036854775807")
 	}
 	steps := k.Int64()
 	result := big.NewInt(1)
