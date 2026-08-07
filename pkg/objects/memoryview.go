@@ -415,7 +415,10 @@ func mvGetItem(m *memoryviewObject, key Object) (Object, error) {
 		// syntactic m[lo:hi:step] read compiles to.
 		return mvGetSlice(m, sl.start, sl.stop, sl.step)
 	}
-	i, ok := AsInt(key)
+	i, ok, err := seqIndexKey(key)
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
 		return nil, Raise(TypeError, "memoryview: invalid slice key")
 	}
@@ -446,7 +449,10 @@ func mvTupleIndex(m *memoryviewObject, idx []Object) (int, error) {
 	}
 	flat := 0
 	for k := 0; k < n; k++ {
-		i, ok := AsInt(idx[k])
+		i, ok, err := seqIndexKey(idx[k])
+		if err != nil {
+			return 0, err
+		}
 		if !ok {
 			return 0, Raise(TypeError, "memoryview: invalid slice key")
 		}
@@ -555,7 +561,11 @@ func mvSetItem(m *memoryviewObject, key, val Object) error {
 		// the syntactic m[lo:hi:step] = v write compiles to.
 		return mvSetSlice(m, sl.start, sl.stop, sl.step, val)
 	}
-	if _, ok := AsInt(key); !ok {
+	i, ok, err := seqIndexKey(key)
+	if err != nil {
+		return err
+	}
+	if !ok {
 		return Raise(TypeError, "memoryview: invalid slice key")
 	}
 	if mvNdim(m) > 1 {
@@ -563,7 +573,6 @@ func mvSetItem(m *memoryviewObject, key, val Object) error {
 		// address a sub-view, which CPython leaves unimplemented.
 		return Raise("NotImplementedError", "sub-views are not implemented")
 	}
-	i, _ := AsInt(key)
 	j, err := mvIndex(m, i)
 	if err != nil {
 		return err
