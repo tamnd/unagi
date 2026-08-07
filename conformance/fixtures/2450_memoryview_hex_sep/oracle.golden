@@ -1,0 +1,20 @@
+== exit: 0
+== stdout:
+plain '68656c6c6f'
+sep '68-65-6c-6c-6f'
+sep-bytes '68:65:6c:6c:6f'
+sep-n '6162-6364-6566'
+sep-neg '6162_6364_6566'
+sep-empty ''
+sep-empty-n ''
+cast-sep '01-02-03-04'
+cast-sep-n '0102-0304-0506'
+bytearray-backed '77.6f.72.6c.64'
+multichar ERR ValueError sep must be length 1.
+nonascii ERR ValueError sep must be ASCII.
+badtype ERR TypeError object of type 'int' has no len()
+bad-bps ERR TypeError 'str' object cannot be interpreted as an integer
+too-many ERR TypeError hex() takes at most 2 arguments (3 given)
+released ERR ValueError operation forbidden on released memoryview object
+== exception:
+== stderr:

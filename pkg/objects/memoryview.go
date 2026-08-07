@@ -1,7 +1,6 @@
 package objects
 
 import (
-	"encoding/hex"
 	"fmt"
 	"math"
 	"math/big"
@@ -920,7 +919,10 @@ func memoryviewMethod(m *memoryviewObject, name string, args []Object) (Object, 
 		if m.released {
 			return nil, mvReleased()
 		}
-		return NewStr(hex.EncodeToString(mvSpan(m))), nil
+		// hex over the logical bytes takes the same optional separator and
+		// bytes-per-group arguments bytes.hex does, grouping the underlying
+		// buffer bytes rather than the typed elements.
+		return byteHex(mvSpan(m), args)
 	case "cast":
 		return mvCast(m, args)
 	case "count":
