@@ -160,6 +160,70 @@ func TestZip(t *testing.T) {
 	}
 }
 
+func TestReversedLengthHint(t *testing.T) {
+	// Every reversed iterator carries __length_hint__ on 3.14, counting the
+	// remaining elements down as the cursor advances (PEP 424). enumerate builds
+	// the same shape but has no length hint, so it must report none.
+	d, err := objects.NewDict(objs(s("a"), s("b")), objs(i(1), i(2)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hinted := []struct {
+		name string
+		in   objects.Object
+	}{
+		{"list", newList(i(1), i(2), i(3), i(4))},
+		{"tuple", objects.NewTuple(objs(i(1), i(2), i(3), i(4)))},
+		{"str", s("abcd")},
+		{"range", objects.NewRange(0, 4, 1)},
+		{"dict", d},
+		{"bytes", objects.NewBytes([]byte("abcd"))},
+		{"array", func() objects.Object {
+			a, _ := objects.NewArray(s("i"), newList(i(1), i(2), i(3), i(4)))
+			return a
+		}()},
+	}
+	for _, tt := range hinted {
+		r, err := Reversed(tt.in)
+		if err != nil {
+			t.Fatalf("%s: Reversed: %v", tt.name, err)
+		}
+		lh, ok := r.(objects.LengthHinter)
+		if !ok {
+			t.Fatalf("%s: reversed iterator does not implement LengthHinter", tt.name)
+		}
+		want := 4
+		if tt.name == "dict" {
+			want = 2
+		}
+		if n, has := lh.LengthHint(); !has || n != want {
+			t.Errorf("%s: LengthHint() = %d, %v; want %d, true", tt.name, n, has, want)
+		}
+		// Advancing the cursor lowers the hint by the count consumed.
+		it, err := objects.Iter(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := it.Next(); err != nil {
+			t.Fatal(err)
+		}
+		if n, has := lh.LengthHint(); !has || n != want-1 {
+			t.Errorf("%s: after one Next LengthHint() = %d, %v; want %d, true", tt.name, n, has, want-1)
+		}
+	}
+
+	// enumerate reuses the shape but answers no length hint.
+	e, err := Enumerate(objs(newList(i(1), i(2))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lh, ok := e.(objects.LengthHinter); ok {
+		if n, has := lh.LengthHint(); has {
+			t.Errorf("enumerate should report no length hint, got %d, %v", n, has)
+		}
+	}
+}
+
 func TestIterObjectSharesState(t *testing.T) {
 	// iter(e) is e: two Iter calls walk the same cursor, matching the
 	// probed CPython protocol for enumerate, zip and reversed objects.

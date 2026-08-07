@@ -99,6 +99,16 @@ func (it *bytesIter) Next() (Object, bool, error) {
 	return NewInt(int64(c)), true, nil
 }
 
+// LengthHint reports the bytes still to yield, matching CPython's
+// bytes_iterator and bytearray_iterator __length_hint__.
+func (it *bytesIter) LengthHint() (int, bool) {
+	n := len(it.v) - it.i
+	if n < 0 {
+		n = 0
+	}
+	return n, true
+}
+
 // bytesContainsItem implements `x in b`: a bytes value tests as a
 // subsequence, an int tests as a member byte (and must fit a byte), and
 // any other left operand raises the probed 3.14 TypeError.

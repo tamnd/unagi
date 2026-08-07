@@ -15,6 +15,7 @@ type iterObject struct {
 	elts    []objects.Object
 	i       int
 	tailErr error // raised once the elements run out
+	hint    bool  // whether this shape answers __length_hint__
 }
 
 func (it *iterObject) TypeName() string { return it.name }
@@ -22,6 +23,18 @@ func (it *iterObject) TypeName() string { return it.name }
 // Iterate returns the object itself, so iter(it) is it like CPython
 // iterators and a second loop over the same object finds it exhausted.
 func (it *iterObject) Iterate() (objects.Iterator, error) { return it, nil }
+
+// LengthHint reports the remaining count for the reversed iterators, which all
+// carry __length_hint__ on 3.14 (list_reverseiterator, the plain reversed for
+// tuple/str/bytes/bytearray/array/memoryview, range_iterator and
+// dict_reversekeyiterator). enumerate builds the same shape but has no length
+// hint, so it leaves hint false and reports no attribute the way CPython does.
+func (it *iterObject) LengthHint() (int, bool) {
+	if !it.hint {
+		return 0, false
+	}
+	return len(it.elts) - it.i, true
+}
 
 func (it *iterObject) Next() (objects.Object, bool, error) {
 	if it.i >= len(it.elts) {
@@ -73,7 +86,7 @@ func Reversed(o objects.Object) (objects.Object, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &iterObject{name: "reversed", elts: elems}, nil
+		return &iterObject{name: "reversed", elts: elems, hint: true}, nil
 	}
 	if objects.IsDict(o) {
 		// A dict and its subclasses (defaultdict) reverse over their keys.
@@ -85,7 +98,7 @@ func Reversed(o objects.Object) (objects.Object, error) {
 		for i, j := 0, len(elts)-1; i < j; i, j = i+1, j-1 {
 			elts[i], elts[j] = elts[j], elts[i]
 		}
-		return &iterObject{name: name, elts: elts}, nil
+		return &iterObject{name: name, elts: elts, hint: true}, nil
 	}
 	switch o.TypeName() {
 	case "list":
@@ -112,7 +125,7 @@ func Reversed(o objects.Object) (objects.Object, error) {
 	for i, j := 0, len(elts)-1; i < j; i, j = i+1, j-1 {
 		elts[i], elts[j] = elts[j], elts[i]
 	}
-	return &iterObject{name: name, elts: elts}, nil
+	return &iterObject{name: name, elts: elts, hint: true}, nil
 }
 
 // Enumerate implements enumerate(iterable) and enumerate(iterable, start),

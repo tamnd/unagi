@@ -33,7 +33,9 @@ func (a *arrayObject) TypeName() string { return "array.array" }
 func (a *arrayObject) Iterate() (Iterator, error) {
 	snap := make([]Object, len(a.elts))
 	copy(snap, a.elts)
-	return &sliceIter{elts: snap}, nil
+	// array.arrayiterator carries no __length_hint__ in CPython, unlike the
+	// list and tuple iterators, so this cursor reports none.
+	return &sliceIter{elts: snap, noHint: true}, nil
 }
 
 // validTypecode reports whether c is one of the fourteen array typecodes.
