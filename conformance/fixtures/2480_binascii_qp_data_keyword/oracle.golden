@@ -1,0 +1,15 @@
+== exit: 0
+== stdout:
+a2b_data_kw => b'caf\xe9'
+a2b_pos => b'caf\xe9'
+b2a_data_kw => b'caf=E9'
+b2a_all_kw => b'a=20b'
+a2b_no_args => TypeError : a2b_qp() missing required argument 'data' (pos 1)
+b2a_no_args => TypeError : b2a_qp() missing required argument 'data' (pos 1)
+a2b_dup => TypeError : argument for a2b_qp() given by name ('data') and position (1)
+b2a_dup => TypeError : argument for b2a_qp() given by name ('data') and position (1)
+a2b_int_kw => TypeError : keywords must be strings
+a2b_3pos => TypeError : a2b_qp() takes at most 2 arguments (3 given)
+a2b_bogus_kw => TypeError : a2b_qp() got an unexpected keyword argument 'bogus'
+== exception:
+== stderr:

@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/tamnd/unagi/pkg/objects"
@@ -141,5 +142,34 @@ func TestBinasciiQp(t *testing.T) {
 	// An unexpected keyword raises TypeError.
 	if _, err := binasciiB2aQp(b("x"), []string{"bogus"}, []objects.Object{objects.True}); err == nil {
 		t.Fatal("b2a_qp with bad keyword did not raise")
+	}
+
+	// data is a positional-or-keyword argument, so it may arrive by name with no
+	// positional at all, the call test_qp opens with (a2b_qp(data=b"", ...)).
+	dataKw := []objects.Object{objects.NewBytes([]byte("caf=E9"))}
+	dec, err = binasciiA2bQp(nil, []string{"data", "header"}, []objects.Object{dataKw[0], objects.False})
+	if err != nil || objects.Repr(dec) != "b'caf\\xe9'" {
+		t.Fatalf("a2b_qp data keyword = %s, %v", objects.Repr(dec), err)
+	}
+	enc, err = binasciiB2aQp(nil, []string{"data"}, []objects.Object{objects.NewBytes([]byte("caf\xe9"))})
+	if err != nil || objects.Repr(enc) != "b'caf=E9'" {
+		t.Fatalf("b2a_qp data keyword = %s, %v", objects.Repr(enc), err)
+	}
+
+	// With no data at all the argument clinic names the missing argument.
+	if _, err := binasciiA2bQp(nil, nil, nil); err == nil ||
+		!strings.Contains(err.Error(), "a2b_qp() missing required argument 'data' (pos 1)") {
+		t.Fatalf("a2b_qp missing data error = %v", err)
+	}
+	// data given both positionally and by name is the by-name-and-position error.
+	if _, err := binasciiA2bQp(b("x"), []string{"data"}, dataKw); err == nil ||
+		!strings.Contains(err.Error(), "given by name ('data') and position (1)") {
+		t.Fatalf("a2b_qp duplicate data error = %v", err)
+	}
+	// Too many positionals still reports the arity the way it did before.
+	three := []objects.Object{objects.NewBytes(nil), objects.False, objects.NewInt(3)}
+	if _, err := binasciiA2bQp(three, nil, nil); err == nil ||
+		!strings.Contains(err.Error(), "a2b_qp() takes at most 2 arguments (3 given)") {
+		t.Fatalf("a2b_qp arity error = %v", err)
 	}
 }
