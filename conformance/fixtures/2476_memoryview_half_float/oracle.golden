@@ -1,0 +1,29 @@
+== exit: 0
+== stdout:
+format => 'e'
+itemsize => 2
+nbytes => 8
+len => 4
+tolist => [1.0, -2.5, 0.0, 65504.0]
+index_0 => 1.0
+index_3 => 65504.0
+elem_type => 'float'
+write_exact => 1.5
+write_int => 3.0
+write_bool => 1.0
+write_round => 0.333251953125
+write_max => 65504.0
+write_subnormal => 1.0013580322265625e-05
+write_negzero => b'\x00\x80'
+tobytes => b'\x00>\x00B\x00<U5\xff{\xa8\x00\x00\x80\x00\x00'
+write_inf => inf
+write_ninf => -inf
+write_nan => nan
+overflow_pos => ValueError : memoryview: invalid value for format 'e'
+overflow_neg => ValueError : memoryview: invalid value for format 'e'
+write_str => TypeError : memoryview: invalid type for format 'e'
+write_none => TypeError : memoryview: invalid type for format 'e'
+write_bytes => TypeError : memoryview: invalid type for format 'e'
+eq => True
+== exception:
+== stderr:
