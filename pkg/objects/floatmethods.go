@@ -382,9 +382,9 @@ func floatLoadAttr(o Object, name string) (Object, error) {
 	}
 	if floatMethodNames[name] {
 		method, recv := name, o
-		return NewFunc(name, -1, func(args []Object) (Object, error) {
+		return bindSelf(NewFunc(name, -1, func(args []Object) (Object, error) {
 			return floatMethod(recv, method, args)
-		}), nil
+		}), recv), nil
 	}
 	if name == "__doc__" {
 		return None, nil

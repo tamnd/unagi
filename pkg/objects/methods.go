@@ -247,6 +247,9 @@ func builtinMethodValue(recv Object, name string) Object {
 	return &funcObject{
 		name:  name,
 		arity: -1,
+		// A bound method reports its receiver through __self__, so items.append.__self__
+		// is items the way CPython's bound builtin method does.
+		boundSelf: recv,
 		fn: func(args []Object) (Object, error) {
 			return CallMethod(recv, name, args)
 		},

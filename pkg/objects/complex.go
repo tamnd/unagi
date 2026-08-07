@@ -459,9 +459,9 @@ func complexLoadAttr(c *complexObject, name string) (Object, error) {
 	}
 	if complexMethodNames[name] {
 		method := name
-		return NewFunc(name, -1, func(args []Object) (Object, error) {
+		return bindSelf(NewFunc(name, -1, func(args []Object) (Object, error) {
 			return complexMethod(c, method, args)
-		}), nil
+		}), c), nil
 	}
 	return nil, Raise(AttributeError, "'complex' object has no attribute '%s'", name)
 }

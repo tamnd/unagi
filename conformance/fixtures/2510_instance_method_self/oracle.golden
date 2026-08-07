@@ -1,0 +1,30 @@
+== exit: 0
+== stdout:
+== a bound number method binds its number ==
+(255).to_bytes.__self__: 255 | is n: True
+(255).bit_length.__self__: 255
+(255).conjugate.__self__: 255
+True.bit_length.__self__: True
+(1.5).is_integer.__self__: 1.5 | is f: True
+(1.5).as_integer_ratio.__self__: 1.5
+(1.5).hex.__self__: 1.5
+(3+4j).conjugate.__self__: (3+4j) | is c: True
+== a bound container or string method binds its object ==
+'abc'.upper.__self__: 'abc' | is s: True
+[1,2].append.__self__: [1, 2] | is lst: True
+{'k':1}.get.__self__: {'k': 1} | is d: True
+{1,2}.add.__self__: {1, 2} | is st: True
+b'xy'.hex.__self__: b'xy'
+bytearray(b'xy').hex.__self__: bytearray(b'xy') | is ba: True
+(1,2,1).count.__self__: (1, 2, 1)
+== __name__ stays the bare method name ==
+(255).to_bytes.__name__: to_bytes
+[1,2].append.__name__: append
+'abc'.upper.__name__: upper
+== a bound method still calls ==
+(255).to_bytes(2, 'big'): b'\x00\xff'
+(1.5).is_integer(): False
+'abc'.upper(): ABC
+append result: [1, 9]
+== exception:
+== stderr:
