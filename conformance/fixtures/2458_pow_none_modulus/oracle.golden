@@ -1,0 +1,22 @@
+== exit: 0
+== stdout:
+ii-none int 8
+ii-noarg int 8
+ii-mod int 3
+if-none float 8.0
+if-noarg float 8.0
+ff-none float 8.0
+neg-exp-none float 0.5
+bool-none int 1
+dunder-pow-none int 8
+float-pow-none float 8.0
+mod-with-float ERR TypeError pow() 3rd argument not allowed unless all arguments are integers
+big-none int 100000000000000000000
+complex-none complex 2j
+int-mod-zero ERR ValueError pow() 3rd argument cannot be 0
+neg-exp-mod int 5
+custom-none tuple ('pow', 2, None)
+custom-noarg tuple ('pow', 2, None)
+custom-mod tuple ('pow', 2, 9)
+== exception:
+== stderr:
