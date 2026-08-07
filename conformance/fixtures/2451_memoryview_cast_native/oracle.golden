@@ -1,0 +1,40 @@
+== exit: 0
+== stdout:
+read-n [578437695752307201]
+itemsize-n 8
+format-n 'n'
+read-N [578437695752307201]
+itemsize-N 8
+format-N 'N'
+read-l [578437695752307201]
+itemsize-l 8
+format-l 'l'
+read-L [578437695752307201]
+itemsize-L 8
+format-L 'L'
+read-P [578437695752307201]
+itemsize-P 8
+format-P 'P'
+neg-n [-1]
+neg-l [-1]
+big-N [18446744073709551615]
+big-L [18446744073709551615]
+write-n-neg 'fbffffffffffffff'
+write-n-over "ERR ValueError memoryview: invalid value for format 'n'"
+write-N-neg "ERR ValueError memoryview: invalid value for format 'N'"
+write-N-max 'ffffffffffffffff'
+write-N-over "ERR ValueError memoryview: invalid value for format 'N'"
+write-l-neg 'fbffffffffffffff'
+write-L-max 'ffffffffffffffff'
+write-P-neg 'ffffffffffffffff'
+write-P-max 'ffffffffffffffff'
+write-P-over "ERR ValueError memoryview: invalid value for format 'P'"
+rt-n -12345
+rt-N 18446744073709551615
+rt-P 9223372036854775808
+multi-l [506097522914230528, 1084818905618843912]
+cast-back b'\x01\x02\x03\x04\x05\x06\x07\x08'
+wrong-size ERR TypeError memoryview: length is not a multiple of itemsize
+bad-type "ERR TypeError memoryview: invalid type for format 'l'"
+== exception:
+== stderr:
