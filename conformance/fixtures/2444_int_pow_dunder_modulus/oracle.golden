@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+pow-mod 1
+pow-one 81
+pow-mod-none 81
+rpow-mod 1
+rpow-one 81
+bool-pow-mod 1
+bool-rpow 3
+pow-neg-mod 5
+pow-neg-modulus -4
+pow-noninvertible ERR ValueError base is not invertible for the given modulus
+pow-neg-nomod 0.5
+pow-big 1267650600228229401496703205376
+pow-float-exp NotImplemented
+pow-float-mod NotImplemented
+rpow-float NotImplemented
+pow-mod-zero ERR ValueError pow() 3rd argument cannot be 0
+pow-zero-args ERR TypeError expected 1 or 2 arguments, got 0
+pow-three-args ERR TypeError expected 1 or 2 arguments, got 3
+unbound-pow-mod 1
+unbound-pow-one 81
+unbound-bad-recv ERR TypeError descriptor '__pow__' requires a 'int' object but received a 'str'
+== exception:
+== stderr:
