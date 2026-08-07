@@ -228,10 +228,18 @@ var intSubclassMethods = map[string]bool{
 // the same value a plain float or complex would give. LoadAttr binds a method to
 // the payload and reads an attribute straight through, so the one call covers both,
 // the way the ChainMap subclass delegates to its payload.
-func numericSubclassAttr(payload Object, name string) (Object, bool) {
+func numericSubclassAttr(inst *instanceObject, payload Object, name string) (Object, bool) {
 	r, err := LoadAttr(payload, name)
 	if err != nil {
 		return nil, false
+	}
+	// A method read rebinds to the subclass instance so its __self__ is the
+	// instance and its __qualname__ names the subclass (MyInt.bit_length), the way
+	// CPython binds an inherited method; a data attribute (real, imag, numerator,
+	// denominator) reads straight through as the plain value its payload gives.
+	if _, ok := r.(*funcObject); ok {
+		fn := func(args []Object) (Object, error) { return CallMethod(payload, name, args) }
+		return subclassMethodValue(inst, name, fn), true
 	}
 	return r, true
 }
@@ -299,17 +307,17 @@ func valueSubclassAttr(x *instanceObject, name string) (Object, bool) {
 		if !intSubclassMethods[name] {
 			return nil, false
 		}
-		return numericSubclassAttr(v, name)
+		return numericSubclassAttr(x, v, name)
 	case *floatObject:
 		if !floatSubclassMethods[name] {
 			return nil, false
 		}
-		return numericSubclassAttr(v, name)
+		return numericSubclassAttr(x, v, name)
 	case *complexObject:
 		if !complexSubclassMethods[name] {
 			return nil, false
 		}
-		return numericSubclassAttr(v, name)
+		return numericSubclassAttr(x, v, name)
 	case *strObject:
 		if !strSubclassMethods[name] {
 			return nil, false

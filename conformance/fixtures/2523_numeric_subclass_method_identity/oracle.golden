@@ -1,0 +1,29 @@
+== exit: 0
+== stdout:
+MyInt.bit_length.__self__ is x True
+MyInt.bit_length.__qualname__ 'MyInt.bit_length'
+MyInt.bit_length.__name__ 'bit_length'
+MyInt.bit_length() 4
+MyInt.to_bytes.__self__ is x True
+MyInt.to_bytes.__qualname__ 'MyInt.to_bytes'
+MyInt.to_bytes(2, 'big') b'\x00\x0c'
+MyInt.as_integer_ratio.__qualname__ 'MyInt.as_integer_ratio'
+MyInt.as_integer_ratio() (12, 1)
+MyInt.__getnewargs__.__self__ is x True
+x.real 12
+type(x.real) 'int'
+x.imag 0
+x.numerator 12
+x.denominator 1
+MyFloat.is_integer.__self__ is f True
+MyFloat.is_integer.__qualname__ 'MyFloat.is_integer'
+MyFloat.hex.__self__ is f True
+MyFloat.hex() '0x1.4000000000000p+1'
+f.real 2.5
+MyComplex.conjugate.__self__ is c True
+MyComplex.conjugate.__qualname__ 'MyComplex.conjugate'
+MyComplex.conjugate() (1-2j)
+c.real 1.0
+c.imag 2.0
+== exception:
+== stderr:
