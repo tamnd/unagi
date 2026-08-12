@@ -1,0 +1,21 @@
+== exit: 0
+== stdout:
+len 4
+type True
+args ((), 5)
+state None
+elems [1, 2, 3]
+unbounded args ()
+empty bounded args ((), 2)
+reduce_ex len 4
+reduce_ex args ((), 4)
+deepcopy deque([[1, 2], [3, 4]], maxlen=3)
+deepcopy maxlen 3
+deepcopy independent [1, 2]
+deepcopy not same object False
+copy deque([1, 2, 3], maxlen=5) 5
+reduce extra arg TypeError : deque.__reduce__() takes no arguments (1 given)
+reduce_ex no arg TypeError : object.__reduce_ex__() takes exactly one argument (0 given)
+reduce_ex extra arg TypeError : object.__reduce_ex__() takes exactly one argument (2 given)
+== exception:
+== stderr:
