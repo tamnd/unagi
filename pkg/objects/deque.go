@@ -60,6 +60,7 @@ var dequeMethodNames = map[string]bool{
 	"extend": true, "extendleft": true, "insert": true, "remove": true,
 	"count": true, "index": true, "rotate": true, "reverse": true,
 	"clear": true, "copy": true, "__copy__": true, "__reversed__": true,
+	"__reduce__": true, "__reduce_ex__": true,
 }
 
 func dequeMethod(d *dequeObject, name string, args []Object) (Object, error) {
@@ -185,8 +186,55 @@ func dequeMethod(d *dequeObject, name string, args []Object) (Object, error) {
 			items[len(d.elts)-1-i] = e
 		}
 		return &dequeObject{elts: items, maxlen: -1}, nil
+	case "__reduce__", "__reduce_ex__":
+		// The pickle/copy reduction CPython's deque returns: the deque type, the
+		// construction args, no instance state, and an iterator over the elements
+		// the reconstructor appends. copy.deepcopy and pickle both reach this
+		// (deque carries no __deepcopy__), so it is what makes deepcopy work.
+		// __reduce_ex__ takes and ignores a protocol argument; __reduce__ takes
+		// none.
+		if name == "__reduce_ex__" {
+			if len(args) != 1 {
+				// __reduce_ex__ is inherited from object, so CPython names object in
+				// the arity error rather than the deque type.
+				return nil, Raise(TypeError, "object.__reduce_ex__() takes exactly one argument (%d given)", len(args))
+			}
+		} else if len(args) != 0 {
+			return nil, Raise(TypeError, "deque.__reduce__() takes no arguments (%d given)", len(args))
+		}
+		return dequeReduce(d)
 	}
 	return nil, noAttr(d, name)
+}
+
+// dequeReduce builds the four-tuple pickle/copy reduction CPython's deque
+// returns: (deque_type, args, None, elements_iterator). args is the empty tuple
+// for an unbounded deque and (empty_tuple, maxlen) for a bounded one, so the
+// reconstructor rebuilds the bound before the iterator's items are appended.
+// The iterator walks a snapshot so a later mutation of the deque does not change
+// what a pending pickle sees.
+func dequeReduce(d *dequeObject) (Object, error) {
+	typ, ok := Object(nil), false
+	if BuiltinTypeResolver != nil {
+		typ, ok = BuiltinTypeResolver("collections.deque")
+	}
+	if !ok {
+		return nil, Raise(TypeError, "cannot pickle 'collections.deque' object")
+	}
+	var argsTuple Object
+	if d.bounded() {
+		argsTuple = NewTuple([]Object{NewTuple(nil), NewInt(int64(d.maxlen))})
+	} else {
+		argsTuple = NewTuple(nil)
+	}
+	snap := make([]Object, len(d.elts))
+	copy(snap, d.elts)
+	it, err := Iter(NewList(snap))
+	if err != nil {
+		return nil, err
+	}
+	iterObj := &builtinIterObject{name: "_deque_iterator", it: it}
+	return NewTuple([]Object{typ, argsTuple, None, iterObj}), nil
 }
 
 // argc checks a deque method got exactly n positional arguments, the arity
