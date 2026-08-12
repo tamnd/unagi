@@ -29,6 +29,10 @@ type Module struct {
 	// through an import cycle reports missing attributes with the
 	// consider-renaming hint the way CPython does for a script-adjacent file.
 	initializing bool
+	// builtin marks a module the runtime provides itself, like sys or builtins.
+	// It carries no source file, so its repr reads "<module 'name' (built-in)>"
+	// the way CPython renders a built-in module's spec origin.
+	builtin bool
 }
 
 func (*Module) TypeName() string { return "module" }
@@ -52,7 +56,7 @@ func NewModule(name, file string) *Module {
 // reading it raises AttributeError the way CPython's sys.__file__ does;
 // __package__ is the empty string since built-ins live at top level.
 func NewBuiltinModule(name string) *Module {
-	m := &Module{name: name, slots: map[string]*Object{}, extra: map[string]Object{}}
+	m := &Module{name: name, builtin: true, slots: map[string]*Object{}, extra: map[string]Object{}}
 	m.setExtra("__name__", NewStr(name))
 	m.setExtra("__doc__", None)
 	m.setExtra("__package__", NewStr(""))

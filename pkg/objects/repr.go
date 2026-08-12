@@ -422,6 +422,12 @@ func reprCore(o Object, strict bool) (string, error) {
 	case *tupleGetterObject:
 		return tupleGetterRepr(x, strict)
 	case *Module:
+		// A runtime-provided module carries no source file, so CPython renders
+		// it from its spec origin as "<module 'name' (built-in)>" rather than a
+		// filesystem path.
+		if x.builtin {
+			return fmt.Sprintf("<module '%s' (built-in)>", x.name), nil
+		}
 		return fmt.Sprintf("<module '%s' from '%s'>", x.name, x.file), nil
 	case *dictKeysObject:
 		return reprSeqCore(x.d.keySlice(), "dict_keys([", "])", strict)
