@@ -56,14 +56,39 @@ func lookupPickleBuiltinRef(obj Object) (string, string, bool) {
 	return ref.module, ref.qualname, ok
 }
 
-// saveBuiltinGlobal pickles a builtin function as a global reference when it is
-// registered, and otherwise refuses it with the same TypeError a non-picklable
-// object gets. A builtin funcObject carries no reachable __module__/__qualname__ of
-// its own, so only one recorded in the registry as its module initialised can be
-// referenced by name.
+// BuiltinGlobalNamer reports the (module, qualname) an unregistered builtin
+// pickles under, for the builtins-namespace types and functions the runtime
+// exposes (int, len, list, dict, ...). CPython saves each as a builtins.<name>
+// global read off its __module__/__qualname__, but a transpiled builtin carries
+// no such metadata, so the runtime supplies the reverse name lookup here. isType
+// reports whether the object is a builtin type (int, list, map) rather than a
+// builtin function (len, abs): the two carry distinct 'builtins' module strings,
+// so the pickler groups their module-name memo separately. It reports ok false for
+// an object that is not a picklable builtins-namespace value.
+var BuiltinGlobalNamer func(o Object) (module, qualname string, isType, ok bool)
+
+// BuiltinGlobalLookup resolves a (module, qualname) an unregistered builtin was
+// saved under back to the live object, the load-side twin of BuiltinGlobalNamer,
+// so a global reference round-trips to the same singleton the pickler named.
+var BuiltinGlobalLookup func(module, qualname string) (Object, bool)
+
+// saveBuiltinGlobal pickles a builtin type or function as a global reference. A
+// dotted builtin recorded in the registry (collections.deque, array.array) goes
+// out under its registered (module, qualname); an unregistered builtins-namespace
+// object (int, len, list) resolves its name through BuiltinGlobalNamer and pickles
+// as the builtins.<name> global CPython writes. Anything else is refused with the
+// same TypeError a non-picklable object gets.
 func (p *pickler) saveBuiltinGlobal(o Object) error {
 	if module, qualname, ok := lookupPickleBuiltinRef(o); ok {
 		return p.saveBuiltinGlobalName(module, qualname)
+	}
+	if BuiltinGlobalNamer != nil {
+		if module, qualname, isType, ok := BuiltinGlobalNamer(o); ok {
+			if isType {
+				return p.saveGlobal(module, qualname)
+			}
+			return p.saveBuiltinFuncGlobal(module, qualname)
+		}
 	}
 	return Raise(TypeError, "cannot pickle '%s' object", o.TypeName())
 }

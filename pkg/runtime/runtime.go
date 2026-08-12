@@ -729,6 +729,32 @@ func init() {
 		}
 		return builtinsModule, true
 	}
+	// A builtin type or function pickles as a builtins.<name> global, the way
+	// CPython saves it off __module__/__qualname__. The transpiled builtins carry
+	// no such metadata, so pickle reads the name back from the builtins table by
+	// object identity here (open is left out, since CPython binds it to _io, not
+	// builtins) and resolves the name forward on load, so a reference round-trips
+	// to the same singleton. The lookup is lazy so it sees the fully populated
+	// table at pickle time rather than depending on init order.
+	objects.BuiltinGlobalNamer = func(o objects.Object) (string, string, bool, bool) {
+		for name, v := range builtins {
+			if v == o && name != "open" {
+				// map and filter are types in CPython (isinstance(map, type) is
+				// True) even though the repr layer does not list them, so pickle
+				// groups their module string with the other builtin types.
+				isType := objects.IsBuiltinTypeName(name) || name == "map" || name == "filter"
+				return "builtins", name, isType, true
+			}
+		}
+		return "", "", false, false
+	}
+	objects.BuiltinGlobalLookup = func(module, name string) (objects.Object, bool) {
+		if module != "builtins" {
+			return nil, false
+		}
+		v, ok := builtins[name]
+		return v, ok
+	}
 	register(map[string]objects.Object{
 		"__import__": objects.NewFuncKw("__import__", dunderImport),
 		// print resolves to a keyword-aware object so the value path (passing

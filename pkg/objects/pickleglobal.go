@@ -53,6 +53,15 @@ func pickleLocalQualname(qualname string) bool {
 // top-level class the name denotes, not a class defined inside a function — or
 // CPython raises PicklingError and so does this.
 func (p *pickler) saveClassGlobal(c *classObject) error {
+	// A builtin class object (object, and the other runtime-provided types that
+	// carry no reachable __module__) pickles as its builtins.<name> global, the
+	// same by-name form CPython writes, rather than the __main__ its class record
+	// would otherwise report.
+	if BuiltinGlobalNamer != nil {
+		if module, qualname, _, ok := BuiltinGlobalNamer(c); ok {
+			return p.saveGlobal(module, qualname)
+		}
+	}
 	module := pickleClassModule(c)
 	qualname := pickleClassQualname(c)
 	if pickleLocalQualname(qualname) || lookupPickleClass(module, qualname) != c {
