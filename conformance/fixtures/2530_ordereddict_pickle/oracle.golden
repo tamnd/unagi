@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+reduce len 5
+reduce args ()
+reduce state None
+reduce items {'a': 1, 'b': 2, 'c': 3}
+rt 2 OrderedDict({'a': 1, 'b': 2, 'c': 3})
+rt type 2 'OrderedDict'
+rt 3 OrderedDict({'a': 1, 'b': 2, 'c': 3})
+rt type 3 'OrderedDict'
+rt 4 OrderedDict({'a': 1, 'b': 2, 'c': 3})
+rt type 4 'OrderedDict'
+rt 5 OrderedDict({'a': 1, 'b': 2, 'c': 3})
+rt type 5 'OrderedDict'
+order ['z', 'a', 'm']
+empty items []
+empty type 'OrderedDict'
+nested OrderedDict({'x': [1, 2], 'y': {'k': 'v'}})
+nested independent [1, 2]
+shared True
+reduce_ex no arg TypeError : object.__reduce_ex__() takes exactly one argument (0 given)
+reduce extra arg TypeError : OrderedDict.__reduce__() takes no arguments (1 given)
+move_to_end order ['b', 'c', 'a']
+== exception:
+== stderr:
