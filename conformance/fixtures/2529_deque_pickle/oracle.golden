@@ -1,0 +1,22 @@
+== exit: 0
+== stdout:
+bounded 2 deque([1, 2, 3], maxlen=5)
+bounded maxlen 2 5
+bounded 3 deque([1, 2, 3], maxlen=5)
+bounded maxlen 3 5
+bounded 4 deque([1, 2, 3], maxlen=5)
+bounded maxlen 4 5
+bounded 5 deque([1, 2, 3], maxlen=5)
+bounded maxlen 5 5
+unbounded deque([1, 2, 3])
+unbounded maxlen None
+empty deque([], maxlen=2)
+empty maxlen 2
+nested deque([[1, 2], [3, 4]], maxlen=3)
+nested independent [1, 2]
+chars deque(['a', 'b', 'c'])
+mixed deque([1, 'two', 3.0, (4, 5)])
+shared True
+reload deque([10, 20, 30], maxlen=4) 4
+== exception:
+== stderr:

@@ -269,11 +269,17 @@ func (u *unpickler) appendOne() error {
 	}
 	item := u.stack[len(u.stack)-1]
 	u.stack = u.stack[:len(u.stack)-1]
-	lst, ok := u.stack[len(u.stack)-1].(*listObject)
-	if !ok {
-		return newUnpicklingError("append onto a non-list")
+	target := u.stack[len(u.stack)-1]
+	if lst, ok := target.(*listObject); ok {
+		lst.elts = append(lst.elts, item)
+		return nil
 	}
-	lst.elts = append(lst.elts, item)
+	// A non-list target such as a deque rebuilt through REDUCE takes the item
+	// through its own append, the way CPython's load_append falls back from the
+	// list fast path.
+	if _, err := CallMethod(target, "append", []Object{item}); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -287,12 +293,21 @@ func (u *unpickler) appendFromMark() error {
 	if at == 0 {
 		return newUnpicklingError("appends with no list under the mark")
 	}
-	lst, ok := u.stack[at-1].(*listObject)
-	if !ok {
-		return newUnpicklingError("appends onto a non-list")
+	target := u.stack[at-1]
+	if lst, ok := target.(*listObject); ok {
+		lst.elts = append(lst.elts, items...)
+		u.stack = u.stack[:at]
+		return nil
 	}
-	lst.elts = append(lst.elts, items...)
+	// A non-list target such as a deque takes the batch through extend, the way
+	// CPython's load_appends drives the whole slice through the object's own
+	// extend rather than the list fast path.
+	snap := make([]Object, len(items))
+	copy(snap, items)
 	u.stack = u.stack[:at]
+	if _, err := CallMethod(target, "extend", []Object{NewList(snap)}); err != nil {
+		return err
+	}
 	return nil
 }
 
