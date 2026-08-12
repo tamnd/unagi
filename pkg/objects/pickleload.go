@@ -319,11 +319,14 @@ func (u *unpickler) setItemOne() error {
 	val := u.stack[len(u.stack)-1]
 	key := u.stack[len(u.stack)-2]
 	u.stack = u.stack[:len(u.stack)-2]
-	d, ok := u.stack[len(u.stack)-1].(*dictObject)
-	if !ok {
-		return newUnpicklingError("setitem onto a non-dict")
+	target := u.stack[len(u.stack)-1]
+	if d, ok := target.(*dictObject); ok {
+		return d.set(key, val)
 	}
-	return d.set(key, val)
+	// A non-dict mapping target rebuilt through REDUCE takes the pair through
+	// its own item assignment, the way CPython's load_setitem falls back from
+	// the dict fast path to PyObject_SetItem.
+	return SetItem(target, key, val)
 }
 
 // setItemsFromMark sets every key/value pair back to the mark on the dict
@@ -339,17 +342,29 @@ func (u *unpickler) setItemsFromMark() error {
 	if at == 0 {
 		return newUnpicklingError("setitems with no dict under the mark")
 	}
-	d, ok := u.stack[at-1].(*dictObject)
-	if !ok {
-		return newUnpicklingError("setitems onto a non-dict")
-	}
+	target := u.stack[at-1]
 	pairs := u.stack[at:]
-	for i := 0; i < len(pairs); i += 2 {
-		if err := d.set(pairs[i], pairs[i+1]); err != nil {
+	if d, ok := target.(*dictObject); ok {
+		for i := 0; i < len(pairs); i += 2 {
+			if err := d.set(pairs[i], pairs[i+1]); err != nil {
+				u.stack = u.stack[:at]
+				return err
+			}
+		}
+		u.stack = u.stack[:at]
+		return nil
+	}
+	// A non-dict mapping target such as an OrderedDict takes each pair through
+	// its own item assignment, the way CPython's load_setitems drives the batch
+	// through PyObject_SetItem rather than the dict fast path.
+	snap := make([]Object, len(pairs))
+	copy(snap, pairs)
+	u.stack = u.stack[:at]
+	for i := 0; i < len(snap); i += 2 {
+		if err := SetItem(target, snap[i], snap[i+1]); err != nil {
 			return err
 		}
 	}
-	u.stack = u.stack[:at]
 	return nil
 }
 
@@ -445,14 +460,20 @@ func (u *unpickler) findClass(module, name string) (Object, error) {
 	if m, ok := compatForwardImport[module]; ok {
 		module = m
 	}
+	// A registered native builtin wins over a class of the same name: collections
+	// defines a pure-Python OrderedDict fallback that _collections then shadows in
+	// the namespace, so the fallback class stays in the class registry while the
+	// live object the pickler named is the native type. The builtin registry only
+	// holds runtime-provided types (array, deque, OrderedDict), so preferring it
+	// resolves the name to the very object the save side referenced.
+	if b := lookupPickleBuiltin(module, name); b != nil {
+		return b, nil
+	}
 	if c := lookupPickleClass(module, name); c != nil {
 		return c, nil
 	}
 	if fn := lookupPickleFunction(module, name); fn != nil {
 		return fn, nil
-	}
-	if b := lookupPickleBuiltin(module, name); b != nil {
-		return b, nil
 	}
 	return &pickleGlobalRef{module: module, qualname: name}, nil
 }

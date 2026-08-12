@@ -150,11 +150,12 @@ func (p *pickler) saveReduce(module, qualname string, args []Object, o Object) e
 // It mirrors CPython's save_reduce for the general case — save the callable
 // (a module-level function or class, pickled by qualified name), save the
 // argument tuple, emit REDUCE, memoize the result, replay any list-item
-// iterator as appends, then, when a state is present and not None, save it and
-// emit BUILD. The list-item iterator drives a list-like subclass such as deque;
-// the dict-item iterator and the state setter drive dict subclass reduction and
-// custom state application, which a later slice backs, so a reduction that
-// carries either is refused rather than half-encoded.
+// iterator as appends and any dict-item iterator as setitems, then, when a state
+// is present and not None, save it and emit BUILD. The list-item iterator drives
+// a list-like subclass such as deque and the dict-item iterator a dict-like
+// subclass such as OrderedDict; the state setter drives custom state
+// application, which a later slice backs, so a reduction carrying one is refused
+// rather than half-encoded.
 func (p *pickler) saveReduceValue(reduction Object, o Object) error {
 	t, ok := reduction.(*tupleObject)
 	if !ok {
@@ -169,7 +170,7 @@ func (p *pickler) saveReduceValue(reduction Object, o Object) error {
 	if !ok {
 		return newPicklingError("second item of the tuple returned by __reduce__ must be a tuple, not %s", t.elts[1].TypeName())
 	}
-	for i := 4; i < len(t.elts); i++ {
+	for i := 5; i < len(t.elts); i++ {
 		if t.elts[i] != None {
 			return newPicklingError("cannot pickle a __reduce__ result carrying %s yet", reduceElementName(i))
 		}
@@ -192,6 +193,26 @@ func (p *pickler) saveReduceValue(reduction Object, o Object) error {
 			return err
 		}
 		if err := p.batchAppends(items); err != nil {
+			return err
+		}
+	}
+	// The dict-item iterator drives a dict-like subclass such as OrderedDict:
+	// pickle drains its (key, value) pairs and replays them as setitems onto the
+	// reconstructed mapping, the way CPython's save_reduce runs _batch_setitems.
+	if len(t.elts) >= 5 && t.elts[4] != None {
+		pairs, err := iterAll(t.elts[4])
+		if err != nil {
+			return err
+		}
+		entries := make([]dictEntry, 0, len(pairs))
+		for _, pair := range pairs {
+			kv, ok := pair.(*tupleObject)
+			if !ok || len(kv.elts) != 2 {
+				return newPicklingError("dict-item iterator must yield 2-tuples")
+			}
+			entries = append(entries, dictEntry{key: kv.elts[0], val: kv.elts[1]})
+		}
+		if err := p.batchSetItems(entries); err != nil {
 			return err
 		}
 	}

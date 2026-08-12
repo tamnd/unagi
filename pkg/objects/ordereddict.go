@@ -46,8 +46,50 @@ func orderedMethod(o *dictObject, name string, args []Object) (Object, bool, err
 	case "popitem":
 		v, err := orderedPopitem(o, args)
 		return v, true, err
+	case "__reduce__", "__reduce_ex__":
+		// The pickle reduction CPython's OrderedDict returns: the type, empty
+		// construction args, no instance state for a base OrderedDict, no
+		// list-items, and an iterator over the (key, value) pairs the
+		// reconstructor sets back. __reduce_ex__ takes and ignores a protocol
+		// argument; __reduce__ takes none.
+		if name == "__reduce_ex__" {
+			if len(args) != 1 {
+				// __reduce_ex__ is inherited from object, so CPython names object in
+				// the arity error rather than the OrderedDict type.
+				return nil, true, Raise(TypeError, "object.__reduce_ex__() takes exactly one argument (%d given)", len(args))
+			}
+		} else if len(args) != 0 {
+			return nil, true, Raise(TypeError, "OrderedDict.__reduce__() takes no arguments (%d given)", len(args))
+		}
+		v, err := orderedReduce(o)
+		return v, true, err
 	}
 	return nil, false, nil
+}
+
+// orderedReduce builds the five-tuple pickle reduction CPython's OrderedDict
+// returns: (OrderedDict_type, (), None, None, items_iterator). The item iterator
+// walks a snapshot of the (key, value) pairs so a later mutation does not change
+// what a pending pickle sees, and the reconstructor sets them back in order onto
+// a fresh empty OrderedDict.
+func orderedReduce(o *dictObject) (Object, error) {
+	typ, ok := Object(nil), false
+	if BuiltinTypeResolver != nil {
+		typ, ok = BuiltinTypeResolver("collections.OrderedDict")
+	}
+	if !ok {
+		return nil, Raise(TypeError, "cannot pickle 'collections.OrderedDict' object")
+	}
+	pairs := make([]Object, len(o.entries))
+	for i, e := range o.entries {
+		pairs[i] = NewTuple([]Object{e.key, e.val})
+	}
+	it, err := Iter(NewList(pairs))
+	if err != nil {
+		return nil, err
+	}
+	iterObj := &builtinIterObject{name: "odict_iterator", it: it}
+	return NewTuple([]Object{typ, NewTuple(nil), None, None, iterObj}), nil
 }
 
 // orderedMoveToEnd moves an existing key to either end of the order, the right

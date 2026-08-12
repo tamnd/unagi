@@ -90,6 +90,9 @@ var counterExtraMethodNames = map[string]bool{
 
 var orderedExtraMethodNames = map[string]bool{
 	"move_to_end": true,
+	// OrderedDict carries its own __reduce__/__reduce_ex__ so pickle reduces it
+	// through an item iterator rather than the plain dict path.
+	"__reduce__": true, "__reduce_ex__": true,
 }
 
 // tupleMethodNames is the two-method surface a plain tuple carries.
