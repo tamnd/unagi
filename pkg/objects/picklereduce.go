@@ -60,14 +60,24 @@ func (p *pickler) globalRef(module, qualname string) *pickleGlobalRef {
 // referencing that module saves the same object and the pickler's identity-keyed
 // memo fetches it back after the first, matching CPython's shared __module__.
 func (p *pickler) moduleNameObj(module string) *strObject {
+	return p.moduleNameObjKeyed(module, module)
+}
+
+// moduleNameObjKeyed interns a module-name strObject under an explicit key, so two
+// callers can deliberately keep distinct string identities for the same module
+// name. CPython holds the builtin types' shared 'builtins' __module__ separate from
+// the builtin functions' 'builtins' (a type reads type.__module__, a builtin
+// function reads its own m_module), so each group's globals memo-share within the
+// group but not across it; a distinct interning key reproduces the two identities.
+func (p *pickler) moduleNameObjKeyed(key, module string) *strObject {
 	if p.moduleNames == nil {
 		p.moduleNames = map[string]*strObject{}
 	}
-	if s, ok := p.moduleNames[module]; ok {
+	if s, ok := p.moduleNames[key]; ok {
 		return s
 	}
 	s := NewStr(module).(*strObject)
-	p.moduleNames[module] = s
+	p.moduleNames[key] = s
 	return s
 }
 
@@ -88,6 +98,15 @@ func (p *pickler) saveGlobal(module, qualname string) error {
 // back; a fresh strObject reproduces that.
 func (p *pickler) saveBuiltinGlobalName(module, qualname string) error {
 	return p.saveGlobalObj(module, qualname, NewStr(module).(*strObject))
+}
+
+// saveBuiltinFuncGlobal writes a builtins-namespace function's global reference
+// under a module-name identity that all builtin functions share but the builtin
+// types do not, so len and abs memo-share their 'builtins' string while int and
+// str share a separate one, the way CPython's function m_module and type
+// __module__ pickle to two distinct interned strings.
+func (p *pickler) saveBuiltinFuncGlobal(module, qualname string) error {
+	return p.saveGlobalObj(module, qualname, p.moduleNameObjKeyed("\x00func\x00"+module, module))
 }
 
 // saveGlobalObj writes a global reference using moduleObj as the module name's memo

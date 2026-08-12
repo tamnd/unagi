@@ -475,6 +475,14 @@ func (u *unpickler) findClass(module, name string) (Object, error) {
 	if fn := lookupPickleFunction(module, name); fn != nil {
 		return fn, nil
 	}
+	// A builtins-namespace global (builtins.int, builtins.len) resolves through
+	// the runtime's own builtin table back to the singleton the pickler named, so
+	// the reference round-trips to the same object rather than a stand-in ref.
+	if BuiltinGlobalLookup != nil {
+		if b, ok := BuiltinGlobalLookup(module, name); ok {
+			return b, nil
+		}
+	}
 	return &pickleGlobalRef{module: module, qualname: name}, nil
 }
 
