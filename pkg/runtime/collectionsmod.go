@@ -105,6 +105,11 @@ func init() {
 	builtins["collections.deque"] = dequeType
 	builtins["collections.defaultdict"] = defaultdictType
 	builtins["collections.OrderedDict"] = orderedDictType
+
+	// pickle references the deque type by name so a reduction can rebuild it: the
+	// registry records both directions, the ref the pickler writes and the object
+	// the unpickler resolves back and applies to the reduction args.
+	objects.RegisterPickleBuiltin("collections", "deque", dequeType)
 }
 
 // initCollectionsAccel populates _collections, the accelerator surface the

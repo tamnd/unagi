@@ -218,6 +218,20 @@ func (p *pickler) save(o Object) error {
 			return err
 		}
 		return p.saveReduceValue(reduction, o)
+	case *dequeObject:
+		// A deque rebuilds through the reduction deque.__reduce_ex__ emits: the
+		// deque type applied to its construction args (the maxlen when bounded)
+		// followed by an iterator over the elements, which pickle replays as
+		// appends. The type resolves through the builtin registry. A second
+		// reference to the same deque fetches the memoized result.
+		if p.memoGet(o) {
+			return nil
+		}
+		reduction, err := CallMethod(o, "__reduce_ex__", []Object{NewInt(int64(p.proto))})
+		if err != nil {
+			return err
+		}
+		return p.saveReduceValue(reduction, o)
 	}
 	// CPython raises TypeError (not PicklingError) for a type with no pickle
 	// support once reduction has been tried, e.g. "cannot pickle 'module' object".
