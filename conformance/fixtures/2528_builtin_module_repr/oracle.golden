@@ -1,0 +1,12 @@
+== exit: 0
+== stdout:
+sys <module 'sys' (built-in)>
+builtins <module 'builtins' (built-in)>
+len.__self__ <module 'builtins' (built-in)>
+print.__self__ <module 'builtins' (built-in)>
+sys name sys
+builtins name builtins
+sys builtin True
+builtins builtin True
+== exception:
+== stderr:
