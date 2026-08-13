@@ -771,6 +771,12 @@ func init() {
 		v, ok := builtins[name]
 		return v, ok
 	}
+	// open pickles as the _io.open global: its __module__ is _io rather than
+	// builtins, so CPython saves it under that qualified name and the builtins
+	// namer leaves it out. The name is available without importing io, so register
+	// it eagerly here (not in the lazy _io module init) so a pickle of the builtin
+	// open resolves both directions to the one open function.
+	objects.RegisterPickleBuiltin("_io", "open", ioBuiltinOpen)
 	register(map[string]objects.Object{
 		"__import__": objects.NewFuncKw("__import__", dunderImport),
 		// print resolves to a keyword-aware object so the value path (passing
