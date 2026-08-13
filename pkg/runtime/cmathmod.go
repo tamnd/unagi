@@ -50,6 +50,12 @@ var (
 
 func initCmath(m *objects.Module) error {
 	set := func(name string, v objects.Object) error {
+		// A cmath function pickles as its cmath.<name> global, the way CPython
+		// pickles cmath.sqrt off its __module__/__qualname__; registering it lets
+		// the pickler name the reference and the unpickler resolve it back to this
+		// object. A module constant (pi, e, infj) is not a function and is left
+		// unregistered, so it keeps pickling as its own value.
+		objects.RegisterPickleModuleFunc("cmath", name, v)
 		return objects.StoreAttr(m, name, v)
 	}
 
