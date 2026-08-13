@@ -25,6 +25,11 @@ func initMath(m *objects.Module) error {
 		// module-qualified name, so a stray keyword reads "math.comb() takes no
 		// keyword arguments"; this is a no-op for the module constants.
 		objects.QualifyBuiltin(v, "math."+name)
+		// A math function pickles as its math.<name> global, the way CPython pickles
+		// math.sqrt off its __module__/__qualname__; registering it lets the pickler
+		// name the reference and the unpickler resolve it back to this object. A
+		// module constant (pi, e) is not a function and is left unregistered.
+		objects.RegisterPickleModuleFunc("math", name, v)
 		return objects.StoreAttr(m, name, v)
 	}
 	consts := []struct {

@@ -38,6 +38,20 @@ func RegisterPickleBuiltin(module, qualname string, obj Object) {
 	pickleBuiltinRegistryMu.Unlock()
 }
 
+// RegisterPickleModuleFunc records a native module function under its (module,
+// qualname) so it pickles as that global and an unpickler resolves the reference
+// back to it, the way CPython pickles math.sqrt as the math.sqrt global read off
+// its __module__/__qualname__. It registers only a builtin function object; a
+// module constant (math.pi) or other value passed through the same module-init
+// choke point is left alone, since only the function is reachable by name and the
+// constant already pickles as its own value.
+func RegisterPickleModuleFunc(module, qualname string, o Object) {
+	if _, ok := o.(*funcObject); !ok {
+		return
+	}
+	RegisterPickleBuiltin(module, qualname, o)
+}
+
 // lookupPickleBuiltin returns the builtin registered under (module, qualname), or
 // nil when no builtin claims that name.
 func lookupPickleBuiltin(module, qualname string) Object {
