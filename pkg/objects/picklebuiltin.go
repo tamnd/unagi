@@ -72,6 +72,21 @@ var BuiltinGlobalNamer func(o Object) (module, qualname string, isType, ok bool)
 // so a global reference round-trips to the same singleton the pickler named.
 var BuiltinGlobalLookup func(module, qualname string) (Object, bool)
 
+// BuiltinCanonicalName returns a builtin type's own __qualname__ when it carries
+// one, so the namer can prefer it over an alias that shares the same singleton.
+// IOError and EnvironmentError both alias OSError in the builtins namespace, and a
+// reverse identity scan of the builtins table would otherwise return whichever
+// alias it happened to hit first; CPython always writes the canonical OSError, the
+// type's __qualname__, so preferring that name keeps the pickle deterministic and
+// byte-identical. Only class objects report a name; a builtin function returns
+// false and the namer keeps its sole table entry.
+func BuiltinCanonicalName(o Object) (string, bool) {
+	if c, ok := o.(*classObject); ok {
+		return classQualname(c), true
+	}
+	return "", false
+}
+
 // saveBuiltinGlobal pickles a builtin type or function as a global reference. A
 // dotted builtin recorded in the registry (collections.deque, array.array) goes
 // out under its registered (module, qualname); an unregistered builtins-namespace

@@ -457,9 +457,11 @@ func (u *unpickler) loadStackGlobal() error {
 // first. This slice records the reference as a pickleGlobalRef that REDUCE turns
 // back into an object; a later slice resolves globals used outside a reduction.
 func (u *unpickler) findClass(module, name string) (Object, error) {
-	if m, ok := compatForwardImport[module]; ok {
-		module = m
-	}
+	// An old pickle names Python-2 modules and globals, so map the reference
+	// forward to its Python-3 spelling first: __builtin__.long back to
+	// builtins.int, itertools.imap back to builtins.map, exceptions.ValueError
+	// back to builtins.ValueError, so the lookups below find the live object.
+	module, name = compatForwardGlobal(module, name)
 	// A registered native builtin wins over a class of the same name: collections
 	// defines a pure-Python OrderedDict fallback that _collections then shadows in
 	// the namespace, so the fallback class stays in the class registry while the
