@@ -16,20 +16,6 @@ const (
 	opReduce      = 'R'  // 0x52 apply the callable below the argument tuple, replacing both
 )
 
-// compatReverseImport mirrors the entries of _compat_pickle.REVERSE_IMPORT_MAPPING
-// that unagi pickles through reduction. CPython applies it only when fix_imports
-// is on, which it gates to protocols below 3, so a Python-2 module name lands in
-// a protocol-2 pickle and the modern name in protocol 3.
-var compatReverseImport = map[string]string{
-	"builtins": "__builtin__",
-}
-
-// compatForwardImport is the load-side inverse: a Python-2 module name in an old
-// pickle maps back to its Python-3 name so find_class resolves the same global.
-var compatForwardImport = map[string]string{
-	"__builtin__": "builtins",
-}
-
 // pickleGlobalRef is the memo key and loader stand-in for a callable pickled by
 // qualified name. On the dump side it gives the GLOBAL a stable identity so a
 // second reference fetches it back from the memo instead of rewriting it; on the
@@ -133,16 +119,17 @@ func (p *pickler) saveGlobalObj(module, qualname string, moduleObj *strObject) e
 		p.memoize(ref)
 		return nil
 	}
-	m := module
+	m, q := module, qualname
 	if p.proto < 3 {
-		if mapped, ok := compatReverseImport[m]; ok {
-			m = mapped
-		}
+		// fix_imports is on below protocol 3: rewrite the global to its Python-2
+		// spelling so the bytes match what CPython emits (builtins.int as
+		// __builtin__.long, a builtin exception under the exceptions module).
+		m, q = compatReverseGlobal(module, qualname)
 	}
 	p.framer.write(opGlobal)
 	p.framer.write([]byte(m)...)
 	p.framer.write('\n')
-	p.framer.write([]byte(qualname)...)
+	p.framer.write([]byte(q)...)
 	p.framer.write('\n')
 	p.memoize(ref)
 	return nil

@@ -737,16 +737,32 @@ func init() {
 	// to the same singleton. The lookup is lazy so it sees the fully populated
 	// table at pickle time rather than depending on init order.
 	objects.BuiltinGlobalNamer = func(o objects.Object) (string, string, bool, bool) {
+		// A builtin type can be reachable under several names in the table: IOError
+		// and EnvironmentError both alias the OSError singleton. CPython pickles the
+		// canonical __qualname__, so when the object reports one, prefer the table
+		// entry that matches it; otherwise take the sole entry that holds the object.
+		canon, hasCanon := objects.BuiltinCanonicalName(o)
+		found := ""
 		for name, v := range builtins {
-			if v == o && name != "open" {
-				// map and filter are types in CPython (isinstance(map, type) is
-				// True) even though the repr layer does not list them, so pickle
-				// groups their module string with the other builtin types.
-				isType := objects.IsBuiltinTypeName(name) || name == "map" || name == "filter"
-				return "builtins", name, isType, true
+			if v != o || name == "open" {
+				continue
+			}
+			if hasCanon && name == canon {
+				found = name
+				break
+			}
+			if found == "" {
+				found = name
 			}
 		}
-		return "", "", false, false
+		if found == "" {
+			return "", "", false, false
+		}
+		// map and filter are types in CPython (isinstance(map, type) is True) even
+		// though the repr layer does not list them, so pickle groups their module
+		// string with the other builtin types.
+		isType := objects.IsBuiltinTypeName(found) || found == "map" || found == "filter"
+		return "builtins", found, isType, true
 	}
 	objects.BuiltinGlobalLookup = func(module, name string) (objects.Object, bool) {
 		if module != "builtins" {

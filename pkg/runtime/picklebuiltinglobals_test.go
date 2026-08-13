@@ -79,6 +79,95 @@ func TestBuiltinGlobalModuleMemo(t *testing.T) {
 	}
 }
 
+// TestBuiltinGlobalProto2CompatNames pins the byte shape of a protocol-2 builtin
+// global: fix_imports is on below protocol 3, so the reference goes out under its
+// Python-2 spelling. int writes as __builtin__.long, map as itertools.imap and a
+// builtin exception under the exceptions module, matching CPython byte-for-byte;
+// protocol 3 keeps the modern builtins name. Each still loads back to the live
+// singleton the reference named, both directions of the compat tables exercised.
+func TestBuiltinGlobalProto2CompatNames(t *testing.T) {
+	cases := []struct {
+		name  string
+		proto int
+		want  []byte
+	}{
+		{"int", 2, []byte("\x80\x02c__builtin__\nlong\nq\x00.")},
+		{"str", 2, []byte("\x80\x02c__builtin__\nunicode\nq\x00.")},
+		{"map", 2, []byte("\x80\x02citertools\nimap\nq\x00.")},
+		{"len", 2, []byte("\x80\x02c__builtin__\nlen\nq\x00.")},
+		{"ValueError", 2, []byte("\x80\x02cexceptions\nValueError\nq\x00.")},
+		{"int", 3, []byte("\x80\x03cbuiltins\nint\nq\x00.")},
+		{"map", 3, []byte("\x80\x03cbuiltins\nmap\nq\x00.")},
+	}
+	for _, c := range cases {
+		b := mustBuiltin(t, c.name)
+		data, err := objects.PickleDumps(b, c.proto)
+		if err != nil {
+			t.Fatalf("dumps(%s, proto=%d): %v", c.name, c.proto, err)
+		}
+		if !bytes.Equal(data, c.want) {
+			t.Fatalf("dumps(%s, proto=%d) = %q, want %q", c.name, c.proto, data, c.want)
+		}
+		back, err := objects.PickleLoads(data)
+		if err != nil {
+			t.Fatalf("loads(%s, proto=%d): %v", c.name, c.proto, err)
+		}
+		if back != b {
+			t.Fatalf("round-trip(%s, proto=%d) = %v, want the same singleton", c.name, c.proto, back)
+		}
+	}
+}
+
+// TestBuiltinGlobalLoadsCPythonProto2 confirms the loader resolves a Python-2
+// global that CPython would write, mapping the old name forward to the live
+// builtin. These are the exact bytes CPython emits at protocol 2, fed straight in.
+func TestBuiltinGlobalLoadsCPythonProto2(t *testing.T) {
+	cases := []struct {
+		data []byte
+		name string
+	}{
+		{[]byte("\x80\x02c__builtin__\nlong\nq\x00."), "int"},
+		{[]byte("\x80\x02c__builtin__\nunicode\nq\x00."), "str"},
+		{[]byte("\x80\x02citertools\nimap\nq\x00."), "map"},
+		{[]byte("\x80\x02citertools\nifilter\nq\x00."), "filter"},
+		{[]byte("\x80\x02c__builtin__\nxrange\nq\x00."), "range"},
+		{[]byte("\x80\x02cexceptions\nValueError\nq\x00."), "ValueError"},
+	}
+	for _, c := range cases {
+		back, err := objects.PickleLoads(c.data)
+		if err != nil {
+			t.Fatalf("loads(%s): %v", c.name, err)
+		}
+		if back != mustBuiltin(t, c.name) {
+			t.Fatalf("loads(%q) = %v, want %s", c.data, back, c.name)
+		}
+	}
+}
+
+// TestBuiltinGlobalAliasCanonical pins the canonical name for a builtin type that
+// is reachable under several names: IOError and EnvironmentError both alias the
+// OSError singleton, and the namer must pick OSError, the type's __qualname__, the
+// way CPython does. Pickling any of the three aliases yields the same OSError
+// global, deterministically across repeated runs.
+func TestBuiltinGlobalAliasCanonical(t *testing.T) {
+	want := []byte("\x80\x02cexceptions\nOSError\nq\x00.")
+	for _, name := range []string{"OSError", "IOError", "EnvironmentError"} {
+		b, ok := Builtin(name)
+		if !ok {
+			t.Fatalf("Builtin(%q): not found", name)
+		}
+		for i := 0; i < 8; i++ {
+			data, err := objects.PickleDumps(b, 2)
+			if err != nil {
+				t.Fatalf("dumps(%s): %v", name, err)
+			}
+			if !bytes.Equal(data, want) {
+				t.Fatalf("dumps(%s) = %q, want the canonical %q", name, data, want)
+			}
+		}
+	}
+}
+
 // TestBuiltinGlobalRefusesUnregistered confirms an object with no reachable
 // builtin name is still refused with CPython's TypeError rather than pickled as a
 // bogus global. A funcObject the runtime never exposed in the builtins table has
