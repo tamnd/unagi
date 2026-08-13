@@ -101,6 +101,60 @@ func dictDefaultFactory(d *dictObject) Object {
 	return d.factory
 }
 
+// defaultdictMethod handles the methods where defaultdict diverges from dict.
+// Only pickling does so far: __reduce__/__reduce_ex__ reduce through the factory
+// and an item iterator rather than the plain dict path. It reports handled false
+// for every other name so the caller falls back to dictMethod.
+func defaultdictMethod(o *dictObject, name string, args []Object) (Object, bool, error) {
+	switch name {
+	case "__reduce__", "__reduce_ex__":
+		// __reduce_ex__ takes and ignores a protocol argument; __reduce__ takes
+		// none, matching the object-inherited arity errors.
+		if name == "__reduce_ex__" {
+			if len(args) != 1 {
+				return nil, true, Raise(TypeError, "object.__reduce_ex__() takes exactly one argument (%d given)", len(args))
+			}
+		} else if len(args) != 0 {
+			return nil, true, Raise(TypeError, "defaultdict.__reduce__() takes no arguments (%d given)", len(args))
+		}
+		v, err := defaultReduce(o)
+		return v, true, err
+	}
+	return nil, false, nil
+}
+
+// defaultReduce builds the five-tuple pickle reduction CPython's defaultdict
+// returns: (defaultdict_type, args, None, None, items_iterator). args is
+// (default_factory,) when a factory is set and the empty tuple otherwise, so the
+// reconstructor rebuilds the factory before the item iterator's pairs are set
+// back. The iterator walks a snapshot so a later mutation does not change what a
+// pending pickle sees.
+func defaultReduce(o *dictObject) (Object, error) {
+	typ, ok := Object(nil), false
+	if BuiltinTypeResolver != nil {
+		typ, ok = BuiltinTypeResolver("collections.defaultdict")
+	}
+	if !ok {
+		return nil, Raise(TypeError, "cannot pickle 'collections.defaultdict' object")
+	}
+	var argsTuple Object
+	if o.factory != nil && o.factory != None {
+		argsTuple = NewTuple([]Object{o.factory})
+	} else {
+		argsTuple = NewTuple(nil)
+	}
+	pairs := make([]Object, len(o.entries))
+	for i, e := range o.entries {
+		pairs[i] = NewTuple([]Object{e.key, e.val})
+	}
+	it, err := Iter(NewList(pairs))
+	if err != nil {
+		return nil, err
+	}
+	iterObj := &builtinIterObject{name: "dict_itemiterator", it: it}
+	return NewTuple([]Object{typ, argsTuple, None, None, iterObj}), nil
+}
+
 // defaultDictRepr spells defaultdict(<factory>, <dict>), the factory repr
 // followed by the ordinary dict body, matching CPython.
 func defaultDictRepr(d *dictObject, strict bool) (string, error) {

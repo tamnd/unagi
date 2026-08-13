@@ -71,6 +71,10 @@ func CallMethodT(t *Thread, o Object, name string, args []Object) (Object, error
 			if v, handled, err := orderedMethod(x, name, args); handled {
 				return v, err
 			}
+		case defaultDict:
+			if v, handled, err := defaultdictMethod(x, name, args); handled {
+				return v, err
+			}
 		}
 		return dictMethod(x, name, args)
 	case *setObject:

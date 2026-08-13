@@ -187,12 +187,12 @@ func (p *pickler) save(o Object) error {
 	case *dictObject:
 		// A plain dict pickles structurally; the native collections subclasses
 		// reduce through their __reduce_ex__. OrderedDict rebuilds through its type
-		// applied to no args followed by an iterator of items pickle replays as
-		// setitems; defaultdict's reduction is a later slice.
+		// applied to no args and an item iterator pickle replays as setitems;
+		// defaultdict adds its factory as the construction arg.
 		if v.kind == plainDict {
 			return p.saveDict(v, o)
 		}
-		if v.kind == orderedDict {
+		if v.kind == orderedDict || v.kind == defaultDict {
 			if p.memoGet(o) {
 				return nil
 			}

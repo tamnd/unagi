@@ -111,6 +111,7 @@ func init() {
 	// the unpickler resolves back and applies to the reduction args.
 	objects.RegisterPickleBuiltin("collections", "deque", dequeType)
 	objects.RegisterPickleBuiltin("collections", "OrderedDict", orderedDictType)
+	objects.RegisterPickleBuiltin("collections", "defaultdict", defaultdictType)
 }
 
 // initCollectionsAccel populates _collections, the accelerator surface the
