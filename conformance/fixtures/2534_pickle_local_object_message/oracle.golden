@@ -1,0 +1,25 @@
+== exit: 0
+== stdout:
+lambda p2 PicklingError : Can't pickle <function <lambda> at 0xADDR>: it's not found as __main__.<lambda>
+nested p2 PicklingError : Can't pickle local object <function outer.<locals>.inner at 0xADDR>
+localcls p2 PicklingError : Can't pickle local object <class '__main__.make_class.<locals>.Inner'>
+comp p2 PicklingError : Can't pickle local object <function with_comp.<locals>.<lambda> at 0xADDR>
+topfn rt p2 True
+topcls rt p2 True
+inst rt p2 True
+lambda p4 PicklingError : Can't pickle <function <lambda> at 0xADDR>: it's not found as __main__.<lambda>
+nested p4 PicklingError : Can't pickle local object <function outer.<locals>.inner at 0xADDR>
+localcls p4 PicklingError : Can't pickle local object <class '__main__.make_class.<locals>.Inner'>
+comp p4 PicklingError : Can't pickle local object <function with_comp.<locals>.<lambda> at 0xADDR>
+topfn rt p4 True
+topcls rt p4 True
+inst rt p4 True
+lambda p5 PicklingError : Can't pickle <function <lambda> at 0xADDR>: it's not found as __main__.<lambda>
+nested p5 PicklingError : Can't pickle local object <function outer.<locals>.inner at 0xADDR>
+localcls p5 PicklingError : Can't pickle local object <class '__main__.make_class.<locals>.Inner'>
+comp p5 PicklingError : Can't pickle local object <function with_comp.<locals>.<lambda> at 0xADDR>
+topfn rt p5 True
+topcls rt p5 True
+inst rt p5 True
+== exception:
+== stderr:
