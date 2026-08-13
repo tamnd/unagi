@@ -95,6 +95,13 @@ var orderedExtraMethodNames = map[string]bool{
 	"__reduce__": true, "__reduce_ex__": true,
 }
 
+// defaultdictExtraMethodNames are the names a defaultdict resolves beyond the
+// shared dict surface. defaultdict reduces through its factory and an item
+// iterator, so it carries its own __reduce__/__reduce_ex__.
+var defaultdictExtraMethodNames = map[string]bool{
+	"__reduce__": true, "__reduce_ex__": true,
+}
+
 // tupleMethodNames is the two-method surface a plain tuple carries.
 var tupleMethodNames = map[string]bool{
 	"count": true, "index": true,

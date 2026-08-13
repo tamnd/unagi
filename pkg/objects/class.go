@@ -2989,7 +2989,8 @@ func LoadAttr(o Object, name string) (Object, error) {
 		// on top of the shared dict surface.
 		if dictMethodNames[name] ||
 			(x.kind == counterDict && counterExtraMethodNames[name]) ||
-			(x.kind == orderedDict && orderedExtraMethodNames[name]) {
+			(x.kind == orderedDict && orderedExtraMethodNames[name]) ||
+			(x.kind == defaultDict && defaultdictExtraMethodNames[name]) {
 			return builtinMethodValue(x, name), nil
 		}
 		if v, ok := containerSpecialAttr(x, name); ok {

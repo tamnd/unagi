@@ -1,0 +1,35 @@
+== exit: 0
+== stdout:
+reduce len 5
+reduce callable True
+reduce args (<class 'int'>,)
+reduce s2 s3 (None, None)
+reduce items {'a': 1, 'b': 2, 'c': 3}
+rt 2 defaultdict(<class 'int'>, {'a': 1, 'b': 2, 'c': 3})
+factory 2 True
+order 2 [('a', 1), ('b', 2), ('c', 3)]
+rt 3 defaultdict(<class 'int'>, {'a': 1, 'b': 2, 'c': 3})
+factory 3 True
+order 3 [('a', 1), ('b', 2), ('c', 3)]
+rt 4 defaultdict(<class 'int'>, {'a': 1, 'b': 2, 'c': 3})
+factory 4 True
+order 4 [('a', 1), ('b', 2), ('c', 3)]
+rt 5 defaultdict(<class 'int'>, {'a': 1, 'b': 2, 'c': 3})
+factory 5 True
+order 5 [('a', 1), ('b', 2), ('c', 3)]
+nofactory args ()
+nofactory rt defaultdict(None, {'x': 9})
+nofactory df None
+list-factory defaultdict(<class 'list'>, {'x': [1, 2]})
+set-factory df True
+dict-factory df True
+factory works 0
+factory list works []
+nested-indep [1]
+shared True
+reduce_ex 0-arg TypeError : object.__reduce_ex__() takes exactly one argument (0 given)
+reduce 1-arg TypeError : defaultdict.__reduce__() takes no arguments (1 given)
+hasattr reduce True
+bound reduce True
+== exception:
+== stderr:
