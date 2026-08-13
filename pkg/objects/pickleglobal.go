@@ -39,13 +39,33 @@ func pickleFunctionQualname(fn *functionObject) string {
 	return fn.qual
 }
 
-// pickleLocalQualname reports whether a qualname names something a global lookup
-// cannot reach: a lambda, a nested def or class (which carry a <locals> segment),
-// a comprehension, or a generator expression. CPython pickles a global only when
-// its qualname resolves back to it from the module, so any qualname carrying an
-// angle-bracket segment is refused.
-func pickleLocalQualname(qualname string) bool {
-	return strings.Contains(qualname, "<")
+// pickleQualnameHasLocals reports whether a qualname carries a <locals> path
+// segment, marking an object defined inside a function: a nested def or class, or
+// a comprehension or generator expression nested in one. CPython's whichmodule
+// splits the qualname on '.' and refuses any object with a <locals> segment as a
+// local object, a message distinct from the reachability failure a top-level
+// lambda or genexpr hits (whose <lambda>/<genexpr> name is not a <locals>
+// segment), so the two are checked apart.
+func pickleQualnameHasLocals(qualname string) bool {
+	for _, seg := range strings.Split(qualname, ".") {
+		if seg == "<locals>" {
+			return true
+		}
+	}
+	return false
+}
+
+// pickleReachabilityError builds the PicklingError CPython's whichmodule raises
+// when the qualname did not resolve back to the object, formatted with the
+// object's repr the way CPython uses %r. found reports whether the module held a
+// different object under the name (not the same object) rather than nothing at
+// all (not found). This is checked only after the <locals> guard, since CPython
+// refuses a local object before it ever attempts the lookup.
+func pickleReachabilityError(o Object, module, qualname string, found bool) error {
+	if found {
+		return newPicklingError("Can't pickle %s: it's not the same object as %s.%s", Repr(o), module, qualname)
+	}
+	return newPicklingError("Can't pickle %s: it's not found as %s.%s", Repr(o), module, qualname)
 }
 
 // saveClassGlobal pickles a class object as a bare global reference. The class
@@ -64,8 +84,13 @@ func (p *pickler) saveClassGlobal(c *classObject) error {
 	}
 	module := pickleClassModule(c)
 	qualname := pickleClassQualname(c)
-	if pickleLocalQualname(qualname) || lookupPickleClass(module, qualname) != c {
-		return newPicklingError("Can't pickle class %s.%s: it's not found as %s.%s", module, qualname, module, qualname)
+	// A <locals> segment marks a class defined inside a function; CPython refuses
+	// it as a local object before attempting any lookup, so check it first.
+	if pickleQualnameHasLocals(qualname) {
+		return newPicklingError("Can't pickle local object %s", Repr(c))
+	}
+	if found := lookupPickleClass(module, qualname); found != c {
+		return pickleReachabilityError(c, module, qualname, found != nil)
 	}
 	return p.saveGlobal(module, qualname)
 }
@@ -76,8 +101,13 @@ func (p *pickler) saveClassGlobal(c *classObject) error {
 func (p *pickler) saveFunctionGlobal(fn *functionObject) error {
 	module := pickleFunctionModule(fn)
 	qualname := pickleFunctionQualname(fn)
-	if pickleLocalQualname(qualname) || lookupPickleFunction(module, qualname) != fn {
-		return newPicklingError("Can't pickle function %s.%s: it's not found as %s.%s", module, qualname, module, qualname)
+	// A nested def carries a <locals> segment; CPython refuses it as a local
+	// object before the lookup, ahead of the top-level reachability check.
+	if pickleQualnameHasLocals(qualname) {
+		return newPicklingError("Can't pickle local object %s", Repr(fn))
+	}
+	if found := lookupPickleFunction(module, qualname); found != fn {
+		return pickleReachabilityError(fn, module, qualname, found != nil)
 	}
 	return p.saveGlobal(module, qualname)
 }
